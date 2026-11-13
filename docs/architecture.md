@@ -111,20 +111,6 @@ compromised destination page.
 Implementation module ownership is described in the
 [development workflow](development.md#workspace-and-tasks).
 
-Page-permission contracts and transport for
-[ADR 0035 delivery 2](adr/0035-page-kinds-per-site.md#delivery) are implemented:
-`pagePermissionDefaults` and `sitePagePermissions` belong to the settings profile,
-including profile copying, adoption, three-way sync and file transfer. An absent
-`pagePermissionDefaults` means `sign-in: auto`, `confirm: fill` and
-`personal-details: fill`; when present it holds all three keys. An absent or empty
-`sitePagePermissions` means no overrides. A row names a canonical hostname, whether
-it includes subdomains and at least one kind's permission; at most 1,000 distinct
-hostnames are accepted. The longest covering hostname decides each kind separately.
-Canonical synced documents omit the default object and empty override list; concurrent
-default changes merge per kind and site rows merge per hostname, with the service
-winning concurrent changes to the same entry. These contracts alone do not implement
-fill-only sign-in execution, confirmation filling or personal-data autofill.
-
 Distinguish a provider type from a connection and model multiple simultaneous
 vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
@@ -757,6 +743,30 @@ replaces its exclusions, saved accounts and vault policy with the new profile's 
 drops its merge base for them, while bindings and personal-detail links keep merging.
 Chrome use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
+
+Page behavior
+([ADR 0035 delivery 2](adr/0035-page-kinds-per-site.md#implementation-of-delivery-2)) is
+the profile's `pagePermissionDefaults` and `sitePagePermissions`, carried by profile
+copying, adoption, three-way sync and file transfer. An absent `pagePermissionDefaults`
+means `sign-in: auto`, `confirm: fill` and `personal-details: fill`; when present it
+holds all three keys. An absent or empty `sitePagePermissions` means no overrides. A row
+names a canonical hostname, whether it includes subdomains and at least one kind's
+permission; at most 1,000 distinct hostnames are accepted. The longest covering hostname
+decides each kind separately. Canonical synced documents omit the default object and the
+empty override list; concurrent default changes merge per kind and site rows per
+hostname, with the service winning concurrent changes to the same entry. The extension's
+settings page edits the defaults and every site rule in its Page behavior section
+(`apps/extension/src/options/page-permissions.tsx`), and its remote profile editor shows
+the same section for another profile. The toolbar popup edits only the tab's canonical
+hostname as an exact-host row; when that host's row also covers its subdomains, the
+popup shows the row read only and links to the settings page's section, so it never
+narrows the row silently. Pairing with an existing profile warns when this device has
+site rules or changed defaults. `sign-in: fill` runs the fill-only login described
+under
+[Filling sign-in pages without pressing](#filling-sign-in-pages-without-pressing);
+`confirm: off` leaves a verification page alone and reports `page-off`, while
+`confirm: fill` and filling `personal-details` forms are stored choices without an
+implementation yet.
 
 Each provider account (provider, server and user ID, synced in `accountPolicies`) is
 either used or not, and supports all items except exclusions or selected

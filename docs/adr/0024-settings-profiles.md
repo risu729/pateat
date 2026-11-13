@@ -112,6 +112,6 @@ Profiles are built for `excludedSites` and `siteDefaults`, with `bindings` share
 records how, and the owner's choices made while building them. Two points differ from
 the text above: a pairing must choose a profile even when the owner has only one, and
 `devices.profile_id` refers to profiles that are deleted softly. ADR 0023's lists are
-profile parts since 2026-10-23; ADR 0035's page permissions are still to be built and
-become profile parts when they are. The allowed sites are a profile part too, as the
+profile parts since 2026-10-23; ADR 0035's page permissions became profile parts when
+they were built in November 2026. The allowed sites are a profile part too, as the
 owner chose on 2026-10-19 ([ADR 0077](0077-allowed-sites.md)).

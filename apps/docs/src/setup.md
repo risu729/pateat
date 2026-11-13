@@ -172,16 +172,18 @@ belongs to the settings profile, like the paused sites.
 
 ### Page behavior
 
-In **Page behavior**, choose **Auto** or **Fill only** for **Sign-in pages**. The
-profile default applies unless a site rule overrides it. Add a hostname and optionally
-**Apply to subdomains too**; the most specific matching rule wins separately for each
-kind of page. These settings sync with the profile and are included in export/import.
+In **Page behavior**, choose **Auto** or **Fill only** for **Sign-in pages** under
+**Profile defaults**. The profile default applies unless a site rule overrides it. Under
+**Site rules**, enter a **Site**, optionally select **Apply to subdomains too**, and
+press **Add site rule**. The most specific matching rule wins separately for each kind
+of page. These settings sync with the profile and are included in export and import.
 The toolbar popup changes only its current host. A rule that also covers subdomains is
-edited in Settings so its scope is visible.
+edited on the settings page, where its scope is visible.
 
-**Fill only** fills ordinary login fields using the default account or the only matching
-account. Press **Next** or **Sign in** yourself; Pateat can fill the next known page or
-ask for a continuation recipe. It does not overwrite a field you edited, press a button,
+**Fill only** fills the fields and leaves the presses to you. It fills ordinary login
+fields using the default account or the only matching account. Press **Next** or
+**Sign in** yourself; Pateat then fills the next known page or asks for a continuation
+recipe. It does not overwrite a field you edited, press a button,
 operate a software keyboard or enter an authentication code. Fields marked by the recipe
 as advancing or submitting as you type also stay empty. If several accounts match,
 choose in the popup; that explicit choice starts a normal login, including presses. An
@@ -189,11 +191,11 @@ item with only a passkey has no password fields to fill. Pateat leaves passkey r
 made automatically to the browser; requests you start deliberately still follow the
 usual passkey checks.
 
-Pauses, allowed sites, private-window settings and vault limits still apply.
-Verification pages while signed in are not filled yet; **Off** leaves them alone, and
-**Fill only** stores the choice for that later feature. Filling other personal-detail
-forms is not available yet either. Personal details asked during a login follow the
-sign-in setting.
+Pauses, allowed sites, private-window settings and vault limits still apply. Pages under
+**Verification while signed in** are not filled yet; **Off** leaves them alone, and
+**Fill only** stores the choice for that later feature. **Other personal-detail forms**
+are not filled yet either. Personal details asked during a login follow the
+**Sign-in pages** setting.
 
 ### Private windows
 
@@ -244,8 +246,9 @@ The toolbar popup shows what Pateat did on the current page, unless you uncheck
 **Switch account**; the pause stays. It also lets you choose the
 account to log in with when several match, pause automatic login on the site for
 **10 minutes**, **1 hour** or **Until turned back on** (**Resume** ends the pause), turn
-**Ask for the master password** on for a site, and, when a page asks for a personal
-detail such as a card's number, link the vault item that holds it and press **Fill**.
+**Ask for the master password** on for a site, set its **Page behavior** for the current
+host, and, when a page asks for a personal detail such as a card's number, link the
+vault item that holds it and press **Fill**.
 The service's **Sites** page lists every site with a recipe, a default account or a
 pause, one settings profile at a time.
 
@@ -257,7 +260,6 @@ the clicks it finds are kept for the next switch. A site you log in to through a
 account, such as a company or Google sign-in, may log you out of that account too.
 
 With **Auto**, when you log out of a site yourself, Pateat logs in again on the next
-login page, with
-the account it would use for an automatic login. To stay logged out, pause the site
-first. If Pateat logged in to a site twice in the last 10 minutes, it asks for an
-account instead of logging in a third time.
+login page, with the account it would use for an automatic login. To stay logged out,
+pause the site first. If Pateat logged in to a site twice in the last 10 minutes, it
+asks for an account instead of logging in a third time.

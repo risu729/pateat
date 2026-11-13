@@ -165,7 +165,8 @@ stays the source of truth and the extension caches them:
 ```
 
 - The defaults are `sign-in` `auto`, `confirm` `fill` and `personal-details` `fill`
-  (owner, 21:29 UTC). `pagePermissionDefaults` always holds all three keys.
+  (owner, 21:29 UTC). The settings document omits `pagePermissionDefaults` while it
+  holds these defaults; a present object always holds all three keys.
 - A site row overrides only the kinds it names. Rows match the page's hostname like
   `excludedSites`: one row per hostname, at most 1,000, and when several match, the
   longest hostname wins for each kind. A row for a site does not cover its identity
