@@ -2,23 +2,23 @@ import {
   detailLinkKey,
   detailQuestionKey,
   deviceIdSchema,
-  profileIdSchema,
+  getPagePermissionDefaults,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
-  popupPageSectionShown,
-  getPagePermissionDefaults,
   pagePermissionDocument,
-  type PagePermissionDefaults,
-  type PagePermissionKind,
-  type SitePagePermissions,
+  popupPageSectionShown,
+  profileIdSchema,
   savedLoginBindingSchema,
-  settingsDocumentBytes,
   serviceOriginSchema,
+  settingsDocumentBytes,
   siteDefaultConnection,
   siteDefaultSchema,
   type LocalSettings,
+  type PagePermissionDefaults,
+  type PagePermissionKind,
   type SettingsChangeCause,
   type SettingsSnapshot,
+  type SitePagePermission,
   type SyncSettingsState,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -65,7 +65,7 @@ export type SyncedSettings = {
   siteDefaults: SiteDefault[];
   /** Page permissions are profile policy; absent at the defaults or with no overrides. */
   pagePermissionDefaults?: PagePermissionDefaults;
-  sitePagePermissions?: SitePagePermissions[];
+  sitePagePermissions?: SitePagePermission[];
   /**
    * Automatic login in private windows, absent while off (ADR 0062). Like the sites' rules
    * it says how this profile's browsers log in, so it is synced (ADR 0024).

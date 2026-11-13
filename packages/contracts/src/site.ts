@@ -1,6 +1,5 @@
 import { parse } from "tldts";
-import { normalizeHostname, type SiteRule } from "./settings/schema";
-import { siteRuleCovers } from "./settings/site-policy";
+import { normalizeHostname, siteRuleCovers, type SiteRule } from "./settings/schema";
 
 /**
  * The registrable domain of an origin's host, as Bitwarden's Domain match compares it:

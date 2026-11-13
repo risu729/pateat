@@ -4,7 +4,7 @@ import {
   DEFAULT_PAGE_PERMISSIONS,
   type LocalSettings,
   type SettingsSnapshot,
-  type SitePagePermissions,
+  type SitePagePermission,
   type SyncSettingsState,
 } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -26,8 +26,8 @@ const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
 });
 const row = (
   hostname: string,
-  permissions: SitePagePermissions["permissions"],
-): SitePagePermissions => ({ hostname, includeSubdomains: false, permissions });
+  permissions: SitePagePermission["permissions"],
+): SitePagePermission => ({ hostname, includeSubdomains: false, permissions });
 const defaults = { "sign-in": "fill", confirm: "off", "personal-details": "off" } as const;
 const state = (revision: number, settings: LocalSettings | null): SyncSettingsState => ({
   version: 1,
@@ -243,6 +243,7 @@ describe("profile page permission synchronization", () => {
     ]);
     expect(test.local().settings.sitePagePermissions).toEqual(retry.settings.sitePagePermissions);
   });
+
   it("applies and uploads concurrent independent changes through the real sync loop", async () => {
     const base = settingsOf();
     const test = setup(

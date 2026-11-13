@@ -8,16 +8,16 @@ import {
   pagePermissionDocument,
   parseLocalSettings,
   resolvePagePermission,
-  sitePagePermissionRulesSchema,
+  sitePagePermissionsSchema,
   type PagePermissionResolution,
-  type SitePagePermissions,
+  type SitePagePermission,
 } from "./settings";
 
 const row = (
   hostname: string,
-  permissions: SitePagePermissions["permissions"] = { confirm: "off" },
+  permissions: SitePagePermission["permissions"] = { confirm: "off" },
   includeSubdomains = true,
-): SitePagePermissions => ({ hostname, includeSubdomains, permissions });
+): SitePagePermission => ({ hostname, includeSubdomains, permissions });
 
 describe("page permission contracts", () => {
   it("keeps optional fields absent and copies complete decided defaults", () => {
@@ -87,7 +87,7 @@ describe("page permission contracts", () => {
       "[2001:0db8::1]",
     ].map((host) => row(host)),
   ])("rejects invalid or noncanonical site rows: %j", (site) => {
-    expect(v.safeParse(sitePagePermissionRulesSchema, [site]).success).toBe(false);
+    expect(v.safeParse(sitePagePermissionsSchema, [site]).success).toBe(false);
     expect(() =>
       parseLocalSettings({ ...createDefaultSettings(), sitePagePermissions: [site] }),
     ).toThrow();
@@ -95,17 +95,17 @@ describe("page permission contracts", () => {
 
   it("accepts canonical IDN and IP hosts, one row per hostname, at most 1000", () => {
     const sites = [row("xn--r8jz45g.xn--zckzah"), row("127.0.0.1"), row("[2001:db8::1]")];
-    expect(v.parse(sitePagePermissionRulesSchema, sites)).toEqual(sites);
+    expect(v.parse(sitePagePermissionsSchema, sites)).toEqual(sites);
     expect(
-      v.safeParse(sitePagePermissionRulesSchema, [
+      v.safeParse(sitePagePermissionsSchema, [
         row("example.com"),
         row("example.com", { "sign-in": "fill" }, false),
       ]).success,
     ).toBe(false);
     const limit = Array.from({ length: 1000 }, (_, index) => row(`h${index}.example.com`));
-    expect(v.safeParse(sitePagePermissionRulesSchema, limit).success).toBe(true);
+    expect(v.safeParse(sitePagePermissionsSchema, limit).success).toBe(true);
     expect(
-      v.safeParse(sitePagePermissionRulesSchema, [...limit, row("extra.example.com")]).success,
+      v.safeParse(sitePagePermissionsSchema, [...limit, row("extra.example.com")]).success,
     ).toBe(false);
   });
 });

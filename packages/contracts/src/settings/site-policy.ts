@@ -9,8 +9,6 @@ import {
 } from "./schema";
 import { getItemEligibility, type EligibilityReason } from "./vault-policy";
 
-export { siteRuleCovers } from "./schema-primitives";
-
 /**
  * Whether Pateat runs on a page at all: an HTTP(S) URL whose hostname policy inputs accept.
  * Exclusion rules do not decide this; they pause automatic login (ADR 0062). The allowed

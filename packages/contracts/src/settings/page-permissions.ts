@@ -15,7 +15,7 @@ export const pagePermissionDefaultsSchema = v.strictObject({
 export type PagePermissionDefaults = v.InferOutput<typeof pagePermissionDefaultsSchema>;
 export type PagePermissionKind = keyof PagePermissionDefaults;
 
-export const sitePagePermissionsSchema = v.strictObject({
+export const sitePagePermissionSchema = v.strictObject({
   hostname: hostnameSchema,
   includeSubdomains: v.boolean(),
   permissions: v.pipe(
@@ -26,9 +26,9 @@ export const sitePagePermissionsSchema = v.strictObject({
     ),
   ),
 });
-export type SitePagePermissions = v.InferOutput<typeof sitePagePermissionsSchema>;
-export const sitePagePermissionRulesSchema = v.pipe(
-  v.array(sitePagePermissionsSchema),
+export type SitePagePermission = v.InferOutput<typeof sitePagePermissionSchema>;
+export const sitePagePermissionsSchema = v.pipe(
+  v.array(sitePagePermissionSchema),
   v.maxLength(1000),
   v.check(
     (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
@@ -44,7 +44,7 @@ export const DEFAULT_PAGE_PERMISSIONS: Readonly<PagePermissionDefaults> = Object
 
 type PagePermissionSettings = {
   pagePermissionDefaults?: PagePermissionDefaults | undefined;
-  sitePagePermissions?: SitePagePermissions[] | undefined;
+  sitePagePermissions?: SitePagePermission[] | undefined;
 };
 
 /** Absent defaults are the decided defaults; a present object always has every kind. */
@@ -62,7 +62,7 @@ export function getPagePermissionDefaults(
 /** Canonical profile fields: defaults and an empty list are represented by absence. */
 export function pagePermissionDocument(settings: PagePermissionSettings): {
   pagePermissionDefaults?: PagePermissionDefaults;
-  sitePagePermissions?: SitePagePermissions[];
+  sitePagePermissions?: SitePagePermission[];
 } {
   const defaults = getPagePermissionDefaults(settings);
   return {
@@ -96,7 +96,7 @@ export function resolvePagePermission<K extends PagePermissionKind>(
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
   if (!hostname) return undefined;
-  let selected: SitePagePermissions | undefined;
+  let selected: SitePagePermission | undefined;
   for (const rule of settings.sitePagePermissions ?? []) {
     if (
       rule.permissions[kind] !== undefined &&

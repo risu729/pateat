@@ -4,7 +4,7 @@ import {
   type LocalSettings,
   type PagePermissionKind,
   type PagePermissionDefaults,
-  type SitePagePermissions,
+  type SitePagePermission,
 } from "@pateat/contracts";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -86,7 +86,7 @@ export function setSitePagePermission(
 ): void {
   const rows = settings.sitePagePermissions ?? [];
   const previous = rows.find((entry) => entry.hostname === hostname);
-  const permissions: SitePagePermissions["permissions"] = { ...previous?.permissions };
+  const permissions: SitePagePermission["permissions"] = { ...previous?.permissions };
   if (value === "inherit") delete permissions[kind];
   else if (kind === "sign-in" && (value === "auto" || value === "fill")) permissions[kind] = value;
   else if (kind !== "sign-in" && (value === "fill" || value === "off")) permissions[kind] = value;
