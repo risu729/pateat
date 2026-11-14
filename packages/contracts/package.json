@@ -11,7 +11,7 @@
     "./site": "./src/site.ts"
   },
   "dependencies": {
-    "tldts": "7.5.1",
+    "tldts": "7.5.2",
     "uuid": "14.0.3",
     "valibot": "1.5.0",
     "xstate": "5.33.4"
