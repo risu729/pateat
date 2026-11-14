@@ -13,7 +13,7 @@
     "@bitwarden/sdk-internal": "0.2.0-main.1239",
     "cbor2": "2.4.1",
     "otpauth": "9.6.0",
-    "tldts": "7.4.28",
+    "tldts": "7.5.1",
     "valibot": "1.5.0"
   }
 }
