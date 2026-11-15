@@ -36,6 +36,7 @@ import {
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 import type { DetailFillGrant } from "./detail-popup";
 import type { BindingReviewState } from "./binding-review-state";
+import type { ManualStart } from "./manual-scope";
 
 export function createRuntimeState(settings: SettingsRuntime, options: LoginRuntimeOptions) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
@@ -216,6 +217,9 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
 
   const picked = new Map<number, PickedAccount>();
 
+  /** One explicit, page-scoped login request and its last popup result per tab. */
+  const manualStarts = new Map<number, ManualStart>();
+
   /** Tabs whose account switch is logging out (ADR 0063). */
   const switchesRunning = new Set<number>();
 
@@ -241,7 +245,10 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
    * login with that item starts once, within `REPROMPT_GRANT_MS`. Kept in memory only, so a
    * restarted worker asks again.
    */
-  const repromptGrants = new Map<string, { connectionId: string; itemId: string; at: number }>();
+  const repromptGrants = new Map<
+    string,
+    { connectionId: string; itemId: string; at: number; manualRequestId?: string }
+  >();
 
   /**
    * Logins that hold the master password, by attempt ID, with its vault account: typed in
@@ -263,6 +270,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       kind: "login" | "detail";
       connectionId: string;
       answer: Promise<{ answer: "verified" | "closed" | "unavailable"; aborted: boolean }>;
+      manualRequestId?: string;
     }
   >();
 
@@ -476,6 +484,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     persisted,
     replacedTabs,
     picked,
+    manualStarts,
     switchesRunning,
     switchTabs,
     switchStates,

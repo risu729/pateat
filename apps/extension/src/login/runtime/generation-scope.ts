@@ -26,6 +26,7 @@ import { catalogItems, generationSlots, offersGenerationField, logCode } from ".
 import { listedBrowserSite, pauseOf } from "./pause";
 import { skipGeneration } from "./generation";
 import { readUsernames, usernameShape } from "./markers";
+import { manualPending } from "./manual-scope";
 import type { Runtime } from "./state";
 
 /**
@@ -91,7 +92,12 @@ export async function offersGeneration(
     routes.some((recipe) => !runsLogin(recipe) && recipe.steps[0]?.path === live.path)
   )
     return undefined;
-  return rt.generation.available(live.document.origin, live.path).catch(() => undefined);
+  const { origin } = live.document;
+  return (
+    manualPending(rt, live)
+      ? rt.generation.available(origin, live.path, undefined, undefined, { manual: true })
+      : rt.generation.available(origin, live.path)
+  ).catch(() => undefined);
 }
 
 /**
@@ -423,7 +429,7 @@ export async function pausedMeanwhile(
   live: LiveDocument,
   page?: "entry" | "other",
 ): Promise<boolean> {
-  if ((await pauseOf(rt, live)) === undefined) return false;
+  if (manualPending(rt, live) || (await pauseOf(rt, live)) === undefined) return false;
   skipGeneration(rt, live, "paused", page);
   void browser.tabs
     .sendMessage(

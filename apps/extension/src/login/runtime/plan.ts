@@ -669,6 +669,7 @@ export async function planFor(
         ? {
             chosen: {
               source: chosen.source,
+              ...(chosen.pick ? { pick: chosen.pick } : {}),
               ...(chosen.candidates === undefined ? {} : { candidates: chosen.candidates }),
             },
           }

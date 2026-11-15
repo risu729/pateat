@@ -27,6 +27,7 @@ import { report, send, spinning, spendBefore, saveSession } from "./attempt";
 import { terminal } from "./attempt-state";
 import { type GenerationOutcome } from "./report";
 import { frameKey, logCode, acceptedObservation, asksAccount, outcomeFields } from "./steps";
+import { manualPending, manualGenerating, endManual } from "./manual-scope";
 import { EXTRACT_READS, EXTRACT_RETRY_MS, probeMode, CHOICE_SAVED } from "./constants";
 import { readUsernames, usernameShape, signedInHint, hideUsernames } from "./markers";
 import { usernameReads, customSlots, pausedMeanwhile } from "./generation-scope";
@@ -96,9 +97,15 @@ export async function generateFor(
   },
 ): Promise<void> {
   if (!rt.generation) return;
+  const manualRequest = manualPending(rt, live);
   // A chooser's `other` branch is named by its layout (ADR 0060); only the probe build's
-  // choosers have none, and their pages are never offered.
-  if (otherless && otherless.layout === undefined) return;
+  // choosers have none, and their pages are never offered. A one-time request for such a
+  // page ends at once rather than showing generation until it expires.
+  if (otherless && otherless.layout === undefined) {
+    if (manualRequest) endManual(rt, live.document.tabId, "not-started", manualRequest);
+    return;
+  }
+  manualGenerating(rt, live);
   const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
   const otherBranch = otherless?.layout && recipeBranch(otherless.layout, "other");
   // The page kind a skipped page is logged with.
@@ -247,6 +254,7 @@ export async function generateFor(
         {
           version: 1,
           observation: hidden.observation,
+          ...(manualPending(rt, live) && !base && !repair ? { manual: true as const } : {}),
           ...(passkeyOnly ? { passkeyOnly: true } : {}),
           ...(signedIn === undefined ? {} : { signedIn }),
           slots: slotless
@@ -293,6 +301,14 @@ export async function generateFor(
       ...(signedIn === undefined ? {} : { signedIn }),
     });
     repair?.done(result);
+    const manual = manualPending(rt, live);
+    if (manual && manual === manualRequest) {
+      if (result.outcome !== "recipe") endManual(rt, live.document.tabId, result.reason);
+      else {
+        manual.generated = true;
+        manual.status = { requestId: manual.status.requestId, state: "evaluating" };
+      }
+    }
     if (result.outcome !== "recipe") return;
     // Every tab's page still tracked on this origin and path that holds no login announces
     // again and starts the recipe: this document, and one refused for want of a recipe
@@ -331,6 +347,8 @@ export async function generateFor(
       }),
     );
   } catch (error) {
+    if (manualRequest && manualPending(rt, live) === manualRequest)
+      endManual(rt, live.document.tabId, "unavailable", manualRequest);
     // The document went away or did not answer (`unreachable`, with how), or reading the
     // vault threw; nothing was started. Only a page still tracked is worth the reason
     // (ADR 0019).
@@ -338,6 +356,13 @@ export async function generateFor(
       if (error instanceof DocumentGone)
         skipGeneration(rt, live, "unreachable", skipPage, error.reason);
       else skipGeneration(rt, live, "exception", skipPage);
+  } finally {
+    if (
+      manualRequest &&
+      manualPending(rt, live) === manualRequest &&
+      manualRequest.status.state === "generating"
+    )
+      endManual(rt, live.document.tabId, live.generationSkip ?? "not-started", manualRequest);
   }
 }
 
@@ -558,6 +583,22 @@ export async function ready(
   rt.admitting.set(helloKey, admission);
   try {
     const result = await admission;
+    const live =
+      sender.tab?.id === undefined || sender.frameId === undefined
+        ? undefined
+        : rt.documents.get(frameKey({ tabId: sender.tab.id, frameId: sender.frameId }));
+    if (
+      live &&
+      rt.hellos.get(helloKey) === sequence &&
+      manualPending(rt, live) &&
+      !result.ok &&
+      result.reason !== "generating" &&
+      result.reason !== "master-password-reprompt" &&
+      result.reason !== "stale-document" &&
+      !result.generate &&
+      !(result.starts && result.reason === "form-not-ready")
+    )
+      endManual(rt, live.document.tabId, live.generationSkip ?? result.reason ?? "not-started");
     if (start) countStartTry(rt, sender, helloKey, result);
     return result;
   } finally {

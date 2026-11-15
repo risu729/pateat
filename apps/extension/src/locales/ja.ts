@@ -1,11 +1,13 @@
 import { bitwardenJa } from "./bitwarden-ja";
 import { bindingReviewJa } from "./binding-review-ja";
 import { diagnosticsJa } from "./diagnostics-ja";
+import { manualJa } from "./manual-ja";
 import { serviceJa } from "./service-ja";
 import type { en } from "./en";
 import { settingsJa } from "./settings-ja";
 
 export const ja = {
+  ...manualJa,
   ...bitwardenJa,
   ...bindingReviewJa,
   ...settingsJa,

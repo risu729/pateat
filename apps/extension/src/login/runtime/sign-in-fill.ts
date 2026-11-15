@@ -194,6 +194,23 @@ const detailAhead = (run: Execution) =>
   );
 
 /**
+ * The fill's read-only wait for its document to change. Only while it is parked here, with
+ * nothing in flight, may an explicit popup login take the attempt over (ADR 0088).
+ */
+async function parked(
+  rt: Runtime,
+  run: Execution,
+  message: Parameters<typeof send>[2],
+): Promise<unknown> {
+  run.fillWaiting = true;
+  try {
+    return await send(rt, run.live, message).catch(() => undefined);
+  } finally {
+    delete run.fillWaiting;
+  }
+}
+
+/**
  * Wait at a forbidden action until the next known field actually appears on a new
  * document/path, or changes from not ready to ready in this document. No click event,
  * mutation alone, elapsed time, or model verdict advances the plan. With nothing left
@@ -245,10 +262,10 @@ export async function fillBoundary(rt: Runtime, run: Execution): Promise<boolean
       if (!current(rt, run)) return false;
       // The content script observes the document's own signals; timeout bounds only the
       // message, so the observations above recheck the policy even on a quiet page.
-      const response = await send(rt, run.live, {
+      const response = await parked(rt, run, {
         type: "login.fill.change",
         timeoutMs: LOGIN_STEP_WAIT_MS,
-      }).catch(() => undefined);
+      });
       if (!response || !current(rt, run)) return false;
       continue;
     }
@@ -285,14 +302,14 @@ export async function fillBoundary(rt: Runtime, run: Execution): Promise<boolean
     // Nothing reads the settings or the vault while it waits; what shows is checked under
     // the current policy.
     const handlers = handlerWakes(run);
-    const reply: unknown = await send(rt, run.live, {
+    const reply = await parked(rt, run, {
       type: "login.fill.change",
       timeoutMs: LOGIN_STEP_WAIT_MS,
       readiness: loginReadiness(next),
       ...(settled ? { settled: true } : {}),
       ...(handlers.length ? { handlers } : {}),
       ...(answered ? { changed: true } : {}),
-    }).catch(() => undefined);
+    });
     const answer = v.safeParse(fillChangeSchema, reply);
     if (!answer.success || !answer.output.ok || !current(rt, run)) return false;
     check = answer.output.timedOut !== true;

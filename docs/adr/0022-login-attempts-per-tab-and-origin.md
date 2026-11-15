@@ -55,6 +55,9 @@ Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (ow
 page's URL changed in place once the frame went away, is read as a move right after a
 password submission is, also during the login's watch, when the item matches its URL.
 
+Amended on 2026-11-11 by [ADR 0088](0088-popup-manual-login.md) for the explicit
+one-time popup login.
+
 Date: 2026-10-11
 
 Amended on 2026-10-11 (18:27 UTC, owner's choice in the thread): a finished login in
@@ -570,3 +573,14 @@ route this reaches its watch and the later steps of a handler. The extension sen
 moved page on the login's route (the `passkey` route only on a recipe with its button,
 as for a page of its own origin), and the service accepts it on any route the stored
 recipe has, still only over HTTPS on the site or another site.
+
+## Amendment 2026-11-11: explicit one-time login
+
+[ADR 0088](0088-popup-manual-login.md) implements the owner's request for a popup action
+that tries a login stopped by automatic conditions.
+
+The explicit **Log in now** action may retry after a safely ended or settled
+record. It may pass an inactive hold in another tab without changing that
+tab's record. Active operations, challenge watches and account switches still
+prevent a concurrent login. Automatic admission and ordinary popup picks keep
+the original hold policy.

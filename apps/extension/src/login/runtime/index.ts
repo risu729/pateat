@@ -48,6 +48,7 @@ import { saveSession } from "./attempt";
 import { BINDING_REVIEWS_KEY, bindingReviewStateSchema } from "./binding-review-state";
 import { revive } from "./choice";
 import { type Sender } from "./types";
+import { endManual } from "./manual-scope";
 import { reloginLimited } from "./relogin";
 import {
   passkeyReverification,
@@ -386,6 +387,15 @@ function startRuntime(rt: Runtime) {
   })();
 
   browser.tabs.onRemoved.addListener((tabId) => forgetTab(rt, tabId, true));
+
+  // A top-level navigation ends a pending one-time request at once (ADR 0088). Checked
+  // only when the page next reported, a page restored from the back/forward cache with its
+  // old document and URL would revive it. A login that already started is not affected.
+  browser.tabs.onUpdated.addListener((tabId, change) => {
+    const request = rt.manualStarts.get(tabId);
+    if (request?.pick && change.url !== undefined && change.url !== request.topUrl)
+      endManual(rt, tabId, "page-changed", request);
+  });
 
   browser.windows?.onRemoved?.addListener(() => void incognitoClosed(rt));
 

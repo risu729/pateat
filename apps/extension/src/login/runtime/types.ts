@@ -248,6 +248,8 @@ export type Execution = {
   recipe: LoginRecipe;
   live: LiveDocument;
   running: boolean;
+  /** Parked only on the passive, read-only page-change wait; no work is in flight. */
+  fillWaiting?: true;
   operation?: LoginOperation;
   /** `operation` was sent to the page, so its effect may have started. */
   delivered?: boolean;
