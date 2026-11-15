@@ -165,7 +165,10 @@ match is such an item, nothing changes. Picks, saved defaults, the lists the tab
 later or a paused site offers, hidden usernames and the chooser's comparisons still see
 every match. Until the `sso` route exists, a pick or the only match of such an item runs
 the password route, which stops with `no-route` when the item holds no password and no
-passkey.
+passkey. Since the `sso` route exists, such items are counted again only where it can
+log in by itself (`ssoRunsOn`): with SSO on, on a top-level sign-in page set to **Auto**
+that is not a confirmation page, not only filled and not paused. Elsewhere they still
+are not counted, so the site's own item logs in rather than the tab asking.
 
 ## Amendment 2026-11-12: declarative SSO entry generation
 

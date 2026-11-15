@@ -525,6 +525,7 @@ export async function planFor(
       request.paused === true,
       request.fill === true,
       accountTargetsOn(recipe, live.path),
+      recipe.pageKind === "confirm",
     );
     // A sign-in fill goes on only with the account it began with, which its later pages
     // must still choose as a new one would: the default or the only match (ADR 0035).
