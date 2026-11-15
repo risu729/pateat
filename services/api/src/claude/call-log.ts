@@ -44,20 +44,22 @@ export async function observationHash(observation: unknown) {
 /**
  * Records the recipe revision a logged call's answer wrote on its request log row. The
  * row is written before the recipe, which may then be refused or lose to a device, so the
- * revision is set only once the write succeeded. A failed update leaves the row without
- * it and never fails the request.
+ * revision is set only once the write succeeded. A collision may also remap its generated
+ * layout; omitting it preserves the original native/repair log scope. A failed update
+ * leaves the row without it and never fails the request.
  */
 export async function keepLogRevision(
   db: D1Database,
   ownerId: string,
   logId: string | undefined,
   revision: number,
+  layout?: string,
 ) {
   if (logId === undefined) return;
   try {
     await drizzle(db)
       .update(inferenceLog)
-      .set({ revision })
+      .set({ revision, ...(layout === undefined ? {} : { layout }) })
       .where(and(eq(inferenceLog.id, logId), eq(inferenceLog.ownerId, ownerId)));
   } catch {
     console.warn("Inference log revision not kept");

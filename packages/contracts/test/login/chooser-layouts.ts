@@ -27,21 +27,19 @@ import {
   MAX_RECIPE_DOCUMENT_BYTES,
   MAX_RECIPE_LAYOUTS,
   newestLayout,
-  newLayoutKey,
   parseRecipeBranch,
   recipeBranch,
   recipeLayouts,
   routeBodyOf,
   storedBranchRoute,
-  storedLayouts,
   toChooserLayout,
   toLoginLayout,
   withChooserLayout,
   withLoginLayout,
-  withoutLayout,
   chooserLayouts,
   storedLayoutRecipe,
 } from "../../src/login";
+import { newLayoutKey, storedLayouts, withoutLayout } from "../../src/recipe-layouts";
 import type { LoginTestContext } from "./context";
 
 export function registerChooserRecipes({

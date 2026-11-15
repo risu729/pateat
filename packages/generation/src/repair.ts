@@ -2,6 +2,7 @@ import {
   loginStepEffect,
   MAX_RECIPE_LAYOUTS,
   newLayoutKey,
+  storedLayouts,
   routeBodyOf,
   sameLoginTarget,
   toLoginLayout,
@@ -146,10 +147,10 @@ export function repairWrite(
       };
   }
   // Keys are unique over the recipe's sign-in layouts and its list's (ADR 0060).
-  const key = newLayoutKey(options.createdAt, [
-    ...recipe.layouts.map((layout) => layout.key),
-    ...(recipe.chooser?.layouts ?? []).map((layout) => layout.key),
-  ]);
+  const key = newLayoutKey(
+    options.createdAt,
+    storedLayouts(recipe).map((layout) => layout.key),
+  );
   const added = toLoginLayout(answer, {
     key,
     ...(options.language ? { language: options.language } : {}),

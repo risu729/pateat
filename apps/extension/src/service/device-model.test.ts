@@ -8,6 +8,8 @@ import {
   type LogoutGenerationResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type SsoGenerationRequest,
+  type SsoGenerationResult,
 } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -600,5 +602,62 @@ describe("Clef calls a paired service hands this device (ADR 0083)", () => {
       expect(fetch).not.toHaveBeenCalled();
       expect(sent).toHaveLength(1);
     }
+  });
+});
+
+describe("paired device SSO relay", () => {
+  it("replays the SSO request with only model responses and never sends the device key to the service", async () => {
+    const calls: SsoGenerationRequest[] = [];
+    const responses: SsoGenerationResult[] = [CALL, RECIPE];
+    const fetch = vi.fn(async () => new Response(ANSWER, { status: 200 }));
+    const model = createDeviceModel({
+      limits: async () => ({ dailyUsd: 5, monthlyUsd: 100 }),
+      storage: { read: async () => SETTING, write: async () => {}, clear: async () => {} },
+      spend: { read: async () => undefined, write: async () => {} },
+      fetch,
+      now: () => NOW,
+    });
+    const service = {
+      generateRecipe: vi.fn(),
+      generateEntry: vi.fn(),
+      generateLogout: vi.fn(),
+      judgeCompletion: vi.fn(),
+      generateSso: async (_origin: string, _credential: string, body: SsoGenerationRequest) => {
+        calls.push(body);
+        return { kind: "result" as const, result: responses.shift()! };
+      },
+    };
+    const transport = model.wrap(service);
+    const request: SsoGenerationRequest = {
+      version: 1,
+      kind: "sso",
+      labels: ["Example"],
+      observation: REQUEST.observation,
+    };
+    if (!transport.generateSso) throw new Error("SSO relay missing");
+    expect(await transport.generateSso(ORIGIN, CREDENTIAL, request)).toEqual({
+      kind: "result",
+      result: RECIPE,
+    });
+    expect(calls).toEqual([
+      { ...request, deviceModel: { responses: [] } },
+      {
+        ...request,
+        deviceModel: {
+          responses: [
+            {
+              kind: "response",
+              request: await deviceModelRequestHash(BODY),
+              status: 200,
+              body: ANSWER,
+            },
+          ],
+        },
+      },
+    ]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.stringify(calls)).not.toContain(KEY);
+    expect(service.generateRecipe).not.toHaveBeenCalled();
+    expect(service.generateEntry).not.toHaveBeenCalled();
   });
 });
