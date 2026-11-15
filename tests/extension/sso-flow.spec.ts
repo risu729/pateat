@@ -504,7 +504,6 @@ test("worker restart preserves the completed IdP child's exclusion from direct-l
 });
 
 test("the exact IdP chooser, native password, continue and stay-signed-in sequence remains one scoped SSO parent", async () => {
-  test.setTimeout(45_000);
   await withVaultProfile(async (open) => {
     const browser = await open();
     const { options, evidence, idpEvents } = await configureSso(browser, "intermediate");
@@ -512,7 +511,7 @@ test("the exact IdP chooser, native password, continue and stay-signed-in sequen
     await page.goto(origins.rp + "/login");
     await chooseExample(await openSsoPopup(browser, options, page));
     try {
-      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 25_000 });
+      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
     } catch (error) {
       throw new Error(
         "Synthetic finite IdP sequence failed: " +
@@ -547,7 +546,6 @@ for (const scenario of ["same-document", "same-document-dom"] as const) {
       scenario +
       ")",
     async () => {
-      test.setTimeout(45_000);
       await withVaultProfile(async (open) => {
         const browser = await open();
         const { options, evidence, idpEvents, sameDocumentTokens } = await configureSso(
@@ -558,7 +556,7 @@ for (const scenario of ["same-document", "same-document-dom"] as const) {
         await page.goto(origins.rp + "/login");
         await chooseExample(await openSsoPopup(browser, options, page));
         try {
-          await expect(page.locator("#authenticated")).toBeVisible({ timeout: 25_000 });
+          await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
         } catch (error) {
           throw new Error(
             "Synthetic same-document IdP continuation failed: " +

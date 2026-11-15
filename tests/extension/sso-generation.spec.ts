@@ -27,6 +27,10 @@ type Prompt = {
   };
 };
 async function generatedSso(markerReturn: boolean) {
+  // Unlike the other SSO specs, this runs two full SSO logins in one browser beside the
+  // synthetic service, and three with `markerReturn`: the marker the first learns must be
+  // missing from the second and shown by the third. That takes about 20 and 28 seconds,
+  // too close to the default 30 for a slower CI machine.
   test.setTimeout(60_000);
   const prompts: Prompt[] = [];
   const service = await startSyncService({
