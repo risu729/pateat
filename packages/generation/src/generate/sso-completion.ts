@@ -101,6 +101,16 @@ export async function judgeSsoCompletion(
         : kept.verdict === null
           ? "judgement-unanswered"
           : "already-judged";
+  // A layout that already keeps its most markers can learn no new one, so a page that shows
+  // none of them is not sent to the model only for its answer to be dropped.
+  const markers = layout.completion ?? [];
+  if (
+    markers.length >= MAX_SSO_MARKERS &&
+    !observation.candidates.some((candidate) =>
+      markers.some((marker) => sameLoginTarget(marker.target, candidate.target)),
+    )
+  )
+    return unsent("recipe-limit");
   const versions = [
     promptVersion,
     await completionStopPromptVersion(),
@@ -158,7 +168,6 @@ export async function judgeSsoCompletion(
     layout.entries.some((entry) => sameLoginTarget(entry.target, target))
   )
     return unavailable("not-judgeable");
-  const markers = layout.completion ?? [];
   if (markers.some((marker) => sameLoginTarget(marker.target, target)))
     return { version: 1, status: "signed-in" };
   if (markers.length >= MAX_SSO_MARKERS) return unavailable("recipe-limit");

@@ -22,7 +22,10 @@ const page: LoginObservation = {
   ],
 };
 type Reply = { decision: string; marker?: string } | { refusal: string } | number;
-async function setup(supplied: Reply[] = [{ decision: "signed-in", marker: "logout" }]) {
+async function setup(
+  supplied: Reply[] = [{ decision: "signed-in", marker: "logout" }],
+  completion?: { target: { by: "id"; value: string } }[],
+) {
   const replies = [...supplied];
   const key = "sk-ant-synthetic-sso-completion";
   const calls: {
@@ -115,6 +118,7 @@ async function setup(supplied: Reply[] = [{ decision: "signed-in", marker: "logo
           key: "1000",
           createdAt: 1000,
           entries: [{ label: "Synthetic provider", target: { by: "id", value: "provider" } }],
+          ...(completion ? { completion } : {}),
         },
       ],
     },
@@ -289,5 +293,31 @@ describe("SSO completion through the real device backend and model adapters", ()
     });
     expect(h.calls).toHaveLength(1);
     expect(h.record()?.judgements).toHaveLength(1);
+  });
+  const full = ["first", "second", "third", "fourth"].map((value) => ({
+    target: { by: "id" as const, value },
+  }));
+  it("sends nothing when a layout with its most markers shows none of them", async () => {
+    const h = await setup(undefined, full);
+    expect(await h.judge()).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "recipe-limit" },
+    });
+    expect(h.calls).toEqual([]);
+    expect(h.record()?.judgements ?? []).toEqual([]);
+    expect(await h.recipes.head(h.recipeId)).toEqual(h.recipe);
+  });
+  it("still judges a page of a full layout that shows one of its markers", async () => {
+    const h = await setup([{ decision: "signed-in", marker: "fourth" }], full);
+    const candidates = [
+      ...page.candidates,
+      { id: "fourth", role: "button" as const, target: full[3]!.target, label: "Account" },
+    ];
+    expect(await h.judge({ ...h.request, observation: { ...page, candidates } })).toMatchObject({
+      kind: "result",
+      result: { status: "signed-in" },
+    });
+    expect(h.calls).toHaveLength(1);
+    expect(await h.recipes.head(h.recipeId)).toEqual(h.recipe);
   });
 });
