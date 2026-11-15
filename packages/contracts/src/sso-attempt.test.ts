@@ -5,7 +5,7 @@ import {
   parseAttemptMetadata,
   transitionLoginAttempt,
 } from "./login-attempt";
-import type { LoginRecipe } from "./login";
+import type { LoginRecipe } from "./login/route-schema";
 
 const document = {
   origin: "https://rp.example.test",

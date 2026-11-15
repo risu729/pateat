@@ -5,7 +5,7 @@ import {
   transitionLoginAttempt,
   validateLoginOperation,
 } from "../../src/login-attempt";
-import type { LoginRecipe } from "../../src/login";
+import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginAttemptMetadataLike, LoginAttemptTestContext } from "./context";
 
 export function registerAttemptIdentity({

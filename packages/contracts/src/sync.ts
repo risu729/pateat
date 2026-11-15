@@ -1,11 +1,9 @@
 import * as v from "valibot";
-import {
-  loginIdentifierSchema,
-  loginOutcomeSchema,
-  recipeBranchSchema,
-  recipeLayoutKeySchema,
-  storedLoginRecipeSchema,
-} from "./login";
+import { loginIdentifierSchema } from "./login/targets";
+import { loginOutcomeSchema } from "./login/account";
+import { recipeBranchSchema } from "./login/branch-schema";
+import { recipeLayoutKeySchema } from "./login/route-schema";
+import { storedLoginRecipeSchema } from "./login/document-schema";
 import { profileIdSchema } from "./pairing";
 import { localSettingsSchema } from "./settings";
 

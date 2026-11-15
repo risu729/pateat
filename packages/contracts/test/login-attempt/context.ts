@@ -1,4 +1,5 @@
-import type { LoginDocument, LoginRecipe } from "../../src/login";
+import type { LoginDocument } from "../../src/login/account";
+import type { LoginRecipe } from "../../src/login/route-schema";
 import type { createAttemptMetadata, transitionLoginAttempt } from "../../src/login-attempt";
 
 export type LoginAttemptMetadataLike = ReturnType<typeof transitionLoginAttempt>;

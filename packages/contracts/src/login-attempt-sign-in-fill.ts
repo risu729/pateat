@@ -1,4 +1,4 @@
-import { sameLoginDocument, type LoginDocument } from "./login";
+import { sameLoginDocument, type LoginDocument } from "./login/account";
 import type { LoginAttemptEvent, LoginAttemptMetadata } from "./login-attempt";
 
 /** What a passive sign-in fill's transition reads of the attempt machine's own rules. */

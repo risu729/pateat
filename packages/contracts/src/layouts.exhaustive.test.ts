@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RecipeLanguage } from "./login";
+import type { RecipeLanguage } from "./login/route-schema";
 import type { LoginObservation } from "./observation";
 import { type LayoutCandidate, type LayoutShown, languageDecides, rankLayouts } from "./recipes";
 

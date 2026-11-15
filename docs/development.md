@@ -126,6 +126,18 @@ eligibility; `site-policy.ts` owns site rules and saved-account resolution. The 
 policy imports or initialization cycles. This source split preserves schema order,
 validation messages and policy behavior; its tests keep their existing files.
 
+The shared login contract lives under `packages/contracts/src/login/`, with no
+`login.ts` facade: `targets.ts` owns identifier, origin, path, target and step schemas;
+`details.ts` the detail inputs; `route-schema.ts` routes, handlers, layouts and their
+validation; `document-schema.ts` stored entry, chooser, logout and recipe documents;
+`account.ts` account, document, operation and outcome boundaries; `branch-schema.ts`
+branch names; `layouts.ts` layout projections; and `routes.ts` route execution
+helpers. Other modules import each name from its owner, and the package index
+re-exports the same public names as before, listing them for the three owners that
+also export helpers to their siblings. The owners import each other without a runtime
+cycle. This source split preserves schema construction order, validation messages and
+helper behavior; tests keep their files and cases and only import from the owners.
+
 `apps/extension/src/crypto/host.ts` keeps the crypto broker, its session lifecycle,
 request lanes and cancellation effects. `host-result.ts` owns pure operation-result
 admission, including account binding, requested item coverage and passkey signature

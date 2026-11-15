@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { recipeLayoutKeySchema } from "./login";
+import { recipeLayoutKeySchema } from "./login/route-schema";
 import { deviceIdSchema, profileIdSchema } from "./pairing";
 import {
   problemEventSchema,

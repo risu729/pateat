@@ -2,25 +2,29 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
   chooseLoginRoute,
-  chooserRoute,
   heldRouteMissing,
-  isLoginRouteRecipe,
-  loginAutocompleteTokens,
-  loginChooserRecipeSchema,
-  loginEntryRecipeSchema,
-  loginLogoutRecipeSchema,
   passwordStopOrMiss,
   recipeHasRoute,
   laterStartSteps,
+} from "../../src/login/routes";
+import {
+  chooserRoute,
+  loginChooserRecipeSchema,
+  loginEntryRecipeSchema,
+  loginLogoutRecipeSchema,
   storedLoginRecipeSchema,
+  type StoredLoginRecipe,
+} from "../../src/login/document-schema";
+import {
+  isLoginRouteRecipe,
   storedRecipeSlots,
   storedRecipeStartPath,
   withChooserBranch,
-  loginRecipeSchema,
-  parseLoginRecipe,
-  type StoredLoginRecipe,
   isLoginRecipeDocument,
-} from "../../src/login";
+} from "../../src/login/layouts";
+import { loginAutocompleteTokens } from "../../src/login/targets";
+import { loginRecipeSchema } from "../../src/login/route-schema";
+import { parseLoginRecipe } from "../../src/login/account";
 import type { LoginTestContext } from "./context";
 
 export function registerEntryRecipes({

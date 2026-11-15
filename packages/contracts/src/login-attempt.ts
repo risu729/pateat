@@ -1,34 +1,39 @@
 import * as v from "valibot";
 import { assign, setup, transition } from "xstate";
+import { chooserClickSchema, type ChooserClick } from "./login/branch-schema";
 import {
-  chooserClickSchema,
   handlerSteps,
-  loginAccountSchema,
-  loginDocumentSchema,
   loginItemFactsSchema,
-  loginOperationSchema,
-  loginOriginSchema,
-  loginOutcomeSchema,
-  loginRouteSchema,
-  loginStepEffect,
-  MAX_PASSWORD_ALTERNATIVES,
-  recipeLayoutKeySchema,
-  parseLoginRecipe,
   passwordVariants,
   routeSlots,
   routeSteps,
   passwordOnly,
+  type LoginItemFacts,
+  type LoginRouteChoice,
+} from "./login/routes";
+import {
+  loginAccountSchema,
+  loginDocumentSchema,
+  loginOperationSchema,
+  loginOutcomeSchema,
+  parseLoginRecipe,
   sameLoginDocument,
-  TOTP_HANDLER_SLOT,
-  type ChooserClick,
   type LoginAccount,
   type LoginDocument,
-  type LoginItemFacts,
   type LoginOperation,
-  type LoginRecipe,
-  type LoginRouteChoice,
+} from "./login/account";
+import {
+  loginOriginSchema,
+  loginRouteSchema,
+  loginStepEffect,
   type LoginStep,
-} from "./login";
+} from "./login/targets";
+import {
+  MAX_PASSWORD_ALTERNATIVES,
+  recipeLayoutKeySchema,
+  TOTP_HANDLER_SLOT,
+  type LoginRecipe,
+} from "./login/route-schema";
 import { signInFillTransition } from "./login-attempt-sign-in-fill";
 import { effectfulStep, fillOnlyStep, fillOnlyStops } from "./login-attempt-steps";
 import {

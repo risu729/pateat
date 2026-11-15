@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import type { LoginRecipeDocument } from "./login";
+import type { LoginRecipeDocument } from "./login/document-schema";
 import { createDefaultSettings, type LocalSettings } from "./settings";
 import {
   isGeneratedRecipeId,

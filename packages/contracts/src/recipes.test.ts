@@ -1,10 +1,8 @@
 import { describe } from "vitest";
-import {
-  parseLoginRecipe,
-  toLoginLayout,
-  type LoginRecipe,
-  type LoginRecipeDocument,
-} from "./login";
+import { parseLoginRecipe } from "./login/account";
+import { toLoginLayout } from "./login/layouts";
+import type { LoginRecipe } from "./login/route-schema";
+import type { LoginRecipeDocument } from "./login/document-schema";
 import { resolveBindingFields, type LocalItemField } from "./recipes";
 import type { SavedLoginBinding } from "./settings";
 import { registerRecipeSelection } from "../test/recipes/selection-cases";

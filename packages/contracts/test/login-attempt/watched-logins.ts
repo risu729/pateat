@@ -8,7 +8,8 @@ import {
   MAX_JUDGED_PAGES,
   transitionLoginAttempt,
 } from "../../src/login-attempt";
-import type { LoginDocument, LoginRecipe } from "../../src/login";
+import type { LoginDocument } from "../../src/login/account";
+import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerChooserAttempts({

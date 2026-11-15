@@ -1,12 +1,12 @@
+import { detailLength } from "./login/details";
 import {
-  detailLength,
   loginKeypadTargetSchema,
   loginMarkerTargetSchema,
   loginOriginSchema,
   loginStepSchema,
   sameLoginTarget,
   type LoginMarkerTarget,
-} from "./login";
+} from "./login/targets";
 import {
   recipeSlotIdSchema,
   type DatePart,

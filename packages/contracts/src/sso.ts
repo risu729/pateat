@@ -4,15 +4,16 @@ import type {
   LayoutMeta,
   LoginHandler,
   LoginRouteBody,
+  recipeLanguageSchema,
+  recipeLayoutKeySchema,
+} from "./login/route-schema";
+import type {
   LoginTarget,
   loginMarkerTargetSchema,
   loginPathSchema,
   loginTargetSchema,
-  RecipeDocument,
-  recipeLanguageSchema,
-  recipeLayoutKeySchema,
-  StoredLoginRecipe,
-} from "./login";
+} from "./login/targets";
+import type { RecipeDocument, StoredLoginRecipe } from "./login/document-schema";
 
 /** The most SSO methods one item enables (ADR 0085), so the most entries one layout holds. */
 export const MAX_SSO_LABELS = 32;

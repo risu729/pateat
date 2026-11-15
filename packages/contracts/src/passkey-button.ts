@@ -1,4 +1,4 @@
-import { targetValues } from "./login";
+import { targetValues } from "./login/targets";
 import type { ObservedCandidate } from "./observation";
 
 /**

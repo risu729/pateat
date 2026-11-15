@@ -6,10 +6,10 @@ import {
   refillsLoginSlot,
   loginFieldFacts,
   loginFieldSource,
-  parseLoginRecipe,
-  type LoginRecipe,
-  type LoginStep,
-} from "../../src/login";
+} from "../../src/login/routes";
+import { parseLoginRecipe } from "../../src/login/account";
+import type { LoginRecipe } from "../../src/login/route-schema";
+import type { LoginStep } from "../../src/login/targets";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,

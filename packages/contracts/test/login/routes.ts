@@ -14,12 +14,14 @@ import {
   routeSignInTargets,
   routeSlots,
   routeSteps,
-  loginRecipeSchema,
+} from "../../src/login/routes";
+import { loginRecipeSchema } from "../../src/login/route-schema";
+import {
   parseLoginAccountBinding,
   parseLoginRecipe,
   resolveLoginPlan,
   type LoginAccountBinding,
-} from "../../src/login";
+} from "../../src/login/account";
 import { DUMMY_VAULT_CATALOG } from "../../src/settings";
 import type { LoginTestContext } from "./context";
 

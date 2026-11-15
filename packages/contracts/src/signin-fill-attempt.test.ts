@@ -9,7 +9,9 @@ import {
   type LoginAttemptMetadata,
 } from "./login-attempt";
 import { holdsOrigin } from "./login-attempt-hold";
-import { parseLoginRecipe, type LoginDocument, type LoginRecipe, type LoginStep } from "./login";
+import { parseLoginRecipe, type LoginDocument } from "./login/account";
+import type { LoginRecipe } from "./login/route-schema";
+import type { LoginStep } from "./login/targets";
 
 const document: LoginDocument = {
   origin: "https://login.example",

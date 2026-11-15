@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
+import { runsLogin } from "../../src/login/layouts";
+import { loginEntryRecipeSchema } from "../../src/login/document-schema";
+import { loginTargetSchema, sameLoginTarget } from "../../src/login/targets";
 import {
-  runsLogin,
-  loginEntryRecipeSchema,
-  loginTargetSchema,
-  sameLoginTarget,
   parseLoginAccountBinding,
   parseLoginOperation,
   parseLoginRecipe,
   resolveLoginPlan,
-  type LoginRecipe,
-} from "../../src/login";
+} from "../../src/login/account";
+import type { LoginRecipe } from "../../src/login/route-schema";
 import { DUMMY_VAULT_CATALOG } from "../../src/settings";
 import type { LoginTestContext } from "./context";
 

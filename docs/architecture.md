@@ -3604,8 +3604,8 @@ recipes continue working when inference is unavailable or its spending cap is re
 ### Page paths recipes cannot name
 
 Recipe steps, markers and page descriptions name a page by its exact canonical path
-(`loginPathSchema` in `packages/contracts/src/login.ts`), so Pateat neither describes
-nor runs a recipe on a page whose path:
+(`loginPathSchema` in `packages/contracts/src/login/targets.ts`), so Pateat neither
+describes nor runs a recipe on a page whose path:
 
 - is longer than 300 characters once percent-encoded and with token-like segments
   replaced by `[id]` ([ADR 0039](adr/0039-redacted-token-path-segments.md)), which

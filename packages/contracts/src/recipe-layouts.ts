@@ -1,15 +1,12 @@
 import { canonicalJson } from "./canonical-json";
+import { handlerTargets, MAX_RECIPE_LAYOUTS, type LayoutMeta } from "./login/route-schema";
 import {
-  handlerTargets,
   isChooserDocument,
   isLoginRecipeDocument,
   layoutMeta,
-  MAX_RECIPE_LAYOUTS,
   newestLayout,
-  type LayoutMeta,
-  type RecipeDocument,
-  type StoredLoginRecipe,
-} from "./login";
+} from "./login/layouts";
+import type { RecipeDocument, StoredLoginRecipe } from "./login/document-schema";
 import {
   MAX_SSO_LABELS,
   nativeSsoTargets,
