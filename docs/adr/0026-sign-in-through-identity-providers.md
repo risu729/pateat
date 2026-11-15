@@ -393,3 +393,14 @@ or order: share, shares, shared or sharing, wants to access, access to your, all
 app to, to continue to an app, and 共有, 許可, アクセス or an app に移動 in Japanese. An
 account list that names its destination app is therefore a sharing list. The IdP's own
 sign-in form is still read as its native login first.
+
+## Review hardening 2026-11-16: interrupted holds
+
+An ended flow leaves an interrupted hold only when it may have spent its entry: a click
+intent was made durable or pressed, or the tab had already left for the IdP. A flow that
+stopped before that leaves none. A hold waits only for automatic logins on the flow's RP
+and IdP origins in that tab; other origins and frames are not held. It ends when the
+tab's top document goes to another origin, when the person starts a login there, when
+the tab closes or is replaced, or ten minutes after it was made. The session journal
+keeps at most 100 records: a fuller journal on restart keeps its newest records, and a
+write drops the oldest holds instead of failing.

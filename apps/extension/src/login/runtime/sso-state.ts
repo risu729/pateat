@@ -24,7 +24,14 @@ const journalSchema = v.strictObject({
   sourceEvidence: v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{43}$/u)),
   phase: v.picklist(["prepared", "entering-idp", "at-idp", "returning-rp"]),
   operationId: v.optional(id),
+  /** When the record was written: an interrupted hold ends `SSO_INTERRUPTED_HOLD_MS` later. */
+  at: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
 });
+export type SsoJournalRecord = v.InferOutput<typeof journalSchema>;
+/** The most journal records kept; the oldest interrupted holds give way first. */
+export const MAX_SSO_JOURNAL = 100;
+/** How long a tab stays held on the RP and IdP origins after an interrupted SSO flow. */
+export const SSO_INTERRUPTED_HOLD_MS = 10 * 60_000;
 export type SsoWork = {
   id: string;
   account: LoginAccount;
@@ -85,17 +92,20 @@ export function createSsoState() {
   const passkeyRefused = new Map<number, LoginAccount>();
   // Immutable run identities outlive parent cancellation until runtime disposal.
   const children = new Map<string, { parentId: string; account: LoginAccount }>();
-  const interrupted = new Map<number, v.InferOutput<typeof journalSchema>>();
+  const interrupted = new Map<number, SsoJournalRecord>();
   let healthy = true;
   let queue = Promise.resolve();
   const loaded = storage.getItem(KEY).then(
     (raw) => {
-      const parsed = v.safeParse(v.pipe(v.array(journalSchema), v.maxLength(100)), raw ?? []);
+      const parsed = v.safeParse(v.array(journalSchema), raw ?? []);
       if (!parsed.success) {
         healthy = false;
         return;
       }
-      for (const record of parsed.output) interrupted.set(record.document.tabId, record);
+      // An overfull journal keeps its newest records instead of disabling SSO.
+      const now = Date.now();
+      for (const record of parsed.output.slice(-MAX_SSO_JOURNAL))
+        interrupted.set(record.document.tabId, { ...record, at: record.at ?? now });
       return;
     },
     () => {
@@ -106,9 +116,11 @@ export function createSsoState() {
     queue = queue.then(async () => {
       await loaded;
       if (!healthy) throw new Error("sso-storage-unavailable");
+      const now = Date.now();
       const active = [...flows.values()]
         .filter((work) => !work.ended)
         .map((work) => ({
+          at: now,
           id: work.id,
           document: work.rpLive.document,
           account: work.account,
@@ -118,6 +130,11 @@ export function createSsoState() {
           phase: work.phase,
           ...(work.operation ? { operationId: work.operation.id } : {}),
         }));
+      // Insertion order is age order: the oldest holds are pruned to keep the journal bounded.
+      for (const tabId of interrupted.keys()) {
+        if (interrupted.size + active.length <= MAX_SSO_JOURNAL) break;
+        interrupted.delete(tabId);
+      }
       return storage.setItem(KEY, [...interrupted.values(), ...active]);
     });
     try {

@@ -82,7 +82,7 @@ describe("memory-only SSO execution authority", () => {
     const state = createSsoState();
     await state.loaded;
     expect(io.getItem).toHaveBeenCalledWith(key);
-    expect(state.interrupted.get(7)).toEqual(journal());
+    expect(state.interrupted.get(7)).toEqual({ ...journal(), at: expect.any(Number) });
     expect(state.flows.size).toBe(0);
     expect(state.native.size).toBe(0);
     expect(state.healthy()).toBe(true);
@@ -94,7 +94,6 @@ describe("memory-only SSO execution authority", () => {
     { ...journal(), phase: "authorized" },
     { ...journal(), sourceEvidence: "wrong" },
     { ...journal(), document: { ...document, frameId: -1 } },
-    Array(101).fill(journal()),
   ])("fails closed on malformed or overbroad interrupted authority %#", async (bad) => {
     io.getItem.mockResolvedValue(Array.isArray(bad) ? bad : [bad]);
     const state = createSsoState();
@@ -111,7 +110,9 @@ describe("memory-only SSO execution authority", () => {
     await state.loaded;
     state.flows.set(7, work());
     await state.write();
-    expect(io.setItem).toHaveBeenCalledWith(key, [{ ...journal(), operationId: "operation" }]);
+    expect(io.setItem).toHaveBeenCalledWith(key, [
+      { ...journal(), operationId: "operation", at: expect.any(Number) },
+    ]);
     const serialized = JSON.stringify(io.setItem.mock.calls);
     expect(serialized).not.toMatch(
       /PRIVATE|username|password|token|handle|destinations|recipe|choice|abort|settings|snapshot/u,
@@ -124,7 +125,7 @@ describe("memory-only SSO execution authority", () => {
     await state.loaded;
     state.flows.set(7, { ...work(), ended: true });
     await state.write();
-    expect(io.setItem).toHaveBeenCalledWith(key, [old]);
+    expect(io.setItem).toHaveBeenCalledWith(key, [{ ...old, at: expect.any(Number) }]);
   });
   it("a worker restart cannot restore an active flow, native override or prepared handle", async () => {
     const state = createSsoState();
@@ -136,7 +137,11 @@ describe("memory-only SSO execution authority", () => {
     await restarted.loaded;
     expect(restarted.flows.size).toBe(0);
     expect(restarted.native.size).toBe(0);
-    expect(restarted.interrupted.get(7)).toEqual({ ...journal(), operationId: "operation" });
+    expect(restarted.interrupted.get(7)).toEqual({
+      ...journal(),
+      operationId: "operation",
+      at: expect.any(Number),
+    });
   });
   it("marks a storage read failure unhealthy without restoring authority", async () => {
     io.getItem.mockRejectedValue(new Error("session unavailable"));

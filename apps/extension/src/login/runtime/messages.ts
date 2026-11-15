@@ -634,7 +634,8 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   cancelSso(rt, tabId, "sso-tab-closed");
   rt.sso.native.delete(tabId);
   rt.sso.passkeyRefused.delete(tabId);
-  if (closed) rt.sso.interrupted.delete(tabId);
+  // A closed or replaced tab's interrupted hold has no page left to hold.
+  if (rt.sso.interrupted.delete(tabId)) void rt.sso.write().catch(() => undefined);
   rt.ssoChoices?.invalidateTab(tabId, "page-changed");
   forgetConfirmTab(rt, tabId);
   clearBindingReview(rt, tabId);

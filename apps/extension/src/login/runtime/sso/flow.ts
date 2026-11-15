@@ -1,3 +1,4 @@
+import { holdInterrupted, interruptedAdmit, releaseInterrupted } from "./interrupted";
 import { browser } from "wxt/browser";
 import * as v from "valibot";
 import {
@@ -95,16 +96,7 @@ export function cancelSso(rt: Runtime, tabId: number, reason = "sso-cancelled") 
   clearTimeout(work.timer);
   rt.sso.flows.delete(tabId);
   rt.sso.native.delete(tabId);
-  if (work.parent?.state !== "authenticated")
-    rt.sso.interrupted.set(tabId, {
-      id: work.id,
-      document: work.rpLive.document,
-      account: work.account,
-      idp: { ...work.selected.account, origin: work.selected.origin },
-      method: work.source.method.number,
-      sourceEvidence: work.source.sourceEvidence,
-      phase: work.phase,
-    });
+  holdInterrupted(rt, tabId, work);
   void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
   void rt.sso.write().catch(() => undefined);
   if (work.parent && work.parent.state !== "authenticated") {
@@ -651,15 +643,7 @@ export async function beginSso(
 export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   await rt.sso.loaded;
   const work = rt.sso.flows.get(ctx.document.tabId);
-  if (!work) {
-    if (rt.sso.interrupted.has(ctx.document.tabId)) {
-      if (ctx.manual || rt.picked.get(ctx.document.tabId)?.documentId === ctx.document.documentId) {
-        rt.sso.interrupted.delete(ctx.document.tabId);
-        await rt.sso.write();
-      } else return ctx.refuse("sso-interrupted");
-    }
-    return undefined;
-  }
+  if (!work) return interruptedAdmit(rt, ctx);
   if (ctx.document.frameId !== 0) return ctx.refuse("sso-top-document-only");
   if (work.parent?.state === "authenticated") return ctx.refuse("sso-completed");
   if (ctx.document.origin !== work.account.origin && ctx.document.origin !== work.selected.origin) {
@@ -756,8 +740,10 @@ export function ssoChildChanged(rt: Runtime, run: Execution) {
 export function installSsoLifecycle(rt: Runtime) {
   browser.tabs.onUpdated.addListener((tabId, change) => {
     const work = rt.sso.flows.get(tabId);
+    const url = change.url ? URL.parse(change.url) : null;
+    // A tab that went on to another site ends its interrupted hold.
+    if (url) releaseInterrupted(rt, tabId, url.origin);
     if (!work || !change.url) return;
-    const url = URL.parse(change.url);
     if (!url || ![work.account.origin, work.selected.origin].includes(url.origin))
       cancelSso(rt, tabId, "sso-forbidden-origin");
   });
