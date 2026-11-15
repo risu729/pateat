@@ -180,6 +180,19 @@ describe("IdP pages whose heading names a finite step", () => {
       "Confirm your account",
       `<h1>Confirm your account</h1><p>${username}</p><p>Example App learns your birthday and your photo albums.</p><button id=entry>Continue</button>`,
     ],
+    // Text a heading, a link or a button-like element carries counts too.
+    [
+      "Continue as " + username,
+      `<h1>Continue as ${username}</h1><h2>Example App will get your name, email address and profile picture</h2><button id=entry>Continue</button>`,
+    ],
+    [
+      "Continue as " + username,
+      `<h1>Continue as ${username}</h1><a href="/about">Example App will get your name, email address and profile picture</a><button id=entry>Continue</button>`,
+    ],
+    [
+      "Continue as " + username,
+      `<h1>Continue as ${username}</h1><div role="button">Example App gets your name, email address and contacts</div><button id=entry>Continue</button>`,
+    ],
   ])("presses nothing on a confirmation %s with other text, whatever its words", (title, body) => {
     html(title, body);
     expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, username).kind);
@@ -199,6 +212,12 @@ describe("IdP pages whose heading names a finite step", () => {
       "a Microsoft-style account list",
       "Pick an account",
       `<h1>Pick an account</h1><button id=entry>${username}</button><button>Use another account</button>`,
+      "account",
+    ],
+    [
+      "a Microsoft-style account tile with a name and its state",
+      "Pick an account",
+      `<h1>Pick an account</h1><div role="button" id=entry tabindex=0><div>Synthetic Person</div><div>${username}</div><div>Signed in</div></div><div role="button" tabindex=0>Use another account</div>`,
       "account",
     ],
     [

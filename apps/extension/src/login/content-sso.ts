@@ -111,11 +111,16 @@ const stayHeading =
 const confirmHeading =
   /^(?:confirm (?:your|this) account|is this (?:you|your account)|continue as (.+)|アカウントの確認|このアカウントで(?:続行|ログイン)(?:しますか)?|(.+)として続行)[.?？!]?$/iu;
 /**
- * The most letters a confirmation page may show besides its headings, the account and its
- * controls' labels, as in "Not you?" or a short footer line. More says something else
- * about the step, such as what the app receives, so the page is no finite step.
+ * The most letters a confirmation page may show besides its confirmation heading, the
+ * account and its controls' short labels, as in "Not you?" or a short footer line. More
+ * says something else about the step, such as what the app receives, so the page is no
+ * finite step.
  */
 const CONFIRM_TEXT_LETTERS = 16;
+/** The longest control label a confirmation's check sets aside, as "Use another account". */
+const CONTROL_LABEL_LETTERS = 24;
+const letters = (text: string) => text.match(/\p{L}/gu)?.length ?? 0;
+const oneLine = (text: string) => text.replace(/\s+/gu, " ").trim();
 /** The page's title and visible headings, each as one trimmed line. */
 const headingsOf = (document: Document) =>
   [
@@ -125,32 +130,30 @@ const headingsOf = (document: Document) =>
       .slice(0, 8)
       .map((element) => element.textContent ?? ""),
   ]
-    .map((text) => text.replace(/\s+/gu, " ").trim())
+    .map(oneLine)
     .filter(Boolean);
 /**
- * The letters a confirmation page shows besides its visible headings, the account's
- * identifier and the labels of its buttons and links. Fails closed: whatever cannot be
- * accounted for counts.
+ * The letters a confirmation page shows besides the heading that names it, the account's
+ * identifier and the short labels of its buttons and links. Fails closed: another heading,
+ * a long label and whatever else cannot be accounted for count.
  */
-function confirmExtraLetters(document: Document, username: string): number {
-  let rest = document.body?.innerText.slice(0, 16_384) ?? "";
-  const known = [
-    ...queryAll<HTMLElement>(
-      document,
-      "h1,h2,[role=heading],button,a[href],[role=button],[role=link]",
-    )
-      .filter(visible)
-      .map((element) => element.innerText),
-    username,
-  ]
-    .map((text) => text.replace(/\s+/gu, " ").trim())
+function confirmExtraLetters(
+  document: Document,
+  username: string,
+  confirmHeadings: readonly string[],
+): number {
+  const labels = queryAll<HTMLElement>(document, "button,a[href],[role=button],[role=link]")
+    .filter(visible)
+    .map((element) => oneLine(element.innerText))
+    .filter((text) => text && letters(text) <= CONTROL_LABEL_LETTERS);
+  const known = [...confirmHeadings, ...labels, username]
+    .map(oneLine)
     .filter(Boolean)
     // Longer first, so a label inside a heading is not removed from it first.
-    .sort((a, b) => b.length - a.length);
-  rest = rest.replace(/\s+/gu, " ");
+    .toSorted((a, b) => b.length - a.length);
+  let rest = oneLine(document.body?.innerText.slice(0, 16_384) ?? "");
   for (const text of known) rest = rest.split(text).join(" ");
-  rest = rest.toLowerCase().split(username.toLowerCase()).join(" ");
-  return rest.match(/\p{L}/gu)?.length ?? 0;
+  return letters(rest.toLowerCase().split(username.toLowerCase()).join(" "));
 }
 /** What the IdP page's own headings say it is, read only for a finite step. */
 function idpStep(document: Document, username: string) {
@@ -160,7 +163,8 @@ function idpStep(document: Document, username: string) {
     sharing: [...headings, body].some((text) => sharing.test(text)),
     chooser: headings.some((text) => chooserHeading.test(text)),
     stays: headings.some((text) => stayHeading.test(text)),
-    confirms: headings.some((text) => {
+    /** The headings that name an account confirmation for this account. */
+    confirms: headings.filter((text) => {
       const match = confirmHeading.exec(text);
       const named = match?.[1] ?? match?.[2];
       return match !== null && (named === undefined || normalized(named) === normalized(username));
@@ -194,7 +198,10 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
   const exact = controls.filter((candidate) => {
     const matches = findTargets(document, candidate.target, { links: true });
     if (matches.length !== 1) return false;
-    const text = matches[0]!.textContent ?? "";
+    // The rendered text, so the lines of an account tile (a name, the account and its
+    // state) stay apart rather than running into one token.
+    const element = matches[0]!;
+    const text = (element instanceof HTMLElement ? element.innerText : element.textContent) ?? "";
     const accounts = exactAccounts(text);
     return (
       !/[*●•]/u.test(text) &&
@@ -216,10 +223,10 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
     accounts.some((account) => normalized(account) === normalized(username)) ||
     exactIdentityShown(document, username);
   const { stays } = step;
-  if (!stays && !step.confirms) return { kind: "unknown" };
+  if (!stays && !step.confirms.length) return { kind: "unknown" };
   // A confirmation says nothing but which account continues: any other text may be what
   // the app receives, whatever its wording, so it is no finite step.
-  if (!stays && confirmExtraLetters(document, username) > CONFIRM_TEXT_LETTERS)
+  if (!stays && confirmExtraLetters(document, username, step.confirms) > CONFIRM_TEXT_LETTERS)
     return { kind: "unknown" };
   const candidates = controls.filter((candidate) => {
     if (candidate.target.by === "href") return false;
