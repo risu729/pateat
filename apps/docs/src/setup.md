@@ -298,9 +298,9 @@ login page, with the account it would use for an automatic login. To stay logged
 pause the site first. If Pateat logged in to a site twice in the last 10 minutes, it
 asks for an account instead of logging in a third time.
 
-SSO sign-in is still being implemented. Its method is chosen in the popup only after
-the site account has been chosen. Identity provider account and origin mappings are not
-synced: they stay on this device, where the popup replaces or removes them. A chosen
-method applies only to that sign-in. A locked or changed vault, an invalid SSO field or
-an unresolved mapping stops the choice. The chooser does not yet start an SSO login, and
-a mapping approves no new permission, account creation or consent page.
+SSO sign-in is still being implemented, and its method chooser is not shown yet. The
+method is chosen only after the site account. Identity provider account and origin
+mappings are not synced: they stay on this device, where the chooser replaces or removes
+them. A chosen method applies only to that sign-in. A locked or changed vault, an
+invalid SSO field or an unresolved mapping stops the choice. A mapping approves no new
+permission, account creation or consent page.
