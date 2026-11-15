@@ -405,10 +405,11 @@ the account's identifier and the short labels (up to 24 letters each) of its but
 links, it may show only a few letters, such as "Not you?" or a short footer line. Any
 more text makes it no finite step, whatever it says and wherever it is: another
 heading, a link or an element that acts as a button. An account list's entry is read as
-rendered, so a tile's name, account and state lines stay apart. Receive, provide, send and get access, and 取得, 受け取, 提供 and 送信 in
-Japanese, count as sharing wording too. "Welcome back" and "Use this account" are not
-confirmation headings, since neither names the account. Stay-signed-in questions and
-account lists keep their own rules.
+rendered, so a tile's name, account and state lines stay apart. Receive, provide, send
+and get access, and 取得, 受け取, 提供 and 送信 in Japanese, count as sharing
+wording too. "Welcome back" and "Use this account" are not confirmation headings, since
+neither names the account. Stay-signed-in questions and account lists keep their own
+rules.
 
 ## Review hardening 2026-11-16: interrupted holds
 
