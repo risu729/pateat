@@ -62,10 +62,19 @@ describe("local SSO method chooser", () => {
     });
     expect(await h.controller.consume(id)).toEqual({ ok: false, reason: "choice-gone" });
     expect(h.saved).toEqual(before);
-    expect(h.source.validate).toHaveBeenCalledWith(sourceRef(), selected);
+    expect(h.source.validate).toHaveBeenCalledWith(sourceRef(), selected, undefined);
     const stored = h.records();
     expect(stored).toHaveLength(1);
     expect(JSON.stringify(stored)).not.toMatch(/Synthetic provider|username|proof|fieldId/u);
+  });
+  it("passes the coordinator's signal to every vault discovery and validation", async () => {
+    const h = start();
+    const abort = new AbortController();
+    h.input.signal = abort.signal;
+    await result(h);
+    expect(h.source.describe).toHaveBeenCalledWith(account, abort.signal);
+    expect(h.source.candidates).toHaveBeenCalledWith(sourceRef(), abort.signal);
+    expect(h.source.validate).toHaveBeenCalledWith(sourceRef(), selected, abort.signal);
   });
   it("exposes opaque candidate IDs, fixed safe descriptors and local item labels only", async () => {
     const h = start();

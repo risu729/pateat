@@ -144,7 +144,11 @@ export function createSsoChoiceController(options: {
       )
         return "unsafe-hop";
       // oxlint-disable-next-line no-await-in-loop -- each local vault validation must finish before the next
-      const checked = await options.source.validate(method.source, candidate.selected);
+      const checked = await options.source.validate(
+        method.source,
+        candidate.selected,
+        offer.input.signal,
+      );
       if (!retained(offer) || !checked.ok) return checked.ok ? "scope-changed" : checked.reason;
       const identity = logicalAccount(offer.saved, candidate.selected.account);
       if (!identity) return "vault-unavailable";
@@ -169,7 +173,11 @@ export function createSsoChoiceController(options: {
         logicalAccount(offer.saved, offer.input.account)
     )
       return "unsafe-hop";
-    const checked = await options.source.validate(method.source, candidate.selected);
+    const checked = await options.source.validate(
+      method.source,
+      candidate.selected,
+      offer.input.signal,
+    );
     if (!retained(offer) || !checked.ok) return checked.ok ? "scope-changed" : checked.reason;
     if (!(await current(offer))) return "scope-changed";
     const sourceContinuity = continuity(connectionFor(offer.saved, offer.input.account));
@@ -303,7 +311,7 @@ export function createSsoChoiceController(options: {
         return { offerId: offer.id, result };
       };
       if (!(await current(offer))) return refused("scope-changed");
-      const described = await options.source.describe(input.account);
+      const described = await options.source.describe(input.account, input.signal);
       if (!described.ok || !retained(offer))
         return refused(
           described.ok ? "scope-changed" : described.reason,
@@ -321,7 +329,7 @@ export function createSsoChoiceController(options: {
           sourceEvidence: described.data.sourceEvidence,
         };
         // oxlint-disable-next-line no-await-in-loop -- vault discovery shares a single native lane
-        const found = await options.source.candidates(source);
+        const found = await options.source.candidates(source, input.signal);
         if (!found.ok || !retained(offer))
           return refused(found.ok ? "scope-changed" : found.reason);
         const candidates = found.data.candidates.flatMap((candidate) => {
