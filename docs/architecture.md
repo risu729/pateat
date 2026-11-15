@@ -3443,12 +3443,12 @@ its checks without failing the answer. A `hidden` slot is filled only into an in
 Hidden rule of ADR 0013 accepts; the decision role and the heuristic name custom slots
 the same way. Signing in to a site through Google or Microsoft follows the policy in
 [ADR 0026](adr/0026-sign-in-through-identity-providers.md) (scoped execution
-implemented; real-account verification remains). Local discovery and label-only generation now
-have separate SSO entry contracts: an `sso` sibling of a stored recipe holds its path
-and up to three layouts of label/target entries, without fill slots or ordinary click
-steps. Native layouts may coexist with that sibling; conditional writes, repair and
-layout provenance preserve both, and SSO entries on an element a native route uses give
-way to it. A dedicated `kind: "sso"` generation request sends only selected
+implemented; real-account verification remains). Local discovery and label-only
+generation now have separate SSO entry contracts: an `sso` sibling of a stored recipe
+holds its path and up to three layouts of label/target entries, without fill slots or
+ordinary click steps. Native layouts may coexist with that sibling; conditional writes,
+repair and layout provenance preserve both, and SSO entries on an element a native route
+uses give way to it. A dedicated `kind: "sso"` generation request sends only selected
 account/method labels and a value-free page description; no IdP origin, account,
 username or mapping is sent. New labels join the newest SSO layout, each family is
 repaired once a UTC day apart, and the retry window follows the stored SSO entries
@@ -4649,10 +4649,13 @@ vault snapshots and synchronous recipe-cache epochs after awaited policy/mapping
 
 Only a confirmed return to the original RP records parent authentication. IdP child
 identity survives parent cancellation so late callbacks cannot save an IdP default or
-proof. The dedicated `sso-completion` request shares the existing judge/provider/quota
-boundary, learns RP-only completion markers, and requires a fresh local marker plus
-repeated unsafe-page, identity and original-entry checks. Native execution schemas and
-route-switch events still accept only password and passkey routes; explicit SSO parent
-metadata cannot enter that engine. See the
+proof. The dedicated `sso-completion` request shares the existing judge, provider and
+daily-limit boundary, learns RP-only completion markers, and requires a fresh local
+marker plus repeated unsafe-page, identity and original-entry checks. Native execution
+schemas and route-switch events still accept only password and passkey routes; explicit
+SSO parent metadata cannot enter that engine. A passkey the method chooser picked and
+the site refused (`sso/passkey-refused.ts`) ends that native login and asks its document
+to announce again, so the next choice leaves the passkey out instead of falling back to
+the password. See the
 [implementation boundary](adr/0026-sign-in-through-identity-providers.md#implementation-2026-11-12-scoped-coordinator)
 for supported effects and current verification limits.

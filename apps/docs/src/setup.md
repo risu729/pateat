@@ -328,13 +328,13 @@ popup replaces or removes them. A URL-form method whose page entry is not unambi
 asks you to choose the entry shown on the page.
 
 The automatic preference is passkey, then the unsuffixed `SSO` method, then the site's
-password, which is used automatically only for an item without an `SSO` method. When
-the site refuses the passkey, Pateat chooses again without it, so it uses the `SSO`
-method. Numbered SSO methods are explicit alternatives, and your method choice applies
-only to this sign-in. A locked or changed vault or an invalid SSO field stops the
-choice. An unresolved mapping, a duplicate provider account or a failed sign-in stops
-that SSO method without silently trying another; the account's own passkey or password
-can still be chosen.
+password, which is used automatically only for an item without an `SSO` method. When the
+site refuses a passkey Pateat chose, Pateat chooses again without it, so it uses the
+`SSO` method; a passkey you chose yourself falls back to the password. Numbered SSO
+methods are explicit alternatives, and your method choice applies only to this sign-in.
+A locked or changed vault or an invalid SSO field stops the choice. An unresolved
+mapping, a duplicate provider account or a failed sign-in stops that SSO method without
+silently trying another; the account's own passkey or password can still be chosen.
 
 SSO stays in the same tab and uses only the chosen provider account. That account
 must sign in directly with its own password or passkey; another SSO hop stops. Pateat

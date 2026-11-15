@@ -401,7 +401,10 @@ return; that username is not a guessed RP identity. One exact observed URL entry
 chosen locally; ambiguous or JavaScript-only entries need the popup's explicit
 selection. Only the chosen method's public label and redacted RP candidates reach
 generation. Malformed, unavailable or unresolved preferred methods never silently choose
-a native password. Completion stores only the RP's confirmed account choice and proof.
+a native password. Completion stores only the RP's confirmed account choice and proof. A
+passkey the automatic choice picked and the site refused ends that native login without
+the password, and the tab's next choice leaves the passkey out, as **A refused passkey**
+above says. A passkey the person picked explicitly keeps rule 6.
 
 Synthetic packaged execution uses encrypted fixtures. The owning plan retains the
 installed-user-browser and real-account gates. Implementation does not migrate an

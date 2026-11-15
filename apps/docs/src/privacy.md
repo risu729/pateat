@@ -86,9 +86,10 @@ under the request-log rules below. The rest of the SSO field, the provider usern
 comparison proofs and saved mapping are not sent.
 The provider account's credentials are used only on its permitted sign-in origin.
 
-When local evidence cannot confirm the return to the original site, Pateat can also
-send that page's sanitized description to Anthropic through the same path. A learned completion marker is stored with the recipe; each later sign-in must
-show fresh local evidence before it is marked successful.
+When local evidence cannot confirm the return to the original site, Pateat can also send
+that page's sanitized description to Anthropic through the same path. A learned
+completion marker is stored with the recipe; each later sign-in must show fresh local
+evidence before it is marked successful.
 
 ## Your Bitwarden server
 

@@ -1,8 +1,8 @@
 # ADR 0026: Signing in to a site through an identity provider
 
 Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; the scoped
-coordinator is implemented and checked with synthetic packaged fixtures, following account
-choice and the local discovery / declarative generation foundations
+coordinator is implemented and checked with synthetic packaged fixtures, following
+account choice and the local discovery / declarative generation foundations
 ([2026-11-12 amendment](#amendment-2026-11-12-declarative-sso-entry-generation)). The
 owner initially set it as low priority; the current implementation is described in the
 [coordinator note](#implementation-2026-11-12-scoped-coordinator).
@@ -291,12 +291,12 @@ creation stop the flow.
 
 IdP account choices require the full exact identifier. Continue and stay-signed-in need
 finite local evidence tied to that identifier. Only the original RP's positive identity
-or freshly observed signed-in marker completes the parent. The URL form's username is
-an IdP identifier and is never treated as the RP's own identity. Its return therefore
-needs an RP marker or a marker learned by the dedicated RP-return judge. The judge uses
-the existing provider abstraction and atomic daily judgement quota; it receives only a
-redacted RP observation and recipe/layout identity. Its marker is stored separately from
-SSO entry provenance and rechecked locally. A cached verdict alone is insufficient.
+or freshly observed signed-in marker completes the parent. The URL form's username is an
+IdP identifier and is never treated as the RP's own identity. Its return therefore needs
+an RP marker or a marker learned by the dedicated RP-return judge. The judge uses the
+existing provider abstraction and the per-recipe daily judgement limit; it receives only
+a redacted RP observation and recipe/layout identity. Its marker is stored separately
+from SSO entry provenance and rechecked locally. A cached verdict alone is insufficient.
 
 Each effect rechecks policy, pauses/private-window settings, source and selected item,
 vault snapshots, session and exact document, recipe epochs and observed destinations.
@@ -313,7 +313,8 @@ confirmation flows start no SSO effect.
 Packaged synthetic checks exercise popup mapping, the actual RP entry, encrypted IdP
 passwords and passkeys, finite intermediate pages, service generation/cache and original
 RP completion. They also check interruption and refusal without changing the IdP default
-or creating an IdP authentication proof. This evidence does not establish real-account or installed-user-browser compatibility.
+or creating an IdP authentication proof. This evidence does not establish real-account
+or installed-user-browser compatibility.
 
 ## Review hardening 2026-11-12: finite IdP actions and local labels
 
@@ -326,10 +327,12 @@ that expectation is refused, and an RP entry cannot carry it.
 An observed URL-form entry label passes through the same local username redaction as the
 RP observation before cache lookup or generation. Only the selected target's safe
 redacted label is used, while the exact locally selected target remains bound through
-cached and repaired layout selection. Ambiguous or unredactable labels stop the flow.
-Bracket-form provider labels remain the explicitly approved public-label exception. A
-repaired layout executes only after current local inspection, newest first; an old
-retained layout or an uninspectable new target cannot win by array position.
+cached and repaired layout selection. Ambiguous or unredactable labels stop the flow. A
+redacted account placeholder reads in parentheses, as `Continue as (account)`, since a
+provider label never holds brackets. Bracket-form provider labels remain the explicitly
+approved public-label exception. A repaired layout executes only after current local
+inspection, newest first; an old retained layout or an uninspectable new target cannot
+win by array position.
 
 A native child detaches its execution authority before a finite IdP action. On the same
 document a narrow attempt cancellation withdraws pending native mutations without
@@ -360,3 +363,20 @@ credential authority. The refreshed page must pass the ordinary SSO scope and fi
 IdP identity checks before the old native execution is detached. Other documents and
 ordinary native logins retain their existing admission rules. DOM-only transitions use
 the existing page-change signals; this adds no polling or separate DOM observer.
+
+## Review hardening 2026-11-15: refused passkeys and vault notices
+
+A passkey the method chooser picked and the site then refused does not go back to the
+password route of [ADR 0034](0034-answer-page-passkey-requests.md) rule 6 when the item
+has `SSO` methods. That native login ends without filling or clicking anything, its
+record and origin hold are dropped, and the same top document is asked to announce
+itself again. The tab's next automatic choice for that account, once and whichever
+document, leaves the passkey out, so it lands on the preferred SSO method or stops with
+that method's reason; an item without a preferred SSO method still gets the password. A
+passkey the person picked in the popup for a manual sign-in, and an IdP's own native
+login during a hop, fall back as before: the manual request's grant has already been
+used, and the person chose that route over the SSO method.
+
+A vault notice cancels an active parent flow only when the settings revision or the
+vault catalog differs from the one the flow started with. A status read that changes
+nothing keeps the flow, as it keeps a pending method offer.

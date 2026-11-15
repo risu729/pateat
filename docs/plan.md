@@ -1363,7 +1363,9 @@ names items the owner mentioned and gates still open on 2026-10-11.
   ([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md), owner 2026-11-07). Local
   discovery, label-only entry generation, device-local mappings, popup method choice
   and the same-tab coordinator are implemented. The coordinator executes the exact
-  mapped IdP native route and confirms only the original RP return. Synthetic packaged
+  mapped IdP native route and confirms only the original RP return. A passkey the site
+  refuses goes back to the method choice without the passkey, not to the password, for
+  an item with an SSO method. Synthetic packaged
   checks cover password and passkey IdP sign-ins, intermediate pages, generation and
   cache, interruption and refusal. Installed-user-browser and real-account
   compatibility remain separate open gates.
