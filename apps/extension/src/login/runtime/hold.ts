@@ -19,10 +19,13 @@ export function recordFor(
   tabId: number,
   documentOrigin: string,
 ): LoginAttemptMetadata | undefined {
+  const parent = rt.sso.flows.get(tabId);
+  if (parent && !parent.ended && parent.account.origin === documentOrigin && parent.parent)
+    return parent.parent;
   const run = rt.attempts.get(tabId);
-  return run?.metadata.account.origin === documentOrigin
-    ? run.metadata
-    : rt.persisted.get(recordKey(tabId, documentOrigin));
+  if (run?.metadata.account.origin === documentOrigin) return run.metadata;
+  const stored = rt.persisted.get(recordKey(tabId, documentOrigin));
+  return stored?.ssoChild?.released === true ? undefined : stored;
 }
 
 /**
@@ -35,6 +38,16 @@ export function recordFor(
  */
 export function heldElsewhere(rt: Runtime, tabId: number, siteOrigin: string): boolean {
   const now = Date.now();
+  if (
+    [...rt.sso.flows.values()].some(
+      (flow) =>
+        !flow.ended &&
+        flow.rpLive.document.tabId !== tabId &&
+        [flow.account.origin, flow.selected.origin].includes(siteOrigin) &&
+        sharesCookies(rt, tabId, flow.rpLive.document.tabId),
+    )
+  )
+    return true;
   return (
     switchingElsewhere(rt, tabId, siteOf(siteOrigin)) ||
     recordsHeldElsewhere(rt.persisted.values(), rt.incognitoTabs, tabId, siteOrigin, now)
@@ -95,7 +108,9 @@ export function showHeld(rt: Runtime, tabId: number): void {
 export function tabAttempt(rt: Runtime, tabId: number): LoginAttemptMetadata | undefined {
   const run = rt.attempts.get(tabId);
   if (run) return run.metadata;
-  const records = [...rt.persisted.values()].filter((entry) => entry.document.tabId === tabId);
+  const records = [...rt.persisted.values()].filter(
+    (entry) => entry.document.tabId === tabId && entry.ssoChild?.released !== true,
+  );
   return records.find((entry) => !terminal(entry)) ?? records.at(-1);
 }
 

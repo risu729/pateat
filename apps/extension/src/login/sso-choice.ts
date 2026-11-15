@@ -40,7 +40,12 @@ import {
 } from "./sso-choice-model";
 
 export type { SsoChoiceInput, SsoChoiceOutcome, SsoResolvedChoice } from "./sso-choice-model";
-type Receipt = { offer: Offer; selection: SsoResolvedChoice };
+type Receipt = {
+  offer: Offer;
+  selection: SsoResolvedChoice;
+  /** Only an automatic URL-form choice requires this exact destination again when consumed. */
+  entryOrigin?: string;
+};
 type Refusal = { reason: string; field?: string };
 type SsoSelection = Extract<SsoChooseRequest["selection"], { kind: "sso" }>;
 const failure = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
@@ -149,12 +154,47 @@ export function createSsoChoiceController(options: {
     if (!checked.ok) return refusal(checked);
     return (await current(offer)) ? undefined : { reason: "scope-changed" };
   }
-  function resolve(offer: Offer, selection: SsoResolvedChoice) {
+  function resolve(offer: Offer, selection: SsoResolvedChoice, entryOrigin?: string) {
     if (!retained(offer) || offer.settled) return failure("offer-gone");
     const choiceId = newId();
-    receipts.set(choiceId, { offer, selection });
+    receipts.set(choiceId, { offer, selection, ...(entryOrigin ? { entryOrigin } : {}) });
     finish(offer, { ok: true, choiceId });
     return { ok: true as const };
+  }
+  /**
+   * A URL-form method has no label: it runs automatically only when exactly one observed
+   * entry is present and its fresh, explicit destination is the mapped origin. Anything
+   * else waits for the person to choose the entry; a label is never guessed.
+   */
+  async function automaticUrl(offer: Offer, method: Method): Promise<Refusal | undefined> {
+    const { entryCurrent, entryOrigin, entries } = offer.input;
+    const selected = selectedOf(method)!.selected;
+    const matches: { id: string; label: string }[] = [];
+    for (const entry of entryCurrent && entryOrigin ? (entries ?? []) : []) {
+      // oxlint-disable-next-line no-await-in-loop -- each entry's evidence is its own
+      const present = await entryCurrent?.(entry.id).catch(() => false);
+      const same =
+        present &&
+        // oxlint-disable-next-line no-await-in-loop -- destination evidence belongs to this entry
+        (await entryOrigin?.(entry.id, selected.origin).catch(() => false));
+      if (!retained(offer)) return { reason: "scope-changed" };
+      if (same) matches.push(entry);
+      if (matches.length > 1) break;
+    }
+    const [entry] = matches;
+    if (matches.length !== 1 || !entry) {
+      offer.reason = "entry-required";
+      return undefined;
+    }
+    // After the entries' own awaits, so a vault or document change during them refuses.
+    const refused = await validateSso(offer, method);
+    if (refused) return refused;
+    resolve(
+      offer,
+      { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
+      selected.origin,
+    );
+    return undefined;
   }
   /** Lists the saved IdP accounts and origins a method may use; keeps a chosen one. */
   async function discover(offer: Offer, method: Method): Promise<Refusal | undefined> {
@@ -345,16 +385,13 @@ export function createSsoChoiceController(options: {
       else if (await current(offer)) resolve(offer, { kind: "native", route: "password" });
       return undefined;
     }
-    if (preferred.form === "url") {
-      offer.reason = "entry-required";
-      return undefined;
-    }
     // An unresolved preferred method waits for the person; it never falls back.
     if (!selectedOf(preferred)) {
       offer.reason = preferred.reason ?? "mapping-required";
       if (preferred.field) offer.field = preferred.field;
       return undefined;
     }
+    if (preferred.form === "url") return automaticUrl(offer, preferred);
     const refused = await validateSso(offer, preferred);
     if (refused) return refused;
     resolve(offer, {
@@ -535,13 +572,19 @@ export function createSsoChoiceController(options: {
         if (!method) return failure("method-unavailable");
         const refused = await validateSso(offer, method);
         if (refused) return failure(refused.reason);
-        if (
-          selection.entryId &&
-          (!offer.input.entryCurrent ||
-            !(await offer.input.entryCurrent(selection.entryId)) ||
-            !(await current(offer)))
-        )
-          return failure("entry-changed");
+        if (selection.entryId) {
+          const { entryCurrent, entryOrigin } = offer.input;
+          if (
+            !entryCurrent ||
+            !(await entryCurrent(selection.entryId)) ||
+            (receipt.entryOrigin !== undefined &&
+              (!entryOrigin || !(await entryOrigin(selection.entryId, receipt.entryOrigin))))
+          )
+            return failure("entry-changed");
+          // The entry's own awaits may have outlived a vault, policy or document change.
+          const again = await validateSso(offer, method);
+          if (again) return failure(again.reason);
+        }
       }
       if (!retained(offer)) return failure("scope-changed");
       invalidateTab(offer.input.document.tabId, "consumed");

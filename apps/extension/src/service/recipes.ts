@@ -1,5 +1,6 @@
 import {
   chooserLayouts,
+  isSsoDocument,
   deviceIdSchema,
   findChooserLayout,
   findLayoutRecipe,
@@ -831,6 +832,32 @@ export function createRecipeSync(options: {
       if (!cache) return [];
       const stored = choosersOn(cache, origin, path);
       return stored ? chooserCandidates(stored) : [];
+    },
+    async ssoFence(recipe) {
+      const started = mutation;
+      const paired = service.fence?.();
+      const device = options.device?.fence?.();
+      if (writing !== 0 || !paired) return undefined;
+      const cache = await current(false);
+      if (!cache || (cache.local && !device)) return undefined;
+      const held = cache.recipes.find(
+        (entry) => entry.id === recipe.id && entry.origin === recipe.origin && isSsoDocument(entry),
+      );
+      const unchanged = () =>
+        mutation === started && writing === 0 && paired() && (!cache.local || device!());
+      return held && JSON.stringify(held) === JSON.stringify(recipe) && unchanged()
+        ? unchanged
+        : undefined;
+    },
+    async sso(origin: string, path: string, recipeId?: string) {
+      const cache = await current(false);
+      return (cache?.recipes ?? [])
+        .filter(isSsoDocument)
+        .filter(
+          (recipe) =>
+            recipe.origin === origin &&
+            (recipeId ? recipe.id === recipeId : recipe.sso.path === path),
+        );
     },
     async starts(origin: string) {
       const cache = await current(false);

@@ -32,3 +32,20 @@ export function documentLoaded(
     stop?.addEventListener("abort", () => end(false), { signal: listening.signal });
   });
 }
+
+/**
+ * The HTTP status of this document's own load, when the browser reports one (ADR 0041); a
+ * status the page cannot see, as for a cached or cross-origin redirected load, reads as 0
+ * and is left out.
+ */
+export function navigationStatus(): number | undefined {
+  try {
+    const [entry] = performance.getEntriesByType("navigation") as (PerformanceEntry & {
+      responseStatus?: number;
+    })[];
+    const status = entry?.responseStatus;
+    return typeof status === "number" && status >= 100 && status <= 599 ? status : undefined;
+  } catch {
+    return undefined;
+  }
+}

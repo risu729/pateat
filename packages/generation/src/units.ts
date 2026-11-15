@@ -23,6 +23,8 @@ import {
 // - `sso` an SSO layout's entries (ADR 0026 amendment of 2026-11-12), the whole layout:
 //   new labels join the newest layout, so its record names the call that last changed its
 //   entries, and each earlier call stays in the request log under the layout's key.
+// - `sso-marker:<i>` an SSO layout's signed-in marker at index `i` of its `completion`,
+//   learned when a judge confirmed the site's page after the provider returned.
 // - `entry` an entry recipe (ADR 0031), which has no layout.
 // - `logout` a logout recipe's clicks (ADR 0063), which has no layout either.
 //
@@ -44,6 +46,8 @@ export const pageUnit = (firstStep: number) => `page:${firstStep}`;
 export const handlerUnit = (index: number) => `handler:${index}`;
 /** A route's signed-in marker, by its index in `completion`. */
 export const markerUnit = (index: number) => `marker:${index}`;
+/** An SSO layout's signed-in marker on the site's return page, by its index in `completion`. */
+export const ssoMarkerUnit = (index: number) => `sso-marker:${index}`;
 /** A unit of a route, under its chooser branch's prefix when the route is one. */
 export const branchUnit = (branch: ChooserBranch | undefined, unit: string) =>
   branch ? `${branch}/${unit}` : unit;
@@ -126,15 +130,22 @@ export async function documentUnits(
       : "logout" in recipe
         ? [{ layout: null, unit: LOGOUT_UNIT, content: recipe.logout }]
         : [
-            ...(recipe.sso?.layouts ?? []).map((layout) => ({
-              layout: layout.key,
-              unit: SSO_UNIT,
-              content: {
-                path: recipe.sso!.path,
-                entries: layout.entries,
-                language: layout.language,
+            ...(recipe.sso?.layouts ?? []).flatMap((layout) => [
+              {
+                layout: layout.key,
+                unit: SSO_UNIT,
+                content: {
+                  path: recipe.sso!.path,
+                  entries: layout.entries,
+                  language: layout.language,
+                },
               },
-            })),
+              ...(layout.completion ?? []).map((marker, index) => ({
+                layout: layout.key,
+                unit: ssoMarkerUnit(index),
+                content: marker,
+              })),
+            ]),
             ...(recipe.layouts ?? []).flatMap((layout) =>
               routeContents(layout, startsOf(layout.key), undefined, layout.language).map(
                 ([unit, content]) => ({ layout: layout.key, unit, content }),

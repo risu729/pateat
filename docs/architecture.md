@@ -3442,19 +3442,20 @@ when its label or locator names a passkey or security key, and drops a button th
 its checks without failing the answer. A `hidden` slot is filled only into an input the
 Hidden rule of ADR 0013 accepts; the decision role and the heuristic name custom slots
 the same way. Signing in to a site through Google or Microsoft follows the policy in
-[ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented end to end).
-Local discovery and label-only generation now have separate SSO entry contracts: an
-`sso` sibling of a stored recipe holds its path and up to three layouts of label/target
-entries, without fill slots or ordinary click steps. Native layouts may coexist with
-that sibling; conditional writes, repair and layout provenance preserve both, and SSO
-entries on an element a native route uses give way to it. A dedicated `kind: "sso"`
-generation request sends only selected account/method labels and a value-free page
-description; no IdP origin, account, username or mapping is sent. New labels join the
-newest SSO layout, each family is repaired once a UTC day apart, and the retry window
-follows the stored SSO entries rather than the requested labels or the recipe's
-revision. The method chooser and local mappings exist
-([local SSO choice](#local-sso-choice-boundary)); the same-tab coordinator and IdP
-behavior still must integrate those contracts before any SSO entry executes.
+[ADR 0026](adr/0026-sign-in-through-identity-providers.md) (scoped execution
+implemented; real-account verification remains). Local discovery and label-only
+generation now have separate SSO entry contracts: an `sso` sibling of a stored recipe
+holds its path and up to three layouts of label/target entries, without fill slots or
+ordinary click steps. Native layouts may coexist with that sibling; conditional writes,
+repair and layout provenance preserve both, and SSO entries on an element a native route
+uses give way to it. A dedicated `kind: "sso"` generation request sends only selected
+account/method labels and a value-free page description; no IdP origin, account,
+username or mapping is sent. New labels join the newest SSO layout, each family is
+repaired once a UTC day apart, and the retry window follows the stored SSO entries
+rather than the requested labels or the recipe's revision. The method chooser, local
+mappings ([local SSO choice](#local-sso-choice-boundary)), the same-tab coordinator and
+IdP behavior now integrate those contracts; packaged and independent checks remain
+distinct from real-account proof.
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
@@ -4615,10 +4616,11 @@ submission or success of the action guarded by the verification page.
 The local SSO discovery wrapper, mapping store and method-choice controller implement
 the metadata and popup boundary of
 [ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-mapping-and-method-choice).
-They do not yet start an SSO login, and nothing calls them yet. The account is chosen
-first. A coordinator requests a method choice for that account and consumes a one-use
-opaque receipt that is validated again; it still owns same-tab navigation, exact
-document and origin checks and credential release.
+The coordinator consumes them to start a scoped SSO login. The account is chosen first.
+The coordinator requests a method choice for that account and consumes a one-use opaque
+receipt that is validated again; it still owns same-tab navigation, exact document and
+origin checks and credential release. SSO preflight runs before ordinary native
+admission and keeps its separate effect boundary.
 
 The trusted device-local mapping record (`pateat.login.sso-mappings.v1`, never synced,
 as ADR 0085 keeps the mapping local) is `{version: 1, entries}`, at most 1,000 entries.
@@ -4635,3 +4637,25 @@ and refuses another mapped method on the same IdP account, even through differen
 connections; a native route needs no SSO method. A URL-form choice names one of at most
 100 observed entries by opaque ID and checks it again locally; no mapping or exact
 target goes to inference. Native credential origin checks are unchanged.
+
+## Same-tab SSO execution boundary
+
+The local choice boundary now feeds `login/runtime/sso/entry.ts` and `sso/flow.ts`. An
+SSO parent lives in its own memory map, while the existing native attempt map holds one
+exact IdP child. Separate inspect/prepare/commit commands and a durable intent journal
+handle entry effects. The journal is secret-free diagnostics and interruption evidence;
+a restarted worker cannot restore click authority. Final delivery checks include current
+vault snapshots and synchronous recipe-cache epochs after awaited policy/mapping reads.
+
+Only a confirmed return to the original RP records parent authentication. IdP child
+identity survives parent cancellation so late callbacks cannot save an IdP default or
+proof. The dedicated `sso-completion` request shares the existing judge, provider and
+daily-limit boundary, learns RP-only completion markers, and requires a fresh local
+marker plus repeated unsafe-page, identity and original-entry checks. Native execution
+schemas and route-switch events still accept only password and passkey routes; explicit
+SSO parent metadata cannot enter that engine. A passkey the method chooser picked and
+the site refused (`sso/passkey-refused.ts`) ends that native login and asks its document
+to announce again, so the next choice leaves the passkey out instead of falling back to
+the password. See the
+[implementation boundary](adr/0026-sign-in-through-identity-providers.md#implementation-2026-11-12-scoped-coordinator)
+for supported effects and current verification limits.

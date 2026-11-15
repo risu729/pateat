@@ -1,9 +1,11 @@
 # ADR 0026: Signing in to a site through an identity provider
 
-Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented apart
-from account choice and the local discovery / declarative generation foundations
+Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; the scoped
+coordinator is implemented and checked with synthetic packaged fixtures, following
+account choice and the local discovery / declarative generation foundations
 ([2026-11-12 amendment](#amendment-2026-11-12-declarative-sso-entry-generation)). The
-owner set it as low priority: this record fixes the direction, and implementation waits.
+owner initially set it as low priority; the current implementation is described in the
+[coordinator note](#implementation-2026-11-12-scoped-coordinator).
 Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
 by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
@@ -163,7 +165,10 @@ match is such an item, nothing changes. Picks, saved defaults, the lists the tab
 later or a paused site offers, hidden usernames and the chooser's comparisons still see
 every match. Until the `sso` route exists, a pick or the only match of such an item runs
 the password route, which stops with `no-route` when the item holds no password and no
-passkey.
+passkey. Since the `sso` route exists, such items are counted again only where it can
+log in by itself (`ssoRunsOn`): with SSO on, on a top-level sign-in page set to **Auto**
+that is not a confirmation page, not only filled and not paused. Elsewhere they still
+are not counted, so the site's own item logs in rather than the tab asking.
 
 ## Amendment 2026-11-12: declarative SSO entry generation
 
@@ -246,3 +251,254 @@ last-layout revocation rule. They never acquire fill slots or a native submissio
 The method chooser, local mapping UI, same-tab RP/IdP coordinator, IdP intermediate-page
 handling and final RP authentication remain the next required implementation. This
 amendment does not claim end-to-end, packaged-browser or real-account compatibility.
+
+## Implementation 2026-11-12: same-tab operation primitives
+
+The coordinator now has separate content inspection, preparation and single-use commit
+commands, a memory-only parent-flow model and a secret-free session intent journal. An
+intent is durable before a commit can authorize a click; restored intents only hold an
+interrupted tab and never recreate execution authority. Inspection refuses new browsing
+contexts, unsafe account-creation or permission pages, and non-HTTP destinations. IdP
+account comparison requires a complete local identifier without masked or folded
+aliases. Continue and stay-signed-in are finite local classifications with exact account
+evidence, never authorization inferred from a Continue label alone.
+
+The scope checks both selected vault snapshots, current source and mapping, current
+top document and policy, and a synchronous recipe-cache fence after awaited work.
+Each origin retains its own item's full-URI destination rule; only the prepared RP
+entry may cross to the one selected IdP origin. Concurrent requests consume an intent
+once. Child-attempt identity is immutable and survives parent cancellation so late
+callbacks can remain excluded from IdP default and authentication-proof writes.
+
+These are lower-level primitives and recipe/generation adapters. Admission, parent/child
+lifecycle integration and confirmed RP-return completion are still being implemented;
+this checkpoint enables no automatic SSO effect. Synthetic checks are separate evidence
+from packaged execution and real-account compatibility, neither of which is claimed.
+
+## Implementation 2026-11-12: scoped coordinator
+
+The extension now connects the local method chooser to a same-tab coordinator. Its
+parent stores the original RP account, selected method and exact IdP account/origin in
+memory; the native execution map contains only the IdP child. The child retains its
+ordinary account/document origin invariant, full URI rules and credential checks. An
+immutable child identity suppresses IdP defaults, account picks, authentication proofs,
+login history success and automatic relogin counts even after the parent is cancelled.
+
+The coordinator resolves the mapping before pressing an entry. Account selection
+includes SSO-only items. Automatic method order is passkey, unsuffixed SSO, then
+password; numbered methods require an explicit choice. A current-page manual request
+offers an explicit method choice. It may use SSO only under existing automatic
+permission on both origins and without a pause; its one-page grant never expands to the
+IdP. Frames, extra origins, new contexts, nested SSO, consent, sharing and account
+creation stop the flow.
+
+IdP account choices require the full exact identifier. Continue and stay-signed-in need
+finite local evidence tied to that identifier. Only the original RP's positive identity
+or freshly observed signed-in marker completes the parent. The URL form's username is an
+IdP identifier and is never treated as the RP's own identity. Its return therefore needs
+an RP marker or a marker learned by the dedicated RP-return judge. The judge uses the
+existing provider abstraction and the per-recipe daily judgement limit; it receives only
+a redacted RP observation and recipe/layout identity. Its marker is stored separately
+from SSO entry provenance and rechecked locally. A cached verdict alone is insufficient.
+
+Each effect rechecks policy, pauses/private-window settings, source and selected item,
+vault snapshots, session and exact document, recipe epochs and observed destinations.
+Pointer events and the final click have separate single-use authorizations; policy,
+vault and recipe epochs are checked again after the pointer's awaited page tasks.
+Unknown acknowledgements and worker restart never replay an entry. Persisted intents
+become interrupted holds. Cancellation withdraws authority, while the child association
+remains available to suppress late callbacks. Its opaque parent/attempt exclusion tag is
+durable without restoring authority. An allowed RP return detaches that child and
+releases its IdP origin hold while retaining submission diagnostics; it supplies no
+ordinary IdP recent success, default or authentication proof. Native fill-only and
+confirmation flows start no SSO effect.
+
+Packaged synthetic checks exercise popup mapping, the actual RP entry, encrypted IdP
+passwords and passkeys, finite intermediate pages, service generation/cache and original
+RP completion. They also check interruption and refusal without changing the IdP default
+or creating an IdP authentication proof. This evidence does not establish real-account
+or installed-user-browser compatibility.
+
+## Review hardening 2026-11-12: finite IdP actions and local labels
+
+A prepared finite IdP action carries the selected native username and action kind only
+in short-lived content-script memory. Preparation and every pointer/final-click guard
+repeat the exact account reading and target comparison. This evidence is never stored
+in a journal, diagnostic, mapping, service request or recipe. An IdP operation without
+that expectation is refused, and an RP entry cannot carry it.
+
+An observed URL-form entry label passes through the same local username redaction as the
+RP observation before cache lookup or generation. Only the selected target's safe
+redacted label is used, while the exact locally selected target remains bound through
+cached and repaired layout selection. Ambiguous or unredactable labels stop the flow. A
+redacted account placeholder reads in parentheses, as `Continue as (account)`, since a
+provider label never holds brackets. Bracket-form provider labels remain the explicitly
+approved public-label exception. A repaired layout executes only after current local
+inspection, newest first; an old retained layout or an uninspectable new target cannot
+win by array position.
+
+A native child detaches its execution authority before a finite IdP action. On the same
+document a narrow attempt cancellation withdraws pending native mutations without
+cancelling SSO inspection or clicks; a different document can still be fully cancelled.
+Scope checks both the original RP pause and selected IdP pause in the original cookie
+partition. A pause request withdraws affected SSO flows before awaiting persistence or
+popup/badge work, so a later native or SSO grant cannot slip through that interval.
+
+## Review hardening 2026-11-12: pause intents during method choice
+
+A pending method choice has no parent flow to cancel yet. Before awaiting a pause
+write, the runtime therefore installs a bounded local SSO intent guard for the site's
+cookie partition. Both original RP and selected IdP guards participate in the final
+synchronous authority fence. A successful write hands enforcement to the persisted
+pause; a failed write keeps SSO blocked until a successful explicit resume or retry.
+The guard is memory-only and ordinary native pause-store behavior is unchanged.
+Concurrent writes retain their own pending tokens, so one completed write cannot
+release another pending intent. These guards carry no credentials or mappings.
+
+## Review hardening 2026-11-12: in-place IdP path changes
+
+An IdP document already held by the parent keeps reporting its existing path-change
+signal after its native child finishes. For the exact active top document, token and
+cookie partition, that signal requests normal re-admission with the browser's current
+URL. A one-use refresh permits replacing the same document's old native URL while its
+child is still awaiting a result. Concurrent signals coalesce; they grant no click or
+credential authority. The refreshed page must pass the ordinary SSO scope and finite
+IdP identity checks before the old native execution is detached. Other documents and
+ordinary native logins retain their existing admission rules. DOM-only transitions use
+the existing page-change signals; this adds no polling or separate DOM observer.
+
+## Review hardening 2026-11-15: refused passkeys and vault notices
+
+A passkey the method chooser picked and the site then refused does not go back to the
+password route of [ADR 0034](0034-answer-page-passkey-requests.md) rule 6 when the item
+has `SSO` methods. That native login ends without filling or clicking anything, its
+record and origin hold are dropped, and the same top document is asked to announce
+itself again. The tab's next automatic choice for that account, once and whichever
+document, leaves the passkey out, so it lands on the preferred SSO method or stops with
+that method's reason; an item without a preferred SSO method still gets the password. A
+passkey the person picked in the popup for a manual sign-in, and an IdP's own native
+login during a hop, fall back as before: the manual request's grant has already been
+used, and the person chose that route over the SSO method. The
+[ADR 0085 review of 2026-11-16](0085-one-item-for-native-and-sso-login.md#review-hardening-2026-11-16-a-refused-passkey-the-person-picked)
+stops the person's own pick on an item with SSO methods instead.
+
+A vault notice cancels an active parent flow only when the settings revision or the
+vault catalog differs from the one the flow started with. A status read that changes
+nothing keeps the flow, as it keeps a pending method offer.
+
+## Review hardening 2026-11-16: finite IdP steps named by the page
+
+An IdP page is a finite step only when its own title or heading names one: an account
+list (such as "Choose an account" or アカウントの選択), an account confirmation (such as
+"Confirm your account" or "Continue as" the selected account) or a stay-signed-in
+question. A button label such as Continue or Next never makes a page one, so a "Verify
+it's you" challenge or any other page waits for nothing and stops. Wording that shares
+the account with an app or grants it access stops the flow on such a page in any tense
+or order: share, shares, shared or sharing, wants to access, access to your, allow an
+app to, to continue to an app, and 共有, 許可, アクセス or an app に移動 in Japanese. An
+account list that names its destination app is therefore a sharing list. The IdP's own
+sign-in form is still read as its native login first.
+
+A word list cannot name every way of saying what an app receives, so an account
+confirmation is also checked by what else it shows. Besides the heading that names it,
+the account's identifier, the control pressed, one language picker and a few controls
+that stand alone and offer another account, leaving, or the IdP's help, privacy and
+terms, it may show only a few letters, such as "Not you?" or a short footer line. Those
+are set aside as whole elements, never by matching their words elsewhere, and a control
+inside a sentence leaves the sentence whole. The control pressed is set aside whole
+only when it says no more than a label and the account; otherwise only its label is. A
+language picker is a closed dropdown or combo box showing one short choice; a list box
+shows every option, so its options count. Any more text makes it no finite step,
+whatever it says and wherever it is: another heading, or a link or an element that acts
+as a button with any other label. Text the page shows outside its own text cannot be
+counted, so it stops a confirmation outright: generated content or a list marker whose
+quoted strings have letters, also on an element with no box of its own, quotation marks
+set with letters, a counter in a lettered style such as lower-alpha or upper-roman, a
+shadow root with letters, a visible frame, an image that failed and shows its
+alternative text, an image button with alternative text, or an input button with any
+other label. Only quoted strings count in generated content, so an icon drawn with
+url(), a numbered counter or the usual quotation marks do not. An image still loading
+shows nothing yet; the page is read again just before the press, which catches one that
+fails by then.
+
+The allowance is 16 letters. It is room for the short lines real confirmations show,
+such as "Not you?" or a copyright line, not a reading of them, so a phrase as short as
+"Gets your email" still passes. That is accepted: the page has already named the account
+in its heading, sharing and access wording is caught by the word list, and an app's
+list of what it receives does not fit in 16 letters.
+
+An account list's entry is read as rendered, so a tile's name, account and state lines
+stay apart. Receive, provide, send and get access, and 取得, 受け取, 提供 and 送信 in
+Japanese, count as sharing wording too. "Welcome back" and "Use this account" are not
+confirmation headings, since neither names the account. Stay-signed-in questions and
+account lists keep their own rules.
+
+## Review hardening 2026-11-16: interrupted holds
+
+An ended flow leaves an interrupted hold only when it may have spent its entry: a click
+intent was made durable or pressed, or the tab had already reached the IdP. A flow that
+stopped before that, as when preparing its entry failed, leaves none. After a worker
+restart every flow the journal still names becomes a hold, since what it did last is
+unknown; a flow that was still running is held from the restart, not from when it was
+written. A hold waits only for automatic logins on the flow's RP and IdP origins in that
+tab; other origins and frames are not held. It ends when the tab's top document goes to
+another origin, when the person starts a login there, when the tab closes or is
+replaced, or ten minutes after it was made. The session journal
+keeps at most 100 records: a fuller journal on restart keeps its newest records, and a
+write drops the oldest holds instead of failing.
+
+## Review hardening 2026-11-16: the RP return comes after the IdP
+
+An RP page is the flow's return only once the tab has reached the IdP. Before that, the
+original page and any RP page on the way to the IdP wait, and a new RP page before the
+entry was pressed ends the flow. The original RP document showing again after the IdP
+was reached comes back from the back/forward cache: the person left, so the flow ends
+and no longer holds the RP and IdP in other tabs.
+
+An IdP with an existing grant and session often sends the tab straight back with no page
+of its own, so no IdP document is ever seen. Once the RP entry's click was spent, a new
+RP page is therefore a possible return even before the IdP was reached. It completes
+only on the page's own evidence, and the RP-return judge is not asked there. Nothing
+showed which IdP account signed in, and the IdP may hold another of the person's
+accounts, so a bracket-form method needs the RP to show the selected identity itself;
+a marker alone is not enough. A URL-form method, which has no RP identity to compare,
+may complete on a native or learned marker, but only as an unconfirmed sign-in: it
+saves no account choice or default, keeps no session pick
+([ADR 0063](0063-switch-accounts-from-the-popup.md)) and leaves no confirmation proof.
+Without such evidence the flow keeps waiting, as on an RP page on the way to the IdP. A
+page that shows the site's sign-in again (its SSO entry, a password form or a rejected
+sign-in) or another account means the IdP refused at once, as a failed silent sign-in
+or a revoked grant does, and ends the flow. Only an entry read as shown counts: a page
+that cannot be read, as one moving on while it is read, keeps the flow waiting. A **Log
+in now** the person starts on the RP also ends it, so an RP page never waits for a flow
+the person has moved past; the page that asked is not cancelled and goes on with that
+login. The popup offers it on the flow's top RP page only while the flow just waits:
+its entry was spent and the tab came back, or its IdP login finished, and no entry,
+step or admission of the page is in flight. While the tab is at the IdP, or something
+is in flight, the request is refused as a running login
+([ADR 0088](0088-popup-manual-login.md)).
+
+## Review hardening 2026-11-16: settings an SSO flow depends on
+
+A settings change or a vault notice ends an active parent flow only when something the
+flow depends on changed: either account's eligibility, item or connection snapshot, the
+RP and IdP pages' sign-in permission, exclusion, allow list or master-password ask,
+private-window pausing, or the two origins' saved defaults. A newer revision that
+changes none of these, as another site's account choice or a sync of unrelated settings,
+carries the flow over to it, and each scope check compares the same things rather than
+the revision. Every effect still checks the current settings before it acts. The IdP's
+own native login, while it runs, stops on any settings change as every native login
+does ([ADR 0027](0027-per-account-login-routes.md)), which ends the flow with it.
+
+## Known limits 2026-11-16
+
+- **A layout full of unseen markers.** An SSO layout keeps at most four RP-return
+  markers. When all four are kept and a return shows none of them, the page is no longer
+  sent to the RP-return judge, so no fifth marker is learned. A URL-form method, whose
+  return needs a marker, then never completes on that layout until its recipe is revoked
+  or ages out and is generated again. A bracket-form method still completes on the
+  selected identity.
+- **Settings changes during the IdP's own login.** The IdP's native login stops on any
+  settings change, as every native login does
+  ([ADR 0027](0027-per-account-login-routes.md)), and the flow ends with it, even when
+  the change does not touch anything the flow depends on.

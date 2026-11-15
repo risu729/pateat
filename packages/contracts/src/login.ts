@@ -1362,6 +1362,7 @@ const storedChooserSchema = v.strictObject({
 export const loginSsoRoutesSchema = createSsoRoutesSchema({
   path,
   target: loginTargetSchema,
+  marker: loginMarkerTargetSchema,
   key: recipeLayoutKeySchema,
   language: recipeLanguageSchema,
   layouts: MAX_RECIPE_LAYOUTS,
@@ -2073,7 +2074,7 @@ export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
   ];
   return [...new Set(routes.flatMap(recipeSlots))];
 }
-export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
+export type LoginRoute = v.InferOutput<typeof loginRouteSchema> | "sso";
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
 
 /**
@@ -2081,7 +2082,6 @@ export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
  * `variant` indexes the password route's variants: 0 is the recipe's own `slots` and
  * `steps`, 1 to 3 its `alternatives`. The `passkey` route has no variants.
  */
-// The `sso` route of ADR 0027 adds its own member here.
 export type LoginRouteChoice = { route: "password"; variant: number } | { route: "passkey" };
 /** One identifier set of the password route: the slots it fills and its steps. */
 export type PasswordVariant = { slots: string[]; steps: LoginStep[] };

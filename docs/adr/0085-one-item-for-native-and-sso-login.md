@@ -2,12 +2,15 @@
 
 Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 「これはそのまま反映していいです」, the proposal of
-[#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not
-implemented as a complete route. Amended on 2026-11-12 by the local discovery
+[#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not verified
+on real accounts; the scoped route is implemented and checked with synthetic packaged
+fixtures. Amended on 2026-11-12 by the local discovery
 [amendment](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
 the
 [local mapping and method choice](#amendment-2026-11-12-local-mapping-and-method-choice)
-adds the popup boundary; execution remains unimplemented. Also amended by the
+adds the popup boundary; the
+[coordinator integration](#implementation-2026-11-12-coordinator-integration) connects
+execution. Also amended by the
 [label-only generation implementation](#amendment-2026-11-12-label-only-declarative-route-generation).
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
@@ -18,8 +21,8 @@ implementation details and were accepted with it. Amends
 used, field rules and item-wide exclusions) and
 [ADR 0027](0027-per-account-login-routes.md) (the `sso` fact, the route order, the
 custom-field offers and what the model receives), each in a dated amendment section. The
-`sso` route itself is still unimplemented (ADR 0027 delivery 5); the reserved field
-names are implemented
+`sso` route is now implemented (ADR 0027 delivery 5), with real-account compatibility
+still open; the reserved field names are implemented
 ([amendment](#amendment-2026-11-07-the-reserved-field-names-implemented)).
 
 Date: 2026-11-07
@@ -385,5 +388,38 @@ then consumes it with fresh validation just before its own document-scoped opera
   offer. A request that fails while preparing ends with `unavailable`, and the popup
   sees an offer only after its automatic decision. A worker restart discards them.
 
-This layer performs no click, navigation, credential release, service request or
-real-account operation. SSO execution and real-site compatibility remain open.
+This layer itself performs no click, navigation, credential release, service request or
+real-account operation; the coordinator below does, under its own fences.
+
+## Implementation 2026-11-12: coordinator integration
+
+The local chooser now feeds the same-tab coordinator described in
+[ADR 0026](0026-sign-in-through-identity-providers.md#implementation-2026-11-12-scoped-coordinator).
+The bracket form keeps the RP account's native credentials and identity. The URL form
+keeps its legacy IdP-username meaning and requires positive RP marker evidence on
+return; that username is not a guessed RP identity. One exact observed URL entry can be
+chosen locally; ambiguous or JavaScript-only entries need the popup's explicit
+selection. Only the chosen method's public label and redacted RP candidates reach
+generation. Malformed, unavailable or unresolved preferred methods never silently choose
+a native password. Completion stores only the RP's confirmed account choice and proof. A
+passkey the automatic choice picked and the site refused ends that native login without
+the password, and the tab's next choice leaves the passkey out, as **A refused passkey**
+above says. A passkey the person picked explicitly kept rule 6 until the
+[review of 2026-11-16](#review-hardening-2026-11-16-a-refused-passkey-the-person-picked).
+
+Synthetic packaged execution uses encrypted fixtures. The owning plan retains the
+installed-user-browser and real-account gates. Implementation does not migrate an
+account, create an account, or authorize a new grant.
+
+## Review hardening 2026-11-16: a refused passkey the person picked
+
+Chosen in review, not confirmed by the owner. On an item with SSO methods, a passkey
+the person picked for **Log in now** and the site refused no longer goes back to the
+password either: that native login stops without filling or clicking anything, and the
+popup's next method choice for that account leaves the passkey out, so the person
+chooses an SSO method or the password again. Nothing chooses a method by itself after
+the person's own pick. Only an item with no SSO method, and an IdP's own login during an
+SSO hop, keep [ADR 0034](0034-answer-page-passkey-requests.md) rule 6. Either way, only
+the login the native choice itself started counts: the choice names that login when it
+starts on the choice's own document, and a later login of the same account in the tab
+falls back as any native login does.

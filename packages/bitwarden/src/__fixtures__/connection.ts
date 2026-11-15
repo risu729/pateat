@@ -2,6 +2,7 @@
 // independent Node AES-CBC/HMAC vectors already exercised against the real SDK.
 // Variants change valid ciphertext DTOs, not decryption mocks or real accounts.
 import { accountNow, rawV1Account, syntheticJwt } from "./account";
+import { rawSsoAccount } from "./sso-account";
 import {
   customFieldCiphertexts,
   fidoCredential,
@@ -24,11 +25,31 @@ export type CustomAccountVariant =
   /** The login also stores the URI `https://synthetic.example.test/login` (default match). */
   | "uri"
   /** As `uri`, and the login also stores the TOTP key `bitwardenTotpSecret` (./totp). */
-  | "uri-totp";
+  | "uri-totp"
+  /** A relying party and exact provider account, plus an unrelated saved default. */
+  | "sso"
+  /** The same provider uses exact URI matching for the login path. */
+  | "sso-exact-uri"
+  /** The exact provider item also holds the existing synthetic FIDO2 key. */
+  | "sso-passkey"
+  /** The provider owns two origins; one mapping must never grant both. */
+  | "sso-sibling-uri";
 export function rawCustomAccount(
   variant: CustomAccountVariant = "unchanged",
   nowSeconds = accountNow,
 ) {
+  if (
+    variant === "sso" ||
+    variant === "sso-exact-uri" ||
+    variant === "sso-passkey" ||
+    variant === "sso-sibling-uri"
+  )
+    return rawSsoAccount(
+      variant === "sso-exact-uri",
+      nowSeconds,
+      variant === "sso-passkey",
+      variant === "sso-sibling-uri",
+    );
   const raw = rawV1Account();
   const text =
     variant === "reencrypted" ? reencryptedCustomFieldCiphertexts : customFieldCiphertexts;

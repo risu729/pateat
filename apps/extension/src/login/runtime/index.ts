@@ -1,3 +1,5 @@
+import { ssoScope } from "./sso-scope";
+import { installSsoLifecycle, ssoVaultChanged } from "./sso/flow";
 import * as v from "valibot";
 import { parseAttemptMetadata, recoverLoginAttempt, type LocalSettings } from "@pateat/contracts";
 import { browser, type Browser } from "wxt/browser";
@@ -98,6 +100,19 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     }): Promise<string | undefined> {
       await rt.vars.loaded;
       await rt.vars.sessionLoaded;
+      const sso = rt.sso.flows.get(input.tabId);
+      if (sso) {
+        if (input.origin !== sso.selected.origin) return "sso-in-progress";
+        await rt.admitting.get(`${input.tabId}:0`);
+        const child = rt.attempts.get(input.tabId);
+        if (
+          !child ||
+          child.metadata.id !== sso.childId ||
+          child.live.document.documentId !== input.documentId ||
+          !(await ssoScope(rt, sso, child.live))?.()
+        )
+          return "sso-child-not-ready";
+      }
       const snapshot = await settings.handle({ version: 1, type: "settings.get" });
       if (!snapshot.ok) return "settings-unavailable";
       if (
@@ -125,8 +140,14 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     handle: (message: unknown, sender: Sender) => handle(rt, message, sender),
     /** Local chooser seam for the SSO coordinator; it never executes a login. */
     ssoChoices: rt.ssoChoices,
-    /** Withdraws the SSO offers whose vaults really changed; a status read keeps them. */
-    vaultStateMayChange: () => rt.ssoChoices?.vaultStateMayChange() ?? Promise.resolve(),
+    /**
+     * Ends the SSO flows and withdraws the SSO offers whose vaults really changed; a status
+     * read keeps them.
+     */
+    vaultStateMayChange: async () => {
+      await ssoVaultChanged(rt);
+      await rt.ssoChoices?.vaultStateMayChange();
+    },
     settingsChanged: (source: "synced" | "saved") => settingsChanged(rt, source),
     siteCount,
     /** A site default was saved outside the settings page, as by the passkey chooser. */
@@ -393,6 +414,7 @@ function startRuntime(rt: Runtime) {
     rt.vars.appliedPolicy ??= await pausingSettings(rt);
   })();
 
+  installSsoLifecycle(rt);
   browser.tabs.onRemoved.addListener((tabId) => forgetTab(rt, tabId, true));
 
   // A top-level navigation ends a pending one-time request at once (ADR 0088). Checked

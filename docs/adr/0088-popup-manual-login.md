@@ -34,6 +34,12 @@ which is unnecessary for one requested login.
   repeated-login asks, and safely ended or settled attempt records for this one login. A
   settled record can be retried only while no operation is running. Active
   reconciliation still blocks the request. It does not alter another tab's record.
+  An SSO flow that only waits on its relying party's page is not active
+  reconciliation: once its entry was spent and the tab came back, or its IdP login
+  finished, with nothing written, pressed or admitted in flight, the tab's top RP
+  page is offered and the request ends the flow as stopped before its login starts
+  there ([ADR 0026](0026-sign-in-through-identity-providers.md)). While the tab is at
+  the IdP, or an entry or the flow's own step is in flight, the request is refused.
   Active operations, challenge
   watches and account switches remain protected from concurrent logins.
 - A missing recipe or an earlier non-login judgement is evaluated through the normal

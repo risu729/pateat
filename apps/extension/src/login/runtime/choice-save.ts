@@ -1,4 +1,6 @@
 import * as v from "valibot";
+import { ssoChildOn } from "./sso-scope";
+import { ssoChild } from "./sso-state";
 import {
   getItemEligibility,
   isFieldExcluded,
@@ -43,6 +45,10 @@ import type { Runtime } from "./state";
  * again.
  */
 export async function remember(rt: Runtime, run: Execution): Promise<void> {
+  if (ssoChild(rt.sso, run.metadata)) {
+    delete run.choice;
+    return;
+  }
   const choice = run.choice;
   delete run.choice;
   const { account: used } = run.metadata;
@@ -186,8 +192,14 @@ export async function choose(
   fill = false,
   /** The recipe's inputs for the `username` slot on the document's path. */
   accountTargets: readonly LoginFieldTarget[] = [],
+  /** The page confirms a signed-in session rather than signing in (ADR 0035). */
+  confirm = false,
 ): Promise<Choice | Refusal> {
   await rt.vars.sessionLoaded;
+  const child = ssoChildOn(rt, live.document);
+  if (child) return { ...child.selected.account, source: "match", saved: false };
+  const native = rt.sso.native.get(live.document.tabId);
+  if (native && sameLoginDocument(native.document, live.document)) return native.chosen;
   // An account switch's pick (ADR 0063) wins for the tab's next login page of its site,
   // over an older pick, a logout's asking and the saved default: it becomes the pick of
   // this document, and of the login it starts, which ends the switch's pick.
@@ -332,7 +344,9 @@ export async function choose(
   delete live.autoChoice;
   const found = await siteCandidates(rt, snapshot, live);
   if ("reason" in found) return { reason: found.reason };
-  const candidates = ownLogins(snapshot, found.candidates);
+  const candidates = ssoRunsOn(rt, snapshot, live, { paused, fill, confirm })
+    ? [...found.candidates]
+    : ownLogins(snapshot, found.candidates);
   if (candidates.length > 1) {
     // The account the page itself put into the recipe's account input picks one of them,
     // for this document and the login it starts only, and is never saved (ADR 0028
@@ -403,6 +417,29 @@ export async function choose(
  * picks, defaults, the asked and paused lists, username hiding and the chooser's
  * comparisons still see every match.
  */
+/**
+ * Whether the SSO route could log in on this page by itself (ADR 0026): with SSO on, on a
+ * top-level sign-in page set to log in automatically, unpaused and not only filled. Only
+ * there does an item that signs in only through an IdP count among the site's accounts
+ * when several match; elsewhere it could not log in, so the site's own item does.
+ */
+export function ssoRunsOn(
+  rt: Runtime,
+  snapshot: Extract<SettingsResponse, { ok: true }>,
+  live: LiveDocument,
+  page: { paused: boolean; fill: boolean; confirm: boolean },
+): boolean {
+  return (
+    !!rt.options.sso &&
+    !!rt.ssoChoices &&
+    !page.paused &&
+    !page.fill &&
+    !page.confirm &&
+    live.document.frameId === 0 &&
+    signInPermission(snapshot.snapshot.settings, live).permission === "auto"
+  );
+}
+
 export function ownLogins(
   snapshot: Extract<SettingsResponse, { ok: true }>,
   candidates: readonly LiveSiteCandidate[],

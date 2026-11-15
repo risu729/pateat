@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { createSsoBridge, ssoBridged } from "./content-sso-bridge";
 import { sameLoginTarget, type LoginMarkerTarget, type LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { comparableAccounts, formAccounts, showsOtherAccount } from "../page/accounts";
@@ -68,7 +69,7 @@ import {
   destinationWatch,
   passiveRecheck,
 } from "./sign-in-fill-page";
-import { documentLoaded } from "../page/document-load";
+import { documentLoaded, navigationStatus } from "../page/document-load";
 import { breaksQuiet, pageWatch, settled } from "../page/quiet";
 import {
   extractAccountListObservation,
@@ -381,22 +382,6 @@ function showsSignIn(): boolean {
   });
 }
 /**
- * The HTTP status of this document's own load, when the browser reports one (ADR 0041); a
- * status the page cannot see, as for a cached or cross-origin redirected load, reads as 0
- * and is left out.
- */
-function navigationStatus(): number | undefined {
-  try {
-    const [entry] = performance.getEntriesByType("navigation") as (PerformanceEntry & {
-      responseStatus?: number;
-    })[];
-    const status = entry?.responseStatus;
-    return typeof status === "number" && status >= 100 && status <= 599 ? status : undefined;
-  } catch {
-    return undefined;
-  }
-}
-/**
  * The sign-in inputs the page shows that a generated recipe can continue on after its final
  * `advance` step (ADR 0018), other than the inputs the recipe's own `targets` each find
  * alone: `password`, a visible writable password input; `identifier`, a visible writable
@@ -526,6 +511,15 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = newId();
   let cancelled = false;
+  const sso = createSsoBridge(
+    document,
+    token,
+    () => cancelled,
+    (attemptId) => {
+      if (pendingSwitch?.attemptId === attemptId) pendingSwitch = undefined;
+      if (filledAttempt === attemptId) forgetAttempt();
+    },
+  );
   // Ends every wait for a change of the page once `cancelled` is set.
   const waits = new AbortController();
   // Ends the running `login.extract.watch`, once another replaces it or the login cancels.
@@ -557,6 +551,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   let chosen: [HTMLSelectElement, HTMLOptionElement][] = [];
   let shownBefore: WeakSet<HTMLInputElement> | undefined;
+  const forgetFills = () => {
+    filled = new WeakSet();
+    chosen = [];
+    shownBefore = undefined;
+  };
   // The submit buttons this document showed when a fill began, which Enter never presses
   // (ADR 0064). A fill whose fields already hold values adds none once one fill has, so a
   // button such a page shows only for a value is not taken as one the model saw.
@@ -579,10 +578,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         otherSwitch?: true;
       }
     | undefined;
+  const forgetAttempt = () => {
+    forgetFills();
+    if (deferredAccount) deferredAccount.username = "";
+    deferredAccount = undefined;
+  };
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
         operationId: string;
+        attemptId: string;
         element: HTMLElement;
         /** Finds the switch again: the recipe's target, or the page's own controls. */
         find: () => Element[];
@@ -1214,6 +1219,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const parsed = v.safeParse(commandSchema, message);
     if (!parsed.success || parsed.output.token !== token) return false;
     const command = parsed.output;
+    if (ssoBridged(command)) return sso.handle(command, respond);
     if (command.type === "login.detail.question") {
       const found = cancelled || pagePath() !== command.path ? [] : matches(command.target);
       const input = found.length === 1 ? found[0] : undefined;
@@ -1407,7 +1413,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
       // The switch is withdrawn only when the page got no press: one the page stopped after
       // `pointerdown` may already have switched.
-      const pressing = () => !cancelled && pagePath() === pending.path;
+      const pressing = () => !sso.cancelled(pending.attemptId) && pagePath() === pending.path;
       void pressElement(pending.element, pressing).then(
         (pressed) => {
           respond({ ok: pressed !== "missed" });
@@ -1824,6 +1830,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     let siblingsBefore: TargetState[][] | undefined;
     void (async () => {
       const operation = command.operation;
+      const nativeCancelled = () => sso.cancelled(operation.attemptId);
       let mutated = false;
       // A key of the page's keypad was pressed (ADR 0067).
       let keyPressed = false;
@@ -1878,13 +1885,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               destination,
             }),
           () =>
-            cancelled
+            nativeCancelled()
               ? "document-cancelled"
               : Date.now() >= operation.expiresAt
                 ? "operation-expired"
                 : undefined,
         );
-      if (cancelled) return fail("cancelled", "document-cancelled");
+      if (nativeCancelled()) return fail("cancelled", "document-cancelled");
       if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
       if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
       // The document's own origin, opaque ("null") in a sandboxed document whatever its URL.
@@ -1897,11 +1904,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return fail("cancelled", "not-authorized");
       // Another attempt in this document starts from nothing filled.
       if (operation.attemptId !== filledAttempt) {
-        filled = new WeakSet();
-        chosen = [];
-        shownBefore = undefined;
-        if (deferredAccount) deferredAccount.username = "";
-        deferredAccount = undefined;
+        forgetAttempt();
         filledAttempt = operation.attemptId;
       }
       // The page shows another account: its switch, the recipe's or the page's own (ADR
@@ -1924,6 +1927,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (find && element instanceof HTMLElement) {
           pendingSwitch = {
             operationId: operation.operationId,
+            attemptId: operation.attemptId,
             element,
             find,
             path: pagePath(),
@@ -1964,7 +1968,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           addEventListener("load", done);
           waits.signal.addEventListener("abort", done);
         });
-        if (cancelled) return fail("cancelled", "document-cancelled");
+        if (nativeCancelled()) return fail("cancelled", "document-cancelled");
         if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
         if (step.path !== pagePath()) return fail("cancelled", "page-changed");
         return undefined;
@@ -2103,7 +2107,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               accountQuietMs,
               Math.min(Date.now() + accountWaitMs, operation.expiresAt - accountReserveMs),
             );
-            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (nativeCancelled()) return fail("cancelled", "document-cancelled");
             if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
             if (step.path !== pagePath()) return fail("cancelled", "page-changed");
           }
@@ -2320,7 +2324,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             const value = command.values.find((entry) => entry.slot === field.slot)!;
             if (!passiveCurrent()) return fail("cancelled", "form-changed");
             if (
-              cancelled ||
+              nativeCancelled() ||
               pagePath() !== step.path ||
               current.length !== 1 ||
               current[0] !== input ||
@@ -2331,7 +2335,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             )
               return fail(
                 "cancelled",
-                cancelled
+                nativeCancelled()
                   ? "document-cancelled"
                   : pagePath() !== step.path
                     ? "page-changed"
@@ -2383,7 +2387,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 // The page's handlers for an earlier digit may have changed this input; the
                 // same checks run after each wait of the digit's own typing.
                 const scope = () =>
-                  cancelled
+                  nativeCancelled()
                     ? "document-cancelled"
                     : pagePath() !== step.path
                       ? "page-changed"
@@ -2441,7 +2445,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 // A keypad the page redrew is looked up again for each press; the field
                 // must stay the same input.
                 between: () => {
-                  if (cancelled) return "document-cancelled";
+                  if (nativeCancelled()) return "document-cancelled";
                   if (pagePath() !== step.path) return "page-changed";
                   if (!input.isConnected) return "field-gone";
                   const now = matches(field.target);
@@ -2474,7 +2478,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               if (
                 command.choose &&
                 (!chooseFor(input) ||
-                  cancelled ||
+                  nativeCancelled() ||
                   pagePath() !== step.path ||
                   !isOnly(matches(field.target), input) ||
                   !takes(input, value.secret) ||
@@ -2494,7 +2498,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 {
                   beforeInput: buttonless ? lastIn : code?.typed,
                   between: () => {
-                    if (cancelled) return "document-cancelled";
+                    if (nativeCancelled()) return "document-cancelled";
                     if (!passiveCurrent()) return "form-changed";
                     if (operation.signInFill && !fillUntouched(window, input))
                       return "field-changed";
@@ -2530,24 +2534,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             value.value = "";
           }
           // A fill that submits through its own event ends what the next click checks.
-          if (step.effect !== "prepare") {
-            filled = new WeakSet();
-            chosen = [];
-            shownBefore = undefined;
-          }
+          if (step.effect !== "prepare") forgetFills();
           // A code page that submits the code by itself must not get a click as well: the
           // button is clicked only when nothing showed a submission during the watch. Its
           // status regions may announce that submission, so only alerts and the field's own
           // marks reject the code (ADR 0027).
           if (code && baseline) {
             const until = Date.now() + CODE_SETTLE_MS;
-            // eslint-disable-next-line no-unmodified-loop-condition
-            while (!cancelled && Date.now() < until) {
+            while (!nativeCancelled() && Date.now() < until) {
               if (code.submitted()) return fail("submitted");
               // eslint-disable-next-line no-await-in-loop
               await pause(50);
             }
-            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (nativeCancelled()) return fail("cancelled", "document-cancelled");
             if (code.submitted()) return fail("submitted");
             const rejection = fillRejection(split ?? writableInputs, baseline, { statuses: false });
             if (rejection)
@@ -2562,7 +2561,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // the values first. An effectful fill has already submitted through its event.
           if (baseline) {
             await pause(fillSettleMs);
-            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (nativeCancelled()) return fail("cancelled", "document-cancelled");
             // The page replaced the form, perhaps signing in by itself; the background
             // observes the page instead of clicking.
             if (writableInputs.some((input) => !input.isConnected))
@@ -2643,9 +2642,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const choices = chosen;
         const passwordsBefore = shownBefore;
         // The next fills are checked against the next click.
-        filled = new WeakSet();
-        chosen = [];
-        shownBefore = undefined;
+        forgetFills();
         // A select a split date's part was chosen in must still show that option, which
         // the form-change check below cannot read (ADR 0061).
         if (
@@ -2686,9 +2683,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // a press the page stopped after `pointerdown` may have acted as the click, so it is
         // answered as made; one the moving events already stopped clicked nothing.
         const pressing = () =>
-          !cancelled && pagePath() === step.path && Date.now() < operation.expiresAt;
+          !nativeCancelled() && pagePath() === step.path && Date.now() < operation.expiresAt;
         if ((await pressElement(element, pressing)) === "missed")
-          return cancelled
+          return nativeCancelled()
             ? fail("cancelled", "document-cancelled")
             : pagePath() !== step.path
               ? fail("cancelled", "page-changed")
@@ -2709,8 +2706,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           : fail("structural-mismatch", "assert-failed");
       const until = Math.min(operation.expiresAt, Date.now() + step.timeoutMs);
       // Cancellation is set by the independent background message listener.
-      // eslint-disable-next-line no-unmodified-loop-condition
-      while (!cancelled && Date.now() < until && pagePath() === step.path) {
+      while (!nativeCancelled() && Date.now() < until && pagePath() === step.path) {
         if (satisfied()) return { ok: true, mutation: "none" };
         // Check the current DOM serially, again at each change of the page; parallel checks
         // cannot observe later render states.
@@ -2718,7 +2714,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         await pageChange(document, until, waits.signal);
       }
       // The page moving to another path ends the wait early; that is not a timeout.
-      return cancelled
+      return nativeCancelled()
         ? fail("cancelled", "document-cancelled")
         : pagePath() !== step.path
           ? fail("timeout", "page-changed")
@@ -2877,7 +2873,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const urlChanged = () => {
     if (!cancelled && pagePath() !== routePath) {
       routePath = pagePath();
-      if (carrying)
+      if (carrying || sso.carrying())
         void sendMessage("login", { version: 1, type: "login.document.moved", token }).catch(
           () => undefined,
         );
