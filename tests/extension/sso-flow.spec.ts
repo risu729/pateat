@@ -56,6 +56,33 @@ test("encrypted RP SSO maps the exact saved IdP account, executes its native rec
   });
 });
 
+test("an IdP that sends the tab straight back with no page completes on the RP's own evidence", async () => {
+  await withVaultProfile(async (open) => {
+    const browser = await open();
+    const { options, evidence, idpEvents } = await configureSso(browser, "instant");
+    const page = await browser.context.newPage();
+    await page.goto(origins.rp + "/login");
+    await chooseExample(await openSsoPopup(browser, options, page));
+    await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () =>
+        (await ssoStatus(options)).attempts.find((attempt) => attempt.route === "sso"),
+      )
+      .toMatchObject({
+        state: "authenticated",
+        outcome: "authenticated",
+        account: { origin: origins.rp, itemId: items.rp },
+      });
+    // No IdP page and no IdP credential: only the entry and the RP's return.
+    expect(evidence).toEqual({ entries: 1, posts: 0, matched: true, returns: 1, unsafeClicks: 0 });
+    expect(idpEvents).toEqual([]);
+    expect(
+      (await ssoStatus(options)).attempts.some((attempt) => attempt.account.origin === origins.idp),
+    ).toBe(false);
+    await unchangedIdpDefault(options);
+  });
+});
+
 test("an authenticated native IdP page alone neither completes the RP nor grants confirmed-page fill on the IdP", async () => {
   await withVaultProfile(async (open) => {
     const browser = await open();

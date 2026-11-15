@@ -418,6 +418,13 @@ entry was pressed ends the flow. The original RP document showing again after th
 was reached comes back from the back/forward cache: the person left, so the flow ends
 and no longer holds the RP and IdP in other tabs.
 
+An IdP with an existing grant and session often sends the tab straight back with no page
+of its own, so no IdP document is ever seen. Once the RP entry's click was spent, a new
+RP page is therefore a possible return even before the IdP was reached. It completes
+only on the page's own evidence: the selected identity, a native signed-in marker or a
+learned SSO marker. The RP-return judge is not asked there, and without that evidence
+the flow keeps waiting, as on an RP page on the way to the IdP, rather than ending.
+
 ## Review hardening 2026-11-16: settings an SSO flow depends on
 
 A settings change or a vault notice ends an active parent flow only when something the

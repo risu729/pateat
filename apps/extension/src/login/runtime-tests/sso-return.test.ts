@@ -561,7 +561,7 @@ describe("RP completion persistence boundaries", () => {
 
 describe("an RP page before and after the IdP is reached", () => {
   it.each(["prepared", "entering-idp"] as const)(
-    "never completes with an RP page while the flow is %s",
+    "never completes with an RP page while the flow is %s before its entry is spent",
     async (phase) => {
       const h = harness({ ok: true, identity: "match" }, true);
       await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
@@ -601,4 +601,43 @@ describe("an RP page before and after the IdP is reached", () => {
       expect(heldElsewhere(h.rt, 8, idp)).toBe(false);
     },
   );
+  const spent = (h: ReturnType<typeof harness>) => {
+    h.work.phase = "entering-idp";
+    h.work.operation = {
+      id: "entry-operation",
+      handle: "handle",
+      live: h.work.rpLive,
+      stage: "spent",
+      destinations: [idp + "/authorize"],
+    };
+  };
+  it("completes an IdP that sent the tab straight back, on the RP page's own identity", async () => {
+    const h = harness({ ok: true, identity: "match" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.work.parent?.state).toBe("authenticated");
+    expect(h.signedIn).toHaveBeenCalledWith(7, rp);
+  });
+  it("completes an IdP that sent the tab straight back, on a native RP marker", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.work.parent?.state).toBe("authenticated");
+  });
+  it("waits on an RP page without local evidence after a spent entry, asking no judge", async () => {
+    const h = harness({ ok: true, identity: "absent" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    const judge = vi.fn();
+    h.rt.generation = { ...h.rt.generation, judgeSso: judge } as typeof h.rt.generation;
+    spent(h);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(h.work.ended).toBe(false);
+    expect(h.work.phase).toBe("entering-idp");
+    expect(h.work.completionTried).toBeUndefined();
+    expect(judge).not.toHaveBeenCalled();
+    expect(h.signedIn).not.toHaveBeenCalled();
+    expect(h.update).not.toHaveBeenCalled();
+  });
 });

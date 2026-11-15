@@ -321,7 +321,12 @@ async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
   );
 }
 /** A return must carry positive RP authentication evidence, never just an absent form. */
-async function returned(rt: Runtime, work: SsoWork, live: LiveDocument) {
+/**
+ * Whether the RP page completes the flow. With `local`, only the page's own evidence does
+ * (the selected identity, a native marker or a learned SSO marker), and the RP-return
+ * judge is never asked.
+ */
+async function returned(rt: Runtime, work: SsoWork, live: LiveDocument, local = false) {
   if (!(await ssoScope(rt, work, live))) return false;
   let value = work.form === "url" ? undefined : await username(rt, work, live, false);
   const identity = v.safeParse(
@@ -369,7 +374,7 @@ async function returned(rt: Runtime, work: SsoWork, live: LiveDocument) {
   );
   if (identity.output.identity === "match" || marker || (await ssoMarkerShown(rt, work, live)))
     return completeSso(rt, work, live);
-  if (work.completionTried || !work.recipe || !work.layout || !rt.generation?.judgeSso)
+  if (local || work.completionTried || !work.recipe || !work.layout || !rt.generation?.judgeSso)
     return false;
   work.completionTried = true;
   const page = await ssoObservation(rt, live);
@@ -661,9 +666,17 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   if (ctx.document.origin === work.account.origin) {
     const original = ctx.live.document.documentId === work.rpLive.document.documentId;
     if (work.phase === "prepared" || work.phase === "entering-idp") {
-      // Before the IdP is reached no RP page is the return: the original page waits while
-      // its entry is pressed, and so does an RP page on the way to the IdP. A new page
-      // before anything was pressed ends the flow.
+      // An IdP with an existing grant and session can send the tab straight back, so no
+      // IdP page is ever admitted: once the entry was pressed, a new RP page may be the
+      // return. It completes only on the page's own evidence, with no judge, and without
+      // it the flow waits, as an RP page on the way to the IdP does.
+      if (!original && work.phase === "entering-idp" && work.operation?.stage === "spent") {
+        if (await returned(rt, work, ctx.live, true))
+          return { ok: false as const, reason: "sso-completed" };
+        return ctx.refuse("sso-in-progress");
+      }
+      // Before that no RP page is the return: the original page waits while its entry is
+      // pressed. A new page before anything was pressed ends the flow.
       if (original || work.phase === "entering-idp") return ctx.refuse("sso-in-progress");
       cancelSso(rt, ctx.document.tabId, "sso-page-changed");
       return ctx.refuse("sso-page-changed");

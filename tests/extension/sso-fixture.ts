@@ -45,7 +45,8 @@ export type SsoScenario =
   | "rp-marker"
   | "intermediate"
   | "same-document"
-  | "same-document-dom";
+  | "same-document-dom"
+  | "instant";
 export type SsoEvidence = {
   entries: number;
   posts: number;
@@ -106,6 +107,12 @@ export async function configureSso(
     if (url.origin === origins.idp && ["/login", "/password"].includes(url.pathname)) {
       if (url.pathname === "/login") evidence.entries++;
       await idpReady;
+      // An existing grant and session: the IdP sends the tab straight back, showing no page.
+      if (scenario === "instant")
+        return route.fulfill({
+          status: 302,
+          headers: { location: origins.rp + "/callback?code=synthetic" },
+        });
       if (scenario === "intermediate" && url.pathname === "/login")
         return respond(
           '<h1>Choose an account</h1><button id=choose-exact>test_username</button><button id=choose-wrong>attacker</button><script>document.querySelector("#choose-exact").onclick=()=>fetch("/choice-exact",{method:"POST"}).then(()=>location.replace("/password"));document.querySelector("#choose-wrong").onclick=()=>fetch("/choice-wrong",{method:"POST"});</script>',
@@ -234,6 +241,8 @@ export async function configureSso(
       evidence.unsafeClicks++;
       return route.fulfill({ status: 204, body: "" });
     }
+    if (url.origin === origins.rp && url.pathname === "/callback")
+      return route.fulfill({ status: 302, headers: { location: origins.rp + "/complete" } });
     if (url.origin === origins.rp && url.pathname === "/complete") {
       evidence.returns++;
       if (scenario === "rp-marker")
