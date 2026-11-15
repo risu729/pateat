@@ -56,6 +56,17 @@ account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site
 component and default-account editor. Existing controls, keys, focus behavior and
 public exports are preserved.
 
+The toolbar popup's `popup/site-app.tsx` keeps `SiteApp`, its selection, busy and notice
+state, focus handling and the rendered sections. `site-queries.ts` owns the site's
+queries and settings subscription in one hook, `useSiteQueries`, which runs them in
+the order `SiteApp` did; `site-actions.ts` creates each render's save, pick, switch,
+pause, detail and re-prompt operations from the values `SiteApp` passes in.
+`site-accounts.tsx`, `site-details.tsx`, `site-reprompt.tsx` and `site-line.tsx` own the
+account choices, personal-detail controls, re-prompt rules and status line. Other
+modules import `popupOrigin` from `site-queries.ts`. The statements moved unchanged, so
+hook order, query keys, controls and action sequences stay the same; popup tests keep
+their files and cases.
+
 The Bitwarden settings panel keeps its public component in
 `options/bitwarden-setup.tsx`. `use-bitwarden-setup.ts` owns the page's state, actions,
 response fences, challenge heartbeat and focus effects in their original hook order and

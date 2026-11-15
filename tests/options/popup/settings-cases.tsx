@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { cleanup } from "vitest-browser-react";
-import { popupOrigin } from "../../../apps/extension/src/popup/site-app";
+import { popupOrigin } from "../../../apps/extension/src/popup/site-queries";
 import { createDefaultSettings } from "../../../packages/contracts/src/index";
 import type {
   PopupOpeningContext,
