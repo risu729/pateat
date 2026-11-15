@@ -22,7 +22,8 @@ export function restrictLocalStorage(): Promise<void> {
 export interface TrustedRecord<T> {
   /** The stored value, unvalidated; undefined when absent. */
   read(): Promise<unknown>;
-  write(value: T): Promise<void>;
+  /** Optional final fence, after the trusted-access await and immediately before mutation. */
+  write(value: T, current?: () => boolean): Promise<void>;
   clear(): Promise<void>;
 }
 
@@ -38,8 +39,9 @@ export function trustedRecord<T>(key: string): TrustedRecord<T> {
       await restrictLocalStorage();
       return (await storage.getItem<T>(local)) ?? undefined;
     },
-    async write(value) {
+    async write(value, current) {
       await restrictLocalStorage();
+      if (current && !current()) throw new Error("record-withdrawn");
       await storage.setItem(local, value);
     },
     async clear() {

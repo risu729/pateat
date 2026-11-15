@@ -1,3 +1,4 @@
+import { ssoEn } from "./sso-en";
 import { bitwardenEn } from "./bitwarden-en";
 import { bindingReviewEn } from "./binding-review-en";
 import { diagnosticsEn } from "./diagnostics-en";
@@ -5,6 +6,7 @@ import { manualEn } from "./manual-en";
 import { serviceEn } from "./service-en";
 import { settingsEn } from "./settings-en";
 export const en = {
+  ...ssoEn,
   ...manualEn,
   ...bitwardenEn,
   ...bindingReviewEn,

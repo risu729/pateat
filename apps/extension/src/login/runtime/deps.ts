@@ -21,6 +21,7 @@ import {
   type VaultItemMetadata,
   type VaultCatalog,
 } from "@pateat/contracts";
+import type { VaultSsoSource } from "../sso-vault";
 import type { ServiceTiming } from "../../service/transport";
 import { type LoginBadge } from "../badge";
 import { type LoginReadiness } from "../wire";
@@ -263,6 +264,8 @@ export interface LoginGeneration {
 
 export type LoginRuntimeOptions = {
   fields: LoginFieldSource;
+  /** Local method discovery and validated mapping choice; no SSO executor is enabled by it. */
+  sso?: VaultSsoSource;
   /** Secret-free service/device/settings-profile identity for document-scoped binding repair. */
   bindingScope?: (snapshot: Pick<SettingsSnapshot, "revision" | "changes">) => Promise<string>;
   /** Exact already-open provider snapshot, checked synchronously at a repair's final mutation. */
