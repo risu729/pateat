@@ -112,15 +112,27 @@ const confirmHeading =
   /^(?:confirm (?:your|this) account|is this (?:you|your account)|continue as (.+)|アカウントの確認|このアカウントで(?:続行|ログイン)(?:しますか)?|(.+)として続行)[.?？!]?$/iu;
 /**
  * The most letters a confirmation page may show besides its confirmation heading, the
- * account and its controls' short labels, as in "Not you?" or a short footer line. More
+ * account and the controls set aside below, as in "Not you?" or a short footer line. More
  * says something else about the step, such as what the app receives, so the page is no
  * finite step.
  */
 const CONFIRM_TEXT_LETTERS = 16;
-/** The longest control label a confirmation's check sets aside, as "Use another account". */
+/** The longest label a set-aside control or language picker may carry. */
 const CONTROL_LABEL_LETTERS = 24;
+/** The most controls besides the pressed one a confirmation's check sets aside. */
+const SIDE_CONTROLS = 8;
+/**
+ * What a confirmation's other controls may say: another account, leaving, or the IdP's own
+ * footer. A control saying anything else, such as what the app gets, counts as text.
+ */
+const sideControl =
+  /^(?:cancel|back|no|not you\??|use (?:another|a different) account|(?:sign|log) ?in with (?:another|a different) account|switch (?:account|user)s?|(?:sign|log) ?out|help|privacy(?: (?:policy|statement|(?:&|and) cookies))?|terms(?: (?:of (?:use|service)|(?:&|and) conditions))?|cookies?(?: (?:policy|settings))?|legal|accessibility|contact(?: us)?|about|キャンセル|戻る|いいえ|別のアカウント(?:を使用|を使う|でログイン|でサインイン)?|アカウントを切り替え(?:る)?|ログアウト|サインアウト|ヘルプ|プライバシー(?:ポリシー)?|(?:利用)?規約|お問い合わせ)[.?？]?$/iu;
+const sideControls = "button,a[href],[role=button],[role=link]";
+const languagePickers = "select,[role=combobox],[aria-haspopup=listbox]";
 const letters = (text: string) => text.match(/\p{L}/gu)?.length ?? 0;
 const oneLine = (text: string) => text.replace(/\s+/gu, " ").trim();
+const occurrences = (text: string, part: string) =>
+  part ? text.toLowerCase().split(part.toLowerCase()).length - 1 : 0;
 /** The page's title and visible headings, each as one trimmed line. */
 const headingsOf = (document: Document) =>
   [
@@ -133,27 +145,84 @@ const headingsOf = (document: Document) =>
     .map(oneLine)
     .filter(Boolean);
 /**
+ * Whether a control stands on its own rather than inside a sentence: no text beside it in
+ * its line, outside other controls, up to the nearest block around it.
+ */
+function standsAlone(element: HTMLElement): boolean {
+  let child: Element = element;
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    for (const node of parent.childNodes) {
+      if (node === child) continue;
+      if (node.nodeType === Node.TEXT_NODE && letters(node.textContent ?? "")) return false;
+      if (
+        node instanceof HTMLElement &&
+        visible(node) &&
+        !node.matches(sideControls) &&
+        getComputedStyle(node).display.startsWith("inline") &&
+        letters(node.innerText)
+      )
+        return false;
+    }
+    if (!getComputedStyle(parent).display.startsWith("inline")) return true;
+    child = parent;
+  }
+  return true;
+}
+/**
  * The letters a confirmation page shows besides the heading that names it, the account's
- * identifier and the short labels of its buttons and links. Fails closed: another heading,
- * a long label and whatever else cannot be accounted for count.
+ * identifier, the control pressed, a few controls standing alone that offer another
+ * account, leaving or the IdP's own help, privacy and terms, and one language picker.
+ * Whole elements are set aside, never matching words, so a label inside a sentence keeps
+ * the sentence whole. Fails closed: anything else counts.
  */
 function confirmExtraLetters(
   document: Document,
   username: string,
   confirmHeadings: readonly string[],
+  pressed: Element,
 ): number {
-  const labels = queryAll<HTMLElement>(document, "button,a[href],[role=button],[role=link]")
-    .filter(visible)
-    .map((element) => oneLine(element.innerText))
-    .filter((text) => text && letters(text) <= CONTROL_LABEL_LETTERS);
-  const known = [...confirmHeadings, ...labels, username]
-    .map(oneLine)
-    .filter(Boolean)
-    // Longer first, so a label inside a heading is not removed from it first.
-    .toSorted((a, b) => b.length - a.length);
-  let rest = oneLine(document.body?.innerText.slice(0, 16_384) ?? "");
-  for (const text of known) rest = rest.split(text).join(" ");
-  return letters(rest.toLowerCase().split(username.toLowerCase()).join(" "));
+  const body = document.body?.innerText ?? "";
+  if (body.length > 16_384) return Infinity;
+  const headings = queryAll<HTMLElement>(document, "h1,h2,[role=heading]").filter(
+    (element) => visible(element) && confirmHeadings.includes(oneLine(element.textContent ?? "")),
+  );
+  const sides = queryAll<HTMLElement>(document, sideControls)
+    .filter(
+      (element) =>
+        element !== pressed &&
+        !element.contains(pressed) &&
+        visible(element) &&
+        sideControl.test(oneLine(element.innerText)) &&
+        standsAlone(element),
+    )
+    .slice(0, SIDE_CONTROLS);
+  const picker = queryAll<HTMLElement>(document, languagePickers)
+    .filter(
+      (element) =>
+        visible(element) &&
+        // A select shows only its chosen language; its other options are not a sentence.
+        letters(
+          element instanceof HTMLSelectElement
+            ? (element.selectedOptions[0]?.text ?? "")
+            : element.innerText,
+        ) <= CONTROL_LABEL_LETTERS &&
+        standsAlone(element),
+    )
+    .slice(0, 1);
+  const known = [...new Set([...headings, pressed, ...sides, ...picker])];
+  // Each element counts once, even when one set aside holds another.
+  const texts = known
+    .filter((element) => !known.some((other) => other !== element && other.contains(element)))
+    .map((element) =>
+      element instanceof HTMLElement ? element.innerText : (element.textContent ?? ""),
+    );
+  const accounts =
+    occurrences(body, username) - texts.reduce((sum, text) => sum + occurrences(text, username), 0);
+  return (
+    letters(body) -
+    texts.reduce((sum, text) => sum + letters(text), 0) -
+    Math.max(0, accounts) * letters(username)
+  );
 }
 /** What the IdP page's own headings say it is, read only for a finite step. */
 function idpStep(document: Document, username: string) {
@@ -224,10 +293,6 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
     exactIdentityShown(document, username);
   const { stays } = step;
   if (!stays && !step.confirms.length) return { kind: "unknown" };
-  // A confirmation says nothing but which account continues: any other text may be what
-  // the app receives, whatever its wording, so it is no finite step.
-  if (!stays && confirmExtraLetters(document, username, step.confirms) > CONFIRM_TEXT_LETTERS)
-    return { kind: "unknown" };
   const candidates = controls.filter((candidate) => {
     if (candidate.target.by === "href") return false;
     const label = candidate.label?.trim() ?? "";
@@ -236,9 +301,19 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
     const named = /^continue as (.+)$/iu.exec(label)?.[1] ?? /^(.+)でログイン$/u.exec(label)?.[1];
     return named !== undefined && normalized(named) === normalized(username);
   });
-  if (sameAccount && candidates.length === 1 && candidates[0]!.target.by !== "href")
-    return { kind: stays ? "stay-signed-in" : "continue", target: candidates[0]!.target };
-  return { kind: "unknown" };
+  if (!sameAccount || candidates.length !== 1 || candidates[0]!.target.by === "href")
+    return { kind: "unknown" };
+  const target = candidates[0]!.target;
+  const pressed = findTargets(document, target, { links: true });
+  // A confirmation says nothing but which account continues: any other text may be what
+  // the app receives, whatever its wording, so it is no finite step.
+  if (
+    !stays &&
+    (pressed.length !== 1 ||
+      confirmExtraLetters(document, username, step.confirms, pressed[0]!) > CONFIRM_TEXT_LETTERS)
+  )
+    return { kind: "unknown" };
+  return { kind: stays ? "stay-signed-in" : "continue", target };
 }
 /** Explicit wrong identity defeats a generic signed-in marker on the RP return. */
 export function readSsoReturn(

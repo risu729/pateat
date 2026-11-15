@@ -193,6 +193,25 @@ describe("IdP pages whose heading names a finite step", () => {
       "Continue as " + username,
       `<h1>Continue as ${username}</h1><div role="button">Example App gets your name, email address and contacts</div><button id=entry>Continue</button>`,
     ],
+    // A control's label inside a sentence keeps the sentence whole.
+    [
+      "Confirm your account",
+      `<h1>Confirm your account</h1><p>${username}</p><p><a href="https://example.app">Example App</a> gets your email</p><button id=entry>Continue</button>`,
+    ],
+    // Controls standing alone are set aside only when they offer another account, leaving
+    // or the IdP's own help, privacy and terms; ones that list what the app gets count.
+    [
+      "Confirm your account",
+      `<h1>Confirm your account</h1><p>${username}</p><p>This app gets:</p><a href="/name">Your name and photo</a> <a href="/email">Your email address</a> <a href="/contacts">Your contacts list</a><button id=entry>Continue</button>`,
+    ],
+    [
+      "Confirm your account",
+      `<h1>Confirm your account</h1><p>${username}</p><p>This app gets:</p><a>Your name and photo</a> <a>Your email address</a> <a>Your contacts list</a><button id=entry>Continue</button>`,
+    ],
+    [
+      "Confirm your account",
+      `<h1>Confirm your account</h1><p>${username}</p><div><a href="/app">Example App</a><div>gets your email</div></div><button id=entry>Continue</button>`,
+    ],
   ])("presses nothing on a confirmation %s with other text, whatever its words", (title, body) => {
     html(title, body);
     expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, username).kind);
@@ -201,6 +220,25 @@ describe("IdP pages whose heading names a finite step", () => {
     html(
       "Confirm your account",
       `<h1>Confirm your account</h1><p>${username}</p><p>Not you?</p><button id=entry>Continue</button><a href="/other">Use another account</a><footer><a href="/privacy">Privacy</a> <a href="/terms">Terms</a></footer>`,
+    );
+    expect(readSsoIdp(document, username)).toEqual({
+      kind: "continue",
+      target: { by: "id", value: "entry" },
+    });
+  });
+  it.each([
+    [
+      "a language picker",
+      `<div role="combobox" aria-haspopup="listbox" tabindex=0><span>English (United States)</span></div>`,
+    ],
+    [
+      "a language select",
+      `<select aria-label="Language"><option selected>English (United States)</option><option>Deutsch</option><option>日本語</option></select>`,
+    ],
+  ])("keeps a Continue as page with %s, Help, Privacy and Terms in its footer", (_name, picker) => {
+    html(
+      "Continue as " + username,
+      `<h1>Continue as ${username}</h1><p>${username}</p><button id=entry>Continue</button><button>Cancel</button><a href="/other">Use another account</a><footer>${picker}<ul><li><a href="/help">Help</a></li><li><a href="/privacy">Privacy</a></li><li><a href="/terms">Terms</a></li></ul></footer>`,
     );
     expect(readSsoIdp(document, username)).toEqual({
       kind: "continue",

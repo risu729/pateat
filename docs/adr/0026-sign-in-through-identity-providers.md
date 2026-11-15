@@ -401,15 +401,17 @@ sign-in form is still read as its native login first.
 
 A word list cannot name every way of saying what an app receives, so an account
 confirmation is also checked by what else it shows. Besides the heading that names it,
-the account's identifier and the short labels (up to 24 letters each) of its buttons and
-links, it may show only a few letters, such as "Not you?" or a short footer line. Any
-more text makes it no finite step, whatever it says and wherever it is: another
-heading, a link or an element that acts as a button. An account list's entry is read as
-rendered, so a tile's name, account and state lines stay apart. Receive, provide, send
-and get access, and 取得, 受け取, 提供 and 送信 in Japanese, count as sharing
-wording too. "Welcome back" and "Use this account" are not confirmation headings, since
-neither names the account. Stay-signed-in questions and account lists keep their own
-rules.
+the account's identifier, the control pressed, one language picker and a few controls
+that stand alone and offer another account, leaving, or the IdP's help, privacy and
+terms, it may show only a few letters, such as "Not you?" or a short footer line. Those
+are set aside as whole elements, never by matching their words elsewhere, and a control
+inside a sentence leaves the sentence whole. Any more text makes it no finite step,
+whatever it says and wherever it is: another heading, or a link or an element that acts
+as a button with any other label. An account list's entry is read as rendered, so a
+tile's name, account and state lines stay apart. Receive, provide, send and get access,
+and 取得, 受け取, 提供 and 送信 in Japanese, count as sharing wording too. "Welcome
+back" and "Use this account" are not confirmation headings, since neither names the
+account. Stay-signed-in questions and account lists keep their own rules.
 
 ## Review hardening 2026-11-16: interrupted holds
 
