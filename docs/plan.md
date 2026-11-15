@@ -1462,8 +1462,9 @@ names items the owner mentioned and gates still open on 2026-10-11.
     [implementation and limits](adr/0035-page-kinds-per-site.md#implementation-of-delivery-2)).
     The person presses every button; edited fields, code inputs and software keyboards
     are left alone. Tests use synthetic pages and accounts, so real-site acceptance
-    remains open. Delivery 3's same-tab confirmation autofill is implemented on a branch
-    ([scope and limits](adr/0035-page-kinds-per-site.md#implementation-of-delivery-3)):
+    remains open. Delivery 3's same-tab confirmation autofill is implemented
+    (November 2026;
+    [scope and limits](adr/0035-page-kinds-per-site.md#implementation-of-delivery-3)):
     only a session-backed confirmed authentication's account can fill ordinary,
     empty, untouched fields; buttons, codes and effectful inputs remain with the person.
     Separate session claims fence unknown deliveries and worker restart; generation,

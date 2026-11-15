@@ -443,7 +443,7 @@ stale-operation fences are described in ADR 0088's interaction section.
 
 ## Implementation of delivery 3
 
-Implemented on a branch in November 2026. Independent synthetic verification and PR
+Implemented in November 2026. Independent synthetic verification and PR
 review remain acceptance gates; no installed-Chrome, real-account or paid-model
 operation is claimed here. The following are implementation details of the accepted
 same-tab, authenticated-account and never-press rules, not new owner decisions:

@@ -1,7 +1,6 @@
 import {
   getItemEligibility,
   itemAsksForMasterPassword,
-  resolvePagePermission,
   runsLogin,
   type LoginRecipe,
 } from "@pateat/contracts";
@@ -12,6 +11,7 @@ import { terminal } from "./attempt-state";
 import { liveScope, topScope, bindingFor } from "./plan";
 import { routesOf } from "./generation-scope";
 import { pauseOf } from "./pause";
+import { pagePermission } from "./page-permission";
 import { probeMode } from "./constants";
 import { manualPending } from "./manual-scope";
 import { hasConfirmAuthentication, type ConfirmWork } from "./confirm-state";
@@ -66,8 +66,8 @@ async function snapshotFor(rt: Runtime, work: ConfirmWork) {
   if (!confirmCurrent(rt, work)) return;
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!snapshot.ok || !confirmCurrent(rt, work)) return;
-  const permission = resolvePagePermission(snapshot.snapshot.settings, live.url, "confirm");
-  if (!permission || (!work.generation && permission.permission !== "fill")) return;
+  const permission = pagePermission(snapshot.snapshot.settings, live.url, "confirm");
+  if (!work.generation && permission.permission !== "fill") return;
   if (work.policyRevision !== undefined && snapshot.snapshot.revision !== work.policyRevision)
     return;
   return snapshot;
