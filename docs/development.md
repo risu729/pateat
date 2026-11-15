@@ -650,6 +650,24 @@ follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
 
+### API generation test organization
+
+`services/api/test/generation.test.ts` remains the sole discovered entry for the
+service's generation suite. It owns the synthetic pages and helpers, the token and
+Messages API interception, the root hooks and all sixteen describe scopes, with the
+helpers local to the recipe generation and page judgement scopes. Plain `*-cases.ts`
+modules in `services/api/test/generation/` export synchronous registration functions
+for contiguous case groups, which the entry calls inside those scopes in the original
+order; importing a module registers no cases. `context.ts` holds the shared types,
+and each registrar takes the helpers it uses as a `Pick<>` of them. The entry keeps
+owning the interception's mutable replies, hooks, delays, token status and sent
+requests; the registrars read and write them through the getters and setters of its
+`state` object, so a case that replaces one replaces it for the interceptor too. The
+modules lack the `.test.ts` suffix and sit outside `src/`, so they are neither
+discovered nor in the coverage include. Each file follows the 1,000-line limit.
+Compare the expanded test names and counts and run the local Worker tests when
+changing this layout.
+
 ### Observation reader test organization
 
 `apps/extension/src/observation/extract.test.ts` remains the discovered Chromium
