@@ -633,6 +633,7 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
 export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   cancelSso(rt, tabId, "sso-tab-closed");
   rt.sso.native.delete(tabId);
+  rt.sso.passkeyRefused.delete(tabId);
   if (closed) rt.sso.interrupted.delete(tabId);
   rt.ssoChoices?.invalidateTab(tabId, "page-changed");
   forgetConfirmTab(rt, tabId);

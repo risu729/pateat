@@ -71,11 +71,18 @@ export type SsoNativeChoice = {
   account: LoginAccount;
   chosen: Choice;
   route: "passkey" | "password";
+  /** The chooser's own automatic decision, not a person's explicit pick for this sign-in. */
+  automatic?: true;
 };
 /** Authority is memory-only. Persisted intents become interrupted holds after restart. */
 export function createSsoState() {
   const flows = new Map<number, SsoWork>();
   const native = new Map<number, SsoNativeChoice>();
+  /**
+   * The account whose passkey a tab's site refused: the tab's next choice for it has no
+   * passkey, whichever document the site shows by then, so a refusal never repeats.
+   */
+  const passkeyRefused = new Map<number, LoginAccount>();
   // Immutable run identities outlive parent cancellation until runtime disposal.
   const children = new Map<string, { parentId: string; account: LoginAccount }>();
   const interrupted = new Map<number, v.InferOutput<typeof journalSchema>>();
@@ -123,6 +130,7 @@ export function createSsoState() {
   return {
     flows,
     native,
+    passkeyRefused,
     pauseIntents: createSsoPauseIntents(),
     children,
     interrupted,

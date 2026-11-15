@@ -146,10 +146,17 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       if (targets.size >= 100) break;
     }
   }
+  // After the site refused this account's passkey, the chooser picks again without it.
+  const refused = rt.sso.passkeyRefused.get(ctx.document.tabId);
+  rt.sso.passkeyRefused.delete(ctx.document.tabId);
+  const passkeyRefused =
+    refused?.origin === account.origin &&
+    refused.connectionId === account.connectionId &&
+    refused.itemId === account.itemId;
   const requested = await rt.ssoChoices.request({
     document: ctx.document,
     account,
-    native: { passkey: facts.discoverablePasskey, password: facts.password },
+    native: { passkey: facts.discoverablePasskey && !passkeyRefused, password: facts.password },
     automatic: !ctx.manual,
     entries: [...targets].map(([id, entry]) => ({ id, label: entry.label })),
     entryOrigin: async (id: string, origin: string) => {
@@ -183,6 +190,7 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       account,
       chosen,
       route: receipt.selection.route,
+      ...(ctx.manual ? {} : { automatic: true as const }),
     });
     return undefined;
   }

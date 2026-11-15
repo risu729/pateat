@@ -40,6 +40,7 @@ import { allowed } from "./plan-2";
 import { reconcileBounded } from "./sign-in";
 import { type RouteChange } from "./report";
 import { planFor, itemMatchesUrl } from "./plan";
+import { ssoAfterPasskey } from "./sso/passkey-refused";
 import type { Runtime } from "./state";
 
 /**
@@ -631,7 +632,8 @@ export function bridgeAnswer(rt: Runtime, run: Execution): number | undefined {
 /**
  * The `passkey` route that answers its page's own request goes back to the password
  * variant the login recorded (ADR 0034), or ends `challenge` without one or with a stop
- * before the item's missing password (ADR 0036). It never answers again.
+ * before the item's missing password (ADR 0036). It never answers again. A passkey the
+ * SSO method chooser picked goes back to that chooser instead (ADR 0085).
  */
 export async function fallBack(
   rt: Runtime,
@@ -640,6 +642,7 @@ export async function fallBack(
 ): Promise<void> {
   if (!current(rt, run) || terminal(run.metadata)) return;
   run.passkeyFailed = true;
+  if (await ssoAfterPasskey(rt, run)) return;
   const { variant } = run.metadata;
   const steps =
     variant === undefined ? 0 : routeSteps(run.recipe, { route: "password", variant }).length;

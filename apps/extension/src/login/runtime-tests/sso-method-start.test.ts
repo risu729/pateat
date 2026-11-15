@@ -306,6 +306,25 @@ describe("actual explicit SSO-method admission after the chooser", () => {
       false,
     );
   });
+  it("chooses again without the passkey the tab's site refused, once (ADR 0085)", async () => {
+    const h = await harness("auto", true);
+    h.rt.options.passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const passkeyOffered = () =>
+      (h.offered.mock.lastCall as unknown as [{ native: { passkey: boolean } }])[0].native.passkey;
+    h.rt.sso.passkeyRefused.set(7, { ...h.account, itemId: "other-item" });
+    expect(await offerSso(h.rt, h.ctx)).toBeUndefined();
+    expect(passkeyOffered()).toBe(true);
+    expect(h.rt.sso.passkeyRefused.has(7)).toBe(false);
+    h.rt.sso.native.delete(7);
+    // Whichever document the site shows after the refusal.
+    h.rt.sso.passkeyRefused.set(7, { ...h.account });
+    expect(await offerSso(h.rt, h.ctx)).toBeUndefined();
+    expect(passkeyOffered()).toBe(false);
+    expect(h.rt.sso.passkeyRefused.has(7)).toBe(false);
+    h.rt.sso.native.delete(7);
+    expect(await offerSso(h.rt, h.ctx)).toBeUndefined();
+    expect(passkeyOffered()).toBe(true);
+  });
 });
 
 async function generationStart(form: "url" | "bracket", label: string) {
