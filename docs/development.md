@@ -181,6 +181,21 @@ unchanged except that the session's names read as `context.<name>`. The handle,
 summary, checkpoint, retention and options types live in `manager-types.ts`, which
 other modules import directly. Tests keep their files and cases.
 
+The document-side login content script installs from
+`apps/extension/src/login/content.ts`: `installLoginContent` creates the document's
+session, its command listener and its page listeners, and removes them in the same
+order as before. `content-session.ts` keeps the document's state and its watches
+(readiness announcements, offer windows, frame visibility, submission listeners and URL
+watches) as the statements they were, in one closure, and exposes the bindings the
+other modules use through accessors. `content-dispatch.ts` checks the sender and the
+document token and answers the page, detail, choice and entry commands;
+`content-execute.ts` runs a native `login.execute` operation; `content-command.ts`
+names their command and `respond` types from the wire schema; `content-dom.ts` holds
+the shared DOM checks, timings and change watcher. The moved statements are unchanged
+except that the session's names read as `context.<name>`, so every read sees the
+binding's current value after asynchronous work. The content tests keep their files and
+cases.
+
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
@@ -381,9 +396,9 @@ task graph. `mise run fix` applies explicit formatting/lint fixes; the check tas
 not mutate source files. Renovate tracks the pinned dependencies and tooling.
 
 Oxlint's `max-lines` keeps every source and test file at 1,000 lines or fewer, blank
-lines and comments included (owner, 2026-10-23). Files that were already longer are
-listed in the last override of `.oxlintrc.json` with the rule off until each is split;
-remove a file from that list when its split lands, and do not add new ones.
+lines and comments included (owner, 2026-10-23). The files that were already longer
+have been split, so `.oxlintrc.json` turns the rule off for none; do not add such an
+override.
 
 Focused tasks are available for diagnosis:
 
@@ -555,10 +570,10 @@ and the `Verify` table shows `services/api/web` as `-`, since only the managemen
 suite reaches it.
 No threshold fails CI. The packaged-extension Playwright suite (`tests/extension`) is
 not measured, so code that runs only there, such as
-`apps/extension/src/login/content.ts`, `crypto/worker.ts` and the connections, crypto
-and vault `probe.ts` files, shows as uncovered. For the same table locally, delete
-`coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE` set to any non-empty
-value, then `mise run coverage:summary`.
+`apps/extension/src/login/content.ts` and its `content-*` modules, `crypto/worker.ts`
+and the connections, crypto and vault `probe.ts` files, shows as uncovered. For the
+same table locally, delete `coverage/`, run `mise run check:runtime` with
+`PATEAT_COVERAGE` set to any non-empty value, then `mise run coverage:summary`.
 
 Not adopted: Codecov, which adds an external service and an upload token, and GitHub
 Code Quality's pull-request coverage, which requires Code Quality; GitHub offers Code
