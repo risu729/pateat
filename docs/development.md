@@ -881,21 +881,31 @@ production coverage root and are not discovered as test files. Each file follows
 vault manager harnesses, their constants and the list of what each test created.
 `apps/extension/src/crypto/host.test.ts` and `apps/extension/src/vault/manager.test.ts`
 import them, and so do the SSO suites beside them, `crypto/sso-host.test.ts` and
-`vault/sso.test.ts`, so new SSO cases do not grow those two files, which are still over
-the 1,000-line limit. Each discovered file disposes what its tests created after each
-test. The harnesses sit outside `src/`, so they stay outside the production coverage
-root and are not discovered as test files.
+`vault/sso.test.ts`, so new SSO cases do not grow those two files. Each discovered file
+disposes what its tests created after each test. The harnesses sit outside `src/`, so
+they stay outside the production coverage root and are not discovered as test files.
 
 `crypto/host.test.ts` remains the discovered entry for the crypto host suite. It owns
 the `auth`, `argon2idAuth` and `within` helpers, the root cleanup, its three describe
 scopes and the URI, digest, username and passkey fixtures inside them. Plain
 `*-cases.ts` modules in `apps/extension/test/crypto-host/` export synchronous
 registration functions for the authorization, request fencing, URI and session lane,
-custom-field digest, login username, passkey and cancellation case groups, which the
-entry calls inside those scopes in the original order with the same harness, helper
-and fixture references; importing a module registers no cases. `context.ts` holds
-the shared types, and each registrar takes the references it uses as a `Pick<>` of
-them. Each file follows the 1,000-line limit.
+custom-field digest, login username, passkey and cancellation case groups.
+
+`vault/manager.test.ts` remains the discovered entry for the vault manager suite. It
+owns the root cleanup, every describe scope including the per-operation
+`describe.each`, and the scope-local fixtures: the operation table and its
+`signingInput`, the invalid inputs, `compare`, `unlocked` and `passwordFailure`. Plain
+`*-cases.ts` modules in `apps/extension/test/vault-manager/` export synchronous
+registration functions for the live operation, acceptance, comparison, disable,
+removal, restore, identity, durable authority, host lifecycle and key retention case
+groups.
+
+Each entry calls its registrars inside those scopes in the original order with the
+same harness, helper and fixture references, including the shared `managers` cleanup
+list; importing a module registers no cases. Each directory's `context.ts` holds the
+shared types, derived from the harness where it can be, and each registrar takes the
+references it uses as a `Pick<>` of them. Each file follows the 1,000-line limit.
 
 ### Bitwarden account test organization
 
