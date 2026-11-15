@@ -20,6 +20,7 @@ import {
 } from "./connection-fixture";
 import type { VaultBrowser } from "./vault-fixture";
 import { passkeyPageHtml } from "./passkey-server";
+import type { RedirectHops } from "./sso-redirect-server";
 
 export { items, origins };
 export const idpRecipeId = "synthetic-idp-native";
@@ -64,7 +65,7 @@ const html = (body: string) =>
 export async function configureSso(
   browser: VaultBrowser,
   scenario: SsoScenario = "return",
-  controls: { holdIdp?: boolean; rpMarkerPresent?: () => boolean } = {},
+  controls: { holdIdp?: boolean; rpMarkerPresent?: () => boolean; hops?: RedirectHops } = {},
 ) {
   let releaseIdp!: () => void;
   const idpReady = new Promise<void>((resolve) => {
@@ -85,26 +86,55 @@ export async function configureSso(
     scenario === "new-origin"
       ? "https://unselected.synthetic.example.test/login"
       : origins.idp + "/login";
+  const rpLogin = () => {
+    const heading = "<h1>Sign in</h1>";
+    const target = scenario === "new-window" ? " target=_blank" : "";
+    const changed =
+      scenario === "target-changed"
+        ? "<script>document.querySelector('#sso').addEventListener('pointerdown',()=>document.querySelector('#sso').setAttribute('href','https://unselected.synthetic.example.test/login'))</script>"
+        : "";
+    return (
+      heading +
+      '<a id="sso" href="' +
+      destination +
+      '"' +
+      target +
+      ">Continue with Example</a>" +
+      changed
+    );
+  };
+  const rpComplete = () => {
+    evidence.returns++;
+    if (scenario === "rp-marker")
+      return controls.rpMarkerPresent?.() === false
+        ? "<h1 id=returned>Returned to relying party</h1>"
+        : "<h1 id=authenticated>Account dashboard</h1><nav><a id=rp-dashboard href=/dashboard>Open your account dashboard</a></nav>";
+    if (scenario === "wrong-rp")
+      return "<header><span>attacker_user</span><a href=/logout>Sign out</a></header><h1>Another account</h1>";
+    if (scenario === "rp-unknown")
+      return "<h1>Returned to relying party</h1><p>No account has been identified.</p>";
+    if (scenario === "rp-signup")
+      return "<header><span>rp_user</span></header><h1>Create account</h1><button>Complete registration</button>";
+    return "<header><span>rp_user</span><a href=/logout>Sign out</a></header><h1 id=authenticated>Authenticated relying party</h1>";
+  };
+  // The RP's pages a real redirect reaches: its callback sends the tab on to its return.
+  const rpPage = (url: URL) =>
+    url.origin !== origins.rp
+      ? undefined
+      : url.pathname === "/callback"
+        ? { status: 302, location: origins.rp + "/complete" }
+        : url.pathname === "/complete"
+          ? { status: 200, body: html(rpComplete()) }
+          : url.pathname === "/login"
+            ? { status: 200, body: html(rpLogin()) }
+            : undefined;
+  controls.hops?.serve(
+    (url) => rpPage(url) ?? { status: 404, body: html("<h1>Unexpected destination</h1>") },
+  );
   await browser.context.route("https://**.synthetic.example.test/**", async (route) => {
     const url = new URL(route.request().url());
     const respond = (body: string) => route.fulfill({ contentType: "text/html", body: html(body) });
-    if (url.origin === origins.rp && url.pathname === "/login") {
-      const heading = "<h1>Sign in</h1>";
-      const target = scenario === "new-window" ? " target=_blank" : "";
-      const changed =
-        scenario === "target-changed"
-          ? "<script>document.querySelector('#sso').addEventListener('pointerdown',()=>document.querySelector('#sso').setAttribute('href','https://unselected.synthetic.example.test/login'))</script>"
-          : "";
-      return respond(
-        heading +
-          '<a id="sso" href="' +
-          destination +
-          '"' +
-          target +
-          ">Continue with Example</a>" +
-          changed,
-      );
-    }
+    if (url.origin === origins.rp && url.pathname === "/login") return respond(rpLogin());
     if (url.origin === origins.idp && ["/login", "/password"].includes(url.pathname)) {
       if (url.pathname === "/login") evidence.entries++;
       await idpReady;
@@ -250,28 +280,7 @@ export async function configureSso(
     }
     if (url.origin === origins.rp && url.pathname === "/callback")
       return route.fulfill({ status: 302, headers: { location: origins.rp + "/complete" } });
-    if (url.origin === origins.rp && url.pathname === "/complete") {
-      evidence.returns++;
-      if (scenario === "rp-marker")
-        return respond(
-          controls.rpMarkerPresent?.() === false
-            ? "<h1 id=returned>Returned to relying party</h1>"
-            : "<h1 id=authenticated>Account dashboard</h1><nav><a id=rp-dashboard href=/dashboard>Open your account dashboard</a></nav>",
-        );
-      if (scenario === "wrong-rp")
-        return respond(
-          "<header><span>attacker_user</span><a href=/logout>Sign out</a></header><h1>Another account</h1>",
-        );
-      if (scenario === "rp-unknown")
-        return respond("<h1>Returned to relying party</h1><p>No account has been identified.</p>");
-      if (scenario === "rp-signup")
-        return respond(
-          "<header><span>rp_user</span></header><h1>Create account</h1><button>Complete registration</button>",
-        );
-      return respond(
-        "<header><span>rp_user</span><a href=/logout>Sign out</a></header><h1 id=authenticated>Authenticated relying party</h1>",
-      );
-    }
+    if (url.origin === origins.rp && url.pathname === "/complete") return respond(rpComplete());
     return respond("<h1>Unexpected destination</h1>");
   });
   expect(

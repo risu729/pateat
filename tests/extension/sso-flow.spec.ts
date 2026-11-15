@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { sendToBackground as send } from "./background-message";
 import { settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
 import { withStoppedLoginWorker } from "./login-fixture";
@@ -13,7 +13,8 @@ import {
   unchangedIdpDefault,
   type SsoScenario,
 } from "./sso-fixture";
-import { withVaultProfile } from "./vault-fixture";
+import { startRedirectHops } from "./sso-redirect-server";
+import { withVaultProfile, type VaultBrowser } from "./vault-fixture";
 import type { SsoResponse } from "../../apps/extension/src/login/sso-wire";
 
 test("encrypted RP SSO maps the exact saved IdP account, executes its native recipe and proves only the RP return", async () => {
@@ -56,11 +57,42 @@ test("encrypted RP SSO maps the exact saved IdP account, executes its native rec
   });
 });
 
+/**
+ * Runs an instant-return test with the RP's redirect hops served for real, and checks the
+ * tab never showed a browser error page on the way.
+ */
+async function withRealRedirects(
+  scenario: "instant" | "instant-refused",
+  run: (context: {
+    browser: VaultBrowser;
+    page: Page;
+    sso: Awaited<ReturnType<typeof configureSso>>;
+  }) => Promise<void>,
+) {
+  const hops = await startRedirectHops([new URL(origins.rp).hostname]);
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        const sso = await configureSso(browser, scenario, { hops });
+        const page = await browser.context.newPage();
+        const navigated: string[] = [];
+        page.on("framenavigated", (frame) => {
+          if (frame === page.mainFrame()) navigated.push(frame.url());
+        });
+        await run({ browser, page, sso });
+        expect(navigated.filter((url) => url.startsWith("chrome-error:"))).toEqual([]);
+      },
+      { args: hops.args },
+    );
+  } finally {
+    await hops.close();
+  }
+}
+
 test("an IdP that sends the tab straight back with no page completes on the RP's own evidence", async () => {
-  await withVaultProfile(async (open) => {
-    const browser = await open();
-    const { options, evidence, idpEvents } = await configureSso(browser, "instant");
-    const page = await browser.context.newPage();
+  await withRealRedirects("instant", async ({ browser, page, sso }) => {
+    const { options, evidence, idpEvents } = sso;
     await page.goto(origins.rp + "/login");
     await chooseExample(await openSsoPopup(browser, options, page));
     await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
@@ -84,10 +116,8 @@ test("an IdP that sends the tab straight back with no page completes on the RP's
 });
 
 test("an IdP that refuses at once and sends the tab back to the RP sign-in ends the flow", async () => {
-  await withVaultProfile(async (open) => {
-    const browser = await open();
-    const { options, evidence, idpEvents } = await configureSso(browser, "instant-refused");
-    const page = await browser.context.newPage();
+  await withRealRedirects("instant-refused", async ({ browser, page, sso }) => {
+    const { options, evidence, idpEvents } = sso;
     await page.goto(origins.rp + "/login");
     await chooseExample(await openSsoPopup(browser, options, page));
     await expect(page).toHaveURL(origins.rp + "/login?error=access_denied", { timeout: 15_000 });
