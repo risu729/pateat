@@ -90,3 +90,14 @@ and disposes it, over keeping a copy narrowed to the allowed fields.
 - The connection runtime's batched field resolution from
   [#1050](https://github.com/risu729/pateat/pull/1050) is no longer used by the popup;
   `resolveField` still runs through it.
+
+## Implementation note 2026-11-12: SSO discovery
+
+The local SSO foundation in
+[ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-method-discovery-and-mapping-validation)
+adds no decrypted cache. It reads SSO custom fields for one call. The source's Worker
+returns an ephemeral keyed username proof, which the background holds in memory for that
+call and passes to each IdP connection's Worker to compare; the public descriptor drops
+those proofs. Its
+metadata reads check the existing timeout and durable snapshot fences without reporting
+vault use. Credential release by a future SSO executor retains the normal use boundary.

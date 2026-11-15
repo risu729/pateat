@@ -856,6 +856,18 @@ runtime import cycle. The modules sit outside `src/`, so they stay outside the
 production coverage root and are not discovered as test files. Each file follows the
 1,000-line limit.
 
+### Crypto host and vault manager test organization
+
+`apps/extension/test/crypto-host/harness.ts` and
+`apps/extension/test/vault-manager/harness.ts` hold the synthetic crypto host and
+vault manager harnesses, their constants and the list of what each test created.
+`apps/extension/src/crypto/host.test.ts` and `apps/extension/src/vault/manager.test.ts`
+import them, and so do the SSO suites beside them, `crypto/sso-host.test.ts` and
+`vault/sso.test.ts`, so new SSO cases do not grow those two files, which are still over
+the 1,000-line limit. Each discovered file disposes what its tests created after each
+test. The harnesses sit outside `src/`, so they stay outside the production coverage
+root and are not discovered as test files.
+
 ### Bitwarden account test organization
 
 `packages/bitwarden/src/account.test.ts` is the discovered entry for the main account

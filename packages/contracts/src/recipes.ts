@@ -267,6 +267,19 @@ const ssoFieldName = /^sso(?:\s+[0-9]+)?$/iu;
 export function isSsoFieldName(name: string | null | undefined): boolean {
   return typeof name === "string" && ssoFieldName.test(name.normalize("NFKC").trim());
 }
+/** The automatic method is unsuffixed; numbered alternatives start at two. */
+export function ssoMethodName(
+  name: string | null | undefined,
+): { number: number; automatic: boolean } | undefined {
+  if (!isSsoFieldName(name)) return undefined;
+  const normalized = name!.normalize("NFKC").trim();
+  const suffix = /^sso\s+([0-9]+)$/iu.exec(normalized)?.[1];
+  if (suffix === undefined) return { number: 1, automatic: true };
+  const number = Number(suffix);
+  return Number.isSafeInteger(number) && number >= 2 && number <= 1_000_000
+    ? { number, automatic: false }
+    : undefined;
+}
 export type BindingFieldResolution =
   | { ok: true; slots: { slot: string; fieldId: string }[] }
   | { ok: false; reason: "binding-slots-mismatch" }

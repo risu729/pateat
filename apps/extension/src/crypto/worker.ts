@@ -33,6 +33,7 @@ import {
   type UnusableItem,
   type UriCandidates,
 } from "./wire";
+import { describeSsoMethods, findSsoCandidates } from "./sso";
 import { newId } from "@pateat/contracts/ids";
 
 // Native SDK panic/log output can contain decrypted input. The host emits only typed results.
@@ -466,6 +467,16 @@ async function execute(command: HostCommand) {
       if (result.unavailableUris.length > 100_000) return fail("resource-limit");
     }
     return { ok: true as const, data: result };
+  }
+  if (op.kind === "sso-methods" || op.kind === "sso-candidates") {
+    if (!owned.verified) return fail("invalid-request");
+    const key = await importDigestKey(op.key);
+    if (!key) return fail("invalid-request");
+    const data =
+      op.kind === "sso-methods"
+        ? await describeSsoMethods(owned, op, key)
+        : await findSsoCandidates(owned, op, key);
+    return { ok: true as const, data };
   }
   if (op.kind === "login-usernames") {
     if (!owned.verified) return fail("invalid-request");

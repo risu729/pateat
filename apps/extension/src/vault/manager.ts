@@ -6,7 +6,7 @@ import {
   type LocalFieldReference,
   type PreparedBitwardenAccount,
 } from "@pateat/bitwarden";
-import type { CryptoHost, OpenedHostSession } from "../crypto/host";
+import type { OpenedHostSession } from "../crypto/host";
 import type { PasskeySignRequest } from "../crypto/passkey";
 import type { HostUnlock } from "../crypto/wire";
 import {
@@ -19,26 +19,11 @@ import {
 } from "./record";
 import type { DurableVaultStore } from "./storage";
 import { memorySessionKeyStore, type SessionKey, type SessionKeyStore } from "./session-key";
+import type { VaultCryptoHost } from "./crypto-host";
+export type { VaultCryptoHost } from "./crypto-host";
+import { ssoManagerOperations } from "./sso";
 import { newId } from "@pateat/contracts/ids";
 
-export type VaultCryptoHost = Pick<
-  CryptoHost,
-  | "open"
-  | "verifyReceivedCiphers"
-  | "exportUnlockMaterial"
-  | "lock"
-  | "isOpen"
-  | "listFields"
-  | "resolveField"
-  | "catalog"
-  | "matchUris"
-  | "loginUsernames"
-  | "customFieldDigests"
-  | "findPasskeys"
-  | "passkeyRpIds"
-  | "signPasskey"
-  | "verifyMasterPassword"
->;
 export type LocalVaultHandle = {
   managerGeneration: string;
   handleId: string;
@@ -962,6 +947,7 @@ export function createLocalVaultManager(options: {
         disabling = false;
       }
     },
+    ...ssoManagerOperations(options.host, withLiveVault),
     async listFields(handle: LocalVaultHandle, itemId: string, signal?: AbortSignal) {
       try {
         handle = structuredClone(handle);
