@@ -4554,7 +4554,9 @@ operation authority after DOM/account readiness, before the first mutation. A
 master-password window opened for a confirmation holds no tab; once the vault accepts
 the password for the same account, the document's next announcement on the same path
 fills once, with the same recipe, within the step wait; any other announcement drops
-the answer. A closed window is not reopened for that document and path.
+the answer. A window answered for another account is followed by one for this account,
+and an unavailable one asks again at the next announcement. A window the person closed
+is not reopened for that document and path, including the latest 16 pages a tab left.
 `confirm: off` fills nothing; passkey verification remains
 delegated in either setting.
 

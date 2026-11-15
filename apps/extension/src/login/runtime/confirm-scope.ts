@@ -176,8 +176,10 @@ export async function confirmPlan(
  * accepts the password for the same vault account, while the document, still on the same
  * path, and the authenticated login are the tab's, the document announces again and that
  * announcement's fill uses the answer, once, on that path with the same recipe, within
- * `LOGIN_STEP_WAIT_MS`. A closed window, or one answered for another vault account,
- * leaves the page to the person until the document moves to another path.
+ * `LOGIN_STEP_WAIT_MS`. A window answered for another vault account, as a login's that
+ * was open already, is followed by one for this account. A window the person closed leaves
+ * the page to them until the document moves to another path; an unavailable one asks again
+ * at the document's next announcement.
  */
 export async function confirmReprompt(
   rt: Runtime,
@@ -199,47 +201,58 @@ export async function confirmReprompt(
     return true;
   if (!recipeId) return false;
   if (state.asking.has(key)) return "asked";
-  const asked =
-    rt.passwordAsks.get(key) ??
-    openPasswordWindow(rt, "detail", key, {
-      tabId,
-      origin: live.document.origin,
-      account: parent.account,
-      connection: found.connection,
-      item: found.item,
-    });
   state.asking.add(key);
-  void asked.answer
-    .then(async ({ answer, aborted }) => {
-      state.asking.delete(key);
-      const page = rt.documents.get(frameKey(live.document));
-      const here = page?.document.documentId === documentId ? page : undefined;
-      const declined =
-        answer !== "verified" || aborted || asked.connectionId !== found.connection.id;
-      if (
-        declined ||
-        here?.path !== live.path ||
-        recordFor(rt, tabId, live.document.origin)?.id !== parent.id
-      ) {
-        if (here)
-          await settleConfirmFill(
-            rt,
-            here,
-            live.path,
-            "confirm-fill-stopped",
-            declined && here.path === live.path,
-          );
+  const ask = () => {
+    // A window already open for the document, as its login's or a detail's, is answered once.
+    const asked =
+      rt.passwordAsks.get(key) ??
+      openPasswordWindow(rt, "detail", key, {
+        tabId,
+        origin: live.document.origin,
+        account: parent.account,
+        connection: found.connection,
+        item: found.item,
+      });
+    void asked.answer
+      .then(async ({ answer, aborted }) => {
+        const page = rt.documents.get(frameKey(live.document));
+        const here = page?.document.documentId === documentId ? page : undefined;
+        const current =
+          !aborted &&
+          here?.path === live.path &&
+          recordFor(rt, tabId, live.document.origin)?.id === parent.id;
+        // Checked for another vault account: once it ends, the page asks for its own.
+        if (current && asked.connectionId !== found.connection.id) return ask();
+        state.asking.delete(key);
+        if (!current || answer !== "verified") {
+          // Only the person closing the window leaves the page to them; an unavailable
+          // vault or prompt asks again at the document's next announcement.
+          if (here)
+            await settleConfirmFill(
+              rt,
+              here,
+              live.path,
+              "confirm-fill-stopped",
+              current && answer === "closed",
+            );
+          return undefined;
+        }
+        const entry = {
+          grant,
+          path: live.path,
+          recipeId,
+          expires: Date.now() + LOGIN_STEP_WAIT_MS,
+        };
+        state.verified.set(key, entry);
+        await browser.tabs
+          .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId, documentId })
+          .catch(() => {
+            if (state.verified.get(key) === entry) state.verified.delete(key);
+          });
         return undefined;
-      }
-      const entry = { grant, path: live.path, recipeId, expires: Date.now() + LOGIN_STEP_WAIT_MS };
-      state.verified.set(key, entry);
-      await browser.tabs
-        .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId, documentId })
-        .catch(() => {
-          if (state.verified.get(key) === entry) state.verified.delete(key);
-        });
-      return undefined;
-    })
-    .catch(() => undefined);
+      })
+      .catch(() => state.asking.delete(key));
+  };
+  ask();
   return "asked";
 }

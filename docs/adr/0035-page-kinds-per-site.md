@@ -506,10 +506,15 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   document announces again and that announcement fills with the answer, once, on that
   path with the same recipe, within the step wait (`LOGIN_STEP_WAIT_MS`). Any other
   announcement of the document drops the answer, so a later visit of a verification
-  asks again. A closed window, or one answered for another vault account, leaves the
-  page to the person: no announcement of that document on that path opens it again
-  until the document moves to another path, also when the page comes back from the
-  back/forward cache while the worker still runs.
+  asks again. A window already open for the document and answered for another vault
+  account, as its login's or a personal detail's, is followed by one for this account.
+  A window the vault or browser could not show stops this fill only; the document's
+  next announcement asks again. A window the person closed leaves the page to them: no
+  announcement of that document on that path opens it again until the document moves
+  to another path, also when the page comes back from the back/forward cache while the
+  worker still runs. The worker remembers such closed windows for the latest 16 pages
+  a tab left (`DECLINED_KEPT`), dropping the oldest first, and forgets them with the
+  tab.
 - A passive fill (a sign-in **Fill only** or a confirmation fill) whose form gains a
   refused destination or one that needs the background's word while it types stops
   with `form-changed`, and its inputs the person has not edited get back the values

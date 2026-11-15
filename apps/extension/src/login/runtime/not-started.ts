@@ -105,6 +105,8 @@ export async function settleConfirmFill(
   reason: ConfirmOutcome,
   declined = false,
 ): Promise<void> {
+  // Inserted anew, so the map keeps outcomes in the order they last ended.
+  rt.confirmFill.outcomes.delete(documentOf(page));
   rt.confirmFill.outcomes.set(documentOf(page), {
     path,
     reason,

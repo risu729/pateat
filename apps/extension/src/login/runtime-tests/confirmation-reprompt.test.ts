@@ -2,7 +2,8 @@
 // while open, and only its answer for the same vault account fills the page.
 import { describe, expect, it, vi } from "vitest";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
-const window = vi.hoisted(() => ({ otherAccount: false }));
+// The number of windows still to open for another vault account.
+const window = vi.hoisted(() => ({ otherAccount: 0 }));
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 // A window already open for the document may have been asked for another vault account.
 vi.mock(import("../runtime/master-password"), async (original) => {
@@ -11,13 +12,16 @@ vi.mock(import("../runtime/master-password"), async (original) => {
     ...actual,
     openPasswordWindow: (...args: Parameters<typeof actual.openPasswordWindow>) => {
       const entry = actual.openPasswordWindow(...args);
-      return window.otherAccount ? { ...entry, connectionId: "another-connection" } : entry;
+      if (window.otherAccount <= 0) return entry;
+      window.otherAccount -= 1;
+      return { ...entry, connectionId: "another-connection" };
     },
   };
 });
 vi.stubEnv("MODE", "production");
 const { confirmationFixture } = await import("./confirmation-fixture");
 const { LOGIN_STEP_WAIT_MS } = await import("../wire");
+const { DECLINED_KEPT } = await import("../runtime/confirm-state");
 const {
   popup,
   origin,
@@ -43,7 +47,7 @@ const moveTo = (path: string) => {
 type Answer = "verified" | "closed" | "unavailable";
 
 async function asking() {
-  window.otherAccount = false;
+  window.otherAccount = 0;
   const answers: PromiseWithResolvers<Answer>[] = [];
   const ask = vi.fn(async () => {
     const answer = Promise.withResolvers<Answer>();
@@ -107,8 +111,9 @@ describe("a confirmation's master password window", () => {
     },
   );
 
-  it("fills nothing when the open window was answered for another vault account", async () => {
-    window.otherAccount = true;
+  it("asks for its own vault account once a window answered for another one ends", async () => {
+    // The window open for the document, as its login's, was asked for another account.
+    window.otherAccount = 1;
     const ask = vi.fn(async (): Promise<Answer> => "verified");
     const { h, options } = await authenticated({ askMasterPassword: ask });
     options.reprompt = true;
@@ -116,39 +121,46 @@ describe("a confirmation's master password window", () => {
     configure(h);
     fake.state.onReconnect = () => announce(h);
     await announce(h);
-    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
     await settled(h);
-    expect(fake.state.reconnects).toEqual([]);
-    expect(h.fields).not.toHaveBeenCalled();
-    expect(confirmations()).toEqual([]);
-    window.otherAccount = false;
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(fake.state.reconnects).toHaveLength(1);
   });
 
-  it.each(["closed", "unavailable"] as const)(
-    "leaves the page to the person once the window is %s, until the document moves elsewhere",
-    async (answer) => {
-      const { h, ask, answers } = await asking();
-      await settled(h);
-      answers[0]!.resolve(answer);
-      await vi.waitFor(() => expect(statuses()).toContain("confirm-fill-stopped"));
-      // The report of the page's first step, a reconnect and another announcement of the
-      // same document and path start no work: nothing can open the window again.
-      expect(await shownHello(h, { documentId: "confirmation-document" })).toMatchObject({
-        reason: "confirm-fill",
-      });
-      expect(await announce(h)).toMatchObject({ reason: "confirm-fill" });
-      await settled(h);
-      expect(ask).toHaveBeenCalledTimes(1);
-      // A later visit of the verification, after the document moved on in place, asks again.
-      moveTo("/dashboard");
-      await announce(h);
-      moveTo("/confirm");
-      await announce(h);
-      await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
-      await settled(h);
-      expect(confirmations()).toEqual([]);
-    },
-  );
+  it("asks again at the next announcement when the window was unavailable", async () => {
+    const { h, ask, answers } = await asking();
+    await settled(h);
+    answers[0]!.resolve("unavailable");
+    await vi.waitFor(() => expect(statuses()).toContain("confirm-fill-stopped"));
+    await announce(h);
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+    answers[1]!.resolve("verified");
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    await settled(h);
+  });
+
+  it("leaves the page to the person once the window is closed, until the document moves elsewhere", async () => {
+    const { h, ask, answers } = await asking();
+    await settled(h);
+    answers[0]!.resolve("closed");
+    await vi.waitFor(() => expect(statuses()).toContain("confirm-fill-stopped"));
+    // The report of the page's first step, a reconnect and another announcement of the
+    // same document and path start no work: nothing can open the window again.
+    expect(await shownHello(h, { documentId: "confirmation-document" })).toMatchObject({
+      reason: "confirm-fill",
+    });
+    expect(await announce(h)).toMatchObject({ reason: "confirm-fill" });
+    await settled(h);
+    expect(ask).toHaveBeenCalledTimes(1);
+    // A later visit of the verification, after the document moved on in place, asks again.
+    moveTo("/dashboard");
+    await announce(h);
+    moveTo("/confirm");
+    await announce(h);
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+    await settled(h);
+    expect(confirmations()).toEqual([]);
+  });
 
   it("opens no window closed on a page that comes back from the back/forward cache", async () => {
     const { h, ask, answers } = await asking();
@@ -208,6 +220,38 @@ describe("a confirmation's master password window", () => {
     vi.setSystemTime(Date.now() + LOGIN_STEP_WAIT_MS);
     await announce(h);
     await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+    await settled(h);
+    expect(confirmations()).toEqual([]);
+  });
+
+  it("remembers the closed windows of only the tab's latest pages it left", async () => {
+    const { h, ask, answers } = await asking();
+    await settled(h);
+    const stopped = () => statuses().filter((entry) => entry === "confirm-fill-stopped");
+    answers[0]!.resolve("closed");
+    await vi.waitFor(() => expect(stopped()).toHaveLength(1));
+    // Each later page of the tab is a verification whose window the person closes too,
+    // one after another.
+    /* eslint-disable no-await-in-loop */
+    for (let page = 1; page <= DECLINED_KEPT; page++) {
+      await announce(h, { documentId: `confirmation-${page}` });
+      await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(page + 1));
+      answers[page]!.resolve("closed");
+      await vi.waitFor(() => expect(stopped()).toHaveLength(page + 1));
+    }
+    /* eslint-enable no-await-in-loop */
+    moveTo("/home");
+    await h.hello({ documentId: "next-document" }, false);
+    moveTo("/confirm");
+    // The latest page, back from the back/forward cache, keeps its window closed.
+    expect(await announce(h, { documentId: `confirmation-${DECLINED_KEPT}` })).toMatchObject({
+      reason: "confirm-fill",
+    });
+    await settled(h);
+    expect(ask).toHaveBeenCalledTimes(DECLINED_KEPT + 1);
+    // The oldest one is no longer remembered: it asks again.
+    await announce(h);
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(DECLINED_KEPT + 2));
     await settled(h);
     expect(confirmations()).toEqual([]);
   });

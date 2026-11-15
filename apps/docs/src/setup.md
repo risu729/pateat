@@ -201,7 +201,9 @@ ordinary empty, untouched fields; buttons, authentication codes, software keyboa
 fields that advance or submit as you type stay with you. Review the form and press its
 button yourself. Passkey re-verification stays with the browser in either mode. An item
 that asks for the master password asks again for each verification page, and fills that
-page once you enter it. If you close the window, Pateat leaves that page to you.
+page once you enter it. If a master password window for another account is already
+open, Pateat asks for this account after it closes. If you close the window, Pateat
+leaves that page to you.
 
 A new verification page may be described to make a recipe, even when filling is off. A
 restarted extension worker does not replay an uncertain fill; a reloaded page is a new

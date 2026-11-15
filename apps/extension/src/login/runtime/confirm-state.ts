@@ -32,6 +32,8 @@ type Proof = v.InferOutput<typeof proofSchema>;
 type Claim = v.InferOutput<typeof claimSchema>;
 /** One tab never holds more claims than this, so it cannot use up every other tab's. */
 export const TAB_CLAIMS = 64;
+/** Closed master password windows remembered for one tab's pages it no longer shows. */
+export const DECLINED_KEPT = 16;
 /** How a document's confirmation fill on a path ended, for the popup (ADR 0038). */
 export type ConfirmOutcome = "confirm-filled" | "confirm-fill-kept" | "confirm-fill-stopped";
 /**
@@ -206,11 +208,17 @@ function update(rt: Runtime, change: (state: { proofs: Proof[]; claims: Claim[] 
     .catch(() => undefined);
 }
 
-/** Drops what is kept in memory of documents `keep` refuses; `declined` keeps a closed window's. */
+/**
+ * Drops what is kept in memory of documents `keep` refuses. With `declined`, the closed
+ * windows of the latest `DECLINED_KEPT` of them stay, so a page brought back from the
+ * back/forward cache does not open its window again; older ones go first.
+ */
 const dropDocuments = (rt: Runtime, keep: (key: string) => boolean, declined = false) => {
   const { outcomes, verified } = rt.confirmFill;
-  for (const [key, outcome] of outcomes)
-    if (!keep(key) && !(declined && outcome.declined)) outcomes.delete(key);
+  // Map order is insertion order, and a settled outcome is inserted anew: oldest first.
+  const gone = [...outcomes].filter(([key]) => !keep(key));
+  const kept = declined ? gone.filter(([, outcome]) => outcome.declined).slice(-DECLINED_KEPT) : [];
+  for (const [key] of gone) if (!kept.some(([other]) => other === key)) outcomes.delete(key);
   for (const key of verified.keys()) if (!keep(key)) verified.delete(key);
 };
 
@@ -240,7 +248,8 @@ export function leaveConfirmDocuments(rt: Runtime, tabId: number, documentId: st
   const shown = new Set(
     [...rt.documents.values()].map((live) => `${live.document.tabId} ${live.document.documentId}`),
   );
-  // A page brought back from the back/forward cache does not open a window closed on it.
+  // A page brought back from the back/forward cache does not open a window closed on it,
+  // for the tab's latest such pages.
   dropDocuments(
     rt,
     (key) => !key.startsWith(`${tabId} `) || key === `${tabId} ${documentId}` || shown.has(key),
