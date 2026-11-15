@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   createAttemptMetadata,
-  nextLoginOperation,
-  parseAttemptMetadata,
   recoverLoginAttempt,
-  pagesLeft,
-  MAX_JUDGED_PAGES,
   transitionLoginAttempt,
 } from "../../src/login-attempt";
-import type { LoginDocument, LoginRecipe } from "../../src/login";
+import { nextLoginOperation } from "../../src/login-attempt/operations";
+import { parseAttemptMetadata } from "../../src/login-attempt/metadata";
+import { pagesLeft, MAX_JUDGED_PAGES } from "../../src/login-attempt/schema-primitives";
+import type { LoginDocument } from "../../src/login/account";
+import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerChooserAttempts({

@@ -1,11 +1,10 @@
 import { expect, vi } from "vitest";
 import {
   createLocalVaultManager,
-  type KeyRetention,
   type LocalVaultManager,
-  type VaultCheckpoint,
   type VaultCryptoHost,
 } from "../../src/vault/manager";
+import type { KeyRetention, VaultCheckpoint } from "../../src/vault/manager-types";
 import { type VaultEntry, vaultFailure } from "../../src/vault/record";
 import { memorySessionKeyStore, type SessionKeyStore } from "../../src/vault/session-key";
 import type { DurableVaultStore } from "../../src/vault/storage";

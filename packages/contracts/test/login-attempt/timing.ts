@@ -5,12 +5,14 @@ import {
   awaitPerson,
   followPage,
   personAnswered,
+} from "../../src/login-attempt/timing";
+import {
   createAttemptMetadata,
-  parseAttemptMetadata,
   recoverLoginAttempt,
   transitionLoginAttempt,
 } from "../../src/login-attempt";
-import type { LoginDocument } from "../../src/login";
+import { parseAttemptMetadata } from "../../src/login-attempt/metadata";
+import type { LoginDocument } from "../../src/login/account";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerAttemptTiming({

@@ -19,11 +19,8 @@ import type { CryptoHost } from "../crypto/host";
 import { boundedMessage } from "../crypto/wire";
 import { createLocalSettingsRuntime } from "../settings";
 import { createIndexedDbVaultStore } from "../vault/storage";
-import {
-  createLocalVaultManager,
-  type KeyRetention,
-  type LocalVaultManager,
-} from "../vault/manager";
+import { createLocalVaultManager, type LocalVaultManager } from "../vault/manager";
+import type { KeyRetention } from "../vault/manager-types";
 import { createSessionKeyStore } from "../vault/session-key";
 import { vaultFailure } from "../vault/record";
 import {

@@ -2,25 +2,23 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
   DETAIL_HANDLER_SLOT,
+  detailSlot,
+  isDetailSlot,
+  handlerTargets,
+  loginRecipeSchema,
+} from "../../src/login/route-schema";
+import {
   detailFieldFormat,
   detailFieldInputs,
   detailLength,
   detailPartsFit,
-  detailSlot,
-  isDetailSlot,
-  handlerFact,
   manualDetails,
-  handlerSteps,
-  handlerTargets,
-  loginChooserRecipeSchema,
-  loginEntryRecipeSchema,
-  loginRecipeSchema,
-  loginTargetSchema,
-  parseLoginOperation,
-  parseLoginRecipe,
   type DetailField,
-  type LoginTarget,
-} from "../../src/login";
+} from "../../src/login/details";
+import { handlerFact, handlerSteps } from "../../src/login/routes";
+import { loginChooserRecipeSchema, loginEntryRecipeSchema } from "../../src/login/document-schema";
+import { loginTargetSchema, type LoginTarget } from "../../src/login/targets";
+import { parseLoginOperation, parseLoginRecipe } from "../../src/login/account";
 import type { LoginTestContext } from "./context";
 
 export function registerPasskeyHandlers({

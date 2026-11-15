@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  nextLoginOperation,
-  parseAttemptMetadata,
-  transitionLoginAttempt,
-  validateLoginOperation,
-} from "../../src/login-attempt";
-import type { LoginRecipe } from "../../src/login";
+import { nextLoginOperation, validateLoginOperation } from "../../src/login-attempt/operations";
+import { parseAttemptMetadata } from "../../src/login-attempt/metadata";
+import { transitionLoginAttempt } from "../../src/login-attempt";
+import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginAttemptMetadataLike, LoginAttemptTestContext } from "./context";
 
 export function registerAttemptIdentity({

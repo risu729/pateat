@@ -5,27 +5,22 @@ import {
   chooserClickBranch,
   chooserRoute,
   CHOOSER_ENTRY_TARGET,
-  continuesRecipe,
-  extendsRecipe,
-  isLoginRouteRecipe,
   loginChooserRecipeSchema,
-  recipeHasRoute,
   storedLoginRecipeSchema,
+  loginChooserDocumentSchema,
+  loginRecipeDocumentSchema,
+  chooserLayouts,
+} from "../../src/login/document-schema";
+import { continuesRecipe, extendsRecipe, recipeHasRoute } from "../../src/login/routes";
+import {
+  isLoginRouteRecipe,
   storedRecipeSlots,
   storedRecipeStartPath,
   withChooserBranch,
-  loginRecipeSchema,
-  type ChooserClick,
-  type LoginRecipe,
-  type LoginTarget,
   findChooserLayout,
   findLayoutRecipe,
   isLoginRecipeDocument,
   layoutRecipe,
-  loginChooserDocumentSchema,
-  loginRecipeDocumentSchema,
-  MAX_RECIPE_DOCUMENT_BYTES,
-  MAX_RECIPE_LAYOUTS,
   newestLayout,
   parseRecipeBranch,
   recipeBranch,
@@ -36,9 +31,16 @@ import {
   toLoginLayout,
   withChooserLayout,
   withLoginLayout,
-  chooserLayouts,
   storedLayoutRecipe,
-} from "../../src/login";
+} from "../../src/login/layouts";
+import {
+  loginRecipeSchema,
+  type LoginRecipe,
+  MAX_RECIPE_DOCUMENT_BYTES,
+  MAX_RECIPE_LAYOUTS,
+} from "../../src/login/route-schema";
+import type { ChooserClick } from "../../src/login/branch-schema";
+import type { LoginTarget } from "../../src/login/targets";
 import { newLayoutKey, storedLayouts, withoutLayout } from "../../src/recipe-layouts";
 import type { LoginTestContext } from "./context";
 

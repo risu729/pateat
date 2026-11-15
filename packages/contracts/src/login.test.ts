@@ -1,11 +1,9 @@
 import { describe } from "vitest";
-import {
-  type LoginAccountBinding,
-  type LoginRecipe,
-  type LoginTarget,
-  toLoginLayout,
-  type LoginRecipeDocument,
-} from "./login";
+import type { LoginAccountBinding } from "./login/account";
+import type { LoginRecipe } from "./login/route-schema";
+import type { LoginTarget } from "./login/targets";
+import { toLoginLayout } from "./login/layouts";
+import type { LoginRecipeDocument } from "./login/document-schema";
 import { createDefaultSettings, type SettingsSnapshot } from "./settings";
 import {
   registerDeclarativeBoundaries,

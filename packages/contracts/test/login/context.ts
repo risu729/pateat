@@ -1,9 +1,7 @@
-import type {
-  LoginAccountBinding,
-  LoginRecipe,
-  LoginRecipeDocument,
-  LoginTarget,
-} from "../../src/login";
+import type { LoginAccountBinding } from "../../src/login/account";
+import type { LoginRecipe } from "../../src/login/route-schema";
+import type { LoginRecipeDocument } from "../../src/login/document-schema";
+import type { LoginTarget } from "../../src/login/targets";
 import type { SettingsSnapshot } from "../../src/settings";
 
 export interface LoginTestContext {

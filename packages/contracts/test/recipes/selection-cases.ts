@@ -1,13 +1,12 @@
 import { expect, it } from "vitest";
 import * as v from "valibot";
+import { parseLoginRecipe } from "../../src/login/account";
+import { routeBodyOf, toLoginLayout } from "../../src/login/layouts";
 import {
-  parseLoginRecipe,
-  routeBodyOf,
   storedLoginRecipeSchema,
-  toLoginLayout,
   type LoginRecipeDocument,
   type StoredLoginRecipe,
-} from "../../src/login";
+} from "../../src/login/document-schema";
 import {
   languageDecides,
   layoutFirstSteps,

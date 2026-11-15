@@ -1,19 +1,9 @@
 import * as v from "valibot";
-import {
-  isLoginRecipeDocument,
-  newestLayout,
-  passwordVariants,
-  recipeLayouts,
-  routeSteps,
-  runsLogin,
-  sameLoginTarget,
-  type LoginRecipe,
-  type LoginStep,
-  type LoginTarget,
-  type LoginRecipeDocument,
-  type RecipeLanguage,
-  type StoredLoginRecipe,
-} from "./login";
+import { isLoginRecipeDocument, newestLayout, recipeLayouts, runsLogin } from "./login/layouts";
+import { passwordVariants, routeSteps } from "./login/routes";
+import { sameLoginTarget, type LoginStep, type LoginTarget } from "./login/targets";
+import type { LoginRecipe, RecipeLanguage } from "./login/route-schema";
+import type { LoginRecipeDocument, StoredLoginRecipe } from "./login/document-schema";
 import type { LoginObservation } from "./observation";
 import {
   savedLoginBindingSchema,

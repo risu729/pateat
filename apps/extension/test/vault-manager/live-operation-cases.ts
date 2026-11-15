@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import type { LocalVaultHandle } from "../../src/vault/manager";
+import type { LocalVaultHandle } from "../../src/vault/manager-types";
 import { vaultFailure } from "../../src/vault/record";
 import { disabledEntry } from "../../src/vault/__fixtures__/vault";
 import type { VaultManagerTestContext } from "./context";

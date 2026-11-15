@@ -3,13 +3,15 @@ import {
   attemptPlan,
   attemptRouteChoice,
   attemptUsesCode,
-  createAttemptMetadata,
   handlerSlots,
   nextLoginOperation,
+} from "../../src/login-attempt/operations";
+import {
+  createAttemptMetadata,
   recoverLoginAttempt,
   transitionLoginAttempt,
 } from "../../src/login-attempt";
-import type { LoginRecipe } from "../../src/login";
+import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginAttemptTestContext, LoginAttemptMetadataLike } from "./context";
 
 export function registerPasswordVariants({

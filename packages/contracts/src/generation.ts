@@ -11,18 +11,15 @@ import {
 } from "./observation";
 import {
   loginEntryRecipeSchema,
-  loginFieldTargetSchema,
   loginLogoutRecipeSchema,
-  loginPathSchema,
   recipeDocumentSchema,
-  loginRouteSchema,
   logoutTargetSchema,
   MAX_LOGOUT_TARGETS,
-  parseRecipeBranch,
-  recipeBranchSchema,
-  recipeLayoutKeySchema,
-  storedRecipeSlots,
-} from "./login";
+} from "./login/document-schema";
+import { loginFieldTargetSchema, loginPathSchema, loginRouteSchema } from "./login/targets";
+import { parseRecipeBranch, storedRecipeSlots } from "./login/layouts";
+import { recipeBranchSchema } from "./login/branch-schema";
+import { recipeLayoutKeySchema } from "./login/route-schema";
 import { shownQuestionSchema } from "./settings";
 import { syncRecipeIdSchema } from "./sync";
 

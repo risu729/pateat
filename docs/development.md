@@ -56,6 +56,17 @@ account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site
 component and default-account editor. Existing controls, keys, focus behavior and
 public exports are preserved.
 
+The toolbar popup's `popup/site-app.tsx` keeps `SiteApp`, its selection, busy and notice
+state, focus handling and the rendered sections. `site-queries.ts` owns the site's
+queries and settings subscription in one hook, `useSiteQueries`, which runs them in
+the order `SiteApp` did; `site-actions.ts` creates each render's save, pick, switch,
+pause, detail and re-prompt operations from the values `SiteApp` passes in.
+`site-accounts.tsx`, `site-details.tsx`, `site-reprompt.tsx` and `site-line.tsx` own the
+account choices, personal-detail controls, re-prompt rules and status line. Other
+modules import `popupOrigin` from `site-queries.ts`. The statements moved unchanged, so
+hook order, query keys, controls and action sequences stay the same; popup tests keep
+their files and cases.
+
 The Bitwarden settings panel keeps its public component in
 `options/bitwarden-setup.tsx`. `use-bitwarden-setup.ts` owns the page's state, actions,
 response fences, challenge heartbeat and focus effects in their original hook order and
@@ -126,11 +137,64 @@ eligibility; `site-policy.ts` owns site rules and saved-account resolution. The 
 policy imports or initialization cycles. This source split preserves schema order,
 validation messages and policy behavior; its tests keep their existing files.
 
+The shared login contract lives under `packages/contracts/src/login/`, with no
+`login.ts` facade: `targets.ts` owns identifier, origin, path, target and step schemas;
+`details.ts` the detail inputs; `route-schema.ts` routes, handlers, layouts and their
+validation; `document-schema.ts` stored entry, chooser, logout and recipe documents;
+`account.ts` account, document, operation and outcome boundaries; `branch-schema.ts`
+branch names; `layouts.ts` layout projections; and `routes.ts` route execution
+helpers. Other modules import each name from its owner, and the package index
+re-exports the same public names as before, listing them for the three owners that
+also export helpers to their siblings. The owners import each other without a runtime
+cycle. This source split preserves schema construction order, validation messages and
+helper behavior; tests keep their files and cases and only import from the owners.
+
+`packages/contracts/src/login-attempt.ts` keeps the attempt's lifecycle entry points:
+`createAttemptMetadata`, `transitionLoginAttempt`, `withdrawAccountSwitch` and
+`recoverLoginAttempt`. Its state and planning live under
+`packages/contracts/src/login-attempt/`: `schema-primitives.ts` owns limits and the
+state schema; `metadata.ts` the stored attempt record; `events.ts` the event schema;
+`policy.ts` the scope, stop and budget predicates; `record.ts` the per-event record
+update; `machine.ts` the XState machine; `timing.ts` the attempt clock; and
+`operations.ts` route choice and the next operation. `login-attempt.ts` does not
+re-export them: other modules import each name from its owner, and the package index
+re-exports the same public names as before, listing them for `policy.ts` and
+`schema-primitives.ts`, whose other exports serve their siblings. The step predicates
+stay in `login-attempt-steps.ts`. This split preserves the machine, its transitions and
+validation messages; tests keep their files and cases.
+
 `apps/extension/src/crypto/host.ts` keeps the crypto broker, its session lifecycle,
 request lanes and cancellation effects. `host-result.ts` owns pure operation-result
 admission, including account binding, requested item coverage and passkey signature
 bounds. The public host exports remain available from `host.ts`; existing test files
 and assertions stay in place.
+
+`apps/extension/src/vault/manager.ts` keeps `createLocalVaultManager`, which composes
+the manager from its owners in the same property order. `manager-session.ts` owns the
+manager's state (the epoch, live and staged sessions, retirements and the durable
+checks that guard them) and its lock, status and dispose; the bindings and helpers
+stay one closure, and the session object reads and updates them through accessors.
+`manager-snapshots.ts` owns accept, restore and offline unlock; `manager-keys.ts`
+disabling auto-unlock, locking, key retention and removal; `manager-capabilities.ts`
+the field, URI, username, passkey and master-password reads. Their method bodies are
+unchanged except that the session's names read as `context.<name>`. The handle,
+summary, checkpoint, retention and options types live in `manager-types.ts`, which
+other modules import directly. Tests keep their files and cases.
+
+The document-side login content script installs from
+`apps/extension/src/login/content.ts`: `installLoginContent` creates the document's
+session, its command listener and its page listeners, and removes them in the same
+order as before. `content-session.ts` keeps the document's state and its watches
+(readiness announcements, offer windows, frame visibility, submission listeners and URL
+watches) as the statements they were, in one closure, and exposes the bindings the
+other modules use through accessors. `content-dispatch.ts` checks the sender and the
+document token and answers the page, detail, choice and entry commands;
+`content-execute.ts` runs a native `login.execute` operation; `content-command.ts`
+names their command and `respond` types from the wire schema; `content-dom.ts` holds
+the shared DOM checks, timings and change watcher. The moved statements are unchanged
+except that the session's names read as `context.<name>`, so every read sees the
+binding's current value after asynchronous work. The content tests keep their files and
+cases.
 
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
@@ -332,9 +396,9 @@ task graph. `mise run fix` applies explicit formatting/lint fixes; the check tas
 not mutate source files. Renovate tracks the pinned dependencies and tooling.
 
 Oxlint's `max-lines` keeps every source and test file at 1,000 lines or fewer, blank
-lines and comments included (owner, 2026-10-23). Files that were already longer are
-listed in the last override of `.oxlintrc.json` with the rule off until each is split;
-remove a file from that list when its split lands, and do not add new ones.
+lines and comments included (owner, 2026-10-23). The files that were already longer
+have been split, so `.oxlintrc.json` turns the rule off for none; do not add such an
+override.
 
 Focused tasks are available for diagnosis:
 
@@ -506,10 +570,10 @@ and the `Verify` table shows `services/api/web` as `-`, since only the managemen
 suite reaches it.
 No threshold fails CI. The packaged-extension Playwright suite (`tests/extension`) is
 not measured, so code that runs only there, such as
-`apps/extension/src/login/content.ts`, `crypto/worker.ts` and the connections, crypto
-and vault `probe.ts` files, shows as uncovered. For the same table locally, delete
-`coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE` set to any non-empty
-value, then `mise run coverage:summary`.
+`apps/extension/src/login/content.ts` and its `content-*` modules, `crypto/worker.ts`
+and the connections, crypto and vault `probe.ts` files, shows as uncovered. For the
+same table locally, delete `coverage/`, run `mise run check:runtime` with
+`PATEAT_COVERAGE` set to any non-empty value, then `mise run coverage:summary`.
 
 Not adopted: Codecov, which adds an external service and an upload token, and GitHub
 Code Quality's pull-request coverage, which requires Code Quality; GitHub offers Code

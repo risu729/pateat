@@ -1,14 +1,9 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { recipeGenerationRequestSchema } from "./generation";
-import {
-  continuesRecipe,
-  loginRecipeSchema,
-  parseLoginRecipe,
-  passwordVariants,
-  recipeHasRoute,
-  type LoginRecipe,
-} from "./login";
+import { continuesRecipe, passwordVariants, recipeHasRoute } from "./login/routes";
+import { loginRecipeSchema, type LoginRecipe } from "./login/route-schema";
+import { parseLoginRecipe } from "./login/account";
 
 const button = { by: "id", value: "passkey-login" } as const;
 const passkeyOnly = {

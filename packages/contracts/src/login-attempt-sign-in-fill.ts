@@ -1,5 +1,6 @@
-import { sameLoginDocument, type LoginDocument } from "./login";
-import type { LoginAttemptEvent, LoginAttemptMetadata } from "./login-attempt";
+import { sameLoginDocument, type LoginDocument } from "./login/account";
+import type { LoginAttemptEvent } from "./login-attempt/events";
+import type { LoginAttemptMetadata } from "./login-attempt/metadata";
 
 /** What a passive sign-in fill's transition reads of the attempt machine's own rules. */
 export type SignInFillRules = {

@@ -1,4 +1,5 @@
-import { keypadStep, loginStepEffect, TOTP_HANDLER_SLOT, type LoginStep } from "./login";
+import { keypadStep, loginStepEffect, type LoginStep } from "./login/targets";
+import { TOTP_HANDLER_SLOT } from "./login/route-schema";
 
 /** A step that may advance or submit the page: a click, or a fill whose event may. */
 export const effectfulStep = (step: LoginStep): boolean => {

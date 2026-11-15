@@ -2,13 +2,14 @@ import { expect, it } from "vitest";
 import { holdsOrigin } from "../../src/login-attempt-hold";
 import {
   createAttemptMetadata,
-  nextLoginOperation,
-  parseAttemptMetadata,
   recoverLoginAttempt,
   transitionLoginAttempt,
   withdrawAccountSwitch,
 } from "../../src/login-attempt";
-import type { LoginDocument, LoginRecipe } from "../../src/login";
+import { nextLoginOperation } from "../../src/login-attempt/operations";
+import { parseAttemptMetadata } from "../../src/login-attempt/metadata";
+import type { LoginDocument } from "../../src/login/account";
+import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerSubmissionResults({

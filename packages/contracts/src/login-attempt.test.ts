@@ -1,6 +1,7 @@
 import { describe } from "vitest";
 import { createAttemptMetadata, transitionLoginAttempt } from "./login-attempt";
-import type { LoginDocument, LoginRecipe } from "./login";
+import type { LoginDocument } from "./login/account";
+import type { LoginRecipe } from "./login/route-schema";
 import { registerAttemptIdentity } from "../test/login-attempt/identity";
 import { registerSubmissionIntents } from "../test/login-attempt/submission-intents";
 import { registerSubmissionResults } from "../test/login-attempt/submission-results";

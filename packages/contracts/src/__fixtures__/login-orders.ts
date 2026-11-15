@@ -1,27 +1,21 @@
-import {
-  attemptPlan,
-  createAttemptMetadata,
-  fillOnlyStep,
-  MAX_ATTEMPT_SUBMISSIONS,
-  nextLoginOperation,
-  transitionLoginAttempt,
-  type LoginAttemptMetadata,
-} from "../login-attempt";
+import { attemptPlan, nextLoginOperation } from "../login-attempt/operations";
+import { createAttemptMetadata, transitionLoginAttempt } from "../login-attempt";
+import { fillOnlyStep } from "../login-attempt-steps";
+import { MAX_ATTEMPT_SUBMISSIONS } from "../login-attempt/schema-primitives";
+import type { LoginAttemptMetadata } from "../login-attempt/metadata";
 import { holdsOrigin } from "../login-attempt-hold";
 import {
   continuesRecipe,
   extendsRecipe,
   handlerSteps,
-  loginStepEffect,
   routeSteps,
-  TOTP_HANDLER_SLOT,
-  type ChooserClick,
-  type LoginDocument,
   type LoginItemFacts,
-  type LoginRecipe,
   type LoginRouteChoice,
-  type LoginStep,
-} from "../login";
+} from "../login/routes";
+import { loginStepEffect, type LoginStep } from "../login/targets";
+import { TOTP_HANDLER_SLOT, type LoginRecipe } from "../login/route-schema";
+import type { ChooserClick } from "../login/branch-schema";
+import type { LoginDocument } from "../login/account";
 
 // Every state a small login can reach: each event of a fixed set is applied to each reached
 // state until no new state appears, and each step is checked against the invariants in

@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { normalizeBitwardenProfile } from "@pateat/bitwarden";
-import type { LocalVaultHandle } from "../vault/manager";
+import type { LocalVaultHandle } from "../vault/manager-types";
 import type { VaultApplyHold, VaultSyncResult } from "./auto-sync";
 import { setupBeginSchema, setupContinuationSchema } from "./wire";
 import { error, replyOf } from "./setup-reply";

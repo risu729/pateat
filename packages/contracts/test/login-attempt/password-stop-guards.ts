@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  nextLoginOperation,
-  parseAttemptMetadata,
-  recoverLoginAttempt,
-  pagesLeft,
-  transitionLoginAttempt,
-  validateLoginOperation,
-} from "../../src/login-attempt";
+import { nextLoginOperation, validateLoginOperation } from "../../src/login-attempt/operations";
+import { parseAttemptMetadata } from "../../src/login-attempt/metadata";
+import { recoverLoginAttempt, transitionLoginAttempt } from "../../src/login-attempt";
+import { pagesLeft } from "../../src/login-attempt/schema-primitives";
 import type { PasswordStopTestContext } from "./context";
 
 export function registerPasswordStopGuards({

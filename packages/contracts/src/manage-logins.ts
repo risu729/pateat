@@ -1,5 +1,6 @@
 import * as v from "valibot";
-import { loginOriginSchema, loginOutcomeSchema } from "./login";
+import { loginOriginSchema } from "./login/targets";
+import { loginOutcomeSchema } from "./login/account";
 import {
   MAX_LOGIN_RECORD_MS,
   extensionBuildSchema,

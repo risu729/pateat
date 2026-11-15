@@ -7,7 +7,8 @@ import type {
 } from "@pateat/bitwarden";
 import type { CryptoHost } from "../crypto/host";
 import type { VaultFailureDetail } from "../vault/record";
-import type { LocalVaultManager, LocalVaultHandle } from "../vault/manager";
+import type { LocalVaultManager } from "../vault/manager";
+import type { LocalVaultHandle } from "../vault/manager-types";
 import type { DurableVaultStore } from "../vault/storage";
 import type { ProviderSessions, ProviderSessionState } from "./sessions";
 import type { VaultEntry, VaultErrorCode, VaultResult } from "../vault/record";

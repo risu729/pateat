@@ -1,4 +1,4 @@
-import { type LoginAttemptMetadata } from "./login-attempt";
+import type { LoginAttemptMetadata } from "./login-attempt/metadata";
 
 /**
  * A login Pateat itself stopped with nothing in flight: a withdrawn authorization, a

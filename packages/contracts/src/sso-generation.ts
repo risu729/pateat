@@ -3,7 +3,7 @@ import { loginObservationSchema } from "./observation";
 import { deviceModelSchema } from "./device-model";
 import { syncRecipeIdSchema } from "./sync";
 import { ssoLabelsSchema } from "./sso";
-import { recipeLayoutKeySchema } from "./login";
+import { recipeLayoutKeySchema } from "./login/route-schema";
 /** Only selected account/method labels and value-free page candidates go remotely. */
 export const ssoGenerationRequestSchema = v.strictObject({
   version: v.literal(1),

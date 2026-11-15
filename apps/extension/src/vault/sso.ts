@@ -7,7 +7,7 @@ import type {
   SsoMethods,
   SsoCandidates,
 } from "../crypto/sso-wire";
-import type { LocalVaultHandle } from "./manager";
+import type { LocalVaultHandle } from "./manager-types";
 import { vaultFailure, type VaultResult } from "./record";
 
 export type SsoCryptoHost = Partial<Pick<CryptoHost, "ssoMethods" | "ssoCandidates">>;

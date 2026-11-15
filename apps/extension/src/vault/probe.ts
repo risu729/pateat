@@ -8,7 +8,8 @@ import {
   v1Password,
 } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
 import { createIndexedDbVaultStore } from "./storage";
-import { createLocalVaultManager, type VaultCheckpoint, type LocalVaultHandle } from "./manager";
+import { createLocalVaultManager } from "./manager";
+import type { VaultCheckpoint, LocalVaultHandle } from "./manager-types";
 import { vaultFailure, type VaultEntry } from "./record";
 
 const requestSchema = v.variant("action", [

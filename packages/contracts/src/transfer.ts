@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { storedLoginRecipeSchema } from "./login";
+import { storedLoginRecipeSchema } from "./login/document-schema";
 import { localSettingsSchema } from "./settings";
 import { MAX_ACTIVE_RECIPES, MAX_SETTINGS_DOCUMENT_BYTES, settingsDocumentBytes } from "./sync";
 
