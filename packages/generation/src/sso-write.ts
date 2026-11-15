@@ -2,6 +2,7 @@ import {
   canonicalJson,
   newLayoutKey,
   storedLayouts,
+  ssoBesideNative,
   storedLoginRecipeSchema,
   type StoredLoginRecipe,
 } from "@pateat/contracts";
@@ -32,7 +33,8 @@ export function rebaseNativeOverSso(
     renamed.set(layout.key, key);
     return { ...layout, key };
   };
-  const recipe = {
+  // SSO entries on an element the native answer uses give way to it.
+  const recipe = ssoBesideNative({
     ...body,
     ...(body.layouts ? { layouts: body.layouts.map(rename) } : {}),
     ...(body.chooser
@@ -40,6 +42,6 @@ export function rebaseNativeOverSso(
       : {}),
     revision: current.revision + 1,
     ...(current.sso ? { sso: current.sso } : {}),
-  };
+  });
   return v.is(storedLoginRecipeSchema, recipe) ? { recipe, renamed } : undefined;
 }

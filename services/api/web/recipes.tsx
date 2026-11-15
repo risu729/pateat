@@ -278,10 +278,20 @@ function RecipeDetails({
       )}
       {layouts.map((layout, index) => {
         const projected = storedLayoutRecipe(recipe, layout.key);
-        if (!projected) return null;
-        const { facts, variants } = recipeFacts(projected);
+        // SSO entries (ADR 0085) are a layout family of their own, with no steps.
+        const family = !projected && "sso" in recipe ? recipe.sso : undefined;
+        const sso = family?.layouts.find((item) => item.key === layout.key);
+        if (!projected && !sso) return null;
         const lastUsed = lastUses.get(layout.key);
         const firstPage = firstPages.get(layout.key);
+        const common: [string, ReactNode][] = [
+          ["Language", layout.language ? languageNames[layout.language] : "Not known"],
+          ["Created", formatTime(layout.createdAt)],
+          ["Last used", lastUsed ? formatTime(lastUsed) : "Not used yet"],
+        ];
+        const { facts, variants } = projected
+          ? recipeFacts(projected)
+          : { facts: [], variants: [] };
         return (
           <section
             key={layout.key}
@@ -297,22 +307,44 @@ function RecipeDetails({
               </h4>
               {remove({ recipeId: recipe.id, revision, layout: layout.key })}
             </div>
-            <KeyValues
-              entries={[
-                ["Language", layout.language ? languageNames[layout.language] : "Not known"],
-                ["Created", formatTime(layout.createdAt)],
-                ["Last used", lastUsed ? formatTime(lastUsed) : "Not used yet"],
-                // A chooser layout's first page is its list of accounts; a recipe may hold
-                // both kinds (ADR 0028).
-                [
-                  "chooser" in projected ? "Account list made by" : "First page made by",
-                  firstPageSource(firstPage),
-                ],
-                ["Steps", `${variants.reduce((sum, variant) => sum + variant.steps.length, 0)}`],
-                ...facts,
-              ]}
-            />
-            <LayoutSteps variants={variants} />
+            {family && sso ? (
+              <KeyValues
+                entries={[
+                  ...common,
+                  ["SSO entries made by", firstPageSource(firstPage)],
+                  [
+                    "SSO entries",
+                    `${sso.entries.length} on ${family.path}. Devices do not click them yet.`,
+                  ],
+                  ...sso.entries.map(({ label, target }): [string, ReactNode] => [
+                    label,
+                    `Click ${describeTarget(target)}`,
+                  ]),
+                ]}
+              />
+            ) : (
+              projected && (
+                <>
+                  <KeyValues
+                    entries={[
+                      ...common,
+                      // A chooser layout's first page is its list of accounts; a recipe may
+                      // hold both kinds (ADR 0028).
+                      [
+                        "chooser" in projected ? "Account list made by" : "First page made by",
+                        firstPageSource(firstPage),
+                      ],
+                      [
+                        "Steps",
+                        `${variants.reduce((sum, variant) => sum + variant.steps.length, 0)}`,
+                      ],
+                      ...facts,
+                    ]}
+                  />
+                  <LayoutSteps variants={variants} />
+                </>
+              )
+            )}
           </section>
         );
       })}

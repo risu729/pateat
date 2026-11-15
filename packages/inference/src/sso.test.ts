@@ -1,6 +1,7 @@
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import type { LoginObservation } from "@pateat/contracts";
-import { createSsoGenerator, validateSsoPlan, type SsoPlan } from "./sso";
+import { MAX_SSO_REQUEST_LABELS, type LoginObservation } from "@pateat/contracts";
+import { createSsoGenerator, ssoPlanSchema, validateSsoPlan, type SsoPlan } from "./sso";
 import { generationRequest, textModel, textResult } from "./testing/fake-models";
 
 const page: LoginObservation = {
@@ -35,7 +36,7 @@ const page: LoginObservation = {
 const plan: SsoPlan = {
   decision: "plan",
   page: "sign-in",
-  entries: [{ label: "Example", candidate: "provider" }],
+  entries: [{ labelIndex: 0, candidate: "provider" }],
 };
 const setup = (answer: unknown, finish?: Parameters<typeof textResult>[1]) => {
   const model = textModel(async () => textResult(JSON.stringify({ result: answer }), finish));
@@ -82,9 +83,9 @@ describe("SSO entry inference", () => {
   });
 
   it.each([
-    [{ ...plan, entries: [{ label: "Other", candidate: "provider" }] }, "unknown-label"],
-    [{ ...plan, entries: [{ label: "Example", candidate: "invented" }] }, "unknown-candidate"],
-    [{ ...plan, entries: [{ label: "Example", candidate: "password" }] }, "incompatible-role"],
+    [{ ...plan, entries: [{ labelIndex: 1, candidate: "provider" }] }, "unknown-label"],
+    [{ ...plan, entries: [{ labelIndex: 0, candidate: "invented" }] }, "unknown-candidate"],
+    [{ ...plan, entries: [{ labelIndex: 0, candidate: "password" }] }, "incompatible-role"],
     [{ ...plan, entries: [] }, "incomplete"],
   ] as const)(
     "rejects model-selected references beyond the request: %s",
@@ -108,8 +109,8 @@ describe("SSO entry inference", () => {
     const repeated = {
       ...plan,
       entries: [
-        { label: "Example", candidate: "provider" },
-        { label: "Other", candidate: "provider" },
+        { labelIndex: 0, candidate: "provider" },
+        { labelIndex: 1, candidate: "provider" },
       ],
     };
     expect(validateSsoPlan(page, ["Example", "Other"], repeated)).toEqual({
@@ -137,12 +138,46 @@ describe("SSO entry inference", () => {
 
   it.each([
     { title: "Authorize access" },
+    { title: "Example wants to access your account" },
     { headings: ["Share account data"] },
-    { nearButtons: ["Create your account"] },
+    { headings: ["Create your account"] },
+    { title: "Sign up" },
     { title: "新規アカウント作成" },
+    { headings: ["会員登録"] },
+    { headings: ["アクセスを許可しますか？"] },
+  ])(
+    "abstains locally on a page that only grants access or creates an account %s",
+    async (extra) => {
+      const { model, generate } = setup(plan);
+      expect(
+        await generate({ observation: { ...page, ...extra }, labels: ["Example"] }),
+      ).toMatchObject({ status: "abstained", reason: "no-login-form", calls: 0 });
+      expect(model.doGenerateCalls).toHaveLength(0);
+    },
+  );
+
+  // Headings of real sign-in pages: they offer signing up beside signing in, show a cookie
+  // banner's heading first, or ask for a detail beside the provider buttons. The role's own
+  // classification decides those.
+  it.each([
+    { title: "Log in or sign up" },
+    { title: "Create your account or sign in" },
+    { title: "ログイン・新規登録" },
+    { headings: ["ログインまたは会員登録"] },
+    { headings: ["We value your privacy", "Sign in"] },
+    { headings: ["Cookie consent", "Sign in"] },
+    { headings: ["Cookieの同意", "ログイン"] },
+    { headings: ["新規のお客様・ログイン"] },
+    { nearButtons: ["Create your account"] },
     {
       candidates: [
         ...page.candidates,
+        {
+          id: "tel",
+          role: "text" as const,
+          autocomplete: "tel",
+          target: { by: "id" as const, value: "tel" },
+        },
         {
           id: "name",
           role: "text" as const,
@@ -151,12 +186,32 @@ describe("SSO entry inference", () => {
         },
       ],
     },
-  ])("abstains locally on generic unsafe evidence %s", async (extra) => {
+  ])("asks the role on a sign-in page that shows %s", async (extra) => {
     const { model, generate } = setup(plan);
     expect(
       await generate({ observation: { ...page, ...extra }, labels: ["Example"] }),
-    ).toMatchObject({ status: "abstained", reason: "no-login-form", calls: 0 });
-    expect(model.doGenerateCalls).toHaveLength(0);
+    ).toMatchObject({ status: "ok", calls: 1 });
+    expect(model.doGenerateCalls).toHaveLength(1);
+  });
+
+  it("bounds the largest answer by the output tokens the role allows", () => {
+    // ASCII only, so a token covers at least one character.
+    const largest = JSON.stringify({
+      result: {
+        decision: "plan",
+        page: "account-creation",
+        entries: Array.from({ length: MAX_SSO_REQUEST_LABELS }, (_, index) => ({
+          labelIndex: index,
+          candidate: "c".repeat(64),
+        })),
+      },
+    });
+    expect(v.is(ssoPlanSchema, JSON.parse(largest))).toBe(true);
+    expect(/^[\x20-\x7e]*$/u.test(largest)).toBe(true);
+    expect(largest.length).toBeLessThanOrEqual(1_024);
+    const larger = JSON.parse(largest);
+    larger.result.entries.push({ labelIndex: 0, candidate: "c" });
+    expect(v.is(ssoPlanSchema, larger)).toBe(false);
   });
 
   it("rejects a registration button on an otherwise sign-in page", async () => {
@@ -175,7 +230,7 @@ describe("SSO entry inference", () => {
   it("redacts invented output from the retained answer", async () => {
     const { generate } = setup({
       ...plan,
-      entries: [{ label: "private-invented", candidate: "private-invented" }],
+      entries: [{ labelIndex: 7, candidate: "private-invented" }],
     });
     const result = await generate({ observation: page, labels: ["Example"] });
     expect(result).toMatchObject({
@@ -190,7 +245,7 @@ describe("SSO entry inference", () => {
     expect(
       await generate({ observation: { ...page, complete: false }, labels: ["Example"] }),
     ).toMatchObject({ status: "failed", error: "incomplete-observation", calls: 0 });
-    expect(await generate({ observation: page, labels: ["Example", "example"] })).toMatchObject({
+    expect(await generate({ observation: page, labels: ["Example", "[Example]"] })).toMatchObject({
       status: "failed",
       error: "invalid-request",
       calls: 0,

@@ -3446,9 +3446,12 @@ the same way. Signing in to a site through Google or Microsoft follows the polic
 Local discovery and label-only generation now have separate SSO entry contracts: an
 `sso` sibling of a stored recipe holds its path and up to three layouts of label/target
 entries, without fill slots or ordinary click steps. Native layouts may coexist with
-that sibling; conditional writes, repair and layout provenance preserve both. A
-dedicated `kind: "sso"` generation request sends only selected account/method labels and
-a value-free page description; no IdP origin, account, username or mapping is sent. The
+that sibling; conditional writes, repair and layout provenance preserve both, and SSO
+entries on an element a native route uses give way to it. A dedicated `kind: "sso"`
+generation request sends only selected account/method labels and a value-free page
+description; no IdP origin, account, username or mapping is sent. New labels join the
+newest SSO layout, each family is repaired once a UTC day apart, and the retry window
+follows the labels and SSO entries rather than the recipe's revision. The
 method chooser, local mapping, same-tab coordinator and IdP behavior still must
 integrate those contracts before any SSO entry executes.
 

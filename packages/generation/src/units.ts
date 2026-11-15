@@ -20,6 +20,7 @@ import {
 // - `list` a chooser layout's list buttons (`other`, `continue`).
 // - `account/<unit>` and `other/<unit>` a unit of that chooser layout's branch's route,
 //   and `passkey/<unit>` one of its passkey route beside the list (ADR 0079).
+// - `sso` an SSO layout's entries (ADR 0026 amendment of 2026-11-12), the whole layout.
 // - `entry` an entry recipe (ADR 0031), which has no layout.
 // - `logout` a logout recipe's clicks (ADR 0063), which has no layout either.
 //
@@ -34,6 +35,7 @@ export type DigestedUnit = RecipeUnit & { digest: string };
 export const ENTRY_UNIT = "entry";
 export const LIST_UNIT = "list";
 export const LOGOUT_UNIT = "logout";
+export const SSO_UNIT = "sso";
 /** A page of a route, by the index of its first step. */
 export const pageUnit = (firstStep: number) => `page:${firstStep}`;
 /** A route's handler, by its index in `handlers`. */
@@ -124,7 +126,7 @@ export async function documentUnits(
         : [
             ...(recipe.sso?.layouts ?? []).map((layout) => ({
               layout: layout.key,
-              unit: "sso",
+              unit: SSO_UNIT,
               content: {
                 path: recipe.sso!.path,
                 entries: layout.entries,

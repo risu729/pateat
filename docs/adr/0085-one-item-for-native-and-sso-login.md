@@ -300,3 +300,10 @@ route never receives an SSO custom field as a fill slot. Nothing calls this mode
 automatic route selection remains unchanged until the mapping chooser and same-tab
 coordinator integrate this foundation. No live vault format has been migrated and no
 real-account compatibility has been established.
+
+An entry recipe ([ADR 0031](0031-sign-in-entry-pages.md)) holds no SSO entries: an
+SSO request on its path is refused as a recipe conflict before any call. The entry
+recipe is a document of its own with no layouts, so SSO entries beside it would need
+their own layout removal, retention, provenance and entry rewrite rules. Neither the
+entry nor the SSO entries run yet, and whether a site's SSO buttons are found on its
+entry page or on the login page the entry opens is for the coordinator to decide.

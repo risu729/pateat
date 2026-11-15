@@ -692,3 +692,75 @@ test("lists each layout of a recipe and removes one after a confirmation (ADR 00
     .element(page.getByRole("status"))
     .toHaveTextContent(`Layout ${LAYOUT} of bank-signin removed`);
 });
+
+test("lists a recipe's SSO entries beside its form and removes their layout (ADR 0085)", async () => {
+  const sso = String(UPDATED);
+  const mixed = {
+    ...recipe("bank-signin", 2),
+    sso: {
+      path: "/login",
+      layouts: [
+        {
+          key: sso,
+          language: "en" as const,
+          createdAt: UPDATED,
+          entries: [
+            { label: "Example Work", target: { by: "id" as const, value: "work-sso" } },
+            { label: "グーグル", target: { by: "test-id" as const, value: "google" } },
+          ],
+        },
+      ],
+    },
+  };
+  const client = mockClient({
+    version: 1,
+    recipes: [
+      {
+        change: { recipeId: "bank-signin", revision: 2, state: "active", recipe: mixed },
+        updatedAt: UPDATED,
+        layouts: [
+          { key: LAYOUT, lastUsedAt: UPDATED, firstPage: null },
+          {
+            key: sso,
+            lastUsedAt: null,
+            firstPage: { origin: "generated", model: "claude-synthetic", createdAt: UPDATED },
+          },
+        ],
+      },
+    ],
+  });
+  const { sso: _sso, ...formOnly } = mixed;
+  client.revokeLayout.mockImplementation(async (recipeId, _layout, expectedRevision) => {
+    const change = {
+      recipeId,
+      revision: expectedRevision + 1,
+      state: "active" as const,
+      recipe: { ...formOnly, revision: expectedRevision + 1 },
+    };
+    client.replace({ version: 1, recipes: [{ ...active("bank-signin", 3), change }] });
+    return { version: 1, change };
+  });
+  await mount(client);
+  const details = recipeItem("bank-signin");
+  for (const text of [
+    "Layouts2",
+    "Layout 1",
+    "Steps2",
+    "Layout 2",
+    "LanguageEnglish",
+    "Last usedNot used yet",
+    "SSO entries made byclaude-synthetic, 2026-10-11 08:15 UTC",
+    "SSO entries2 on /login. Devices do not click them yet.",
+    'Example WorkClick id "work-sso"',
+    'グーグルClick test-id "google"',
+  ])
+    // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
+    await expect.element(details).toMatchTextContent(text);
+  await page.getByRole("button", { name: `Remove layout ${sso} of bank-signin` }).click();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect.poll(() => client.revokeLayout).toHaveBeenCalledWith("bank-signin", sso, 2);
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent(`Layout ${sso} of bank-signin removed`);
+  await expect.element(details).not.toMatchTextContent("SSO entries");
+});

@@ -12,6 +12,7 @@ import {
   storedLayouts,
   newLayoutKey,
   isSsoDocument,
+  ssoBesideNative,
   type ChooserBranch,
   type LoginChooserRecipe,
   type LoginRecipe,
@@ -340,7 +341,7 @@ export async function generateRecipe(
     // A repair is limited to one a UTC day per recipe and device instead of the page's retry
     // window (ADR 0041).
     ...(repair
-      ? repairWindow(backend, { recipeId, baseRevision }, recheck)
+      ? repairWindow(backend, { recipeId, baseRevision, family: "native" }, recheck)
       : attemptWindow(
           backend,
           { recipeId, branch: attemptBranch, origin, path, baseRevision },
@@ -499,9 +500,10 @@ export async function generateRecipe(
   const revision = baseRevision + 1;
   /** A new recipe document, checked as devices check what they sync. */
   const document = (recipe: StoredLoginRecipe) => {
+    // SSO entries on an element the answer uses give way to it: they do not run yet.
     const kept =
       repaired && isSsoDocument(repaired) && !("entry" in recipe) && !("logout" in recipe)
-        ? { ...recipe, sso: repaired.sso }
+        ? ssoBesideNative({ ...recipe, sso: repaired.sso })
         : recipe;
     return v.is(storedLoginRecipeSchema, kept) ? kept : undefined;
   };
@@ -606,7 +608,11 @@ export async function generateRecipe(
   // A recipe of a list alone whose start page showed a form gets the form's layout beside
   // its list, and an entry recipe whose page became a form is replaced by a login recipe
   // (ADR 0041 section 6), unless the answer is no sign-in page.
-  if (repaired && !isLoginRecipeDocument(repaired) && !runsLogin(next)) return unchanged();
+  // A recipe of SSO entries alone has no native family the answer would replace, so a confirm
+  // or unclear page's answer is written beside them as on a page with no recipe.
+  const ssoOnly = repaired && isSsoDocument(repaired) && !isChooserDocument(repaired);
+  if (repaired && !isLoginRecipeDocument(repaired) && !ssoOnly && !runsLogin(next))
+    return unchanged();
   if (repaired && isLoginRecipeDocument(repaired)) {
     const uses = await backend.layoutUses(recipeId);
     // An answer that is no sign-in page, as a maintenance page answered 200 that kept an

@@ -37,6 +37,7 @@ import {
   LIST_UNIT,
   namedUnits,
   pageUnit,
+  SSO_UNIT,
   type RecipeUnit,
   type UnitSources,
 } from "@pateat/generation";
@@ -661,7 +662,7 @@ export async function readFirstPageSources(
       and(
         eq(recipeUnitSources.ownerId, ownerId),
         isNotNull(recipeUnitSources.layout),
-        inArray(recipeUnitSources.unit, [pageUnit(0), LIST_UNIT, "sso"]),
+        inArray(recipeUnitSources.unit, [pageUnit(0), LIST_UNIT, SSO_UNIT]),
       ),
     );
   const sources = new Map<string, Map<string, ManageLayoutSource>>();

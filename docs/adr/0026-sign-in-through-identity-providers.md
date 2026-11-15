@@ -179,14 +179,21 @@ username, IdP origin, item reference, comparison proof or local mapping. A label
 be one local discovery can read
 ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-method-discovery-and-mapping-validation)):
 trimmed, at most 128 UTF-16 units, with no bracket, control, format, line or paragraph
-separator character; labels are compared ignoring letter case. The role
-returns only requested labels and observation-local candidate references. Local checks
-require one observed button or link per label, reject duplicate targets, and retain no
-invented label or candidate in the request log. Generic registration/permission evidence
-and the role's page classification refuse consent, sharing, account creation and unclear
-pages, even when a matching provider button shows. The later coordinator must check
-these boundaries again on the live document. Claude answers the request alone: Clef
-answers only sign-in forms with slots
+separator character. Labels are compared ignoring letter case, so a request's labels
+that differ only by case name one entry and the first spelling is kept. A request names
+at most eight labels. The role names each one by its index in the request and each
+entry by an observation-local candidate ID, so its answer is ASCII and stays within the
+role's 1,024 output tokens. Local checks require one observed button or link per label,
+reject duplicate targets, and retain no invented label or candidate in the request log.
+Targets are compared canonically, so member order never tells two apart. The role's
+page classification refuses consent, sharing, account creation and unclear pages, even
+when a matching provider button shows. Locally, only a title or main heading that
+clearly grants access, shares account data or only creates an account refuses the page,
+and the chosen candidate's own label must not sign up, register, create an account,
+authorize, grant, allow or agree. A page that offers signing in beside signing up, a
+cookie banner's heading and a personal detail field beside the provider buttons are left
+to the role. The later coordinator must check these boundaries again on the live
+document. Claude answers the request alone: Clef answers only sign-in forms with slots
 ([ADR 0083](0083-clef-first-for-sign-in-forms.md)), and an SSO request has none. As with
 the other generation requests, a paired device with its own key makes the call through
 the device-model protocol and a device without a pairing makes it itself
@@ -194,18 +201,37 @@ the device-model protocol and a device without a pairing makes it itself
 
 The service stores entries with the existing conditional revision write, spend limits,
 request log and generation retry/repair windows. This is a generation call, not a
-post-login judgement and does not count toward a recipe's 20 judgements a day. SSO and
-native writes keep each other's siblings, with one bounded conditional rebase when only
-the other family changed. A native-only update does not discard a pending SSO repair.
-Layout-key collisions are renamed together with the generated provenance and the
-successful call's inference-log layout; ordinary native and repair log scope remains
-unchanged. The winning document must still match the requested recipe ID, origin and
-start path. SSO targets cannot overlap native form, chooser or handler controls. SSO
-layouts have their own provenance units and participate in layout keys, removal and
-start-path validation. Individual SSO layouts age under the same idle retention as
-native forms and account lists: an idle family is removed while another family remains,
-and the whole recipe retains its existing last-layout revocation rule. They never
-acquire fill slots or a native submission.
+post-login judgement and does not count toward a recipe's 20 judgements a day. A request
+whose labels each have an entry in some layout is answered from the stored recipe
+without a call. New labels join the newest SSO layout, an entry of the same label or
+element being replaced, so asking for one label after another grows one layout instead
+of a layout each. A repair, whose entries no longer worked, adds the newest layout's
+entries with its new ones as another layout, the least recently used going past three.
+The 10-minute retry window of a request is keyed by its branch, `sso:` and a digest of
+its labels (ignoring case and order) and the recipe's current SSO entries, at base
+revision 0: a native write leaves it closed after an abstained answer, and only new SSO
+entries open it again. The request log records the same branch, with the page `sso`,
+which the dashboard does not count as a recipe generated. A device repairs a recipe's
+SSO entries and its native routes once a UTC day each: `recipe_repairs` keys a repair
+by its family, `native` or `sso` (migration 0038), and a device without the service
+keeps the same keys.
+
+SSO and native writes keep each other's siblings, with one bounded conditional rebase
+when only the other family changed. A native-only update does not discard a pending SSO
+repair. SSO entries do not run yet, so they give way to a native route: a native write
+drops each SSO entry on an element the route uses, a layout left empty and the family
+with its last layout, and the SSO role is never offered such an element. A native
+answer of a confirm or unclear page beside SSO entries alone is written beside them, as
+on a page with no recipe. Layout-key collisions are renamed together with the generated
+provenance and the successful call's inference-log layout; ordinary native and repair
+log scope remains unchanged. The winning document must still match the requested recipe
+ID, origin and start path. SSO targets cannot overlap native form, chooser or handler
+controls. SSO layouts have their own provenance units and participate in layout keys,
+removal and start-path validation; the management page lists each one's entries, label
+and target, with the same control that removes a native layout. Individual SSO layouts
+age under the same idle retention as native forms and account lists: an idle family is
+removed while another family remains, and the whole recipe retains its existing
+last-layout revocation rule. They never acquire fill slots or a native submission.
 
 The method chooser, local mapping UI, same-tab RP/IdP coordinator, IdP intermediate-page
 handling and final RP authentication remain the next required implementation. This

@@ -29,6 +29,7 @@ import {
   judgeCompletion,
   nextAttempt,
   pageJudgementVerdicts,
+  repairFamilies,
   roleChoices,
   servedModel,
   type GenerationBackend,
@@ -90,7 +91,14 @@ const recordSchema = v.strictObject({
     }),
   ),
   repairs: v.array(
-    v.strictObject({ recipeId: syncRecipeIdSchema, revision: revisionSchema, at: timeSchema }),
+    v.strictObject({
+      recipeId: syncRecipeIdSchema,
+      // Native routes and SSO entries are each repaired once a day (ADR 0041); a repair
+      // kept before SSO entries had one of its own was a native one.
+      family: v.optional(v.picklist(repairFamilies), "native"),
+      revision: revisionSchema,
+      at: timeSchema,
+    }),
   ),
   judgements: v.array(
     v.strictObject({
@@ -435,17 +443,20 @@ export function createDeviceGenerationBackend(options: {
         ],
       }));
     },
-    async repairedSince(recipeId, since) {
+    async repairedSince(recipeId, family, since) {
       return (await current()).repairs.some(
-        (entry) => entry.recipeId === recipeId && entry.at >= since,
+        (entry) => entry.recipeId === recipeId && entry.family === family && entry.at >= since,
       );
     },
-    recordRepair(recipeId, baseRevision, at, expired) {
+    recordRepair(recipeId, family, baseRevision, at, expired) {
       return change((record) => ({
         ...record,
         repairs: [
-          ...record.repairs.filter((entry) => entry.recipeId !== recipeId && entry.at >= expired),
-          { recipeId, revision: baseRevision, at },
+          ...record.repairs.filter(
+            (entry) =>
+              (entry.recipeId !== recipeId || entry.family !== family) && entry.at >= expired,
+          ),
+          { recipeId, family, revision: baseRevision, at },
         ],
       }));
     },

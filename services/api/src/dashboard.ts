@@ -12,6 +12,7 @@ import {
 import { and, count, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { CLAUDE_CALL_LIMITS } from "./claude/calls";
+import type { RecipePage } from "@pateat/generation/backend";
 import {
   inferenceLog,
   inferenceSpend,
@@ -45,7 +46,7 @@ export type DashboardRequest = {
   outcome: string;
   recipeId: string | null;
   revision: number | null;
-  recipePage: "first" | "continuation" | "logout" | null;
+  recipePage: RecipePage | null;
   build: string | null;
   inputTokens: number | null;
   outputTokens: number | null;

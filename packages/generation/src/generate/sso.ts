@@ -1,15 +1,20 @@
 import * as v from "valibot";
 import {
+  canonicalJson,
   isSsoDocument,
+  nativeTargetOn,
   newLayoutKey,
   normalizeSsoLabel,
+  ssoBesideNative,
+  ssoCovers,
   storedLayouts,
   storedLoginRecipeSchema,
   storedRecipeStartPath,
-  withSsoLayout,
+  withSsoEntries,
   type RecipeDocument,
   type SsoGenerationRequest,
   type SsoGenerationResult,
+  type SsoRoutes,
   type SyncRecipeChange,
 } from "@pateat/contracts";
 import {
@@ -19,6 +24,7 @@ import {
   ssoObservation,
 } from "@pateat/inference";
 import type { GenerationBackend, UnsentRequest } from "../backend";
+import { SSO_UNIT } from "../units";
 import {
   active,
   answerable,
@@ -37,7 +43,25 @@ import {
   repairWindow,
 } from "./policy";
 
-/** Shared recipe identity and storage, separate route family and model role; never an executable step. */
+/**
+ * The branch an SSO entry request is logged and retried under (ADR 0016): its labels,
+ * ignoring letter case and order, and the SSO entries it would change. A native write
+ * leaves both alone, so the retry window holds across it; new SSO entries open it again.
+ */
+export async function ssoBranch(labels: readonly string[], sso: SsoRoutes | undefined) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      canonicalJson({ labels: labels.map(normalizeSsoLabel).toSorted(), sso: sso ?? null }),
+    ),
+  );
+  return `sso:${new Uint8Array(digest).toHex().slice(0, 16)}`;
+}
+
+/**
+ * SSO entries of a page (ADR 0026 amendment of 2026-11-12): the recipe's identity and
+ * storage, but a route family and model role of their own, never an executable step.
+ */
 export async function generateSso(
   backend: GenerationBackend,
   request: SsoGenerationRequest,
@@ -46,6 +70,18 @@ export async function generateSso(
   const { origin, path } = observation;
   const recipeId = await generatedRecipeId(origin, path);
   const headAtStart = await backend.readHead(recipeId);
+  const startRecipe = active(headAtStart)?.recipe;
+  const startDocument =
+    startRecipe && !("entry" in startRecipe) && !("logout" in startRecipe)
+      ? startRecipe
+      : undefined;
+  // An element a native route uses is never offered: SSO entries give way to native routes.
+  const native = startDocument ? nativeTargetOn(startDocument, path) : () => false;
+  const offered = {
+    ...observation,
+    candidates: observation.candidates.filter((candidate) => !native(candidate.target)),
+  };
+  const branch = await ssoBranch(labels, startDocument?.sso);
   const logged = {
     role: "generate",
     promptVersion: await ssoGenerationPromptVersion(),
@@ -53,31 +89,24 @@ export async function generateSso(
     path,
     request: {
       instructions: ssoGenerationInstructions,
-      observation: ssoObservation(observation),
+      observation: ssoObservation(offered),
       labels,
     },
-    recipe: { recipeId, branch: "", baseRevision: headAtStart?.revision ?? 0, page: "first" },
+    recipe: { recipeId, branch, baseRevision: headAtStart?.revision ?? 0, page: "sso" },
   } satisfies UnsentRequest;
   const unsent = (answer: Extract<SsoGenerationResult, UnsentAnswer>) =>
     answerUnsent(backend, logged, answer);
   if (!observation.complete) return unsent(failed("incomplete-observation"));
   if (repair && repair.recipeId !== recipeId) return unsent(unavailable("recipe-conflict"));
+  /** The head, when each requested label has an entry on this page in some layout. */
   const covers = (change: SyncRecipeChange | null) => {
     const head = answerable(change);
-    if (
-      !head ||
-      !isSsoDocument(head.recipe) ||
-      head.recipe.id !== recipeId ||
-      head.recipe.origin !== origin ||
-      storedRecipeStartPath(head.recipe) !== path
-    )
-      return undefined;
-    const sso = head.recipe.sso;
-    return sso.layouts.some((layout) =>
-      labels.every((label) =>
-        layout.entries.some((entry) => normalizeSsoLabel(entry.label) === normalizeSsoLabel(label)),
-      ),
-    )
+    return head &&
+      isSsoDocument(head.recipe) &&
+      head.recipe.id === recipeId &&
+      head.recipe.origin === origin &&
+      storedRecipeStartPath(head.recipe) === path &&
+      ssoCovers(head.recipe.sso, labels)
       ? head
       : undefined;
   };
@@ -120,9 +149,11 @@ export async function generateSso(
     ...logged,
     device: request.deviceModel,
     ...(repair
-      ? repairWindow(backend, { recipeId, baseRevision }, recheck)
-      : attemptWindow(backend, { recipeId, branch: "sso", origin, path, baseRevision }, recheck)),
-    invoke: (model) => createSsoGenerator({ model, ...roleConfig })({ observation, labels }),
+      ? repairWindow(backend, { recipeId, baseRevision, family: "sso" }, recheck)
+      : // Keyed by the SSO family, not the revision a native write moves (`ssoBranch`).
+        attemptWindow(backend, { recipeId, branch, origin, path, baseRevision: 0 }, recheck)),
+    invoke: (model) =>
+      createSsoGenerator({ model, ...roleConfig })({ observation: offered, labels }),
     logValue: (entries) => ({
       entries: entries.map(({ label, candidate }) => ({ label, candidate })),
     }),
@@ -148,17 +179,19 @@ export async function generateSso(
       createdAt,
       storedLayouts(document).map((layout) => layout.key),
     );
-    const next = withSsoLayout(
+    const merged = withSsoEntries(
       document,
       path,
       {
         key,
         createdAt,
         ...(observation.language === "mixed" ? {} : { language: observation.language }),
-        entries: result.value.map(({ label, target }) => ({ label, target })),
       },
-      (layout) => uses?.get(layout),
+      result.value.map(({ label, target }) => ({ label, target })),
+      { repair: repair !== undefined, lastUsed: (layout) => uses?.get(layout) },
     );
+    // A native route written meanwhile keeps its elements; entries on them give way.
+    const next = ssoBesideNative(merged.recipe);
     if (next === document) {
       // oxlint-disable-next-line no-await-in-loop -- the current conditional head is authoritative
       const current = covers(await backend.readHead(recipeId));
@@ -166,6 +199,7 @@ export async function generateSso(
         ? { version: 1, status: "recipe", change: current }
         : unavailable("recipe-conflict");
     }
+    if (!ssoCovers(next.sso, labels)) return unavailable("recipe-conflict");
     const recipe = { ...next, revision: expectedRevision + 1 };
     if (!v.is(storedLoginRecipeSchema, recipe)) return failed("recipe-invalid");
     // oxlint-disable-next-line no-await-in-loop -- at most one rebase over an unchanged SSO family
@@ -175,7 +209,7 @@ export async function generateSso(
       {
         sources: {
           origin: "generated",
-          units: [{ layout: key, unit: "sso" }],
+          units: [{ layout: merged.layout, unit: SSO_UNIT }],
           served: call.served,
           promptVersion: call.promptVersion ?? logged.promptVersion,
           logId: call.logId,
@@ -184,7 +218,7 @@ export async function generateSso(
     );
     if (written.ok) {
       // oxlint-disable-next-line no-await-in-loop -- keep the revision actually written
-      await backend.keepLogRevision(call.logId, written.change.revision, key);
+      await backend.keepLogRevision(call.logId, written.change.revision, merged.layout);
       const change = covers(written.change);
       return change ? { version: 1, status: "recipe", change } : unavailable("recipe-conflict");
     }
@@ -197,7 +231,7 @@ export async function generateSso(
       storedRecipeStartPath(current.recipe) === path &&
       !("entry" in current.recipe) &&
       !("logout" in current.recipe) &&
-      JSON.stringify(current.recipe.sso) === JSON.stringify(before.document?.sso);
+      canonicalJson(current.recipe.sso ?? null) === canonicalJson(before.document?.sso ?? null);
     // A native-only write does not repair stale SSO entries: retain this paid answer.
     if (!unchanged) {
       const won = covers(written.current);

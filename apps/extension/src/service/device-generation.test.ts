@@ -125,6 +125,8 @@ function setup(
     /** Runs while a model call is in flight, before its answer. */
     during?: () => Promise<void>;
     writeSpend?: () => Promise<void>;
+    /** The device's generation record as stored before. */
+    record?: unknown;
   } = {},
 ) {
   const replies = [...(options.replies ?? [])];
@@ -203,7 +205,7 @@ function setup(
     },
     transport: { writeRecipe: vi.fn() },
   });
-  let record: unknown;
+  let record: unknown = options.record;
   const backend = createDeviceGenerationBackend({
     recipes,
     storage: {
@@ -410,9 +412,39 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     await backend.recordAttempt({ ...attempt, path: "/other" }, 5_000, 2_000);
     expect(await backend.attemptedSince(attempt, 0)).toBe(false);
 
-    await backend.recordRepair("gen_synthetic", 1, 1_000, 0);
-    expect(await backend.repairedSince("gen_synthetic", 1_000)).toBe(true);
-    expect(await backend.repairedSince("gen_synthetic", 1_001)).toBe(false);
+    await backend.recordRepair("gen_synthetic", "native", 1, 1_000, 0);
+    expect(await backend.repairedSince("gen_synthetic", "native", 1_000)).toBe(true);
+    expect(await backend.repairedSince("gen_synthetic", "native", 1_001)).toBe(false);
+    // The SSO entries are a family of their own, repaired apart (ADR 0041).
+    expect(await backend.repairedSince("gen_synthetic", "sso", 0)).toBe(false);
+    await backend.recordRepair("gen_synthetic", "sso", 2, 1_500, 0);
+    expect(await backend.repairedSince("gen_synthetic", "sso", 1_500)).toBe(true);
+    expect(await backend.repairedSince("gen_synthetic", "native", 1_000)).toBe(true);
+  });
+
+  it("keeps a repair recorded before repair families as a native one", async () => {
+    const attempt = {
+      recipeId: "gen_synthetic",
+      branch: "",
+      origin: page.origin,
+      path: "/login",
+      baseRevision: 0,
+      at: 1_000,
+    };
+    const { backend } = setup({
+      record: {
+        version: 1,
+        attempts: [attempt],
+        repairs: [{ recipeId: "gen_synthetic", revision: 1, at: 1_000 }],
+        judgements: [],
+        layoutUses: [],
+      },
+    });
+    expect(await backend.repairedSince("gen_synthetic", "native", 1_000)).toBe(true);
+    expect(await backend.repairedSince("gen_synthetic", "sso", 0)).toBe(false);
+    // The record's other windows stay too.
+    const { at: _at, ...key } = attempt;
+    expect(await backend.attemptedSince(key, 999)).toBe(true);
   });
 
   it("writes a recipe only over the revision it expects", async () => {
@@ -667,7 +699,7 @@ describe("standalone label-only SSO generation", () => {
     result: {
       decision: "plan",
       page: "sign-in",
-      entries: [{ label: "Example", candidate: "provider" }],
+      entries: [{ labelIndex: 0, candidate: "provider" }],
     },
   });
 

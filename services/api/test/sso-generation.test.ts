@@ -2,211 +2,49 @@ import {
   deviceModelRequestHash,
   MAX_ACTIVE_RECIPE_BYTES,
   toLoginLayout,
-  type LoginObservation,
-  type LoginRecipe,
-  type ObservedCandidate,
   type RecipeDocument,
   type RecipeGenerationResult,
-  type SemanticSlot,
-  type SsoGenerationResult,
-  type StoredLoginRecipe,
 } from "@pateat/contracts";
 import { generatedRecipeId, MIN_GENERATION_RECIPE_ROOM_BYTES } from "@pateat/generation";
-import { env, exports } from "cloudflare:workers";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDeviceToken, hashDeviceToken } from "../src/auth";
-import { saveWifCredential } from "../src/claude/credentials";
+import { env } from "cloudflare:workers";
+import { describe, expect, it, vi } from "vitest";
 import { readFirstPageSources, revokeUnusedRecipes, writeRecipe } from "../src/recipe-store";
 import { seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
+import {
+  claude,
+  day,
+  documentOf,
+  element,
+  emailPage,
+  generate,
+  generateSso,
+  holdSlots,
+  observation,
+  ORIGIN,
+  owner,
+  plan,
+  post,
+  rows,
+  seed,
+  slots,
+  ssoAnswer,
+  storedHead,
+  useSyntheticClaude,
+  type Device,
+} from "./sso-generation-harness";
 
 // Label-only SSO entry generation (ADR 0026 amendment of 2026-11-12) through the service's
-// generation route. Synthetic owners, devices, federation identifiers and pages only;
-// Anthropic's token endpoint and the Messages API are answered locally.
+// generation route (`./sso-generation-harness`).
 
-const TOKEN_URL = "https://api.anthropic.com/v1/oauth/token";
-const MESSAGES_URL = "https://api.anthropic.com/v1/messages";
-const ORIGIN = "https://shop.example.test";
-
-const slots: SemanticSlot[] = [
-  { id: "email", kind: "identifier", description: "account email address" },
-  { id: "password", kind: "secret", description: "account password" },
-];
-const element = (id: string, role: ObservedCandidate["role"], label: string) => ({
-  id,
-  role,
-  target: { by: "id" as const, value: id },
-  label,
-});
-const observation = (path: string, candidates: ObservedCandidate[]): LoginObservation => ({
-  version: 1,
-  origin: ORIGIN,
-  path,
-  language: "en",
-  complete: true,
-  candidates,
-});
-const emailPage = observation("/login", [
-  element("email", "email", "Email"),
-  element("next", "button", "Next"),
-]);
-const plan = (fields: [string, string][], action: string, purpose: "advance" | "submit") =>
-  JSON.stringify({
-    result: {
-      decision: "plan",
-      pageKind: "sign-in",
-      irreversible: "no",
-      fields: fields.map(([slot, candidate]) => ({ slot, candidate })),
-      action: { candidate: action, purpose },
-    },
-  });
-
-/** A text answer or a refusal with its category. */
-type Reply = { text: string } | { refusal: string };
-let replies: Reply[] = [];
-/** Runs while a model call is in flight, before its answer. */
-let during: (() => Promise<void>) | undefined;
-let sent: { body: unknown }[] = [];
-const originalFetch = globalThis.fetch;
-
-beforeAll(() => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const outbound = new Request(input, init);
-    if (outbound.url === TOKEN_URL)
-      return Response.json({
-        access_token: "synthetic-access-token",
-        token_type: "Bearer",
-        expires_in: 600,
-      });
-    if (outbound.url === MESSAGES_URL) {
-      const body = (await outbound.json()) as { model: string };
-      sent.push({ body });
-      const reply = replies.shift();
-      if (reply === undefined) throw new Error("No synthetic reply queued");
-      const hook = during;
-      during = undefined;
-      await hook?.();
-      return Response.json({
-        id: "msg_synthetic",
-        type: "message",
-        role: "assistant",
-        model: body.model,
-        ...("refusal" in reply
-          ? {
-              content: [],
-              stop_reason: "refusal",
-              stop_details: { type: "refusal", category: reply.refusal, explanation: "synthetic" },
-            }
-          : { content: [{ type: "text", text: reply.text }], stop_reason: "end_turn" }),
-        stop_sequence: null,
-        usage: { input_tokens: 3_000, output_tokens: 900 },
-      });
-    }
-    return originalFetch(input, init);
-  });
-});
-afterAll(() => {
-  vi.restoreAllMocks();
-});
-beforeEach(() => {
-  replies = [];
-  sent = [];
-  during = undefined;
-});
-
-type Device = { ownerId: string; deviceId: string; token: string };
-
-/** The owner's call slots (ADR 0018), held by another request for the next minute. */
-const holdSlots = (ownerId: string) =>
-  env.DB.batch(
-    [0, 1, 2, 3, 4].map((slot) =>
-      env.DB.prepare(
-        "INSERT INTO inference_locks (owner_id, slot, lock_id, expires_at) VALUES (?, ?, 'other', ?)",
-      ).bind(ownerId, slot, Date.now() + 60_000),
-    ),
-  );
-
-async function owner({ claude = true } = {}): Promise<Device> {
-  const ownerId = crypto.randomUUID();
-  const deviceId = `device-${crypto.randomUUID()}`;
-  const token = createDeviceToken();
-  await env.DB.batch([
-    env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)").bind(ownerId, Date.now()),
-    env.DB.prepare("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default')").bind(
-      ownerId,
-      ownerId,
-    ),
-    env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
-    ).bind(deviceId, ownerId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
-  ]);
-  if (claude)
-    await saveWifCredential(env.DB, ownerId, {
-      federationRuleId: "fdrl_01SyntheticRule",
-      organizationId: "00000000-0000-4000-8000-000000000000",
-      serviceAccountId: "svac_01SyntheticAccount",
-      workspaceId: "wrkspc_01SyntheticWorkspace",
-    });
-  return { ownerId, deviceId, token };
-}
-
-const post = (device: Device, path: string, body: unknown) =>
-  exports.default.fetch(`https://pateat.invalid${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${device.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-/** The owner's stored head document of a recipe, as the service keeps it. */
-async function storedHead(ownerId: string, recipeId: string): Promise<unknown> {
-  const document = await env.DB.prepare(
-    `SELECT r.document FROM recipe_heads h JOIN recipe_revisions r
-      ON r.owner_id = h.owner_id AND r.recipe_id = h.recipe_id AND r.revision = h.revision
-      WHERE h.owner_id = ? AND h.recipe_id = ?`,
-  )
-    .bind(ownerId, recipeId)
-    .first<string>("document");
-  return document === null ? null : JSON.parse(document);
-}
-
-/** A route recipe stored back as a recipe document with that one layout (ADR 0060). */
-const documentOf = (recipe: LoginRecipe): StoredLoginRecipe => ({
-  version: 1,
-  id: recipe.id,
-  revision: recipe.revision,
-  origin: recipe.origin,
-  layouts: [toLoginLayout(recipe, { key: recipe.layout ?? "1000", createdAt: 1000 })],
-});
-
-/** A first page's generation request, as a device sends it. */
-async function generate(device: Device, page: LoginObservation) {
-  const response = await post(device, "/v1/recipes/generate", {
-    version: 1,
-    observation: page,
-    slots,
-    signedIn: false,
-  });
-  expect(response.status).toBe(200);
-  return (await response.json()) as RecipeGenerationResult;
-}
-
-/** The columns the assertions read by name; other columns are compared whole. */
-type Row = Record<string, unknown> & Partial<Record<"request" | "result", unknown>>;
-const rows = (sql: string, ...values: unknown[]) =>
-  env.DB.prepare(sql)
-    .bind(...values)
-    .all<Row>()
-    .then((result) => result.results);
-const day = () => new Date().toISOString().slice(0, 10);
+useSyntheticClaude();
+const { replies, sent } = claude;
 
 describe("label-only declarative SSO generation", () => {
   const page = observation("/login", [
     element("provider", "button", "Continue with Example"),
     element("other", "link", "Continue with Other"),
   ]);
-  const ssoPlan = (candidate = "provider", label = "Example") =>
-    JSON.stringify({
-      result: { decision: "plan", page: "sign-in", entries: [{ label, candidate }] },
-    });
+  const ssoPlan = (candidate = "provider") => ssoAnswer(candidate);
   const request = (extra: Record<string, unknown> = {}) => ({
     version: 1,
     kind: "sso",
@@ -214,26 +52,8 @@ describe("label-only declarative SSO generation", () => {
     labels: ["Example"],
     ...extra,
   });
-  async function sso(device: Device, extra: Record<string, unknown> = {}) {
-    const response = await post(device, "/v1/recipes/generate", request(extra));
-    expect(response.status).toBe(200);
-    return (await response.json()) as SsoGenerationResult;
-  }
-  async function seed(device: Device, recipe: StoredLoginRecipe, expectedRevision = 0) {
-    const written = await writeRecipe(
-      env.DB,
-      device.ownerId,
-      recipe.id,
-      {
-        version: 1,
-        state: "active",
-        expectedRevision,
-        recipe,
-      },
-      device.deviceId,
-    );
-    expect(written.ok).toBe(true);
-  }
+  const sso = (device: Device, extra: Record<string, unknown> = {}) =>
+    generateSso(device, page, ["Example"], extra);
 
   it("writes an SSO-only recipe, logs labels and candidates only, and records SSO provenance", async () => {
     const device = await owner();
@@ -260,11 +80,20 @@ describe("label-only declarative SSO generation", () => {
     ).toMatchObject({ origin: "generated" });
     expect(await storedHead(device.ownerId, first.change.recipeId)).toEqual(first.change.recipe);
     const logs = await rows(
-      "SELECT role, request, result, revision FROM inference_log WHERE owner_id = ?",
+      "SELECT role, request, result, revision, branch, recipe_page FROM inference_log WHERE owner_id = ?",
       device.ownerId,
     );
     expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({ role: "generate", revision: 1 });
+    // Logged under the branch its retry window is kept by, and never as a recipe generated.
+    expect(logs[0]).toMatchObject({
+      role: "generate",
+      revision: 1,
+      branch: expect.stringMatching(/^sso:[0-9a-f]{16}$/),
+      recipe_page: "sso",
+    });
+    expect(
+      await rows("SELECT branch FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ branch: logs[0]!.branch }]);
     expect(JSON.parse(String(logs[0]!.request))).toMatchObject({
       labels: ["Example"],
       observation: page,
@@ -306,13 +135,13 @@ describe("label-only declarative SSO generation", () => {
       const device = await owner();
       if (order === "sso-first") {
         replies.push({ text: ssoPlan() }, { text: plan([["email", "email"]], "next", "advance") });
-        during = async () => {
+        claude.during = async () => {
           expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
         };
         expect(await sso(device)).toMatchObject({ status: "recipe", change: { revision: 2 } });
       } else {
         replies.push({ text: plan([["email", "email"]], "next", "advance") }, { text: ssoPlan() });
-        during = async () => {
+        claude.during = async () => {
           expect(await sso(device)).toMatchObject({ status: "recipe" });
         };
         expect(await generate(device, emailPage)).toMatchObject({
@@ -353,7 +182,7 @@ describe("label-only declarative SSO generation", () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 10, 12, 4, 0));
     try {
       replies.push({ text: plan([["email", "email"]], "next", "advance") }, { text: ssoPlan() });
-      during = async () => {
+      claude.during = async () => {
         expect(await sso(device)).toMatchObject({ status: "recipe" });
       };
       expect(await generate(device, emailPage)).toMatchObject({
@@ -504,7 +333,7 @@ describe("label-only declarative SSO generation", () => {
     const initial = await sso(device);
     if (initial.status !== "recipe") throw new Error(initial.status);
     replies.push({ text: ssoPlan("other") });
-    during = async () => {
+    claude.during = async () => {
       await seed(
         device,
         {
@@ -569,7 +398,7 @@ describe("label-only declarative SSO generation", () => {
       const device = await owner();
       const recipeId = await generatedRecipeId(ORIGIN, "/login");
       replies.push({ text: ssoPlan() });
-      during = async () => {
+      claude.during = async () => {
         await seed(device, {
           version: 1,
           id: recipeId,
@@ -601,7 +430,7 @@ describe("label-only declarative SSO generation", () => {
     const first = await sso(device);
     if (first.status !== "recipe") throw new Error(first.status);
     replies.push({ text: ssoPlan("other") });
-    during = async () => {
+    claude.during = async () => {
       expect(
         (
           await writeRecipe(
@@ -678,7 +507,7 @@ describe("label-only declarative SSO generation", () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");
     replies.push({ text: ssoPlan() });
-    during = async () => {
+    claude.during = async () => {
       await seed(device, {
         version: 1,
         id: recipeId,
@@ -718,7 +547,7 @@ describe("label-only declarative SSO generation", () => {
       if (stage === "preflight") await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
       else {
         replies.push({ text: ssoPlan() });
-        during = () => seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
+        claude.during = () => seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
       }
       expect(await sso(device)).toMatchObject({ status: "unavailable", reason: "recipe-limit" });
       expect(sent).toHaveLength(stage === "preflight" ? 0 : 1);

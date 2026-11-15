@@ -107,7 +107,7 @@ export function d1Backend(
           ),
       ]);
     },
-    repairedSince: async (recipeId, since) => {
+    repairedSince: async (recipeId, family, since) => {
       const [recent] = await db
         .select()
         .from(recipeRepairs)
@@ -116,19 +116,25 @@ export function d1Backend(
             eq(recipeRepairs.ownerId, ownerId),
             eq(recipeRepairs.recipeId, recipeId),
             eq(recipeRepairs.deviceId, deviceId),
+            eq(recipeRepairs.family, family),
             gte(recipeRepairs.repairedAt, since),
           ),
         )
         .limit(1);
       return recent !== undefined;
     },
-    recordRepair: async (recipeId, baseRevision, now, expired) => {
+    recordRepair: async (recipeId, family, baseRevision, now, expired) => {
       await db.batch([
         db
           .insert(recipeRepairs)
-          .values({ ownerId, recipeId, deviceId, revision: baseRevision, repairedAt: now })
+          .values({ ownerId, recipeId, deviceId, family, revision: baseRevision, repairedAt: now })
           .onConflictDoUpdate({
-            target: [recipeRepairs.ownerId, recipeRepairs.recipeId, recipeRepairs.deviceId],
+            target: [
+              recipeRepairs.ownerId,
+              recipeRepairs.recipeId,
+              recipeRepairs.deviceId,
+              recipeRepairs.family,
+            ],
             set: { revision: baseRevision, repairedAt: now },
           }),
         db

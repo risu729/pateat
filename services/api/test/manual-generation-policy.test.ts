@@ -55,12 +55,18 @@ describe("the explicit first-page retry gate", () => {
     const b = backend();
     const repair = repairWindow(
       b as unknown as GenerationBackend,
-      { recipeId: "recipe", baseRevision: 1 },
+      { recipeId: "recipe", baseRevision: 1, family: "native" },
       async () => undefined,
     );
     expect(await repair.gate(now)).toBe("repair-limit");
-    expect(b.repairedSince).toHaveBeenCalledExactlyOnceWith("recipe", utcDayStart(now));
+    expect(b.repairedSince).toHaveBeenCalledExactlyOnceWith("recipe", "native", utcDayStart(now));
     await repair.beforeSend(now);
-    expect(b.recordRepair).toHaveBeenCalledExactlyOnceWith("recipe", 1, now, utcDayStart(now));
+    expect(b.recordRepair).toHaveBeenCalledExactlyOnceWith(
+      "recipe",
+      "native",
+      1,
+      now,
+      utcDayStart(now),
+    );
   });
 });

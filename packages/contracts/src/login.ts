@@ -1364,6 +1364,7 @@ export const loginSsoRoutesSchema = createSsoRoutesSchema({
   target: loginTargetSchema,
   key: recipeLayoutKeySchema,
   language: recipeLanguageSchema,
+  layouts: MAX_RECIPE_LAYOUTS,
 });
 /** A stored recipe document's members, before the checks that relate them. */
 const recipeDocumentEntriesSchema = v.strictObject({
@@ -1427,12 +1428,7 @@ export const recipeDocumentSchema = v.pipe(
     "SSO entries share the recipe start path",
   ),
   v.check(
-    (recipe) =>
-      ssoTargetsSeparate(
-        recipe,
-        [...(recipe.layouts ?? []), ...chooserBranchBodies(recipe.chooser)],
-        handlerTargets,
-      ),
+    (recipe) => ssoTargetsSeparate(recipe, chooserBranchBodies(recipe.chooser), handlerTargets),
     "SSO targets are separate from native executable routes",
   ),
   // All layouts share one start page, so they share its kind (ADR 0060): a recipe is run,
