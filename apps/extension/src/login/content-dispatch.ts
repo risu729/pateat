@@ -338,7 +338,6 @@ export function createContentListener(context: ContentSession) {
       void (async () => {
         const until = Date.now() + command.timeoutMs;
         // Cancellation is set by the independent background message listener.
-        // eslint-disable-next-line no-unmodified-loop-condition
         while (!context.cancelled && !ready(command.readiness)) {
           if (command.readiness.revealed && readingPage(() => revealsPassword(command.readiness)))
             return { ok: false, reason: "revealed" };
