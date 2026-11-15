@@ -405,13 +405,26 @@ the account's identifier, the control pressed, one language picker and a few con
 that stand alone and offer another account, leaving, or the IdP's help, privacy and
 terms, it may show only a few letters, such as "Not you?" or a short footer line. Those
 are set aside as whole elements, never by matching their words elsewhere, and a control
-inside a sentence leaves the sentence whole. Any more text makes it no finite step,
+inside a sentence leaves the sentence whole. The control pressed is set aside whole
+only when it says no more than a label and the account; otherwise only its label is. A
+language picker is a closed dropdown or combo box showing one short choice; a list box
+shows every option, so its options count. Any more text makes it no finite step,
 whatever it says and wherever it is: another heading, or a link or an element that acts
-as a button with any other label. An account list's entry is read as rendered, so a
-tile's name, account and state lines stay apart. Receive, provide, send and get access,
-and 取得, 受け取, 提供 and 送信 in Japanese, count as sharing wording too. "Welcome
-back" and "Use this account" are not confirmation headings, since neither names the
-account. Stay-signed-in questions and account lists keep their own rules.
+as a button with any other label. Text the page shows outside its own text cannot be
+counted, so generated content with letters, a shadow root with letters, a visible frame
+or an input button with any other label stops a confirmation outright.
+
+The allowance is 16 letters. It is room for the short lines real confirmations show,
+such as "Not you?" or a copyright line, not a reading of them, so a phrase as short as
+"Gets your email" still passes. That is accepted: the page has already named the account
+in its heading, sharing and access wording is caught by the word list, and an app's
+list of what it receives does not fit in 16 letters.
+
+An account list's entry is read as rendered, so a tile's name, account and state lines
+stay apart. Receive, provide, send and get access, and 取得, 受け取, 提供 and 送信 in
+Japanese, count as sharing wording too. "Welcome back" and "Use this account" are not
+confirmation headings, since neither names the account. Stay-signed-in questions and
+account lists keep their own rules.
 
 ## Review hardening 2026-11-16: interrupted holds
 

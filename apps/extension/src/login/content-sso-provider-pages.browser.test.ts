@@ -279,3 +279,59 @@ describe("IdP pages whose heading names a finite step", () => {
     expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, username).kind);
   });
 });
+
+describe("confirmation text the page shows outside its own words", () => {
+  const confirm = (extra: string, button = "<button id=entry>Continue</button>") =>
+    html(
+      "Confirm your account",
+      `<h1>Confirm your account</h1><p>${username}</p>${extra}${button}`,
+    );
+  const refused = () =>
+    expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, username).kind);
+  it("sets aside only the label of a pressed control that says more", () => {
+    confirm(
+      "",
+      `<button id=entry aria-label="Continue">Continue: Example App gets your email address and contacts list</button>`,
+    );
+    refused();
+  });
+  it.each(['size="4"', "multiple"])("counts every option of a select with %s", (shape) => {
+    confirm(
+      `<select ${shape} aria-label="Language"><option selected>English</option><option>Your name and photo</option><option>Your email address</option><option>Your contacts list</option></select>`,
+    );
+    refused();
+  });
+  it.each([
+    [
+      "generated content",
+      `<style>#note::after{content:"Example App gets your email address and contacts"}</style><p id=note></p>`,
+    ],
+    [
+      "a frame",
+      `<iframe srcdoc="<p>Example App gets your email address and contacts</p>"></iframe>`,
+    ],
+    ["an input button", `<input type=button value="Example App gets your email and contacts">`],
+  ])("stops on a confirmation that shows text as %s", (_name, extra) => {
+    confirm(extra);
+    refused();
+  });
+  it("stops on a confirmation that shows text in a shadow root", () => {
+    confirm("<synthetic-note></synthetic-note>");
+    document
+      .querySelector("synthetic-note")!
+      .attachShadow({ mode: "open" })
+      .append("Example App gets your email address and contacts");
+    refused();
+  });
+  it("keeps a confirmation whose shadow root, generated content and inputs say nothing", () => {
+    confirm(
+      `<style>#mark::before{content:"\\2192"}</style><span id=mark></span><synthetic-icon></synthetic-icon><input type=button value="Cancel">`,
+    );
+    document.querySelector("synthetic-icon")!.attachShadow({ mode: "open" }).innerHTML =
+      "<style>:host{display:inline-block}</style><svg width=8 height=8></svg>";
+    expect(readSsoIdp(document, username)).toEqual({
+      kind: "continue",
+      target: { by: "id", value: "entry" },
+    });
+  });
+});
