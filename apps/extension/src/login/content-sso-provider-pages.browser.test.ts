@@ -73,6 +73,21 @@ describe("IdP pages that share an account or grant access", () => {
       "Example App が Google アカウントへのアクセスをリクエストしています",
       `<h1>Example App が Google アカウントへのアクセスをリクエストしています</h1><p>${username}</p><p>Example App に次のアクセスを許可します。</p><button id=entry>続行</button>`,
     ],
+    [
+      "a Continue as page saying what the app will receive",
+      "Continue as " + username,
+      `<h1>Continue as ${username}</h1><p>Example App will receive your name, email address and profile picture.</p><button id=entry>Continue</button>`,
+    ],
+    [
+      "a Welcome back page saying what it provides",
+      "Welcome back",
+      `<h1>Welcome back</h1><p>${username}</p><p>We will provide Example App with your email address.</p><button id=entry>Continue</button>`,
+    ],
+    [
+      "a Japanese Continue as page saying what the app obtains",
+      username + "として続行",
+      `<h1>${username}として続行</h1><p>Example Appがあなたのプロフィール情報とメールアドレスを取得します。</p><button id=entry>続行</button>`,
+    ],
   ])("stops on %s", (_name, title, body) => {
     html(title, body);
     expect(readSsoIdp(document, username).kind).toBe("unsafe");
@@ -95,6 +110,16 @@ describe("IdP pages whose heading names no finite step", () => {
       "a generic Continue page",
       "Example",
       `<h1>Example</h1><p>${username}</p><button id=entry>Continue</button>`,
+    ],
+    [
+      "a Welcome back page, which names no account",
+      "Welcome back",
+      `<h1>Welcome back</h1><p>${username}</p><button id=entry>Continue</button>`,
+    ],
+    [
+      "a Use this account page",
+      "Use this account",
+      `<h1>Use this account</h1><p>${username}</p><button id=entry>Continue</button>`,
     ],
     [
       "an account button under another heading",
@@ -140,6 +165,49 @@ describe("IdP pages whose heading names a finite step", () => {
       "continue",
     ],
   ])("acts only on %s", (title, body, kind) => {
+    html(title, body);
+    expect(readSsoIdp(document, username)).toEqual({
+      kind,
+      target: { by: "id", value: "entry" },
+    });
+  });
+  it.each([
+    [
+      "Continue as " + username,
+      `<h1>Continue as ${username}</h1><p>Example App will know your birthday and photo albums.</p><button id=entry>Continue</button>`,
+    ],
+    [
+      "Confirm your account",
+      `<h1>Confirm your account</h1><p>${username}</p><p>Example App learns your birthday and your photo albums.</p><button id=entry>Continue</button>`,
+    ],
+  ])("presses nothing on a confirmation %s with other text, whatever its words", (title, body) => {
+    html(title, body);
+    expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, username).kind);
+  });
+  it("keeps a confirmation's short line beside the account and its controls", () => {
+    html(
+      "Confirm your account",
+      `<h1>Confirm your account</h1><p>${username}</p><p>Not you?</p><button id=entry>Continue</button><a href="/other">Use another account</a><footer><a href="/privacy">Privacy</a> <a href="/terms">Terms</a></footer>`,
+    );
+    expect(readSsoIdp(document, username)).toEqual({
+      kind: "continue",
+      target: { by: "id", value: "entry" },
+    });
+  });
+  it.each([
+    [
+      "a Microsoft-style account list",
+      "Pick an account",
+      `<h1>Pick an account</h1><button id=entry>${username}</button><button>Use another account</button>`,
+      "account",
+    ],
+    [
+      "a Microsoft-style stay-signed-in question",
+      "Stay signed in?",
+      `<h1>Stay signed in?</h1><p>${username}</p><p>Do this to reduce the number of times you are asked to sign in.</p><label><input type=checkbox> Don't show this again</label><button id=entry>Yes</button><button>No</button>`,
+      "stay-signed-in",
+    ],
+  ])("still acts on %s", (_name, title, body, kind) => {
     html(title, body);
     expect(readSsoIdp(document, username)).toEqual({
       kind,

@@ -102,14 +102,20 @@ function inspected(
  * order (ADR 0026): an IdP page that shows it is never a finite step to press through.
  */
 const sharing =
-  /(?:\bshar(?:e|es|ed|ing)\b|\bwants? (?:to )?access\b|\baccess(?:es)? (?:to )?your\b|\ballow(?:s|ed|ing)?\b[^.!?\n]{0,80}?\bto\b|\bto continue to\b|^(?:continue|proceed) to\b|\b(?:can|will be able to) (?:see|access|read|view|manage|edit|delete)\b|\bsee your\b|\bpermissions?\b|\bconsent\b|\bauthori[sz]e\b|\bgrant(?:s|ed)?\b|\bscopes?\b|\bthird[- ]party\b|共有|許可|権限|同意|連携|アクセス(?:を|が|でき|しよう|する)|(?:に|へ)移動)/imu;
+  /(?:\bshar(?:e|es|ed|ing)\b|\bwants? (?:to )?access\b|\baccess(?:es)? (?:to )?your\b|\ballow(?:s|ed|ing)?\b[^.!?\n]{0,80}?\bto\b|\bto continue to\b|^(?:continue|proceed) to\b|\b(?:can|will be able to) (?:see|access|read|view|manage|edit|delete)\b|\bsee your\b|\bpermissions?\b|\bconsent\b|\bauthori[sz]e\b|\bgrant(?:s|ed)?\b|\bscopes?\b|\bthird[- ]party\b|\breceiv(?:e|es|ed|ing)\b|\bprovid(?:e|es|ed|ing)\b|\bsen(?:d|ds|t|ding)\b|\bget(?:s|ting)? access\b|共有|許可|権限|同意|連携|取得|受け取|提供|送信|アクセス(?:を|が|でき|しよう|する)|(?:に|へ)移動)/imu;
 // The page's own title or heading must say what the step is; a button label alone never does.
 const chooserHeading =
   /^(?:(?:choose|pick|select) (?:an|your) account|アカウントを選択(?:してください)?|アカウントの選択)[.?？]?$/iu;
 const stayHeading =
   /^(?:stay signed in|keep (?:me|you) signed in|サインインの状態を維持しますか|ログイン状態を(?:保持|維持)(?:しますか)?)[?？]?$/iu;
 const confirmHeading =
-  /^(?:confirm (?:your|this) account|is this (?:you|your account)|use (?:this|your) account|welcome back|continue as (.+)|アカウントの確認|このアカウントで(?:続行|ログイン)(?:しますか)?|(.+)として続行)[.?？!]?$/iu;
+  /^(?:confirm (?:your|this) account|is this (?:you|your account)|continue as (.+)|アカウントの確認|このアカウントで(?:続行|ログイン)(?:しますか)?|(.+)として続行)[.?？!]?$/iu;
+/**
+ * The most letters a confirmation page may show besides its headings, the account and its
+ * controls' labels, as in "Not you?" or a short footer line. More says something else
+ * about the step, such as what the app receives, so the page is no finite step.
+ */
+const CONFIRM_TEXT_LETTERS = 16;
 /** The page's title and visible headings, each as one trimmed line. */
 const headingsOf = (document: Document) =>
   [
@@ -121,6 +127,31 @@ const headingsOf = (document: Document) =>
   ]
     .map((text) => text.replace(/\s+/gu, " ").trim())
     .filter(Boolean);
+/**
+ * The letters a confirmation page shows besides its visible headings, the account's
+ * identifier and the labels of its buttons and links. Fails closed: whatever cannot be
+ * accounted for counts.
+ */
+function confirmExtraLetters(document: Document, username: string): number {
+  let rest = document.body?.innerText.slice(0, 16_384) ?? "";
+  const known = [
+    ...queryAll<HTMLElement>(
+      document,
+      "h1,h2,[role=heading],button,a[href],[role=button],[role=link]",
+    )
+      .filter(visible)
+      .map((element) => element.innerText),
+    username,
+  ]
+    .map((text) => text.replace(/\s+/gu, " ").trim())
+    .filter(Boolean)
+    // Longer first, so a label inside a heading is not removed from it first.
+    .sort((a, b) => b.length - a.length);
+  rest = rest.replace(/\s+/gu, " ");
+  for (const text of known) rest = rest.split(text).join(" ");
+  rest = rest.toLowerCase().split(username.toLowerCase()).join(" ");
+  return rest.match(/\p{L}/gu)?.length ?? 0;
+}
 /** What the IdP page's own headings say it is, read only for a finite step. */
 function idpStep(document: Document, username: string) {
   const headings = headingsOf(document);
@@ -186,6 +217,10 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
     exactIdentityShown(document, username);
   const { stays } = step;
   if (!stays && !step.confirms) return { kind: "unknown" };
+  // A confirmation says nothing but which account continues: any other text may be what
+  // the app receives, whatever its wording, so it is no finite step.
+  if (!stays && confirmExtraLetters(document, username) > CONFIRM_TEXT_LETTERS)
+    return { kind: "unknown" };
   const candidates = controls.filter((candidate) => {
     if (candidate.target.by === "href") return false;
     const label = candidate.label?.trim() ?? "";

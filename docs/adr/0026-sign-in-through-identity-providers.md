@@ -399,6 +399,15 @@ app to, to continue to an app, and 共有, 許可, アクセス or an app に移
 account list that names its destination app is therefore a sharing list. The IdP's own
 sign-in form is still read as its native login first.
 
+A word list cannot name every way of saying what an app receives, so an account
+confirmation is also checked by what else it shows. Besides its headings, the account's
+identifier and the labels of its buttons and links, it may show only a few letters,
+such as "Not you?" or a short footer line; any more text, whatever it says, makes it no
+finite step. Receive, provide, send and get access, and 取得, 受け取, 提供 and 送信 in
+Japanese, count as sharing wording too. "Welcome back" and "Use this account" are not
+confirmation headings, since neither names the account. Stay-signed-in questions and
+account lists keep their own rules.
+
 ## Review hardening 2026-11-16: interrupted holds
 
 An ended flow leaves an interrupted hold only when it may have spent its entry: a click
