@@ -212,9 +212,9 @@ async function harness(pauses: ReturnType<typeof createLoginPauses>) {
   } as unknown as AdmitContext;
   let mappings: SsoMapping[] = [];
   const store = createSsoMappingStore({
-    read: async () => mappings,
+    read: async () => ({ version: 1, entries: mappings }),
     write: async (value) => {
-      mappings = value;
+      mappings = value.entries;
     },
     clear: async () => {
       mappings = [];
@@ -224,7 +224,10 @@ async function harness(pauses: ReturnType<typeof createLoginPauses>) {
     source: rt.options.sso!,
     store,
     readSettings: async () => structuredClone(saved),
-    currentDocument: (value) => rt.documents.get("7:0")?.document.documentId === value.documentId,
+    currentDocument: (value) => {
+      const current = rt.documents.get("7:0");
+      return current?.document.documentId === value.documentId ? current.path : undefined;
+    },
   });
   const grants = vi.fn(authorizeSso);
   fake.state.tabUrls[7] = live.url;

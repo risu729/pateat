@@ -611,18 +611,11 @@ describe("automatic URL method entries use only fresh exact-origin evidence", ()
           return true;
         },
       });
-      if (change !== "validation")
-        expect(await pending.result).toEqual({ ok: false, reason: "scope-changed" });
-      else {
-        let answer: unknown;
-        void pending.result.then((value) => {
-          answer = value;
-          return undefined;
-        });
-        await Promise.resolve();
-        expect(answer).toBeUndefined();
-        expect(await h.offer()).toMatchObject({ reason: "source-changed" });
-      }
+      // A refused validation ends the automatic request, as for a bracket method.
+      expect(await pending.result).toEqual({
+        ok: false,
+        reason: change === "validation" ? "source-changed" : "scope-changed",
+      });
     },
   );
   it("rechecks the automatic destination at consume and consumes even a refused receipt once", async () => {
@@ -703,17 +696,17 @@ describe("automatic URL method entries use only fresh exact-origin evidence", ()
       entryOrigin: entered,
     });
     await vi.waitFor(() => expect(entered).toHaveBeenCalled());
-    const shown = await h.offer();
-    expect(await h.choose()).toEqual({ ok: false, reason: "offer-gone" });
+    // The popup sees no offer until the automatic decision, so it can choose nothing.
+    expect(await h.controller.get(7)).toEqual({ ok: true });
+    gate.resolve(true);
+    const pending = await request;
     expect(
       await h.controller.choose({
         tabId: 7,
-        offerId: shown.id,
+        offerId: pending.offerId,
         selection: { kind: "native", route: "passkey" },
       }),
     ).toEqual({ ok: false, reason: "offer-gone" });
-    gate.resolve(true);
-    const pending = await request;
     const answer = await pending.result;
     if (!answer.ok) throw new Error(answer.reason);
     expect(await h.controller.consume(answer.choiceId)).toMatchObject({

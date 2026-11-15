@@ -4,7 +4,8 @@ import {
   getItemEligibility,
   itemAsksForMasterPassword,
   parseAttemptMetadata,
-  ssoEntryFor,
+  normalizeSsoLabel,
+  type SsoLayout,
   sameLoginTarget,
   sameLoginDocument,
   ssoLabelSchema,
@@ -33,6 +34,9 @@ import type { Choice, Execution, LiveDocument } from "../types";
 import type { Runtime } from "../state";
 
 type Saved = Extract<SettingsResponse, { ok: true }>;
+/** The layout's entry for a label, ignoring letter case; a layout holds one per label. */
+const entryFor = (layout: SsoLayout, label: string) =>
+  layout.entries.find((entry) => normalizeSsoLabel(entry.label) === normalizeSsoLabel(label));
 export async function ssoReprompt(rt: Runtime, work: SsoWork, live: LiveDocument, idp = false) {
   const account = idp ? { ...work.selected.account, origin: work.selected.origin } : work.account;
   const connection = work.saved.catalog.connections.find(
@@ -507,24 +511,30 @@ export async function beginSso(
         sameLoginTarget(candidate.target, observed.target),
       );
       const sanitized = candidates.length === 1 && candidates[0]!.label?.trim();
-      if (!sanitized || !v.is(ssoLabelSchema, sanitized))
+      // A label holds no bracket (ADR 0085), so a redaction such as `[account]` reads
+      // `(account)` in it; the description the model reads keeps its own form.
+      const entryLabel = sanitized && sanitized.replaceAll(/\[([a-z]+)\]/gu, "($1)");
+      if (!sanitized || !entryLabel || !v.is(ssoLabelSchema, entryLabel))
         throw new Error("sso-entry-label-private");
-      const publicText = sanitized.replaceAll("[account]", "").normalize("NFKC").toLowerCase();
+      const publicText = sanitized
+        .replaceAll(/\[[a-z]+\]/gu, "")
+        .normalize("NFKC")
+        .toLowerCase();
       if (
         [rp, idp].some(
           (value) => value && publicText.includes(value.trim().normalize("NFKC").toLowerCase()),
         )
       )
         throw new Error("sso-entry-label-private");
-      label = sanitized;
-      work.label = sanitized;
+      label = entryLabel;
+      work.label = entryLabel;
       privatePage = hidden.observation;
     }
     let heads = (await rt.recipes.sso?.(account.origin, ctx.live.path)) ?? [];
     const matches = heads
       .flatMap((head) =>
         head.sso.layouts.flatMap((layout) => {
-          const entry = label && ssoEntryFor(layout, label);
+          const entry = label && entryFor(layout, label);
           return entry &&
             (method.form !== "url" || (observed && sameLoginTarget(entry.target, observed.target)))
             ? [{ head, layout, target: entry.target }]
@@ -569,7 +579,7 @@ export async function beginSso(
       if (generated.outcome !== "recipe") throw new Error("sso-generation-refused");
       const repaired = generated.recipe.sso.layouts
         .flatMap((layout) => {
-          const entry = ssoEntryFor(layout, label);
+          const entry = entryFor(layout, label);
           return entry &&
             (method.form !== "url" || (observed && sameLoginTarget(entry.target, observed.target)))
             ? [{ layout, target: entry.target }]

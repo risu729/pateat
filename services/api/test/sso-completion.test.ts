@@ -18,8 +18,8 @@ import { createDeviceToken, hashDeviceToken } from "../src/auth";
 
 const origin = "https://rp.example.test";
 const modelBody = JSON.stringify({
-  model: "gpt-6.1-sol",
-  input: [{ role: "user", content: "Synthetic RP return" }],
+  model: "claude-opus-5-5",
+  messages: [{ role: "user", content: "Synthetic RP return" }],
 });
 async function setup() {
   const ownerId = crypto.randomUUID();
@@ -90,7 +90,6 @@ async function setup() {
       return {
         status: "device-call",
         call: {
-          provider: "openai",
           index: 0,
           headers: { "content-type": "application/json" },
           body: modelBody,
@@ -101,24 +100,24 @@ async function setup() {
     return {
       status: "called",
       outcome: await input.invoke(model as unknown as Parameters<typeof input.invoke>[0]),
-      served: { provider: "openai", model: "gpt-6.1-sol", effort: "low", speed: "standard" },
+      served: { provider: "anthropic", model: "claude-opus-5-5", effort: "low", speed: "standard" },
       timings: { preModelMs: 0, tokenMs: 0, modelMs: 0 },
     };
   };
   const generationBackend = { ...backend, call };
-  const quotaCount = async () =>
-    (await env.DB.prepare(
-      "SELECT count(*) AS n FROM judgement_reservations WHERE owner_id = ? AND state != 'cancelled'",
-    )
-      .bind(ownerId)
-      .first<{ n: number }>())!.n;
+  const judgements = async () =>
+    (
+      await env.DB.prepare("SELECT verdict FROM page_judgements WHERE owner_id = ?")
+        .bind(ownerId)
+        .all<{ verdict: string | null }>()
+    ).results.map((row) => row.verdict);
   return {
     ownerId,
     recipeId,
     request,
     backend,
     generationBackend,
-    quotaCount,
+    judgements,
     calls: () => modelCalls,
   };
 }
@@ -140,31 +139,25 @@ describe("dedicated SSO completion uses real local D1 persistence", () => {
       .bind(h.ownerId, h.recipeId)
       .all();
     expect(units.results).toContainEqual(
-      expect.objectContaining({ unit: "sso-marker:0", origin: "judged", provider: "openai" }),
+      expect.objectContaining({ unit: "sso-marker:0", origin: "judged", provider: "anthropic" }),
     );
-    expect(await h.quotaCount()).toBe(1);
+    // The page's one judgement of the day, kept with its verdict.
+    expect(await h.judgements()).toEqual(["signed-in"]);
     expect(h.calls()).toBe(1);
   });
-  it("pairs dispatch and its exact response hash to one durable reservation without replay", async () => {
+  it("relays the call to the device and judges the page once, without replay", async () => {
     const h = await setup();
-    const id = crypto.randomUUID();
     const first = await judgeCompletion(h.generationBackend, h.recipeId, {
       ...h.request,
-      deviceModel: { provider: "openai", responses: [], judgement: { id } },
+      deviceModel: { responses: [] },
     });
-    expect(first).toMatchObject({
-      status: "model-call",
-      call: { provider: "openai" },
-      judgement: { id, startedAt: expect.any(Number) },
-    });
-    if (!first || first.status !== "model-call" || !first.judgement)
-      throw new Error("Expected a paired judgement grant");
-    expect(await h.quotaCount()).toBe(1);
+    expect(first).toMatchObject({ status: "model-call", call: { index: 0, body: modelBody } });
+    // The device has not called the model yet: nothing is judged or counted.
+    expect(await h.judgements()).toEqual([]);
+    expect(h.calls()).toBe(0);
     const complete: SsoCompletionRequest = {
       ...h.request,
       deviceModel: {
-        provider: "openai",
-        judgement: first.judgement,
         responses: [
           {
             kind: "response",
@@ -179,13 +172,14 @@ describe("dedicated SSO completion uses real local D1 persistence", () => {
       status: "signed-in",
       change: { revision: 2 },
     });
-    expect(await h.quotaCount()).toBe(1);
+    expect(await h.judgements()).toEqual(["signed-in"]);
     expect(h.calls()).toBe(1);
+    // The same request again names the revision the marker replaced: no second judgement.
     expect(await judgeCompletion(h.generationBackend, h.recipeId, complete)).toMatchObject({
       status: "unavailable",
       reason: "recipe-conflict",
     });
-    expect(await h.quotaCount()).toBe(1);
+    expect(await h.judgements()).toEqual(["signed-in"]);
     expect(h.calls()).toBe(1);
   });
 });

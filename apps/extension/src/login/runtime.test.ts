@@ -84,7 +84,6 @@ const fake = await vi.hoisted(async () => {
       },
       onRemoved: { addListener: () => undefined },
       onReplaced: { addListener: () => undefined },
-      onUpdated: { addListener: () => undefined },
     },
   };
   // WXT storage reads `chrome` when it loads.

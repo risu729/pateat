@@ -1,6 +1,4 @@
-import { markWritten } from "./layout";
 import {
-  deviceModelRequestHash,
   isSsoDocument,
   sameLoginTarget,
   type GenerationUnavailableReason,
@@ -8,17 +6,14 @@ import {
   type SsoCompletionRequest,
 } from "@pateat/contracts";
 import {
+  completionBesidePromptVersion,
   completionInstructions,
   completionPromptVersion,
+  completionStopPromptVersion,
   createCompletionJudge,
   unsafeSsoObservation,
 } from "@pateat/inference";
-import type {
-  GenerationBackend,
-  JudgementKey,
-  JudgementReservation,
-  UnsentRequest,
-} from "../backend";
+import type { GenerationBackend, JudgementKey, KeptJudgement, UnsentRequest } from "../backend";
 import {
   answerable,
   answerUnsent,
@@ -28,10 +23,20 @@ import {
   roleConfig,
   unavailable,
 } from "./responses";
-import { staleHead, utcDayStart } from "./policy";
+import { JUDGEMENTS_PER_RECIPE_DAY, staleHead, utcDayStart } from "./policy";
+import { markWritten } from "./layout";
 import { ssoMarkerUnit } from "../units";
 
-/** Same judge role, provider relay and atomic daily reservation as native completion. */
+/** The most signed-in markers one SSO layout keeps on the site's return page. */
+const MAX_SSO_MARKERS = 4;
+
+/**
+ * Judges the site's own page after the identity provider returned (ADR 0026 amendment of
+ * 2026-11-12): the same judge role, provider path, daily limit and kept verdicts as a
+ * native completion, with no account, mapping, IdP origin or fill slot in the request. A
+ * page judged signed in teaches the SSO layout a marker of its own, which a later return
+ * must show again before it completes.
+ */
 export async function judgeSsoCompletion(
   backend: GenerationBackend,
   recipeId: string,
@@ -43,11 +48,9 @@ export async function judgeSsoCompletion(
   const recipe = head.state === "active" ? head.recipe : undefined;
   if (recipe && recipe.origin !== observation.origin) return null;
   const promptVersion = await completionPromptVersion();
-  const layout =
-    recipe &&
-    isSsoDocument(recipe) &&
-    recipe.sso.layouts.find((entry) => entry.key === request.layout);
-  const paths = recipe && isSsoDocument(recipe) ? [recipe.sso.path] : [];
+  const sso = recipe && isSsoDocument(recipe) ? recipe.sso : undefined;
+  const layout = sso?.layouts.find((entry) => entry.key === request.layout);
+  const loginPaths = sso ? [sso.path] : [];
   const logged = {
     role: "judge",
     promptVersion,
@@ -56,9 +59,10 @@ export async function judgeSsoCompletion(
     request: {
       instructions: completionInstructions,
       kind: "sso-completion",
-      observation,
-      loginPaths: paths,
+      recipeId,
+      loginPaths,
       slots: [],
+      observation,
     },
     recipe: { recipeId, branch: request.layout, baseRevision: head.revision },
   } satisfies UnsentRequest;
@@ -66,7 +70,8 @@ export async function judgeSsoCompletion(
     answerUnsent(backend, logged, unavailable(reason));
   if (head.state === "revoked") return unsent("recipe-revoked");
   if (head.revision !== request.revision || !layout) return unsent("recipe-conflict");
-  // An existing login/chooser, new-account or permission page cannot be positive RP proof.
+  // A sign-in form, list of accounts, new-account or permission page, or a page that
+  // still shows the layout's own SSO entries, is no proof of the site's signed-in state.
   if (
     !observation.complete ||
     observation.accounts ||
@@ -78,7 +83,7 @@ export async function judgeSsoCompletion(
     )
   )
     return unsent("not-judgeable");
-  const key: JudgementKey = {
+  const judgedPage: JudgementKey = {
     recipeId,
     branch: request.layout,
     revision: head.revision,
@@ -86,96 +91,59 @@ export async function judgeSsoCompletion(
     path: observation.path,
     promptVersion,
   };
-  const paired = request.deviceModel?.judgement;
-  if (request.deviceModel && !paired) return unsent("judgement-unanswered");
-  const operation: JudgementReservation = {
-    id: paired?.id ?? crypto.randomUUID(),
-    startedAt: paired?.startedAt ?? 0,
-    fingerprint: await deviceModelRequestHash(
-      JSON.stringify({ ...request, deviceModel: undefined, promptVersion }),
-    ),
-  };
-  if (paired?.cancel) {
-    if (request.deviceModel?.responses.length === 0) await backend.cancelJudgement(key, operation);
-    return unsent("judgement-unanswered");
-  }
-  const heldAnswer = async (): Promise<GenerationUnavailableReason | undefined> => {
-    const kept = await backend.judgement(key);
-    if (!kept) return undefined;
-    return kept.verdict === "signed-in"
-      ? "judged-signed-in"
-      : kept.verdict === null
-        ? "judgement-unanswered"
-        : "already-judged";
-  };
-  const reserve = async (now: number): Promise<GenerationUnavailableReason | undefined> => {
-    const result = await backend.reserveJudgement(
-      key,
-      now,
-      { expired: utcDayStart(now), versions: [promptVersion] },
-      "sso-return",
-      operation,
-    );
-    return result.status === "limited"
-      ? "judgement-limit"
-      : result.status === "held"
-        ? ((await heldAnswer()) ?? "judgement-unanswered")
-        : undefined;
-  };
+  // A page of the revision and path is judged once: a later return completes only on a
+  // `signed-in` verdict and the marker it taught.
+  const judgedAnswer = (kept: KeptJudgement | undefined): GenerationUnavailableReason | undefined =>
+    !kept
+      ? undefined
+      : kept.verdict === "signed-in"
+        ? "judged-signed-in"
+        : kept.verdict === null
+          ? "judgement-unanswered"
+          : "already-judged";
+  const versions = [
+    promptVersion,
+    await completionStopPromptVersion(),
+    await completionBesidePromptVersion(),
+  ];
   const call = await backend.call({
     ...logged,
     device: request.deviceModel,
     gate: async (now) => {
       const stale = staleHead(await backend.readHead(recipeId), head.revision);
       if (stale) return stale;
-      if (paired?.startedAt === undefined) operation.startedAt = now;
-      const reservation = await backend.judgementReservation(key, operation, now);
-      if (reservation.status === "invalid") return "judgement-unanswered";
-      if (reservation.status === "active") {
-        if (
-          !request.deviceModel ||
-          !(await backend.continueJudgement(
-            key,
-            operation,
-            request.deviceModel.responses.map((response) => response.request),
-            now,
-          ))
-        )
-          return "judgement-unanswered";
-        return undefined;
-      }
-      if (paired?.startedAt !== undefined || request.deviceModel?.responses.length)
-        return "judgement-unanswered";
-      return heldAnswer();
+      const judged = judgedAnswer(await backend.judgement(judgedPage));
+      if (judged) return judged;
+      return (await backend.judgementsSince(recipeId, utcDayStart(now))) >=
+        JUDGEMENTS_PER_RECIPE_DAY
+        ? "judgement-limit"
+        : undefined;
     },
-    beforeSend: reserve,
+    // A row another request wrote since the gate stops this one unsent (ADR 0018).
+    beforeSend: async (now) =>
+      (await backend.recordJudgement(judgedPage, now, { expired: utcDayStart(now), versions }, ""))
+        ? undefined
+        : (judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered"),
     invoke: (model) =>
       createCompletionJudge({ model, ...roleConfig })({
         observation,
-        loginPaths: paths,
+        loginPaths,
         slots: [],
         recipeElements: layout.entries.map((entry) => entry.target),
       }),
     logValue: (value) => value,
   });
   if (call.status === "unavailable") return unsent(call.reason);
-  if (call.status === "device-call") {
-    const refused = await reserve(Date.now());
-    if (refused) return unsent(refused);
-    if (
-      !(await backend.dispatchJudgement(key, operation, {
-        index: call.call.index,
-        hash: await deviceModelRequestHash(call.call.body),
-      }))
-    )
-      return unsent("judgement-unanswered");
-    return { ...modelCall(call), judgement: { id: operation.id, startedAt: operation.startedAt } };
-  }
-  await backend.finishJudgement(key, operation);
+  if (call.status === "device-call") return modelCall(call);
   const { outcome } = call;
-  if (outcome.status === "failed") return failed(failureOf(outcome.error));
+  if (outcome.status === "failed") {
+    const answer = failed(failureOf(outcome.error));
+    return outcome.calls === 0 ? answerUnsent(backend, logged, answer) : answer;
+  }
   const verdict = outcome.status === "abstained" ? "unclear" : outcome.value.decision;
-  await backend.keepVerdict(key, verdict, operation.id, "sso-return");
+  await backend.keepVerdict(judgedPage, verdict).catch(() => {
+    console.warn("SSO return verdict not kept", { recipeId, verdict });
+  });
   if (outcome.status !== "ok" || outcome.value.decision !== "signed-in")
     return {
       version: 1,
@@ -185,22 +153,21 @@ export async function judgeSsoCompletion(
   const target = outcome.value.target;
   if (
     !target ||
+    !sso ||
     !observation.candidates.some((candidate) => sameLoginTarget(candidate.target, target)) ||
-    layout.entries.some((entry) => sameLoginTarget(entry.target, target)) ||
-    !recipe ||
-    !isSsoDocument(recipe)
+    layout.entries.some((entry) => sameLoginTarget(entry.target, target))
   )
     return unavailable("not-judgeable");
   const markers = layout.completion ?? [];
   if (markers.some((marker) => sameLoginTarget(marker.target, target)))
     return { version: 1, status: "signed-in" };
-  if (markers.length >= 4) return unavailable("recipe-limit");
+  if (markers.length >= MAX_SSO_MARKERS) return unavailable("recipe-limit");
   const learned = {
-    ...recipe,
+    ...recipe!,
     revision: head.revision + 1,
     sso: {
-      ...recipe.sso,
-      layouts: recipe.sso.layouts.map((entry) =>
+      ...sso,
+      layouts: sso.layouts.map((entry) =>
         entry.key === layout.key ? { ...entry, completion: [...markers, { target }] } : entry,
       ),
     },

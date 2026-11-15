@@ -64,7 +64,7 @@ async function generatedSso(markerReturn: boolean, missingMarker = false) {
           ? {
               decision: "plan",
               page: "sign-in",
-              entries: [{ label: "Example", candidate: entry!.id }],
+              entries: [{ labelIndex: 0, candidate: entry!.id }],
             }
           : entry
             ? { decision: "signed-in", marker: entry.id }

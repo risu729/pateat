@@ -197,10 +197,22 @@ export function createBrowserFake() {
       },
     },
     tabs: {
-      onUpdated:
-        createBrowserEvent<
-          [number, { url?: string; status?: string }, { id?: number; url?: string }]
-        >(),
+      onUpdated: (() => {
+        const event =
+          createBrowserEvent<
+            [number, { url?: string; status?: string }, { id?: number; url?: string }]
+          >();
+        // A test may also call the listeners it finds in `state.updated` itself.
+        return {
+          ...event,
+          addListener: (
+            listener: (tabId: number, change: { url?: string; status?: string }) => void,
+          ) => {
+            state.updated.push(listener);
+            event.addListener(listener);
+          },
+        };
+      })(),
       onCreated: createBrowserEvent<[{ id?: number; openerTabId?: number; url?: string }]>(),
       query: async () =>
         (state.openTabs ?? []).map((id) => ({
@@ -388,13 +400,6 @@ export function createBrowserFake() {
       onReplaced: {
         addListener: (listener: (added: number, removed: number) => void) => {
           state.replaced.push(listener);
-        },
-      },
-      onUpdated: {
-        addListener: (
-          listener: (tabId: number, change: { url?: string; status?: string }) => void,
-        ) => {
-          state.updated.push(listener);
         },
       },
     },

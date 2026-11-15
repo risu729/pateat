@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_MODEL_URL,
-  OPENAI_DEVICE_MODEL_URL,
   type LoginObservation,
   type SsoCompletionRequest,
   type SsoRecipeDocument,
@@ -23,12 +22,9 @@ const page: LoginObservation = {
   ],
 };
 type Reply = { decision: string; marker?: string } | { refusal: string } | number;
-async function setup(
-  provider: "anthropic" | "openai",
-  supplied: Reply[] = [{ decision: "signed-in", marker: "logout" }],
-) {
+async function setup(supplied: Reply[] = [{ decision: "signed-in", marker: "logout" }]) {
   const replies = [...supplied];
-  const key = "synthetic-sso-completion-" + provider;
+  const key = "sk-ant-synthetic-sso-completion";
   const calls: {
     url: string;
     body: Record<string, unknown>;
@@ -38,7 +34,7 @@ async function setup(
   let spend: unknown;
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const request = new Request(input, init);
-    expect(request.url).toBe(provider === "openai" ? OPENAI_DEVICE_MODEL_URL : DEVICE_MODEL_URL);
+    expect(request.url).toBe(DEVICE_MODEL_URL);
     const body = (await request.json()) as Record<string, unknown>;
     calls.push({
       url: request.url,
@@ -70,32 +66,18 @@ async function setup(
         usage: { input_tokens: 1000, output_tokens: 100 },
       });
     const text = JSON.stringify({ result: reply });
-    return provider === "openai"
-      ? Response.json({
-          id: "resp_synthetic",
-          model: body["model"],
-          output: [
-            {
-              type: "message",
-              id: "msg_synthetic",
-              role: "assistant",
-              content: [{ type: "output_text", text, annotations: [] }],
-            },
-          ],
-          usage: { input_tokens: 1000, output_tokens: 100 },
-        })
-      : Response.json({
-          id: "msg_synthetic",
-          type: "message",
-          role: "assistant",
-          model: body["model"],
-          content: [{ type: "text", text }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: { input_tokens: 1000, output_tokens: 100 },
-        });
+    return Response.json({
+      id: "msg_synthetic",
+      type: "message",
+      role: "assistant",
+      model: body["model"],
+      content: [{ type: "text", text }],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: { input_tokens: 1000, output_tokens: 100 },
+    });
   });
-  const setting: DeviceModelSetting = { version: 1, provider, apiKey: key };
+  const setting: DeviceModelSetting = { version: 1, apiKey: key };
   const model = createDeviceModel({
     storage: { read: async () => setting, write: async () => {}, clear: async () => {} },
     spend: {
@@ -205,39 +187,31 @@ async function setup(
     fetch,
     restart,
     record: () =>
-      structuredClone(record) as {
-        quotas: { state: string }[];
-        judgements: { verdict: string | null }[];
-      },
+      structuredClone(record) as { judgements: { verdict: string | null }[] } | undefined,
   };
 }
 
 describe("SSO completion through the real device backend and model adapters", () => {
-  it.each(["anthropic", "openai"] as const)(
-    "retains %s selection and learns only a fresh per-layout RP marker",
-    async (provider) => {
-      const h = await setup(provider);
-      expect(await h.judge()).toMatchObject({
-        kind: "result",
-        result: { status: "signed-in", change: { state: "active", revision: 2 } },
-      });
-      const head = await h.recipes.head(h.recipeId);
-      expect(head).toMatchObject({
-        revision: 2,
-        sso: { layouts: [{ completion: [{ target: { by: "id", value: "logout" } }] }] },
-      });
-      expect(head && "layouts" in head ? head.layouts : undefined).toEqual(h.recipe.layouts);
-      expect(h.calls).toHaveLength(1);
-      expect(h.calls[0]!.body["model"]).toMatch(provider === "openai" ? /^gpt-/u : /^claude-/u);
-      expect(h.calls[0]!.authorization).toBe(provider === "openai" ? "Bearer " + h.key : null);
-      expect(h.calls[0]!.apiKey).toBe(provider === "anthropic" ? h.key : null);
-      expect(JSON.stringify(h.calls[0]!.body)).not.toMatch(
-        /sourceEvidence|usernameProof|idp-vault|synthetic@example/u,
-      );
-      expect(h.record().quotas).toHaveLength(1);
-      expect(h.record().quotas[0]!.state).toBe("finished");
-    },
-  );
+  it("learns only a fresh per-layout RP marker", async () => {
+    const h = await setup();
+    expect(await h.judge()).toMatchObject({
+      kind: "result",
+      result: { status: "signed-in", change: { state: "active", revision: 2 } },
+    });
+    const head = await h.recipes.head(h.recipeId);
+    expect(head).toMatchObject({
+      revision: 2,
+      sso: { layouts: [{ completion: [{ target: { by: "id", value: "logout" } }] }] },
+    });
+    expect(head && "layouts" in head ? head.layouts : undefined).toEqual(h.recipe.layouts);
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0]!.body["model"]).toMatch(/^claude-/u);
+    expect(h.calls[0]!.apiKey).toBe(h.key);
+    expect(JSON.stringify(h.calls[0]!.body)).not.toMatch(
+      /sourceEvidence|usernameProof|idp-vault|synthetic@example/u,
+    );
+    expect(h.record()?.judgements.map((row) => row.verdict)).toEqual(["signed-in"]);
+  });
   it.each([
     { decision: "challenge", status: "challenge" },
     { decision: "optional", status: "unclear" },
@@ -246,23 +220,23 @@ describe("SSO completion through the real device backend and model adapters", ()
   ])(
     "never turns $decision into authentication or a learned marker",
     async ({ decision, status }) => {
-      const h = await setup("anthropic", [{ decision }]);
+      const h = await setup([{ decision }]);
       expect(await h.judge()).toMatchObject({ kind: "result", result: { status } });
       expect(await h.recipes.head(h.recipeId)).toEqual(h.recipe);
       expect(h.calls).toHaveLength(1);
-      expect(h.record().quotas).toHaveLength(1);
+      expect(h.record()?.judgements).toHaveLength(1);
     },
   );
-  it.each(["Consent", "Share email", "Create account"])(
+  it.each(["Authorize access", "Share email", "Create account"])(
     "refuses %s before any model call or quota reservation",
     async (title) => {
-      const h = await setup("anthropic");
+      const h = await setup();
       expect(await h.judge({ ...h.request, observation: { ...page, title } })).toMatchObject({
         kind: "result",
         result: { status: "unavailable", reason: "not-judgeable" },
       });
       expect(h.calls).toEqual([]);
-      expect(h.record()?.quotas ?? []).toEqual([]);
+      expect(h.record()?.judgements ?? []).toEqual([]);
     },
   );
   it.each([
@@ -281,7 +255,7 @@ describe("SSO completion through the real device backend and model adapters", ()
   ])(
     "does not call the model while original SSO entry or native credential field $id is present",
     async (candidate) => {
-      const h = await setup("anthropic");
+      const h = await setup();
       expect(
         await h.judge({ ...h.request, observation: { ...page, candidates: [candidate] } }),
       ).toMatchObject({
@@ -289,21 +263,17 @@ describe("SSO completion through the real device backend and model adapters", ()
         result: { status: "unavailable", reason: "not-judgeable" },
       });
       expect(h.calls).toEqual([]);
-      expect(h.record()?.quotas ?? []).toEqual([]);
+      expect(h.record()?.judgements ?? []).toEqual([]);
     },
   );
-  it("shares one durable judgement reservation across provider fallback", async () => {
-    const h = await setup("anthropic", [
-      { refusal: "cyber" },
-      { decision: "signed-in", marker: "logout" },
-    ]);
+  it("keeps one judgement of the page across the model fallback", async () => {
+    const h = await setup([{ refusal: "cyber" }, { decision: "signed-in", marker: "logout" }]);
     expect(await h.judge()).toMatchObject({ kind: "result", result: { status: "signed-in" } });
     expect(h.calls.length).toBeGreaterThan(1);
-    expect(h.record().quotas).toHaveLength(1);
-    expect(h.record().quotas[0]!.state).toBe("finished");
+    expect(h.record()?.judgements.map((row) => row.verdict)).toEqual(["signed-in"]);
   });
-  it("a repeated optional-page request stays charged once across a backend restart", async () => {
-    const h = await setup("anthropic", [{ decision: "optional" }]);
+  it("a repeated optional-page request stays judged once across a backend restart", async () => {
+    const h = await setup([{ decision: "optional" }]);
     expect(await h.judge()).toMatchObject({ kind: "result", result: { status: "unclear" } });
     const restarted = createDeviceGeneration(h.restart());
     expect(
@@ -318,6 +288,6 @@ describe("SSO completion through the real device backend and model adapters", ()
       result: { status: "unavailable", reason: "already-judged" },
     });
     expect(h.calls).toHaveLength(1);
-    expect(h.record().quotas).toHaveLength(1);
+    expect(h.record()?.judgements).toHaveLength(1);
   });
 });

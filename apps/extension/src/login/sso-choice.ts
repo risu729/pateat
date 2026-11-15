@@ -186,7 +186,9 @@ export function createSsoChoiceController(options: {
       offer.reason = "entry-required";
       return undefined;
     }
-    if (!(await current(offer))) return { reason: "scope-changed" };
+    // After the entries' own awaits, so a vault or document change during them refuses.
+    const refused = await validateSso(offer, method);
+    if (refused) return refused;
     resolve(
       offer,
       { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
@@ -389,9 +391,9 @@ export function createSsoChoiceController(options: {
       if (preferred.field) offer.field = preferred.field;
       return undefined;
     }
+    if (preferred.form === "url") return automaticUrl(offer, preferred);
     const refused = await validateSso(offer, preferred);
     if (refused) return refused;
-    if (preferred.form === "url") return automaticUrl(offer, preferred);
     resolve(offer, {
       kind: "sso",
       source: preferred.source,
@@ -570,16 +572,19 @@ export function createSsoChoiceController(options: {
         if (!method) return failure("method-unavailable");
         const refused = await validateSso(offer, method);
         if (refused) return failure(refused.reason);
-        if (
-          selection.entryId &&
-          (!offer.input.entryCurrent ||
-            !(await offer.input.entryCurrent(selection.entryId)) ||
+        if (selection.entryId) {
+          const { entryCurrent, entryOrigin } = offer.input;
+          if (
+            !entryCurrent ||
+            !(await entryCurrent(selection.entryId)) ||
             (receipt.entryOrigin !== undefined &&
-              (!offer.input.entryOrigin ||
-                !(await offer.input.entryOrigin(selection.entryId, receipt.entryOrigin)))) ||
-            !(await current(offer)))
-        )
-          return failure("entry-changed");
+              (!entryOrigin || !(await entryOrigin(selection.entryId, receipt.entryOrigin))))
+          )
+            return failure("entry-changed");
+          // The entry's own awaits may have outlived a vault, policy or document change.
+          const again = await validateSso(offer, method);
+          if (again) return failure(again.reason);
+        }
       }
       if (!retained(offer)) return failure("scope-changed");
       invalidateTab(offer.input.document.tabId, "consumed");

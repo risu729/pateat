@@ -393,9 +393,11 @@ describe("actual SSO generation keeps local account labels private", () => {
     const payload = h.generate.mock.calls[0]![0];
     expect(JSON.stringify(payload)).not.toContain(h.rpUsername);
     expect(JSON.stringify(payload)).not.toContain(h.idpUsername);
-    expect(payload.labels).toEqual([
-      payload.observation.candidates.find((entry) => entry.id === "chosen")!.label,
-    ]);
+    expect(payload.observation.candidates.find((entry) => entry.id === "chosen")!.label).toBe(
+      "Continue as [account]",
+    );
+    // A label holds no bracket, so the redaction reads `(account)` in it.
+    expect(payload.labels).toEqual(["Continue as (account)"]);
     const prepares = delivery.mock.calls.filter(
       ([, message]) => message["type"] === "login.sso.prepare",
     );
@@ -410,7 +412,7 @@ describe("actual SSO generation keeps local account labels private", () => {
       const h = await generationStart("url", "Continue as idp-private-username");
       const cached = structuredClone(h.ssoRecipe);
       cached.sso.layouts[0]!.entries = [
-        { label: "Continue as [account]", target: { by: "id", value: "other-entry" } },
+        { label: "Continue as (account)", target: { by: "id", value: "other-entry" } },
       ];
       if (phase === "cached") h.setHeads([cached]);
       else

@@ -206,7 +206,7 @@ async function staleSelection(popup: import("@playwright/test").Page) {
   const read = (await send(popup, { version: 1, type: "login.sso.get", tabId })) as SsoResponse;
   if (!read.ok || !read.offer) throw new Error("Synthetic SSO offer missing");
   const method = read.offer.methods[0];
-  const candidate = method?.candidates.find((entry) => entry.itemId === items.idp);
+  const candidate = method?.candidates.find((entry) => entry.itemLabel === "Example");
   if (!method || !candidate) throw new Error("Synthetic exact provider candidate missing");
   return {
     version: 1,

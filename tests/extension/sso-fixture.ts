@@ -418,6 +418,9 @@ export async function openSsoPopup(browser: VaultBrowser, options: Page, site: P
   }
   return popup;
 }
+// The synthetic vault's provider item and its saved-default decoy, as the popup names them.
+const idpItem = "Example — ";
+const decoyItem = "Other provider account — ";
 export async function chooseExample(popup: Page) {
   const methods = popup.getByRole("region", { name: "Sign-in method", exact: true });
   await methods
@@ -428,19 +431,22 @@ export async function chooseExample(popup: Page) {
     exact: true,
   });
   // Only the exact native username and its own URI is eligible; the saved default is absent.
+  // The popup names each candidate by its item name, vault and origin, never its item ID.
   const choices = await provider.locator("option").allTextContents();
-  expect(choices.some((value) => value.includes(items.idp))).toBe(true);
-  expect(choices.some((value) => value.includes(items.decoy))).toBe(false);
+  expect(choices.some((value) => value.startsWith(idpItem))).toBe(true);
+  expect(choices.some((value) => value.startsWith(decoyItem))).toBe(false);
   const value = await provider
     .locator("option")
-    .filter({ hasText: items.idp })
+    .filter({ hasText: new RegExp("^" + idpItem) })
     .filter({ hasText: origins.idp })
     .getAttribute("value");
   if (!value) throw new Error("Exact synthetic provider account was not offered");
   await provider.selectOption(value);
-  await methods.getByRole("button", { name: "Save provider mapping", exact: true }).click();
+  await methods
+    .getByRole("button", { name: "Save provider mapping for Example", exact: true })
+    .click();
   await expect(
-    methods.getByRole("button", { name: "Remove provider mapping", exact: true }),
+    methods.getByRole("button", { name: "Remove provider mapping for Example", exact: true }),
   ).toBeVisible();
   await methods.getByRole("button", { name: "Continue", exact: true }).click();
 }

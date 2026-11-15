@@ -62,23 +62,14 @@ describe("dedicated value-free RP-return judgement request", () => {
   ])("refuses a malformed or alternate request family %#", (change) => {
     expect(v.safeParse(ssoCompletionRequestSchema, { ...request, ...change }).success).toBe(false);
   });
-  it.each(["anthropic", "openai"] as const)(
-    "carries the existing bounded %s device relay without values",
-    (provider) => {
-      const deviceModel = {
-        provider,
-        responses: [],
-        judgement: { id: "a0000000-0000-4000-8000-000000000001" },
-      };
-      expect(v.safeParse(ssoCompletionRequestSchema, { ...request, deviceModel }).success).toBe(
-        true,
-      );
-      expect(
-        v.safeParse(ssoCompletionRequestSchema, {
-          ...request,
-          deviceModel: { ...deviceModel, apiKey: "synthetic-key" },
-        }).success,
-      ).toBe(false);
-    },
-  );
+  it("carries the existing bounded device relay without values", () => {
+    const deviceModel = { responses: [] };
+    expect(v.safeParse(ssoCompletionRequestSchema, { ...request, deviceModel }).success).toBe(true);
+    expect(
+      v.safeParse(ssoCompletionRequestSchema, {
+        ...request,
+        deviceModel: { ...deviceModel, apiKey: "synthetic-key" },
+      }).success,
+    ).toBe(false);
+  });
 });
