@@ -693,6 +693,19 @@ module registers no cases. `runtime-context.ts` holds the fixture types. The mod
 sit outside `src/`, so they stay outside the production coverage root without an
 exclude. Each file follows the 1,000-line limit.
 
+### Popup site page test organization
+
+`tests/options/popup.test.tsx` remains the only discovered entry for the popup's site
+page suite. It owns the synthetic settings store, choice and detail clients, the
+`mount` and polling helpers, the page section helpers and root cleanup, and calls
+the synchronous registrars in `tests/options/popup/` at the original registration
+positions. The `*-cases.tsx` modules own contiguous opening, pause policy, settings,
+choice, page section, detail, locked vault and page behavior cases, without their own
+hooks or suites, so every test stays a root test of `popup.test.tsx`. The entry
+defines each helper before the registrar that takes it and exports its
+`PopupTestContext` type, which the modules import with `import type` and narrow with
+`Pick<>`, so there is no runtime import cycle. Each file follows the 1,000-line limit.
+
 ### Connection settings test organization
 
 The options connection suite keeps `tests/options/connection-setup.test.tsx` as its
