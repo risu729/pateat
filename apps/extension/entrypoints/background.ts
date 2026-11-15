@@ -1,4 +1,5 @@
 import { createVaultSsoSource } from "../src/login/sso-vault";
+import { ssoVaultNotices } from "../src/login/sso-notices";
 import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
 import { accountPolicy } from "@pateat/contracts";
 import { browser } from "wxt/browser";
@@ -140,7 +141,7 @@ export default defineBackground(() => {
   const syntheticSetup =
     import.meta.env.MODE === "probe" ? createConnectionProbeTransport() : undefined;
   const vaultSyncRecords = createVaultSyncRecords(createBrowserVaultSyncStorage());
-  let invalidateSsoChoices = () => undefined;
+  const ssoNotices = ssoVaultNotices();
   const connections = createConnectionRuntime(cryptoHost, {
     revisions: vaultSyncRecords,
     ...(catalog ? { baseCatalog: catalog } : {}),
@@ -154,7 +155,7 @@ export default defineBackground(() => {
       void actionIcon.refresh();
       void siteCounter.refresh();
       diagnosticsLog.vaultStateMayChange();
-      invalidateSsoChoices();
+      ssoNotices.notify();
     },
     // A sync or a restore serves its snapshot only after the record write notified.
     onVaultOpened: () => void siteCounter.refresh(),
@@ -590,9 +591,7 @@ export default defineBackground(() => {
         )
         .catch(() => undefined),
   });
-  invalidateSsoChoices = () => {
-    login.vaultStateMayChange();
-  };
+  ssoNotices.attach(login);
   // A tab that moved to a page of a paused site shows `II` (ADR 0062); the badge drops the
   // pause first once the site changed.
   browser.tabs.onUpdated.addListener((_tabId, change, tab) => {

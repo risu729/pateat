@@ -34,6 +34,7 @@ import { refusalKey } from "./detail-fill";
 import { probeMode } from "./constants";
 import { pausingSettings, showTabPause, pauseOf } from "./pause";
 import { frameLeftInPlace } from "./moves";
+import { ssoTabLoaded } from "./sso-choices";
 import {
   forgetTab,
   reportClosed,
@@ -124,7 +125,8 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     handle: (message: unknown, sender: Sender) => handle(rt, message, sender),
     /** Local chooser seam for the SSO coordinator; it never executes a login. */
     ssoChoices: rt.ssoChoices,
-    vaultStateMayChange: () => rt.ssoChoices?.invalidateAll("vault-changed"),
+    /** Withdraws the SSO offers whose vaults really changed; a status read keeps them. */
+    vaultStateMayChange: () => rt.ssoChoices?.vaultStateMayChange() ?? Promise.resolve(),
     settingsChanged: (source: "synced" | "saved") => settingsChanged(rt, source),
     siteCount,
     /** A site default was saved outside the settings page, as by the passkey chooser. */
@@ -209,7 +211,7 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
      * (ADR 0062).
      */
     tabLoaded: (tab: Browser.tabs.Tab) => {
-      if (tab.id !== undefined) rt.ssoChoices?.invalidateTab(tab.id, "page-changed");
+      ssoTabLoaded(rt, tab);
       void frameLeftInPlace(rt, tab).catch(() => undefined);
       return showTabPause(rt, tab).catch(() => undefined);
     },

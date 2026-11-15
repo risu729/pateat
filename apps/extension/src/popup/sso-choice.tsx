@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { Button } from "../options/button";
+import { ssoReasonText } from "./sso-reasons";
 import type { SsoActionResponse, SsoClient, SsoSelection } from "../login/sso-wire";
 
 /** A method choice belongs to an already chosen site account, never another account card. */
@@ -23,7 +24,8 @@ export function PopupSsoChoice({
   });
   const response = query.data;
   const offer = response?.ok ? response.offer : undefined;
-  if (!client || tabId === undefined || !offer || offer.origin !== origin) return null;
+  if (!client || tabId === undefined || !offer || (offer.origin !== origin && !offer.frame))
+    return null;
   return (
     <SsoOffer
       key={offer.id}
@@ -77,6 +79,7 @@ function SsoOffer({
     act(() => client.choose({ tabId, offerId: offer.id, selection }));
   const cancel = () => act(() => client.cancel(tabId, offer.id));
   const { t } = useTranslation(undefined, { i18n });
+  const heading = useId();
   const [method, setMethod] = useState("");
   const [picks, setPicks] = useState<Record<number, string>>({});
   const [entryId, setEntryId] = useState("");
@@ -87,9 +90,11 @@ function SsoOffer({
     method === "password" ||
     (candidateId && (selected?.form !== "url" || entryId));
   const reason = notice || offer.reason;
+  const methodName = (entry: Offer["methods"][number]) =>
+    entry.label ?? t("Saved identity provider");
   return (
-    <section className="popup-section" aria-label={t("Sign-in method")}>
-      <h2>{t("Sign-in method")}</h2>
+    <section className="popup-section" aria-labelledby={heading}>
+      <h2 id={heading}>{t("Sign-in method")}</h2>
       <p>{t("Choose how to sign in as {{account}}.", { account: offer.accountLabel })}</p>
       <label>
         {t("Method for this sign-in")}
@@ -104,8 +109,8 @@ function SsoOffer({
           {offer.methods.map((entry) => (
             <option key={entry.method.number} value={entry.method.number}>
               {entry.label
-                ? t("Continue with {{provider}}", { provider: entry.label })
-                : t("Saved identity provider")}
+                ? t("SSO with {{provider}}", { provider: entry.label })
+                : t("SSO with the saved identity provider")}
               {entry.automatic ? t(" (automatic)") : ""}
             </option>
           ))}
@@ -113,9 +118,10 @@ function SsoOffer({
       </label>
       {offer.methods.map((entry) => {
         const picked = picks[entry.method.number] ?? entry.selectedId ?? "";
+        const name = methodName(entry);
         return (
           <fieldset key={entry.method.number} disabled={busy || offer.blocked}>
-            <legend>{entry.label ?? t("Saved identity provider")}</legend>
+            <legend>{name}</legend>
             <label>
               {t("Saved account and sign-in origin")}
               <select
@@ -125,32 +131,48 @@ function SsoOffer({
                 }
               >
                 <option value="">{t("Choose a saved provider account")}</option>
-                {entry.candidates.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.itemLabel} — {candidate.connectionLabel} — {candidate.origin} (
-                    {candidate.itemId})
+                {candidateTexts(entry.candidates).map(({ id, text }) => (
+                  <option key={id} value={id}>
+                    {text}
                   </option>
                 ))}
               </select>
             </label>
-            {!entry.candidates.length && (
+            {!entry.candidates.length && !entry.reason && (
               <p>
                 {t(
                   "No eligible provider account and origin matches this method. Check the vault and sync it.",
                 )}
               </p>
             )}
+            {entry.reason && (
+              <p>
+                {entry.field && t("SSO field: {{field}}. ", { field: entry.field })}
+                {ssoReasonText(t, entry.reason)}
+              </p>
+            )}
             <Button
               disabled={!picked || busy}
+              aria-label={t("Save provider mapping for {{method}}", { method: name })}
               onClick={() =>
                 void submit({ kind: "mapping", method: entry.method, candidateId: picked })
               }
             >
               {t("Save provider mapping")}
             </Button>
+            {entry.selectedId && entry.candidates.length < 2 && (
+              <Button
+                disabled={busy}
+                aria-label={t("Show other provider accounts for {{method}}", { method: name })}
+                onClick={() => void submit({ kind: "discover", method: entry.method })}
+              >
+                {t("Show other provider accounts")}
+              </Button>
+            )}
             {entry.selectedId && (
               <Button
                 disabled={busy}
+                aria-label={t("Remove provider mapping for {{method}}", { method: name })}
                 onClick={() => void submit({ kind: "unmap", method: entry.method })}
               >
                 {t("Remove provider mapping")}
@@ -179,28 +201,7 @@ function SsoOffer({
       {reason && (
         <output>
           {offer.field && t("SSO field: {{field}}. ", { field: offer.field })}
-          {reason === "duplicate-idp"
-            ? t(
-                "Two methods name the same provider account. Choose distinct accounts before continuing.",
-              )
-            : reason === "mapping-required"
-              ? t("Choose and save the provider account and origin for every enabled method.")
-              : reason === "entry-required"
-                ? t("Choose the provider entry displayed on this page.")
-                : reason === "invalid-value" ||
-                    reason === "mixed-forms" ||
-                    reason === "duplicate-method" ||
-                    reason === "field-name"
-                  ? t(
-                      "The SSO fields have invalid syntax, duplicate methods or mixed formats. Correct the vault item and sync it.",
-                    )
-                  : reason === "unsafe-hop"
-                    ? t(
-                        "An identity provider must use a different account and origin from this site.",
-                      )
-                    : t(
-                        "This sign-in method is unavailable or changed. Check the vault and reopen the choice.",
-                      )}
+          {ssoReasonText(t, reason)}
         </output>
       )}
       <p className="popup-muted">
@@ -219,7 +220,7 @@ function SsoOffer({
                 kind: "sso",
                 method: selected.method,
                 candidateId,
-                ...(entryId ? { entryId } : {}),
+                ...(selected.form === "url" && entryId ? { entryId } : {}),
               });
           }}
         >
@@ -231,6 +232,18 @@ function SsoOffer({
       </div>
     </section>
   );
+}
+
+/** Each candidate's item, vault and origin; a number tells apart two that read the same. */
+function candidateTexts(list: Offer["methods"][number]["candidates"]) {
+  const texts = list.map(
+    (candidate) => `${candidate.itemLabel} — ${candidate.connectionLabel} — ${candidate.origin}`,
+  );
+  return list.map((candidate, index) => {
+    const same = texts.filter((text) => text === texts[index]);
+    const nth = texts.slice(0, index + 1).filter((text) => text === texts[index]).length;
+    return { id: candidate.id, text: same.length > 1 ? `${texts[index]} (${nth})` : texts[index]! };
+  });
 }
 
 export type { SsoClient } from "../login/sso-wire";

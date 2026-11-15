@@ -236,8 +236,9 @@ export async function admit(
     );
     for (const [index, [other]] of frames.entries())
       if (!answers[index]) {
+        const gone = rt.documents.get(other);
         rt.documents.delete(other);
-        rt.ssoChoices?.invalidateTab(document.tabId, "document-gone");
+        if (gone) rt.ssoChoices?.documentChanged(gone.document, "document-gone");
         // A choice that waited in a frame of the old page ends with it, badge and all.
         const framed = rt.pending.get(document.tabId);
         if (framed && frameKey(framed.document) === other) clearChoice(rt, document.tabId);
@@ -439,7 +440,7 @@ export async function admit(
     dropReprompt(rt, oldLive.document.tabId, oldLive.document.documentId);
 
   if (oldLive && (!sameDocument || oldLive.path !== path))
-    rt.ssoChoices?.invalidateTab(document.tabId, "page-changed");
+    rt.ssoChoices?.documentChanged(document, "page-changed");
   rt.documents.set(key, live);
 
   // The tab's documents of a page it left need no confirmation claim any more, and this

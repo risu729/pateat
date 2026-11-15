@@ -71,10 +71,10 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       readSettings: () => settings.handle({ version: 1, type: "settings.get" }),
       currentDocument: (document) => {
         const live = documents.get(frameKey(document));
-        return (
-          live?.document.documentId === document.documentId &&
+        return live?.document.documentId === document.documentId &&
           live.document.origin === document.origin
-        );
+          ? live.path
+          : undefined;
       },
     });
 

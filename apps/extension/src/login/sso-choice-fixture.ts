@@ -111,10 +111,11 @@ export function ssoHarness(
   };
   let records: SsoMapping[] = [];
   let current = true;
+  let path = "/ready";
   const record = {
-    read: vi.fn(async () => structuredClone(records)),
-    write: vi.fn(async (value: SsoMapping[]) => {
-      records = structuredClone(value);
+    read: vi.fn(async (): Promise<unknown> => ({ version: 1, entries: structuredClone(records) })),
+    write: vi.fn(async (value: { version: 1; entries: SsoMapping[] }) => {
+      records = structuredClone(value.entries);
     }),
     clear: vi.fn(async () => {
       records = [];
@@ -122,7 +123,7 @@ export function ssoHarness(
   };
   const store = createSsoMappingStore(record);
   const readSettings = vi.fn(async (): Promise<SettingsResponse> => structuredClone(saved));
-  const currentDocument = vi.fn(() => current);
+  const currentDocument = vi.fn((): string | undefined => (current ? path : undefined));
   const controller = createSsoChoiceController({ source, store, readSettings, currentDocument });
   const input: SsoChoiceInput = { account, document, native: { passkey: true, password: true } };
   const request = (extra: Partial<SsoChoiceInput> = {}) =>
@@ -162,6 +163,12 @@ export function ssoHarness(
     records: () => records,
     setCurrent: (value: boolean) => {
       current = value;
+    },
+    setPath: (value: string) => {
+      path = value;
+    },
+    setRecords: (value: SsoMapping[]) => {
+      records = structuredClone(value);
     },
   };
 }

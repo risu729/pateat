@@ -622,7 +622,7 @@ export async function frameLeftInPlace(rt: Runtime, tab: { id?: number | undefin
   // A document of the frame that announced during the question is kept.
   if (frame && rt.documents.get(key) === frame) {
     rt.documents.delete(key);
-    rt.ssoChoices?.invalidateTab(frame.document.tabId, "document-gone");
+    rt.ssoChoices?.documentChanged(frame.document, "document-gone");
   }
   rt.leftFrames.set(tabId, record.id);
   await browser.tabs

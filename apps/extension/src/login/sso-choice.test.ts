@@ -119,7 +119,7 @@ describe("local SSO method chooser", () => {
       native: { passkey: false, password: false },
     });
     let settled = false;
-    void pending.result.then(() => {
+    void pending.result.finally(() => {
       settled = true;
       return undefined;
     });
@@ -129,17 +129,33 @@ describe("local SSO method chooser", () => {
     expect(await h.choose("sso", 2)).toEqual({ ok: true });
     expect((await pending.result).ok).toBe(true);
   });
-  it("does not fallback to native routes while a configured method is unresolved", async () => {
+  it("never falls back by itself while the preferred method is unresolved, but allows an explicit native route", async () => {
     const h = start();
-    const pending = await h.request({ automatic: true });
+    const pending = await h.request({
+      automatic: true,
+      native: { passkey: false, password: true },
+    });
     expect((await h.offer()).reason).toBe("mapping-required");
+    let settled = false;
+    void pending.result.finally(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
     expect(
       await h.controller.choose({
         tabId: 7,
         offerId: pending.offerId,
-        selection: { kind: "native", route: "passkey" },
+        selection: { kind: "native", route: "password" },
       }),
-    ).toEqual({ ok: false, reason: "mapping-required" });
+    ).toEqual({ ok: true });
+    expect(h.source.validate).not.toHaveBeenCalled();
+    const answer = await pending.result;
+    if (!answer.ok) throw new Error(answer.reason);
+    expect(await h.controller.consume(answer.choiceId)).toMatchObject({
+      ok: true,
+      selection: { kind: "native", route: "password" },
+    });
     expect(h.source.validate).not.toHaveBeenCalled();
   });
   it("a malformed configured source blocks the whole choice without a native fallback or secret in the error", async () => {
@@ -216,16 +232,30 @@ describe("local SSO method chooser", () => {
       },
     ]);
     const pending = await h.request();
-    await h.choose("mapping", 1);
-    await h.choose("mapping", 2);
+    expect(await h.choose("mapping", 1)).toEqual({ ok: true });
+    expect(await h.choose("mapping", 2)).toEqual({ ok: false, reason: "duplicate-idp" });
+    expect(h.records()).toHaveLength(1);
+    // Two saved mappings on one IdP account hold back the SSO routes, never a native one.
+    h.setRecords([
+      h.records()[0]!,
+      {
+        ...h.records()[0]!,
+        source: { ...h.records()[0]!.source, method: { number: 2 } },
+        selected: { ...h.records()[0]!.selected, origin: "https://another-idp.example.test" },
+      },
+    ]);
+    h.candidateLists.set(2, []);
+    const again = await h.request();
+    expect((await pending.result).ok).toBe(false);
     expect(await h.choose("sso")).toEqual({ ok: false, reason: "duplicate-idp" });
+    expect(await h.choose("sso", 2)).toEqual({ ok: false, reason: "duplicate-idp" });
     expect(
       await h.controller.choose({
         tabId: 7,
-        offerId: pending.offerId,
+        offerId: again.offerId,
         selection: { kind: "native", route: "password" },
       }),
-    ).toEqual({ ok: false, reason: "duplicate-idp" });
+    ).toEqual({ ok: true });
   });
   it("supports explicit mapping replacement and removal without modifying settings/defaults", async () => {
     const h = start();
@@ -356,32 +386,48 @@ it("a stale popup read cannot withdraw a newer offer created while it awaited se
   expect(settled).toBe(false);
 });
 
-it("a replacement queued after final validation cannot be consumed as old authority", async () => {
-  const h = start();
-  const id = await result(h);
-  let checks = 0;
-  let replacement: ReturnType<typeof h.request> | undefined;
-  h.currentDocument.mockImplementation(() => {
-    checks += 1;
-    // The fifth check is the final retained check inside validateAll's last settings read.
-    // Two queued jobs place replacement after that helper resolves and before its caller resumes.
-    if (checks === 5)
-      queueMicrotask(() =>
-        queueMicrotask(() => {
+it.each([0, 1, 2, 3, 4, 5, 6, 7])(
+  "a replacement %i microtasks after the final settings read cannot be consumed as old authority",
+  async (depth) => {
+    const h = start();
+    const pending = await h.request();
+    await h.choose();
+    expect(await h.choose("sso")).toEqual({ ok: true });
+    const answer = await pending.result;
+    if (!answer.ok) throw new Error(answer.reason);
+    let validated = false;
+    let armed = false;
+    // Whether the old offer was still there, not yet consumed, when it was replaced.
+    let replacedLive = false;
+    let replacement: ReturnType<typeof h.request> | undefined;
+    h.source.validate.mockImplementation(async () => {
+      validated = true;
+      return { ok: true, data: { sourceEvidence: evidence, policyRevision: 7, candidates: [] } };
+    });
+    h.readSettings.mockImplementation(async () => {
+      if (validated && !armed) {
+        armed = true;
+        let queued = () => {
+          replacedLive = h.controller.cancel(7, pending.offerId).ok;
           replacement = h.request();
-        }),
-      );
-    return true;
-  });
-  expect((await h.controller.consume(id)).ok).toBe(false);
-  expect(replacement).toBeDefined();
-  const fresh = await replacement!;
-  expect((await h.offer()).id).toBe(fresh.offerId);
-});
+        };
+        for (let step = 0; step < depth; step += 1) {
+          const next = queued;
+          queued = () => queueMicrotask(next);
+        }
+        queueMicrotask(queued);
+      }
+      return structuredClone(h.saved);
+    });
+    const consumed = await h.controller.consume(answer.choiceId);
+    if (replacedLive) expect(consumed.ok).toBe(false);
+    if (replacement) await replacement;
+  },
+);
 
 it("saving the missing mapping clears its obsolete mapping-required explanation", async () => {
   const h = start();
-  await h.request({ automatic: true });
+  await h.request({ automatic: true, native: { passkey: false, password: true } });
   expect((await h.offer()).reason).toBe("mapping-required");
   expect(await h.choose()).toEqual({ ok: true });
   expect((await h.offer()).reason).toBeUndefined();

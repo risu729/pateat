@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { ssoPopupMessage } from "./sso-popup";
+import { ssoPopupMessage } from "./sso-choices";
 import { authorizeConfirmation } from "./confirm-fill";
 import { cancelConfirm, confirmBusy, forgetConfirmTab } from "./confirm-state";
 import {
