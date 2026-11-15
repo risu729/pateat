@@ -69,17 +69,41 @@ function shadowLetters(root: ShadowRoot): number {
   }
   return count;
 }
+/** Counter styles drawn without letters; any other style, as lower-alpha, may show them. */
+const plainCounters = new Set([
+  "decimal",
+  "decimal-leading-zero",
+  "disc",
+  "circle",
+  "square",
+  "none",
+  "disclosure-open",
+  "disclosure-closed",
+]);
+const quotedStrings = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/gu;
+const quotedLetters = (text: string) => {
+  let count = 0;
+  for (const [, double, single] of text.matchAll(quotedStrings))
+    count += letters(double ?? single ?? "");
+  return count;
+};
 /**
  * Letters generated content shows: its quoted strings, which include an attr() the
- * browser has already read into one. A url(), counter() or quote mark shows none, so an
- * icon or a `<q>` reads as nothing.
+ * browser has already read into one, the quotation marks `quotes` sets when it draws
+ * them, and a counter in a style that may draw letters. A url(), a numbered counter or
+ * the usual quotation marks show none, so an icon or a `<q>` reads as nothing.
  */
-function generatedLetters(content: string): number {
+function generatedLetters(content: string, quotes = "auto"): number {
   if (content === "none" || content === "normal") return 0;
   const shown = content.replace(/url\((?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^)]*)\)/gu, "");
-  let count = 0;
-  for (const [, double, single] of shown.matchAll(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/gu))
-    count += letters(double ?? single ?? "");
+  let count = quotedLetters(shown);
+  if (/(?:^|[\s(])(?:open|close)-quote\b/u.test(shown.replace(quotedStrings, "")))
+    count += quotedLetters(quotes);
+  for (const [, args] of shown.replace(quotedStrings, '""').matchAll(/counters?\(([^)]*)\)/gu)) {
+    const parts = args!.split(",").map((part) => part.trim());
+    const style = parts.length > 1 && !/^["']/u.test(parts.at(-1)!) ? parts.at(-1)! : "decimal";
+    if (!plainCounters.has(style.toLowerCase())) count += 1;
+  }
   return count;
 }
 /** Whether an element's generated content is drawn: shown, or boxless inside shown. */
@@ -98,7 +122,7 @@ function pseudoLetters(element: Element, view: Window | null): number {
   let count = 0;
   for (const pseudo of ["::before", "::after"]) {
     const style = view.getComputedStyle(element, pseudo);
-    if (style.display !== "none") count += generatedLetters(style.content);
+    if (style.display !== "none") count += generatedLetters(style.content, style.quotes);
   }
   const style = view.getComputedStyle(element);
   if (style.display.includes("list-item")) {
@@ -124,11 +148,20 @@ function showsTextElsewhere(document: Document, pressed: Element): boolean {
     if (pseudoLetters(element, view)) return true;
     if (!(element instanceof HTMLElement) || !visible(element)) continue;
     if (element.matches("iframe,frame,object,embed")) return true;
-    // An image that did not load shows its alternative text instead.
+    // An image that failed to load shows its alternative text instead; one still loading
+    // does not, and the check before the press reads the page again. An image button's
+    // load cannot be read, so its alternative text counts unless it is the press itself.
     if (
       element instanceof HTMLImageElement &&
       letters(element.alt) &&
-      (!element.complete || element.naturalWidth === 0)
+      element.complete &&
+      element.naturalWidth === 0
+    )
+      return true;
+    if (
+      element !== pressed &&
+      element.matches("input[type=image]") &&
+      letters(element.getAttribute("alt") ?? "")
     )
       return true;
     const root = shadowRootOf(element);

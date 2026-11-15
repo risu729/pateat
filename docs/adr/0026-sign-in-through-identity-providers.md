@@ -412,10 +412,14 @@ shows every option, so its options count. Any more text makes it no finite step,
 whatever it says and wherever it is: another heading, or a link or an element that acts
 as a button with any other label. Text the page shows outside its own text cannot be
 counted, so it stops a confirmation outright: generated content or a list marker whose
-quoted strings have letters, also on an element with no box of its own, a shadow root
-with letters, a visible frame, an image shown as its alternative text, or an input
-button with any other label. Only quoted strings count in generated content, so an
-icon drawn with url(), a counter or a quotation's marks do not.
+quoted strings have letters, also on an element with no box of its own, quotation marks
+set with letters, a counter in a lettered style such as lower-alpha or upper-roman, a
+shadow root with letters, a visible frame, an image that failed and shows its
+alternative text, an image button with alternative text, or an input button with any
+other label. Only quoted strings count in generated content, so an icon drawn with
+url(), a numbered counter or the usual quotation marks do not. An image still loading
+shows nothing yet; the page is read again just before the press, which catches one that
+fails by then.
 
 The allowance is 16 letters. It is room for the short lines real confirmations show,
 such as "Not you?" or a copyright line, not a reading of them, so a phrase as short as

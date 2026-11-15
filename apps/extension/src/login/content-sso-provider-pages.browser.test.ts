@@ -324,8 +324,20 @@ describe("confirmation text the page shows outside its own words", () => {
       `<ul style='list-style-type:"Example App gets your email address and contacts"'><li></li></ul>`,
     ],
     [
-      "an image that did not load",
-      `<img src="data:image/png;base64,AAAA" alt="Example App gets your email address and contacts">`,
+      "an image button",
+      `<input type=image src="data:image/png;base64,AAAA" alt="Example App gets your email address and contacts">`,
+    ],
+    [
+      "quotation marks",
+      `<style>q{quotes:"Example App gets your email" "address and contacts"}</style><p><q>${username}</q></p>`,
+    ],
+    [
+      "a lettered counter",
+      `<style>#mark::before{counter-increment:step;content:counter(step, lower-alpha) ". "}</style><span id=mark></span>`,
+    ],
+    [
+      "a Roman counter",
+      `<style>#mark::before{counter-increment:step;content:counters(step, ".", upper-roman)}</style><span id=mark></span>`,
     ],
     [
       "generated content reading an attribute",
@@ -334,6 +346,30 @@ describe("confirmation text the page shows outside its own words", () => {
   ])("stops on a confirmation that shows text as %s", (_name, extra) => {
     confirm(extra);
     refused();
+  });
+  it("stops on a confirmation whose image failed and shows its alternative text", async () => {
+    confirm(
+      `<img id=logo src="data:image/png;base64,AAAA" alt="Example App gets your email address and contacts">`,
+    );
+    // Once the image has failed, as the check before the press would see it.
+    await document
+      .querySelector<HTMLImageElement>("#logo")!
+      .decode()
+      .catch(() => undefined);
+    refused();
+  });
+  it("keeps a confirmation whose logo is still loading", () => {
+    // A lazy image far below the page has not started to load: it is not complete and
+    // shows no alternative text yet, as a tenant logo still on its way does.
+    confirm(
+      `<div style="height:20000px"></div><img id=logo loading=lazy src="/still-loading-logo.png" alt="Example tenant logo">`,
+    );
+    const logo = document.querySelector<HTMLImageElement>("#logo")!;
+    expect([logo.complete, logo.naturalWidth]).toEqual([false, 0]);
+    expect(readSsoIdp(document, username)).toEqual({
+      kind: "continue",
+      target: { by: "id", value: "entry" },
+    });
   });
   it("stops on a confirmation that shows text in a shadow root", () => {
     confirm("<synthetic-note></synthetic-note>");
