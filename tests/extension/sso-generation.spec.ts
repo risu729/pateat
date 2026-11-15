@@ -26,7 +26,7 @@ type Prompt = {
     candidates: { id: string; target: { by: string; value: string } }[];
   };
 };
-async function generatedSso(markerReturn: boolean, missingMarker = false) {
+async function generatedSso(markerReturn: boolean) {
   test.setTimeout(60_000);
   const prompts: Prompt[] = [];
   const service = await startSyncService({
@@ -222,11 +222,14 @@ async function generatedSso(markerReturn: boolean, missingMarker = false) {
             ),
           ).toBe(true);
         }
-        if (missingMarker) showMarker = false;
-        const again = await browser.context.newPage();
-        await again.goto(origins.rp + "/login");
-        if (missingMarker) {
-          await expect(again.locator("#returned")).toBeVisible({ timeout: 15_000 });
+        // The cached signed-in verdict alone completes nothing: a fresh RP document that
+        // lacks the learned marker stops, and the page is not judged again.
+        let logins = 1;
+        if (markerReturn) {
+          showMarker = false;
+          const missing = await browser.context.newPage();
+          await missing.goto(origins.rp + "/login");
+          await expect(missing.locator("#returned")).toBeVisible({ timeout: 15_000 });
           await expect
             .poll(
               async () =>
@@ -245,10 +248,14 @@ async function generatedSso(markerReturn: boolean, missingMarker = false) {
             ) ?? false,
           ).toBe(false);
           expect(evidence).toMatchObject({ entries: 2, posts: 2, matched: true, returns: 2 });
-          expect(prompts.filter((prompt) => prompt.task === "sso")).toHaveLength(1);
-          await unchangedIdpDefault(options);
-          return;
+          expect(prompts).toHaveLength(2);
+          await missing.close();
+          showMarker = true;
+          logins = 2;
         }
+        // A fresh RP document that shows the learned marker completes from the cache.
+        const again = await browser.context.newPage();
+        await again.goto(origins.rp + "/login");
         try {
           await expect(again.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
         } catch (error) {
@@ -263,8 +270,13 @@ async function generatedSso(markerReturn: boolean, missingMarker = false) {
             { cause: error },
           );
         }
-        await expect.poll(() => evidence.posts).toBe(2);
-        expect(evidence).toMatchObject({ entries: 2, posts: 2, matched: true, returns: 2 });
+        await expect.poll(() => evidence.posts).toBe(logins + 1);
+        expect(evidence).toMatchObject({
+          entries: logins + 1,
+          posts: logins + 1,
+          matched: true,
+          returns: logins + 1,
+        });
         expect(prompts).toHaveLength(markerReturn ? 2 : 1);
         await unchangedIdpDefault(options);
       },
@@ -277,8 +289,5 @@ async function generatedSso(markerReturn: boolean, missingMarker = false) {
 
 test("synthetic service generation stores scoped SSO entries and the packaged coordinator reuses the cache", async () =>
   generatedSso(false));
-test("the SSO return judge learns a D1 marker and cached completion still requires that marker on the fresh RP document", async () =>
+test("the SSO return judge learns a D1 marker that cached completion requires on each fresh RP document", async () =>
   generatedSso(true));
-
-test("a cached signed-in SSO verdict grants no completion when the fresh RP document lacks its learned marker", async () =>
-  generatedSso(true, true));
