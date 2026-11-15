@@ -417,10 +417,11 @@ An ended flow leaves an interrupted hold only when it may have spent its entry: 
 intent was made durable or pressed, or the tab had already reached the IdP. A flow that
 stopped before that, as when preparing its entry failed, leaves none. After a worker
 restart every flow the journal still names becomes a hold, since what it did last is
-unknown. A hold waits only for automatic logins on the flow's RP
-and IdP origins in that tab; other origins and frames are not held. It ends when the
-tab's top document goes to another origin, when the person starts a login there, when
-the tab closes or is replaced, or ten minutes after it was made. The session journal
+unknown; a flow that was still running is held from the restart, not from when it was
+written. A hold waits only for automatic logins on the flow's RP and IdP origins in that
+tab; other origins and frames are not held. It ends when the tab's top document goes to
+another origin, when the person starts a login there, when the tab closes or is
+replaced, or ten minutes after it was made. The session journal
 keeps at most 100 records: a fuller journal on restart keeps its newest records, and a
 write drops the oldest holds instead of failing.
 

@@ -111,7 +111,7 @@ describe("memory-only SSO execution authority", () => {
     state.flows.set(7, work());
     await state.write();
     expect(io.setItem).toHaveBeenCalledWith(key, [
-      { ...journal(), operationId: "operation", at: expect.any(Number) },
+      { ...journal(), operationId: "operation", at: expect.any(Number), active: true },
     ]);
     const serialized = JSON.stringify(io.setItem.mock.calls);
     expect(serialized).not.toMatch(
@@ -142,6 +142,35 @@ describe("memory-only SSO execution authority", () => {
       operationId: "operation",
       at: expect.any(Number),
     });
+  });
+  it("holds a flow that was running when the worker stopped from the restart", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      const state = createSsoState();
+      await state.loaded;
+      state.flows.set(7, work());
+      await state.write();
+      const old = { ...journal(), document: { ...document, tabId: 8 }, at: 1_000_000 };
+      io.getItem.mockResolvedValue([old, ...structuredClone(io.setItem.mock.calls[0]![1])]);
+      now.mockReturnValue(1_000_000 + 9 * 60_000);
+      const restarted = createSsoState();
+      await restarted.loaded;
+      expect(restarted.interrupted.get(7)).toEqual({
+        ...journal(),
+        operationId: "operation",
+        at: 1_000_000 + 9 * 60_000,
+      });
+      expect(restarted.interrupted.get(8)).toEqual(old);
+      // Once loaded, the hold keeps its start through any later restart.
+      await restarted.write();
+      io.getItem.mockResolvedValue(structuredClone(io.setItem.mock.calls[1]![1]));
+      now.mockReturnValue(1_000_000 + 15 * 60_000);
+      const again = createSsoState();
+      await again.loaded;
+      expect(again.interrupted.get(7)?.at).toBe(1_000_000 + 9 * 60_000);
+    } finally {
+      now.mockRestore();
+    }
   });
   it("marks a storage read failure unhealthy without restoring authority", async () => {
     io.getItem.mockRejectedValue(new Error("session unavailable"));

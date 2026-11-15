@@ -24,8 +24,10 @@ const journalSchema = v.strictObject({
   sourceEvidence: v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{43}$/u)),
   phase: v.picklist(["prepared", "entering-idp", "at-idp", "returning-rp"]),
   operationId: v.optional(id),
-  /** When the record was written: an interrupted hold ends `SSO_INTERRUPTED_HOLD_MS` later. */
+  /** When the hold began: an interrupted hold ends `SSO_INTERRUPTED_HOLD_MS` later. */
   at: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
+  /** The flow was still running when written: its hold begins when the journal is loaded. */
+  active: v.optional(v.literal(true)),
 });
 export type SsoJournalRecord = v.InferOutput<typeof journalSchema>;
 /** The most journal records kept; the oldest interrupted holds give way first. */
@@ -105,10 +107,14 @@ export function createSsoState() {
         healthy = false;
         return;
       }
-      // An overfull journal keeps its newest records instead of disabling SSO.
+      // An overfull journal keeps its newest records instead of disabling SSO. A flow that
+      // was running when the worker stopped is held from the restart, not from its write.
       const now = Date.now();
-      for (const record of parsed.output.slice(-MAX_SSO_JOURNAL))
-        interrupted.set(record.document.tabId, { ...record, at: record.at ?? now });
+      for (const { active, ...record } of parsed.output.slice(-MAX_SSO_JOURNAL))
+        interrupted.set(record.document.tabId, {
+          ...record,
+          at: active ? now : (record.at ?? now),
+        });
       return;
     },
     () => {
@@ -132,6 +138,7 @@ export function createSsoState() {
           sourceEvidence: work.source.sourceEvidence,
           phase: work.phase,
           ...(work.operation ? { operationId: work.operation.id } : {}),
+          active: true as const,
         }));
       // Insertion order is age order: the oldest holds are pruned to keep the journal bounded.
       for (const tabId of interrupted.keys()) {
