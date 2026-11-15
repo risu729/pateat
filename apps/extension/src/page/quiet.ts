@@ -7,7 +7,7 @@ import { shadowRoots } from "./shadow";
  * What the login page watch observes, in the document and in each shadow tree: every
  * node, text and attribute change. Any attribute can change a target's name, as
  * `aria-label` or a label's `for` do, or, through the page's CSS selectors, whether it
- * shows; the watch's checks keep their throttle (`checkGapMs` in `login/content.ts`).
+ * shows; the watch's checks keep their throttle (`checkGapMs` in `login/content-dom.ts`).
  */
 export const pageWatch: MutationObserverInit = {
   subtree: true,
