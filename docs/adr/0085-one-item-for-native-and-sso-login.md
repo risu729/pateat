@@ -5,7 +5,9 @@ Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 [#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not
 implemented as a complete route. Amended on 2026-11-12 by the local discovery
 [amendment](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
-execution remains unimplemented. Also amended by the
+the
+[local mapping and method choice](#amendment-2026-11-12-local-mapping-and-method-choice)
+adds the popup boundary; execution remains unimplemented. Also amended by the
 [label-only generation implementation](#amendment-2026-11-12-label-only-declarative-route-generation).
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
@@ -272,10 +274,12 @@ unchanged.
   that the chosen origin is in that item's own concrete URIs, then checks policy and
   snapshot continuity. Discovery checks every connection it considered again at the end,
   including vaults that gave no candidate, so a sync that adds a matching item is not
-  missed. A candidate URI is no credential-release grant. Unknown mappings
-  still need the future local chooser; a label alone never selects an IdP account.
-  This foundation validates one method at a time. The dependent mapping layer must
-  refuse when two enabled methods resolve to the same IdP account, before any click.
+  missed. A candidate URI is no credential-release grant. Unknown mappings still need
+  the local chooser of the
+  [local mapping amendment](#amendment-2026-11-12-local-mapping-and-method-choice); a
+  label alone never selects an IdP account. This foundation validates one method at a
+  time; the mapping layer refuses when two enabled methods resolve to the same IdP
+  account, before any click.
 - A partly unreadable custom field can hide even the preferred method's name. Discovery
   conservatively refuses such a source rather than treating it as having no SSO. Errors
   contain fixed reason codes and the canonical field name, `SSO` or `SSO <n>`, never the
@@ -297,9 +301,9 @@ The request accepts a label only as local discovery reads it, so no value refuse
 reaches the service. The generation request has no fields for an IdP account, username,
 origin, comparison proof or mapping. The label is the permitted exception; a native
 route never receives an SSO custom field as a fill slot. Nothing calls this mode yet:
-automatic route selection remains unchanged until the mapping chooser and same-tab
-coordinator integrate this foundation. No live vault format has been migrated and no
-real-account compatibility has been established.
+automatic route selection remains unchanged until the same-tab coordinator integrates
+this foundation with the mapping chooser below. No live vault format has been migrated
+and no real-account compatibility has been established.
 
 An entry recipe ([ADR 0031](0031-sign-in-entry-pages.md)) holds no SSO entries: an
 SSO request on its path is refused as a recipe conflict before any call. The entry
@@ -307,3 +311,79 @@ recipe is a document of its own with no layouts, so SSO entries beside it would 
 their own layout removal, retention, provenance and entry rewrite rules. Neither the
 entry nor the SSO entries run yet, and whether a site's SSO buttons are found on its
 entry page or on the login page the entry opens is for the coordinator to decide.
+
+## Amendment 2026-11-12: local mapping and method choice
+
+Implementation details chosen by an agent within the accepted decision. The extension
+has a local chooser controller, strict popup messages and a popup section for one
+already chosen site account. This is a seam for the same-tab coordinator, not an enabled
+SSO login: nothing calls it yet, so existing account cards and native admission keep
+their behavior. A coordinator requests a choice, awaits an opaque, one-use choice ID,
+then consumes it with fresh validation just before its own document-scoped operation.
+
+- **Where mappings live.** A mapping is a trusted-only record on the device, not a
+  synced setting. ADR 0013 makes the service the source of truth for settings, but point
+  4 of
+  [From a label to an IdP account and origin](#from-a-label-to-an-idp-account-and-origin)
+  keeps the mapping local, as [#1380](https://github.com/risu729/pateat/issues/1380)
+  proposed and the owner accepted ("Keep the provider username, credential values and
+  private account mapping local"). A reinstall or another device therefore chooses each
+  mapping again; syncing them needs the owner's decision first.
+- **What a mapping holds.** The site account and method number, the encrypted-source
+  evidence, and the selected IdP account with its concrete origin. Both accounts are
+  named by provider, server, user and item ID, as synced settings name accounts
+  ([ADR 0023](0023-synced-vault-policy.md)), never by a per-device connection ID, so a
+  reconnected connection resolves the same mapping through whichever open connection
+  holds the item; item IDs compare without letter case. A mapping holds no username,
+  comparison proof, field ID, decrypted label or vault snapshot. A vault sync that
+  brings a new snapshot keeps it: a changed source item changes its evidence, and reuse
+  always validates the IdP item again. Validation is never a stored credential-release
+  grant.
+- **The record.** `pateat.login.sso-mappings.v1` holds `{version: 1, entries}` with at
+  most 1,000 entries, one per site account and method. A record or an entry that does
+  not parse counts as none, as no older format is kept, and the next save overwrites
+  it. A full store refuses `mapping-limit`. Its entries already name accounts as synced
+  settings do, so syncing them later needs the owner's decision but no new identity.
+- **Pruning.** A save, and a vault notice after which the catalog's accounts changed,
+  drop the mappings whose site or IdP account the catalog shows is gone: its provider
+  account has no connection, or every open connection to it lacks the item. A locked
+  connection, or one whose user is unknown, never shows anything gone.
+- **Choosing a mapping.** A saved mapping is validated directly, without discovery, so
+  another item that refuses discovery cannot hold it back; the person can still ask to
+  list other accounts. A method without one lists the person's saved IdP accounts and
+  origins, and needs an explicit choice; the popup also replaces or removes one. The
+  site's own account or origin is never its own IdP, and an account the catalog cannot
+  identify refuses `vault-unavailable`.
+- **Choosing a method.** Automatic selection takes a passkey, then the enabled `SSO`
+  method, then, only for an item without an enabled `SSO` method, the `password` route.
+  A malformed, unmapped or unresolved preferred method never falls back: the choice
+  stays open with its reason, or stops. An SSO route validates its own method again and
+  refuses when another mapped method names the same IdP account, even through two
+  connections to one provider account. A native route needs no SSO method to be mapped
+  or valid, so an explicit passkey or password stays available beside an unresolved
+  one; only a site item whose SSO fields cannot be read or parsed blocks every route. A
+  numbered method or an
+  explicit native choice applies only to this sign-in and saves no site or IdP default.
+  During an IdP hop only that account's native routes are offered.
+- **A refused passkey.** [ADR 0034](0034-answer-page-passkey-requests.md) rule 6 goes
+  back to the password when the site refuses a passkey. For an item with an enabled
+  `SSO` method, this ADR's order puts that method before the password, so the
+  coordinator requests a new automatic choice without the passkey route: it lands on
+  the validated preferred SSO method, or stops with that method's reason. Only an item
+  without an enabled `SSO` method goes back to the password as rule 6 says.
+- **The URL form.** It has no label. The coordinator supplies the entries it observed on
+  the page by opaque ID with a freshness check: at most 100, each with a unique ID and a
+  label of at most 200 characters, or the request refuses `entry-invalid`. The popup
+  chooses one with its displayed label; a bracket method takes no entry. The exact
+  target stays with the coordinator, and the entry is checked again when chosen and
+  when consumed.
+- **Offers and receipts.** They hold no credentials and stay in worker memory for at
+  most ten minutes. Cancelling, a settings change, closing the tab, a vault notice after
+  which the offer's accounts no longer match the catalog, and a new document or path in
+  the offer's own frame or the top frame withdraw them. Paths are compared as observed,
+  so a new query or fragment and a vault status read that changes nothing keep an
+  offer. A request that fails while preparing ends with `unavailable`, and the popup
+  sees an offer only after its automatic decision. A worker restart discards them.
+
+This layer performs no click, navigation, credential release, service request or
+real-account operation. SSO execution and real-site compatibility remain open.

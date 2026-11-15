@@ -3452,9 +3452,9 @@ generation request sends only selected account/method labels and a value-free pa
 description; no IdP origin, account, username or mapping is sent. New labels join the
 newest SSO layout, each family is repaired once a UTC day apart, and the retry window
 follows the stored SSO entries rather than the requested labels or the recipe's
-revision. The
-method chooser, local mapping, same-tab coordinator and IdP behavior still must
-integrate those contracts before any SSO entry executes.
+revision. The method chooser and local mappings exist
+([local SSO choice](#local-sso-choice-boundary)); the same-tab coordinator and IdP
+behavior still must integrate those contracts before any SSO entry executes.
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
@@ -4609,3 +4609,29 @@ evaluation fields once the page reports its first step shown. The popup says whe
 the fill changed a field. Existing page-kind evaluation fields and
 person-submitted tracking remain. A fill acknowledgement is not authentication,
 submission or success of the action guarded by the verification page.
+
+## Local SSO choice boundary
+
+The local SSO discovery wrapper, mapping store and method-choice controller implement
+the metadata and popup boundary of
+[ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-mapping-and-method-choice).
+They do not yet start an SSO login, and nothing calls them yet. The account is chosen
+first. A coordinator requests a method choice for that account and consumes a one-use
+opaque receipt that is validated again; it still owns same-tab navigation, exact
+document and origin checks and credential release.
+
+The trusted device-local mapping record (`pateat.login.sso-mappings.v1`, never synced,
+as ADR 0085 keeps the mapping local) is `{version: 1, entries}`, at most 1,000 entries.
+Each names its site and IdP accounts by provider, server, user and item ID, as synced
+settings do, with the method number, encrypted-source evidence and selected origin, so a
+vault sync or a reconnected connection keeps it. A record or an entry that does not
+parse counts as none and is overwritten. A save and a vault notice whose accounts
+changed drop the mappings of accounts the catalog shows are gone. A saved mapping is
+validated directly; discovery runs only for an unmapped method or when the person asks.
+Popup choices are memory-only, bounded to ten minutes and withdrawn on cancellation, a
+settings change, a catalog change behind the offer's accounts, and a new document or
+path in the offer's own frame or the top frame. An SSO route validates its own method
+and refuses another mapped method on the same IdP account, even through different
+connections; a native route needs no SSO method. A URL-form choice names one of at most
+100 observed entries by opaque ID and checks it again locally; no mapping or exact
+target goes to inference. Native credential origin checks are unchanged.

@@ -31,10 +31,8 @@ import {
   MessageCircleQuestionMark,
   Settings2,
   Smartphone,
-  Star,
   TextCursorInput,
   TriangleAlert,
-  UserRound,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../options/button";
@@ -60,6 +58,8 @@ import { PopupManualLogin, type ManualClient } from "./manual-login";
 import { hostnameOf, PageStatusSection } from "./page-status";
 import { PopupPagePermissions } from "./page-permissions";
 import { PopupBindingReview, type BindingReviewClient } from "./binding-review";
+import { PopupSsoChoice, type SsoClient } from "./sso-choice";
+import { CardBody, type AccountCard } from "./account-card";
 import {
   PAUSE_CHOICES,
   PauseControl,
@@ -203,16 +203,6 @@ function RepromptSwitch({
 
 const NOTICE_ICON = { progress: LoaderCircle, success: CircleCheck, error: CircleX } as const;
 
-/** One account as a card: the username as the title, the item and its vault below. */
-type AccountCard = {
-  value: string;
-  title: string;
-  sub: string;
-  isDefault: boolean;
-  /** The account of the tab's last login on the site (ADR 0063). */
-  isUsed?: boolean;
-};
-
 type AccountOption = ReturnType<typeof siteAccountOptions>[number];
 type MatchedAccounts = Extract<SiteAccountsResponse, { ok: true }>["accounts"] | undefined;
 
@@ -260,33 +250,6 @@ function accountCards(
           sub: t("{{item}}, ID {{id}}", { item: card.sub, id: option.itemId.slice(0, 8) }),
         }
       : card,
-  );
-}
-
-function DefaultBadge() {
-  const { t } = useTranslation(undefined, { i18n });
-  return (
-    <span className="popup-badge">
-      <Star size={12} strokeWidth={2} aria-hidden="true" />
-      {t("Default")}
-    </span>
-  );
-}
-
-function CardBody({ card }: { card: Omit<AccountCard, "value"> }) {
-  const { t } = useTranslation(undefined, { i18n });
-  return (
-    <>
-      <span className="popup-avatar">
-        <UserRound size={16} strokeWidth={2} aria-hidden="true" />
-      </span>
-      <span className="popup-choice-main">
-        <span className="popup-choice-title">{card.title}</span>
-        <span className="popup-choice-sub">{card.sub}</span>
-      </span>
-      {card.isUsed && <span className="popup-badge">{t("Used in this tab")}</span>}
-      {card.isDefault && <DefaultBadge />}
-    </>
   );
 }
 
@@ -558,6 +521,7 @@ export function SiteApp({
   manual,
   details,
   bindingReviews,
+  sso,
   host,
   listingWaitMs = SITE_ACCOUNTS_WAIT_MS,
 }: {
@@ -566,6 +530,7 @@ export function SiteApp({
   manual?: ManualClient;
   details: DetailClient;
   bindingReviews?: BindingReviewClient;
+  sso?: SsoClient;
   host: PopupHost;
   listingWaitMs?: number;
 }) {
@@ -1717,6 +1682,7 @@ export function SiteApp({
         onReprompt={() => void askAgain()}
       />
       {body}
+      <PopupSsoChoice client={sso} tabId={tabId} origin={origin} />
       <PopupBindingReview client={bindingReviews} tabId={tabId} origin={origin} host={host} />
     </main>
   );
