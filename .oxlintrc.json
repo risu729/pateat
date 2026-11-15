@@ -32,17 +32,11 @@
       // Files already over max-lines. Remove a file from this list once it is split under
       // the limit; never add one.
       "files": [
-        "apps/extension/src/crypto/host.test.ts",
         "apps/extension/src/login/content.ts",
         "apps/extension/src/popup/site-app.tsx",
-        "apps/extension/src/service/generation.test.ts",
-        "apps/extension/src/vault/manager.test.ts",
         "apps/extension/src/vault/manager.ts",
         "packages/contracts/src/login-attempt.ts",
-        "packages/contracts/src/login.ts",
-        "services/api/test/generation.test.ts",
-        "tests/extension/passkeys.spec.ts",
-        "tests/options/popup.test.tsx"
+        "packages/contracts/src/login.ts"
       ],
       "rules": { "max-lines": "off" }
     }

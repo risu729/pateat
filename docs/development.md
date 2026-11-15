@@ -650,6 +650,28 @@ follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
 
+### API generation test organization
+
+`services/api/test/generation.test.ts` remains the sole discovered entry for the
+service's generation suite. It owns the synthetic pages and helpers, the token and
+Messages API interception, the root hooks and all sixteen describe scopes. Plain
+`*-cases.ts` modules in `services/api/test/generation/` export synchronous
+registration functions for contiguous case groups, which the entry calls inside those
+scopes in the original order; importing a module registers no cases. The entry
+exports the types of its helper sets, `GenerationFixtures`, `RecipeChoiceFixtures` and
+`PageJudgementFixtures`, taken with `typeof` from the helpers themselves; `context.ts`
+names them as the registrars' contexts with `import type` and holds the shared data
+types, and each registrar takes the helpers it uses as a `Pick<>` of them. The entry
+keeps owning the interception's mutable replies, hooks, delays, token status and sent
+requests; the registrars read and write them through the getters and setters of its
+`state` object, so a case that replaces one replaces it for the interceptor too. The
+modules lack the `.test.ts` suffix and sit outside `src/`, so they are neither
+discovered nor in the coverage include. Each file follows the 1,000-line limit.
+When changing this layout, compare the expanded test names and counts and run the
+local Worker tests. Vitest 5's `vitest list` parses files statically by default
+(`--staticParse`) and so lists no case a registrar adds; compare the output of
+`vitest list --staticParse=false` or of `vitest run --reporter=json` instead.
+
 ### Observation reader test organization
 
 `apps/extension/src/observation/extract.test.ts` remains the discovered Chromium
@@ -674,6 +696,20 @@ calls inside those scopes with the same fixture and helper references; importing
 module registers no cases. `runtime-context.ts` holds the fixture types. The modules
 sit outside `src/`, so they stay outside the production coverage root without an
 exclude. Each file follows the 1,000-line limit.
+
+### Popup site page test organization
+
+`tests/options/popup.test.tsx` remains the only discovered entry for the popup's site
+page suite. It owns the synthetic settings store, choice and detail clients, the
+`mount` and polling helpers, the page section helpers and root cleanup, and calls
+the synchronous registrars in `tests/options/popup/` at the original registration
+positions. The `*-cases.tsx` modules own contiguous opening, pause policy, settings,
+choice, page section, detail, locked vault and page behavior cases, without their own
+hooks or suites, so every test stays a root test of `popup.test.tsx`. The entry
+defines each helper before the registrar that takes it and exports its
+`PopupTestFixtures` type. `popup/context.ts` builds each registrar's context from it as
+a `Pick<>` with `import type`, and the modules import their context from there, so
+there is no runtime import cycle. Each file follows the 1,000-line limit.
 
 ### Connection settings test organization
 
@@ -715,6 +751,27 @@ test of `login.spec.ts` and its own round-robin shard unit. Each case starts and
 closes its own synthetic fixture and browser profile, and keeps its per-test timeout.
 Each file follows the 1,000-line limit. Compare the `--list` output for each shard
 when changing this layout.
+
+### Packaged passkey test organization
+
+`tests/extension/passkeys.spec.ts` remains the sole packaged passkey spec entry. It
+owns the virtual authenticator, relying-party page, request, assertion, probe-control
+and chooser helpers and the vault fixture constants, and calls the passive synchronous
+registrars in `tests/extension/passkey-cases/` at the original registration positions.
+These plain `*-cases.ts` leaves own the request and cancellation, chooser and timeout,
+provider wrapper and vault and production-build cases; they import the shared fixture
+modules, Node built-ins and Playwright's `chromium` directly, and take the test API and
+the spec's own helpers as a `Pick<>` of `context.ts`, which also holds the page's
+`Serialized` result and request `Spec` types. The spec exports its helper types, and
+`context.ts` imports them with `import type`, so there is no runtime import cycle.
+The registrars add no suites, hooks or fixture scopes, so every test stays a root test
+of `passkeys.spec.ts` and its own round-robin shard unit, keeps its per-test timeout
+and starts its own browser profile and relying party. The production-build case
+resolves the build directory from its own module, so its relative path climbs one
+directory more. Each file follows the 1,000-line limit. Compare the `--list` output
+for each shard when changing this layout. Test locations now point at
+`passkey-cases/*.ts`, so select a single test with `-g` and its title rather than
+`passkeys.spec.ts:<line>`; the login spec's `login-cases/` works the same way.
 
 ### Connection setup service test organization
 
@@ -863,10 +920,31 @@ production coverage root and are not discovered as test files. Each file follows
 vault manager harnesses, their constants and the list of what each test created.
 `apps/extension/src/crypto/host.test.ts` and `apps/extension/src/vault/manager.test.ts`
 import them, and so do the SSO suites beside them, `crypto/sso-host.test.ts` and
-`vault/sso.test.ts`, so new SSO cases do not grow those two files, which are still over
-the 1,000-line limit. Each discovered file disposes what its tests created after each
-test. The harnesses sit outside `src/`, so they stay outside the production coverage
-root and are not discovered as test files.
+`vault/sso.test.ts`, so new SSO cases do not grow those two files. Each discovered file
+disposes what its tests created after each test. The harnesses sit outside `src/`, so
+they stay outside the production coverage root and are not discovered as test files.
+
+`crypto/host.test.ts` remains the discovered entry for the crypto host suite. It owns
+the `auth`, `argon2idAuth` and `within` helpers, the root cleanup, its three describe
+scopes and the URI, digest, username and passkey fixtures inside them. Plain
+`*-cases.ts` modules in `apps/extension/test/crypto-host/` export synchronous
+registration functions for the authorization, request fencing, URI and session lane,
+custom-field digest, login username, passkey and cancellation case groups.
+
+`vault/manager.test.ts` remains the discovered entry for the vault manager suite. It
+owns the root cleanup, every describe scope including the per-operation
+`describe.each`, and the scope-local fixtures: the operation table and its
+`signingInput`, the invalid inputs, `compare`, `unlocked` and `passwordFailure`. Plain
+`*-cases.ts` modules in `apps/extension/test/vault-manager/` export synchronous
+registration functions for the live operation, acceptance, comparison, disable,
+removal, restore, identity, durable authority, host lifecycle and key retention case
+groups.
+
+Each entry calls its registrars inside those scopes in the original order with the
+same harness, helper and fixture references, including the shared `managers` cleanup
+list; importing a module registers no cases. Each directory's `context.ts` holds the
+shared types, derived from the harness where it can be, and each registrar takes the
+references it uses as a `Pick<>` of them. Each file follows the 1,000-line limit.
 
 ### Bitwarden account test organization
 
@@ -1027,6 +1105,22 @@ exports they use directly. The entry exports its `TransportTestFixtures` type, a
 `context.ts` builds the module contexts from it with `import type`, so there is no
 runtime import cycle. The modules sit outside `src/`, so they stay outside the coverage
 root and are not discovered as test files. Each file follows the 1,000-line limit.
+
+### Service generation test organization
+
+`apps/extension/src/service/generation.test.ts` remains the discovered entry for the
+extension's generation service suite. It owns the synthetic connection, pages, recipe
+changes and `setup` harness, all nine describe scopes and the fixtures and setup
+helpers local to them. Plain `*-cases.ts` modules in
+`apps/extension/test/service/generation/` export synchronous registration functions
+for the request, timing, handler, continuation, repair, continuation claim, slot map,
+page sample and repair claim case groups, which the entry calls inside those scopes in
+the original order with the same fixture and helper references; importing a module
+registers no cases. The entry exports its `GenerationTestFixtures` type, and
+`context.ts` adds the scope-local fixture types to it with `import type`, so there is
+no runtime import cycle; each registrar takes the references it uses as a `Pick<>` of
+that context. The modules sit outside `src/`, so they stay outside the coverage root
+and are not discovered as test files. Each file follows the 1,000-line limit.
 
 ### Login wire contracts
 
