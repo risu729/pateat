@@ -491,9 +491,11 @@ describe("IdP accounts that sign in through an IdP themselves", () => {
     fields: ReturnType<typeof field>[],
     password: string,
     allowed: (index: number) => boolean = () => true,
+    prepare: (h: ReturnType<typeof fixture>) => void = () => {},
   ) {
     const proof = (await firstMethod(fixture())).usernameProof;
     const h = fixture(fields, { username: "person@example.test", password });
+    prepare(h);
     return findSsoCandidates(
       h.state,
       {
@@ -526,11 +528,44 @@ describe("IdP accounts that sign in through an IdP themselves", () => {
     expect(await target([field("SSO", "[Other] person@example.test")], "")).toEqual(nested);
     expect(await target([field("SSO 2", "[Other] someone")], "")).toEqual(nested);
   });
+  const ready = {
+    snapshotId,
+    candidates: [{ itemId, origins: ["https://idp.example.test"] }],
+  };
+  it("keeps a passkey-only IdP item whose own sign-in has a bracket method", async () => {
+    const google = [field("SSO", "[Google] me@example.test")];
+    // An ordinary cipher keeps its encrypted passkeys out of the decrypted view.
+    expect(
+      await target(google, "", undefined, (h) => {
+        h.state.ciphers.set(itemId, {
+          encrypted: "synthetic ciphertext",
+          login: { fido2Credentials: [{ credentialId: "synthetic" }] },
+        });
+      }),
+    ).toEqual(ready);
+    // A sealed cipher's decrypted view carries the passkey metadata.
+    expect(
+      await target(google, "", undefined, (h) => {
+        Object.assign(h.decrypted.login, { fido2Credentials: [{ credentialId: "synthetic" }] });
+      }),
+    ).toEqual(ready);
+    expect(
+      await target(google, "", undefined, (h) => {
+        h.state.ciphers.set(itemId, { login: { fido2Credentials: [] } });
+      }),
+    ).toEqual(nested);
+  });
+  it.each([
+    ["an empty Text", field("SSO", "", 0)],
+    ["a blank Hidden", field("SSO 2", "   ", 1)],
+    ["a Boolean", field("SSO", "true", 2)],
+    ["a Linked", { name: "SSO", value: null as unknown as string, type: 3 }],
+    ["a Boolean URL-like", field("SSO", "https://accounts.example.test", 2)],
+  ])("ignores %s field named SSO, with or without a password", async (_kind, stray) => {
+    expect(await target([stray], "set")).toEqual(ready);
+    expect(await target([stray], "")).toEqual(ready);
+  });
   it("keeps an IdP item with its own password, or whose bracket method is excluded", async () => {
-    const ready = {
-      snapshotId,
-      candidates: [{ itemId, origins: ["https://idp.example.test"] }],
-    };
     expect(await target([field("SSO", "[Other] person@example.test")], "set")).toEqual(ready);
     expect(await target([field("SSO", "[Other] person@example.test")], "", () => false)).toEqual(
       ready,

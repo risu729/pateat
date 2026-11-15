@@ -244,11 +244,14 @@ unchanged.
   rule, an unavailable default match and an unsupported mode are reported, never
   silently treated as no match: they refuse discovery, but validation of a chosen origin
   that is among the item's own concrete origins does not depend on them.
-- An IdP account never signs in through an IdP itself (ADR 0026): an item with an SSO
-  field not in the bracket form (enabled or not), or with an enabled one and an empty
-  password, is passed over in discovery and refused when chosen. So is an item with an
-  unreadable custom field, which could hide such a field. The site account is never its
-  own IdP account either.
+- An IdP account never signs in through an IdP itself (ADR 0026). Only a Text or Hidden
+  `SSO` field with a value counts, so an empty one or a Boolean or Linked field with
+  that name changes nothing. An item with such a field not in the bracket form (enabled
+  or not), or with an enabled one in the bracket form and neither a password nor a
+  passkey of its own, is passed over in discovery and refused when chosen. A matching
+  IdP item with an unreadable custom field, which could hide such a field, refuses
+  discovery and validation with `field-unreadable`. The site account is never its own
+  IdP account either.
 - Methods are read from decrypted items for one call, then discarded. No new decrypted
   field cache is added to ADR 0080. The source operation returns an opaque username
   comparison proof under the existing offscreen document's HMAC key, domain-separated

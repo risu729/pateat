@@ -212,6 +212,13 @@ export async function describeSsoMethods(
   return { ...base, result: { status: "ready", methods } };
 }
 
+/** Whether the stored cipher holds a passkey; reading the passkeys themselves is not needed. */
+function storesPasskey(cipher: unknown) {
+  const credentials = (cipher as { login?: { fido2Credentials?: unknown } } | null)?.login
+    ?.fido2Credentials;
+  return Array.isArray(credentials) && credentials.length > 0;
+}
+
 /** Eligibility is supplied by the trusted caller; the result is candidate evidence, not a release grant. */
 export async function findSsoCandidates(
   state: SsoWorkerState,
@@ -255,20 +262,26 @@ export async function findSsoCandidates(
     // oxlint-disable-next-line no-await-in-loop -- verify the complete value after the cache shortlist
     if ((await usernameProof(fullUsername, key)) !== input.usernameProof) continue;
     // An account that itself signs in through an IdP is never an IdP account (ADR 0026,
-    // ADR 0085): any SSO field not in the bracket form, or an enabled one with no password.
+    // ADR 0085). Only a Text or Hidden SSO field with a value counts, as in
+    // `signsInOnlyThroughProvider`: one in the URL form, enabled or not, or an enabled one
+    // in the bracket form on an item with neither a password nor a passkey of its own.
     // Hidden custom fields could hold such a field, so they leave the account unknown.
     if ([...(state.unreadableFields.get(itemId) ?? [])].some((id) => id.startsWith("custom."))) {
       candidates.push({ itemId, origins: [], unavailable: "field-unreadable" });
       continue;
     }
     const allowed = new Set(item.allowedFieldIds);
+    const ownCredential =
+      Boolean(decrypted.data.login?.password) ||
+      (decrypted.data.login?.fido2Credentials?.length ?? 0) > 0 ||
+      storesPasskey(cipher);
     const nested = (decrypted.data.fields ?? []).some((raw, index) => {
       const field = raw as Field;
-      if (!isSsoFieldName(field.name)) return false;
-      if (!field.value?.trim().startsWith("[")) return true;
-      return (
-        allowed.has(`custom.${state.ref.snapshotId}.${index}`) && !decrypted.data.login?.password
-      );
+      const value = field.value?.trim();
+      if (!isSsoFieldName(field.name) || (field.type !== 0 && field.type !== 1) || !value)
+        return false;
+      if (!value.startsWith("[")) return true;
+      return allowed.has(`custom.${state.ref.snapshotId}.${index}`) && !ownCredential;
     });
     if (nested) {
       candidates.push({ itemId, origins: [], unavailable: "signs-in-with-sso" });
