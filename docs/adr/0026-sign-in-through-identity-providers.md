@@ -375,7 +375,9 @@ document, leaves the passkey out, so it lands on the preferred SSO method or sto
 that method's reason; an item without a preferred SSO method still gets the password. A
 passkey the person picked in the popup for a manual sign-in, and an IdP's own native
 login during a hop, fall back as before: the manual request's grant has already been
-used, and the person chose that route over the SSO method.
+used, and the person chose that route over the SSO method. The
+[ADR 0085 review of 2026-11-16](0085-one-item-for-native-and-sso-login.md#review-hardening-2026-11-16-a-refused-passkey-the-person-picked)
+stops the person's own pick on an item with SSO methods instead.
 
 A vault notice cancels an active parent flow only when the settings revision or the
 vault catalog differs from the one the flow started with. A status read that changes

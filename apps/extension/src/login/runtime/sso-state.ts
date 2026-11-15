@@ -80,6 +80,10 @@ export type SsoNativeChoice = {
   route: "passkey" | "password";
   /** The chooser's own automatic decision, not a person's explicit pick for this sign-in. */
   automatic?: true;
+  /** The item offered an SSO method beside its native routes (ADR 0085). */
+  methods?: true;
+  /** The login this choice started: only its own refused passkey goes back to the chooser. */
+  attemptId?: string;
 };
 /** Authority is memory-only. Persisted intents become interrupted holds after restart. */
 export function createSsoState() {

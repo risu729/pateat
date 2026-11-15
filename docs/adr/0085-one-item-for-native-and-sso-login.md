@@ -404,8 +404,22 @@ generation. Malformed, unavailable or unresolved preferred methods never silentl
 a native password. Completion stores only the RP's confirmed account choice and proof. A
 passkey the automatic choice picked and the site refused ends that native login without
 the password, and the tab's next choice leaves the passkey out, as **A refused passkey**
-above says. A passkey the person picked explicitly keeps rule 6.
+above says. A passkey the person picked explicitly kept rule 6 until the
+[review of 2026-11-16](#review-hardening-2026-11-16-a-refused-passkey-the-person-picked).
 
 Synthetic packaged execution uses encrypted fixtures. The owning plan retains the
 installed-user-browser and real-account gates. Implementation does not migrate an
 account, create an account, or authorize a new grant.
+
+## Review hardening 2026-11-16: a refused passkey the person picked
+
+Chosen in review, not confirmed by the owner. On an item with SSO methods, a passkey
+the person picked for **Log in now** and the site refused no longer goes back to the
+password either: that native login stops without filling or clicking anything, and the
+popup's next method choice for that account leaves the passkey out, so the person
+chooses an SSO method or the password again. Nothing chooses a method by itself after
+the person's own pick. Only an item with no SSO method, and an IdP's own login during an
+SSO hop, keep [ADR 0034](0034-answer-page-passkey-requests.md) rule 6. Either way, only
+the login the native choice itself started counts: the choice names that login when it
+starts on the choice's own document, and a later login of the same account in the tab
+falls back as any native login does.

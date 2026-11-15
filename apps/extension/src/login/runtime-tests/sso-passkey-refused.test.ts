@@ -18,7 +18,7 @@ vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { createRuntimeState } = await import("../runtime/state");
 const { fallBack } = await import("../runtime/passkey");
-const { ssoAfterPasskey } = await import("../runtime/sso/passkey-refused");
+const { bindNativeChoice, ssoAfterPasskey } = await import("../runtime/sso/passkey-refused");
 const { createLoginBadge, memoryBadgeStorage } = await import("../badge");
 const rp = "https://rp.example.test";
 const itemId = "a0000000-0000-4000-8000-000000000001";
@@ -106,6 +106,8 @@ function harness() {
     chosen: { connectionId: account.connectionId, itemId, saved: true, source: "default" },
     route: "passkey",
     automatic: true,
+    methods: true,
+    attemptId: metadata.id,
   });
   return { rt, run, live, fields, report };
 }
@@ -153,8 +155,20 @@ describe("a passkey the site refused after the SSO method chooser picked it (ADR
       "another account's choice",
       (choice: Choice): Choice => ({ ...choice, account: { ...account, itemId: "other-item" } }),
     ],
-    // The person's own pick for a manual sign-in, within that request's one-page grant.
-    ["an explicit manual choice", ({ automatic: _automatic, ...choice }: Choice): Choice => choice],
+    // The person's own pick for "Log in now" on an item with no SSO method (ADR 0034 rule 6).
+    [
+      "an explicit manual choice on an item without SSO methods",
+      ({ automatic: _automatic, methods: _methods, ...choice }: Choice): Choice => choice,
+    ],
+    // A choice made for an earlier login, or one that started none, is not this login's.
+    [
+      "an earlier login's choice",
+      (choice: Choice): Choice => ({ ...choice, attemptId: "earlier" }),
+    ],
+    [
+      "a choice that started no login",
+      ({ attemptId: _attemptId, ...choice }: Choice): Choice => choice,
+    ],
   ] as const)("leaves the password fallback to a login after %s", async (_name, change) => {
     const h = harness();
     h.rt.sso.native.set(7, change(h.rt.sso.native.get(7)!));
@@ -173,5 +187,41 @@ describe("a passkey the site refused after the SSO method chooser picked it (ADR
     expect(await ssoAfterPasskey(h.rt, h.run)).toBe(false);
     expect(h.rt.attempts.get(7)).toBe(h.run);
     expect(h.rt.sso.passkeyRefused.size).toBe(0);
+  });
+  it.each(["answer-failed", "sign-in-rejected"] as const)(
+    "stops a passkey the person picked for Log in now on an item with SSO methods (%s)",
+    async (cause) => {
+      const h = harness();
+      const { automatic: _automatic, ...manual } = h.rt.sso.native.get(7)!;
+      h.rt.sso.native.set(7, manual);
+      await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+      await fallBack(h.rt, h.run, cause);
+      // No password: the login stops with the refused passkey, and the next choice the
+      // popup offers leaves the passkey out.
+      expect(h.run.metadata).toMatchObject({ route: "passkey", state: "blocked" });
+      expect(h.rt.attempts.get(7)).toBe(h.run);
+      expect(executed()).toEqual([]);
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(h.rt.sso.native.has(7)).toBe(false);
+      expect(h.rt.sso.passkeyRefused.get(7)).toEqual(account);
+      // Nothing chooses a method by itself after the person's own pick.
+      expect(fake.state.reconnects).toEqual([]);
+    },
+  );
+});
+
+describe("the login a native method choice started", () => {
+  const started = (id: string, item = itemId) =>
+    ({ id, account: { ...account, itemId: item } }) as Execution["metadata"];
+  it("names only the first login of the choice's own document and account", () => {
+    const h = harness();
+    const { attemptId: _attemptId, ...choice } = h.rt.sso.native.get(7)!;
+    h.rt.sso.native.set(7, choice);
+    bindNativeChoice(h.rt, { ...h.live.document, documentId: "other" }, started("a"));
+    bindNativeChoice(h.rt, h.live.document, started("b", "other-item"));
+    expect(h.rt.sso.native.get(7)!.attemptId).toBeUndefined();
+    bindNativeChoice(h.rt, h.live.document, started("c"));
+    bindNativeChoice(h.rt, h.live.document, started("d"));
+    expect(h.rt.sso.native.get(7)!.attemptId).toBe("c");
   });
 });

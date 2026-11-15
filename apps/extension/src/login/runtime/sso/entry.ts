@@ -191,6 +191,7 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       chosen,
       route: receipt.selection.route,
       ...(ctx.manual ? {} : { automatic: true as const }),
+      ...(described.data.methods.length ? { methods: true as const } : {}),
     });
     return undefined;
   }

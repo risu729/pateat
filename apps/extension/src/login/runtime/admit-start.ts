@@ -1,5 +1,6 @@
 import { ssoChildOn } from "./sso-scope";
 import { registerSsoChild } from "./sso-state";
+import { bindNativeChoice } from "./sso/passkey-refused";
 import {
   attemptRouteChoice,
   createAttemptMetadata,
@@ -773,6 +774,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     delete run.choice;
   }
   rt.attempts.set(ctx.document.tabId, run);
+  bindNativeChoice(rt, ctx.document, metadata);
 
   reviewRequests(rt);
 

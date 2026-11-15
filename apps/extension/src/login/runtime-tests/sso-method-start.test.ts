@@ -299,7 +299,11 @@ describe("actual explicit SSO-method admission after the chooser", () => {
   it("keeps an explicit native receipt inside the existing one-page manual scope", async () => {
     const h = await harness("rp-fill", true);
     expect(await offerSso(h.rt, h.ctx)).toBeUndefined();
-    expect(h.rt.sso.native.get(7)).toMatchObject({ route: "password", document: h.ctx.document });
+    expect(h.rt.sso.native.get(7)).toMatchObject({
+      route: "password",
+      document: h.ctx.document,
+      methods: true,
+    });
     expect(h.rt.manualStarts.get(7)).toBe(h.request);
     expect(h.rt.sso.flows.size).toBe(0);
     expect(delivery.mock.calls.some(([, message]) => message["type"] === "login.sso.commit")).toBe(
