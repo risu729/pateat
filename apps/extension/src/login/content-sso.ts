@@ -97,7 +97,50 @@ function inspected(
   if (new Set(destinations).size > 8) return { reason: "too-many-destinations" };
   return { element, destinations: [...new Set(destinations)] };
 }
-/** Generic finite IdP pages; no provider catalogue and no consent-as-continue rule. */
+/**
+ * Wording that shares an account with another app or grants it access, in any tense or
+ * order (ADR 0026): an IdP page that shows it is never a finite step to press through.
+ */
+const sharing =
+  /(?:\bshar(?:e|es|ed|ing)\b|\bwants? (?:to )?access\b|\baccess(?:es)? (?:to )?your\b|\ballow(?:s|ed|ing)?\b[^.!?\n]{0,80}?\bto\b|\bto continue to\b|^(?:continue|proceed) to\b|\b(?:can|will be able to) (?:see|access|read|view|manage|edit|delete)\b|\bsee your\b|\bpermissions?\b|\bconsent\b|\bauthori[sz]e\b|\bgrant(?:s|ed)?\b|\bscopes?\b|\bthird[- ]party\b|共有|許可|権限|同意|連携|アクセス(?:を|が|でき|しよう|する)|(?:に|へ)移動)/imu;
+// The page's own title or heading must say what the step is; a button label alone never does.
+const chooserHeading =
+  /^(?:(?:choose|pick|select) (?:an|your) account|アカウントを選択(?:してください)?|アカウントの選択)[.?？]?$/iu;
+const stayHeading =
+  /^(?:stay signed in|keep (?:me|you) signed in|サインインの状態を維持しますか|ログイン状態を(?:保持|維持)(?:しますか)?)[?？]?$/iu;
+const confirmHeading =
+  /^(?:confirm (?:your|this) account|is this (?:you|your account)|use (?:this|your) account|welcome back|continue as (.+)|アカウントの確認|このアカウントで(?:続行|ログイン)(?:しますか)?|(.+)として続行)[.?？!]?$/iu;
+/** The page's title and visible headings, each as one trimmed line. */
+const headingsOf = (document: Document) =>
+  [
+    document.title,
+    ...queryAll<HTMLElement>(document, "h1,h2,[role=heading]")
+      .filter(visible)
+      .slice(0, 8)
+      .map((element) => element.textContent ?? ""),
+  ]
+    .map((text) => text.replace(/\s+/gu, " ").trim())
+    .filter(Boolean);
+/** What the IdP page's own headings say it is, read only for a finite step. */
+function idpStep(document: Document, username: string) {
+  const headings = headingsOf(document);
+  const body = document.body?.innerText.slice(0, 16_384) ?? "";
+  return {
+    sharing: [...headings, body].some((text) => sharing.test(text)),
+    chooser: headings.some((text) => chooserHeading.test(text)),
+    stays: headings.some((text) => stayHeading.test(text)),
+    confirms: headings.some((text) => {
+      const match = confirmHeading.exec(text);
+      const named = match?.[1] ?? match?.[2];
+      return match !== null && (named === undefined || normalized(named) === normalized(username));
+    }),
+  };
+}
+/**
+ * Generic finite IdP pages; no provider catalogue and no consent-as-continue rule. A
+ * finite step needs a page whose own title or heading names it: an account list, an
+ * account confirmation or a stay-signed-in question, with no sharing or access wording.
+ */
 export function readSsoIdp(document: Document, username: string): SsoIdpReading {
   if (ssoUnsafePage(document)) return { kind: "unsafe", reason: "permission-or-account-creation" };
   let observation = extractSignedInObservation(document);
@@ -111,6 +154,9 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
     )
   )
     return { kind: "native" };
+  const step = idpStep(document, username);
+  // A list or question that names a destination app shares the account with it.
+  if (step.sharing) return { kind: "unsafe", reason: "permission-or-account-creation" };
   const controls = page.candidates.filter(
     (candidate) => candidate.role === "button" || candidate.role === "link",
   );
@@ -125,7 +171,7 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
         (accounts.length === 1 && normalized(accounts[0]!) === normalized(username)))
     );
   });
-  if (exact.length === 1 && exact[0]!.target.by !== "href")
+  if (exact.length === 1 && exact[0]!.target.by !== "href" && step.chooser)
     return { kind: "account", target: exact[0]!.target };
   if (exact.length > 1) return { kind: "unsafe", reason: "ambiguous-account" };
   const body = document.body?.innerText ?? "";
@@ -138,13 +184,8 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
   const sameAccount =
     accounts.some((account) => normalized(account) === normalized(username)) ||
     exactIdentityShown(document, username);
-  const stays =
-    /(?:stay signed in|keep (?:me|you) signed in|サインイン.*維持|ログイン状態.*保持)/iu.test(
-      [
-        document.title,
-        ...queryAll(document, "h1,h2").map((element) => element.textContent ?? ""),
-      ].join(" "),
-    );
+  const { stays } = step;
+  if (!stays && !step.confirms) return { kind: "unknown" };
   const candidates = controls.filter((candidate) => {
     if (candidate.target.by === "href") return false;
     const label = candidate.label?.trim() ?? "";

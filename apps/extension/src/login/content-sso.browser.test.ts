@@ -298,7 +298,7 @@ describe("finite local IdP page reading", () => {
     expect(readSsoIdp(document, username)).toEqual({ kind: "unsafe", reason: "ambiguous-account" });
   });
   it.each([
-    { title: "Continue", label: "Continue", kind: "continue" },
+    { title: "Confirm your account", label: "Continue", kind: "continue" },
     { title: "Stay signed in?", label: "Yes", kind: "stay-signed-in" },
   ])(
     "permits only an explicit $kind with the full selected identity shown",
@@ -314,7 +314,7 @@ describe("finite local IdP page reading", () => {
     },
   );
   it("does not infer account authority from a Continue or stay-signed-in button alone", () => {
-    for (const title of ["Continue", "Stay signed in?"]) {
+    for (const title of ["Confirm your account", "Stay signed in?"]) {
       html("<h1>" + title + '</h1><button id="entry">Continue</button>', title);
       expect(readSsoIdp(document, username)).toEqual({ kind: "unknown" });
     }
@@ -358,7 +358,7 @@ describe("finite local IdP page reading", () => {
     },
   );
   it("recognizes a full exact non-email username on a finite Continue page", () => {
-    html('<h1>Continue</h1><p>synthetic-user</p><button id="entry">Continue</button>');
+    html('<h1>Confirm your account</h1><p>synthetic-user</p><button id="entry">Continue</button>');
     expect(readSsoIdp(document, "synthetic-user")).toMatchObject({
       kind: "continue",
       target: { by: "id", value: "entry" },
@@ -366,14 +366,16 @@ describe("finite local IdP page reading", () => {
   });
   it("does not match a non-email username merely as a substring of a different identity", () => {
     html(
-      '<h1>Continue</h1><p>other-synthetic-user-account</p><button id="entry">Continue</button>',
+      '<h1>Confirm your account</h1><p>other-synthetic-user-account</p><button id="entry">Continue</button>',
     );
     expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, "synthetic-user").kind);
   });
   it.each(["Continue as attacker", "attackerでログイン"])(
     "refuses an action for another named identity despite the selected identity elsewhere: %s",
     (label) => {
-      html('<h1>Continue</h1><p>targetuser</p><button id="entry">' + label + "</button>");
+      html(
+        '<h1>Confirm your account</h1><p>targetuser</p><button id="entry">' + label + "</button>",
+      );
       expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, "targetuser").kind);
     },
   );
@@ -388,7 +390,9 @@ describe("finite local IdP page reading", () => {
   it.each(["Continue as targetuser", "targetuserでログイン"])(
     "permits the full matching named non-email identity: %s",
     (label) => {
-      html('<h1>Continue</h1><p>targetuser</p><button id="entry">' + label + "</button>");
+      html(
+        '<h1>Confirm your account</h1><p>targetuser</p><button id="entry">' + label + "</button>",
+      );
       expect(readSsoIdp(document, "targetuser")).toMatchObject({
         kind: "continue",
         target: { by: "id", value: "entry" },

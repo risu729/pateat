@@ -29,6 +29,8 @@ export type SsoScenario =
   | "consent"
   | "signup"
   | "sharing"
+  | "share-continue"
+  | "verify"
   | "nested"
   | "fedcm"
   | "new-origin"
@@ -116,16 +118,31 @@ export async function configureSso(
         return route.fulfill({ contentType: "text/html", body: passkeyPageHtml + completion });
       }
       const unsafe = {
+        // Provider-style wording (written for these tests): a scope grant, an account list
+        // and a sign-in confirmation that share the account with the app, and a challenge.
         consent:
-          "<h1>Consent to requested permissions</h1><p>test_username</p><button id=unsafe>Continue</button>",
+          "<h1>Example App wants to access your Google Account</h1><p>test_username</p><p>This will allow Example App to:</p><ul><li>See your contacts</li></ul><button id=unsafe>Continue</button>",
         signup: "<h1>Create account</h1><p>test_username</p><button id=unsafe>Continue</button>",
         sharing:
-          "<h1>Choose an account</h1><p>Your account details will be shared with this application.</p><button id=unsafe>test_username</button>",
+          "<h1>Choose an account</h1><p>to continue to Example App</p><button id=unsafe>test_username</button><p>To continue, Google will share your name, email address, language preference, and profile picture with Example App.</p>",
+        "share-continue":
+          "<h1>Sign in to Example App</h1><p>test_username</p><p>By continuing, Google will share your name, email address, language preference, and profile picture with Example App.</p><button id=unsafe>Continue</button>",
+        verify:
+          "<h1>Verify it's you</h1><p>test_username</p><p>To help keep your account safe, Google wants to make sure it's really you trying to sign in.</p><button id=unsafe>Next</button>",
         nested:
           '<h1>Sign in</h1><a id=unsafe href="https://third.synthetic.example.test/login">Continue with another provider</a>',
         fedcm:
           "<h1>Sign in with browser identity</h1><button id=unsafe>Use browser identity</button>",
-      }[scenario as "consent" | "signup" | "sharing" | "nested" | "fedcm"];
+      }[
+        scenario as
+          | "consent"
+          | "signup"
+          | "sharing"
+          | "share-continue"
+          | "verify"
+          | "nested"
+          | "fedcm"
+      ];
       if (unsafe)
         return respond(
           unsafe +
@@ -138,7 +155,7 @@ export async function configureSso(
             ? "https://submit.idp.synthetic.example.test/session"
             : "/session";
       const inPlaceBody =
-        "<h1 id=idp-authenticated>Provider authenticated</h1><p>test_username</p><button id=continue>Continue</button>";
+        "<h1 id=idp-authenticated>Confirm your account</h1><p>test_username</p><button id=continue>Continue</button>";
       const inPlace = scenario.startsWith("same-document")
         ? '<script>window.syntheticDocumentToken=crypto.randomUUID();document.querySelector("form").addEventListener("submit",async event=>{event.preventDefault();const data=new URLSearchParams(new FormData(event.target));data.set("documentToken",window.syntheticDocumentToken);const response=await fetch("/same-document-session",{method:"POST",body:data});if(response.ok){' +
           (scenario === "same-document"
@@ -199,7 +216,7 @@ export async function configureSso(
         values.get("username") === "test_username" && values.get("password") === "test_password";
       if (scenario === "intermediate")
         return respond(
-          '<header><span>test_username</span><a href=/logout>Sign out</a></header><h1 id=idp-authenticated>Provider authenticated</h1><button id=continue>Continue</button><script>document.querySelector("#continue").onclick=()=>fetch("/continue-effect",{method:"POST"}).then(()=>location.replace("/stay"));</script>',
+          '<header><span>test_username</span><a href=/logout>Sign out</a></header><h1 id=idp-authenticated>Confirm your account</h1><button id=continue>Continue</button><script>document.querySelector("#continue").onclick=()=>fetch("/continue-effect",{method:"POST"}).then(()=>location.replace("/stay"));</script>',
         );
       if (scenario === "idp-complete")
         return respond(

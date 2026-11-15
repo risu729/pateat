@@ -380,3 +380,16 @@ used, and the person chose that route over the SSO method.
 A vault notice cancels an active parent flow only when the settings revision or the
 vault catalog differs from the one the flow started with. A status read that changes
 nothing keeps the flow, as it keeps a pending method offer.
+
+## Review hardening 2026-11-16: finite IdP steps named by the page
+
+An IdP page is a finite step only when its own title or heading names one: an account
+list (such as "Choose an account" or アカウントの選択), an account confirmation (such as
+"Confirm your account" or "Continue as" the selected account) or a stay-signed-in
+question. A button label such as Continue or Next never makes a page one, so a "Verify
+it's you" challenge or any other page waits for nothing and stops. Wording that shares
+the account with an app or grants it access stops the flow on such a page in any tense
+or order: share, shares, shared or sharing, wants to access, access to your, allow an
+app to, to continue to an app, and 共有, 許可, アクセス or an app に移動 in Japanese. An
+account list that names its destination app is therefore a sharing list. The IdP's own
+sign-in form is still read as its native login first.

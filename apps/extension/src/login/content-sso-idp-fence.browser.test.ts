@@ -15,7 +15,7 @@ function fixture(kind: Kind) {
     kind === "account"
       ? "<main><h1>Choose an account</h1><button id=entry>" + chosen + "</button></main>"
       : "<main><h1>" +
-        (kind === "stay-signed-in" ? "Stay signed in?" : "Continue") +
+        (kind === "stay-signed-in" ? "Stay signed in?" : "Confirm your account") +
         "</h1><p id=identity>" +
         chosen +
         "</p><button id=entry>" +

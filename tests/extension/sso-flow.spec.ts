@@ -89,6 +89,8 @@ for (const scenario of [
   "consent",
   "signup",
   "sharing",
+  "share-continue",
+  "verify",
   "nested",
   "fedcm",
 ] satisfies SsoScenario[]) {
