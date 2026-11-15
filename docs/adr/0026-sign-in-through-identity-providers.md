@@ -185,7 +185,12 @@ require one observed button or link per label, reject duplicate targets, and ret
 invented label or candidate in the request log. Generic registration/permission evidence
 and the role's page classification refuse consent, sharing, account creation and unclear
 pages, even when a matching provider button shows. The later coordinator must check
-these boundaries again on the live document.
+these boundaries again on the live document. Claude answers the request alone: Clef
+answers only sign-in forms with slots
+([ADR 0083](0083-clef-first-for-sign-in-forms.md)), and an SSO request has none. As with
+the other generation requests, a paired device with its own key makes the call through
+the device-model protocol and a device without a pairing makes it itself
+([ADR 0040](0040-running-without-the-service.md)).
 
 The service stores entries with the existing conditional revision write, spend limits,
 request log and generation retry/repair windows. This is a generation call, not a

@@ -289,11 +289,14 @@ service. This is an agent's implementation detail, not a new owner decision.
 
 ## Amendment 2026-11-12: label-only declarative route generation
 
-Implementation detail chosen by an agent. The local method descriptors feed a dedicated
-label-only generation mode and separate SSO recipe layouts, documented in the
+Implementation detail chosen by an agent. A bracket method's label from the local method
+descriptors is the only method data a dedicated label-only generation mode accepts; it
+writes separate SSO recipe layouts, documented in the
 [ADR 0026 amendment](0026-sign-in-through-identity-providers.md#amendment-2026-11-12-declarative-sso-entry-generation).
-The generation request has no fields for an IdP account, username, origin, comparison
-proof or mapping. The label is the permitted exception; a native route never receives
-an SSO custom field as a fill slot. Automatic route selection remains unchanged until
-the mapping chooser and same-tab coordinator integrate this foundation. No live vault
-format has been migrated and no real-account compatibility has been established.
+The request accepts a label only as local discovery reads it, so no value refused above
+reaches the service. The generation request has no fields for an IdP account, username,
+origin, comparison proof or mapping. The label is the permitted exception; a native
+route never receives an SSO custom field as a fill slot. Nothing calls this mode yet:
+automatic route selection remains unchanged until the mapping chooser and same-tab
+coordinator integrate this foundation. No live vault format has been migrated and no
+real-account compatibility has been established.
