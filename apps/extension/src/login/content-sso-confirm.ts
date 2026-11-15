@@ -70,22 +70,67 @@ function shadowLetters(root: ShadowRoot): number {
   return count;
 }
 /**
- * Whether the page shows letters its own text leaves out: generated `::before` or
- * `::after` content, an open or reachable shadow root, a visible frame, or an input
- * button labelled otherwise than the pressed control or a side control. None of these
- * can be read as the page's text, so a confirmation showing one is no finite step.
+ * Letters generated content shows: its quoted strings, which include an attr() the
+ * browser has already read into one. A url(), counter() or quote mark shows none, so an
+ * icon or a `<q>` reads as nothing.
+ */
+function generatedLetters(content: string): number {
+  if (content === "none" || content === "normal") return 0;
+  const shown = content.replace(/url\((?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^)]*)\)/gu, "");
+  let count = 0;
+  for (const [, double, single] of shown.matchAll(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/gu))
+    count += letters(double ?? single ?? "");
+  return count;
+}
+/** Whether an element's generated content is drawn: shown, or boxless inside shown. */
+function drawn(element: Element): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  const style = getComputedStyle(element);
+  if (style.display !== "contents") return visible(element);
+  return (
+    style.visibility !== "hidden" &&
+    (element.parentElement === null || drawn(element.parentElement))
+  );
+}
+/** Letters a drawn element's pseudo-elements and list marker show. */
+function pseudoLetters(element: Element, view: Window | null): number {
+  if (!view) return 0;
+  let count = 0;
+  for (const pseudo of ["::before", "::after"]) {
+    const style = view.getComputedStyle(element, pseudo);
+    if (style.display !== "none") count += generatedLetters(style.content);
+  }
+  const style = view.getComputedStyle(element);
+  if (style.display.includes("list-item")) {
+    count += generatedLetters(view.getComputedStyle(element, "::marker").content);
+    // A quoted list-style-type is drawn as each item's marker.
+    if (/^["']/u.test(style.listStyleType)) count += generatedLetters(style.listStyleType);
+  }
+  return count;
+}
+/**
+ * Whether the page shows letters its own text leaves out: generated content or list
+ * markers with letters, an open or reachable shadow root, a visible frame, an image
+ * shown as its alternative text, or an input button labelled otherwise than the pressed
+ * control or a side control. None of these can be read as the page's text, so a
+ * confirmation showing one is no finite step.
  */
 function showsTextElsewhere(document: Document, pressed: Element): boolean {
   const elements = queryAll<Element>(document, "*");
   if (elements.length > READ_ELEMENTS) return true;
   const view = document.defaultView;
   for (const element of elements) {
+    if (!drawn(element)) continue;
+    if (pseudoLetters(element, view)) return true;
     if (!(element instanceof HTMLElement) || !visible(element)) continue;
     if (element.matches("iframe,frame,object,embed")) return true;
-    for (const pseudo of ["::before", "::after"]) {
-      const content = view?.getComputedStyle(element, pseudo).content ?? "none";
-      if (content !== "none" && content !== "normal" && letters(content)) return true;
-    }
+    // An image that did not load shows its alternative text instead.
+    if (
+      element instanceof HTMLImageElement &&
+      letters(element.alt) &&
+      (!element.complete || element.naturalWidth === 0)
+    )
+      return true;
     const root = shadowRootOf(element);
     if (root && shadowLetters(root)) return true;
     if (

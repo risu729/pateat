@@ -411,8 +411,11 @@ language picker is a closed dropdown or combo box showing one short choice; a li
 shows every option, so its options count. Any more text makes it no finite step,
 whatever it says and wherever it is: another heading, or a link or an element that acts
 as a button with any other label. Text the page shows outside its own text cannot be
-counted, so generated content with letters, a shadow root with letters, a visible frame
-or an input button with any other label stops a confirmation outright.
+counted, so it stops a confirmation outright: generated content or a list marker whose
+quoted strings have letters, also on an element with no box of its own, a shadow root
+with letters, a visible frame, an image shown as its alternative text, or an input
+button with any other label. Only quoted strings count in generated content, so an
+icon drawn with url(), a counter or a quotation's marks do not.
 
 The allowance is 16 letters. It is room for the short lines real confirmations show,
 such as "Not you?" or a copyright line, not a reading of them, so a phrase as short as

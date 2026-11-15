@@ -311,6 +311,26 @@ describe("confirmation text the page shows outside its own words", () => {
       `<iframe srcdoc="<p>Example App gets your email address and contacts</p>"></iframe>`,
     ],
     ["an input button", `<input type=button value="Example App gets your email and contacts">`],
+    [
+      "generated content of a boxless element",
+      `<style>#note{display:contents}#note::before{content:"Example App gets your email address and contacts"}</style><p id=note></p>`,
+    ],
+    [
+      "a list marker",
+      `<style>#note::marker{content:"Example App gets your email address and contacts"}</style><ul><li id=note></li></ul>`,
+    ],
+    [
+      "a quoted list style",
+      `<ul style='list-style-type:"Example App gets your email address and contacts"'><li></li></ul>`,
+    ],
+    [
+      "an image that did not load",
+      `<img src="data:image/png;base64,AAAA" alt="Example App gets your email address and contacts">`,
+    ],
+    [
+      "generated content reading an attribute",
+      `<style>#note::after{content:attr(data-note)}</style><p id=note data-note="Example App gets your email address and contacts"></p>`,
+    ],
   ])("stops on a confirmation that shows text as %s", (_name, extra) => {
     confirm(extra);
     refused();
@@ -322,6 +342,27 @@ describe("confirmation text the page shows outside its own words", () => {
       .attachShadow({ mode: "open" })
       .append("Example App gets your email address and contacts");
     refused();
+  });
+  it.each([
+    [
+      "an icon image",
+      `<style>#mark::before{content:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E")}</style><span id=mark></span>`,
+    ],
+    [
+      "a counter",
+      `<style>ol{counter-reset:step}#mark::before{counter-increment:step;content:counter(step) ". "}</style><span id=mark></span>`,
+    ],
+    [
+      "an empty attribute",
+      `<style>#mark::after{content:attr(data-icon)}</style><span id=mark data-icon="→"></span>`,
+    ],
+    ["a quotation", `<p><q>${username}</q></p>`],
+  ])("keeps a confirmation whose generated content is %s", (_name, extra) => {
+    confirm(extra);
+    expect(readSsoIdp(document, username)).toEqual({
+      kind: "continue",
+      target: { by: "id", value: "entry" },
+    });
   });
   it("keeps a confirmation whose shadow root, generated content and inputs say nothing", () => {
     confirm(
