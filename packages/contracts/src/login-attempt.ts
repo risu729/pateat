@@ -10,7 +10,6 @@ import {
   loginOriginSchema,
   loginOutcomeSchema,
   loginRouteSchema,
-  keypadStep,
   loginStepEffect,
   MAX_PASSWORD_ALTERNATIVES,
   recipeLayoutKeySchema,
@@ -31,6 +30,15 @@ import {
   type LoginStep,
 } from "./login";
 import { signInFillTransition } from "./login-attempt-sign-in-fill";
+import { effectfulStep, fillOnlyStep, fillOnlyStops } from "./login-attempt-steps";
+import {
+  ssoAttemptEntries,
+  ssoChildShape,
+  ssoParentRecovered,
+  ssoParentShape,
+} from "./login-attempt-sso";
+
+export { effectfulStep, fillOnlyStep, fillOnlyStops } from "./login-attempt-steps";
 
 const identifier = v.pipe(
   v.string(),
@@ -129,16 +137,7 @@ export const attemptMetadataSchema = v.pipe(
     account: loginAccountSchema,
     /** The route chosen when the login started (ADR 0027). */
     route: v.picklist(["password", "passkey", "sso"]),
-    /** Explicit parent metadata never enters the native transition engine. */
-    ssoParent: v.optional(v.literal(true)),
-    /** Durable exclusion only: an IdP child never restores parent authority. */
-    ssoChild: v.optional(
-      v.strictObject({
-        parentId: identifier,
-        attemptId: identifier,
-        released: v.optional(v.literal(true)),
-      }),
-    ),
+    ...ssoAttemptEntries(identifier),
     /**
      * The password route's variant chosen with it: 0 for the recipe's own steps. A
      * `passkey` route that answers the start page's own request keeps the variant it falls
@@ -315,37 +314,8 @@ export const attemptMetadataSchema = v.pipe(
     /** How long the login has taken so far (`attemptTimes`), never with any value. */
     timing: attemptTimingSchema,
   }),
-  v.check(
-    (metadata) =>
-      metadata.route === "sso"
-        ? metadata.ssoParent === true &&
-          metadata.ssoChild === undefined &&
-          metadata.variant === undefined &&
-          metadata.handlers.length === 0 &&
-          metadata.chooser === undefined &&
-          metadata.watch === undefined &&
-          metadata.operationId === undefined &&
-          metadata.operationKind === undefined &&
-          metadata.operationEffect === undefined &&
-          metadata.mutationIntent === undefined &&
-          metadata.signInFill === undefined &&
-          metadata.fillOnly === undefined &&
-          metadata.document.frameId === 0 &&
-          metadata.stepCount === 1 &&
-          metadata.stepIndex === 0 &&
-          metadata.usedOperationIds.length === 0 &&
-          ["awaiting-result", "reconciling", "authenticated", "blocked"].includes(metadata.state)
-        : metadata.ssoParent === undefined,
-    "An SSO parent has no native execution state",
-  ),
-  v.check(
-    (metadata) =>
-      metadata.ssoChild === undefined ||
-      (metadata.route !== "sso" &&
-        metadata.ssoChild.attemptId === metadata.id &&
-        metadata.document.frameId === 0),
-    "An SSO child exclusion names its exact native attempt",
-  ),
+  v.check((metadata) => ssoParentShape(metadata), "An SSO parent has no native execution state"),
+  v.check((metadata) => ssoChildShape(metadata), "An SSO child names its exact native attempt"),
   v.check(
     (metadata) =>
       metadata.startStep === undefined ||
@@ -1963,26 +1933,6 @@ export function attemptTimes(metadata: Timed, now = Date.now()): AttemptTimes {
     otherMs: duration(totalMs - timing.serviceMs - timing.personMs - pageMs),
   };
 }
-/** A step that may advance or submit the page: a click, or a fill whose event may. */
-export const effectfulStep = (step: LoginStep): boolean => {
-  const effect = loginStepEffect(step);
-  return effect !== undefined && effect !== "prepare";
-};
-/**
- * What a fill-only login takes of `step` (ADR 0021 D): nothing of a step with an effect or
- * of a fill on a page's software keyboard, whose presses the page may act on (ADR 0067),
- * and a fill without its TOTP code, whose input may submit at its last digit as a PIN pad
- * does (ADR 0027 amendment of 2026-10-23); nothing of a fill of the code alone.
- */
-export function fillOnlyStep(step: LoginStep): LoginStep | undefined {
-  if (effectfulStep(step) || keypadStep(step)) return undefined;
-  if (step.kind !== "fill") return step;
-  const fields = step.fields.filter((field) => field.slot !== TOTP_HANDLER_SLOT);
-  if (fields.length === 0) return undefined;
-  return fields.length === step.fields.length ? step : { ...step, fields };
-}
-/** A step a fill-only login never takes any of (`fillOnlyStep`). */
-export const fillOnlyStops = (step: LoginStep): boolean => fillOnlyStep(step) === undefined;
 
 /**
  * Applies one event. `now` starts the watch of a login that becomes watched (ADR 0027); a
@@ -2074,14 +2024,11 @@ export function withdrawAccountSwitch(value: unknown): LoginAttemptMetadata {
 /** Restart always observes; it never restores an actor snapshot with pending actions. */
 export function recoverLoginAttempt(value: unknown): LoginAttemptMetadata {
   const metadata = parseAttemptMetadata(value);
-  if (metadata.route === "sso")
-    return ["authenticated", "blocked"].includes(metadata.state)
-      ? metadata
-      : parseAttemptMetadata({ ...metadata, state: "blocked", outcome: "interrupted" });
+  if (metadata.route === "sso") return parseAttemptMetadata(ssoParentRecovered(metadata));
   return transitionLoginAttempt(metadata, { type: "INTERRUPTED" });
 }
 
-/** The route and variant an attempt recorded when it started. */
+/** The route and variant an attempt recorded when it started; an SSO parent (ADR 0085) has none. */
 export function attemptRouteChoice(
   metadata: Pick<LoginAttemptMetadata, "route" | "variant">,
 ): LoginRouteChoice {
