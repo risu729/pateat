@@ -13,8 +13,19 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, connectionId, itemId, otherItemId, uriMatch, harness, recipe, sender, realTime } =
-  createRuntimeTestHarness(fake);
+const {
+  origin,
+  connectionId,
+  itemId,
+  otherItemId,
+  uriMatch,
+  harness,
+  recipe,
+  sender,
+  realTime,
+  target,
+  savedBinding,
+} = createRuntimeTestHarness(fake);
 const popup = {
   id: "synthetic-extension",
   url: "chrome-extension://synthetic-extension/popup.html",
@@ -127,6 +138,43 @@ function start(settings: Partial<LocalSettings> = {}, live: Parameters<typeof ha
   );
   return { h, reports };
 }
+/**
+ * Two fills on one path: the passive fill parks on its read-only wait after the
+ * identifier until the password shows, rather than ending once nothing is left to fill.
+ */
+const twoStep = parseLoginRecipe({
+  ...recipe,
+  id: "synthetic-two-step-fill",
+  slots: ["username", "password"],
+  steps: [
+    { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
+    { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+    { kind: "fill", path: "/signin", fields: [{ slot: "password", target: target("password") }] },
+    { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+  ],
+  maxSubmissions: 2,
+});
+function passive(settings: Partial<LocalSettings> = {}, live: Parameters<typeof harness>[1] = {}) {
+  const test = start(
+    {
+      bindings: [
+        {
+          ...savedBinding,
+          recipeId: twoStep.id,
+          slots: [
+            { slot: "username", field: "username" },
+            { slot: "password", field: "password" },
+          ],
+        },
+      ],
+      ...settings,
+    },
+    { username: true, ...live },
+  );
+  test.h.recipes.recipe.mockResolvedValue(twoStep);
+  fake.state.present = new Set(["email", "next"]);
+  return test;
+}
 async function waiting() {
   await vi.waitFor(() =>
     expect(stored()[0]).toMatchObject({
@@ -141,13 +189,17 @@ async function waiting() {
 function authenticateOnManualClick() {
   fake.state.onExecute = async (message) => {
     const operation = message["operation"] as { step: LoginStep };
-    if (operation.step.kind === "click") fake.state.present = new Set(["authenticated"]);
+    if (operation.step.kind !== "click") return;
+    fake.state.present =
+      operation.step.target.value === "next"
+        ? new Set(["password", "login"])
+        : new Set(["authenticated"]);
   };
 }
 
 describe("one-time manual login after passive autofill", () => {
   it("offers and starts one normal login while the passive driver is idle, fencing its late callback", async () => {
-    const { h } = start();
+    const { h } = passive();
     expect(await h.hello()).toEqual({ ok: true });
     await waiting();
     const previous = stored()[0]!.id;
@@ -157,28 +209,64 @@ describe("one-time manual login after passive autofill", () => {
     authenticateOnManualClick();
     expect(await run(h, pick)).toMatchObject({ ok: true });
     await vi.waitFor(() =>
-      expect(stored()[0]).toMatchObject({ state: "authenticated", submissions: 1 }),
+      expect(stored()[0]).toMatchObject({ state: "authenticated", submissions: 2 }),
     );
     const active = structuredClone(stored());
     expect(active[0]!.id).not.toBe(previous);
     expect(active[0]?.signInFill).toBeUndefined();
-    expect(executes()).toHaveLength(3);
-    expect(executes().filter((entry) => entry.operation.step.kind === "click")).toHaveLength(1);
+    // The passive identifier fill, then the manual login's fill, advance, fill and submit.
+    expect(executes()).toHaveLength(5);
+    expect(executes()[0]?.operation.signInFill).toBe(true);
+    expect(executes().filter((entry) => entry.operation.step.kind === "click")).toHaveLength(2);
+    expect(
+      executes()
+        .slice(1)
+        .every((entry) => entry.operation.signInFill === undefined),
+    ).toBe(true);
+    const reads = h.fields.mock.calls.length;
     releaseChanges();
     await vi.waitFor(() => expect(stored()).toEqual(active));
-    expect(executes()).toHaveLength(3);
-    expect(h.fields).toHaveBeenCalledTimes(2);
+    expect(executes()).toHaveLength(5);
+    // The passive fill's late wake reads nothing more.
+    expect(h.fields).toHaveBeenCalledTimes(reads);
+    expect(h.fields.mock.calls.slice(0, 3).map(([read]) => read.fieldId)).toEqual([
+      "login.username",
+      "login.username",
+      "login.password",
+    ]);
+    expect(h.settings).toEqual(settings);
+    expect(h.store.update).not.toHaveBeenCalled();
+  });
+
+  it("retries a passive fill that ended with nothing left to fill as one normal login", async () => {
+    const { h } = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(stored()[0]).toMatchObject({ signInFill: true, state: "blocked", fillDone: true }),
+    );
+    const previous = stored()[0]!.id;
+    const settings = structuredClone(h.settings);
+    const pick = await request(h);
+    fake.state.onReconnect = () => h.hello();
+    authenticateOnManualClick();
+    expect(await run(h, pick)).toMatchObject({ ok: true });
+    await vi.waitFor(() =>
+      expect(stored()[0]).toMatchObject({ state: "authenticated", submissions: 1 }),
+    );
+    expect(stored()[0]!.id).not.toBe(previous);
+    expect(stored()[0]?.signInFill).toBeUndefined();
+    expect(executes().map((entry) => entry.operation.step.kind)).toEqual(["fill", "fill", "click"]);
     expect(h.settings).toEqual(settings);
     expect(h.store.update).not.toHaveBeenCalled();
   });
 
   it("does not restore a one-time manual authorization after a worker restart", async () => {
-    const { h } = start();
+    const { h } = passive();
     await h.hello();
     await waiting();
     const pick = await request(h);
     expect(await run(h, pick)).toMatchObject({ ok: true, state: "evaluating" });
-    const restarted = start().h;
+    const restarted = passive().h;
     await restarted.hello();
     await waiting();
     expect(executes().filter((entry) => entry.operation.step.kind === "click")).toEqual([]);
@@ -191,7 +279,7 @@ describe("one-time manual login after passive autofill", () => {
     const passkeyActive = vi.fn(
       (documentId: string) => active && documentId === "synthetic-document",
     );
-    const { h } = start({}, { passkeyActive });
+    const { h } = passive({}, { passkeyActive });
     await h.hello();
     await waiting();
     const pick = await request(h);
@@ -209,7 +297,7 @@ describe("one-time manual login after passive autofill", () => {
     "refuses to replace a genuine passive %s in flight",
     async (phase) => {
       const excluded = [{ hostname: "login.example", includeSubdomains: false }];
-      const { h } = start({ excludedSites: excluded });
+      const { h } = passive({ excludedSites: excluded });
       await h.hello();
       const pick = await request(h);
       h.settings.settings.excludedSites = [];
@@ -236,7 +324,7 @@ describe("one-time manual login after passive autofill", () => {
   it.each(["document", "path", "account", "site-access", "vault"] as const)(
     "rechecks %s between the idle offer and explicit start",
     async (change) => {
-      const { h } = start();
+      const { h } = passive();
       await h.hello();
       await waiting();
       const pick = await request(h);
@@ -318,12 +406,12 @@ async function targetRequest(h: ReturnType<typeof harness>, frameId: number) {
   const offered = await offers(h);
   expect(offered.ok).toBe(true);
   if (!offered.ok) throw new Error("No page");
-  const target = offered.targets.find((entry) => entry.document.frameId === frameId);
-  expect(target).toBeDefined();
+  const selected = offered.targets.find((entry) => entry.document.frameId === frameId);
+  expect(selected).toBeDefined();
   return {
     requestId: "explicit-reclassification",
-    document: target!.document,
-    scope: target!.scope,
+    document: selected!.document,
+    scope: selected!.scope,
     connectionId,
     itemId,
   };
