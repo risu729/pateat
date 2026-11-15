@@ -195,16 +195,18 @@ Pauses, allowed sites, private-window settings and vault limits still apply.
 
 Under **Verification while signed in**, **Fill only** uses the account whose Pateat
 login finished successfully in this same tab and browser session. It never chooses
-another account. **Off** leaves the page alone. Pateat fills only ordinary empty,
-untouched fields; buttons, authentication codes, software keyboards and fields that
-advance or submit as you type stay with you. Review the form and press its button
-yourself. Passkey re-verification stays with the browser in either mode.
+another account. A login under the sign-in pages' **Fill only**, where you pressed the
+buttons yourself, never enables it. **Off** leaves the page alone. Pateat fills only
+ordinary empty, untouched fields; buttons, authentication codes, software keyboards and
+fields that advance or submit as you type stay with you. Review the form and press its
+button yourself. Passkey re-verification stays with the browser in either mode. An item
+that asks for the master password asks again for each verification page.
 
-A new verification page may be described to make a recipe, even when filling is off.
-Reloading or restarting the extension does not replay an uncertain fill. After a
-browser restart, Pateat needs a newly confirmed login in the tab before verification
-autofill can run. **Other personal-detail forms** are not filled yet. Personal details
-asked during a login follow the **Sign-in pages** setting.
+A new verification page may be described to make a recipe, even when filling is off. A
+restarted extension worker does not replay an uncertain fill; a reloaded page is a new
+page. After a browser restart, Pateat needs a newly confirmed login in the tab before
+verification autofill can run. **Other personal-detail forms** are not filled yet.
+Personal details asked during a login follow the **Sign-in pages** setting.
 
 ### Private windows
 

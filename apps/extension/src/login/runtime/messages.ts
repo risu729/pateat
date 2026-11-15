@@ -471,8 +471,8 @@ export async function operationRun(
  * stops only when they no longer plan its account (ADR 0027).
  */
 export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
-  for (const work of rt.confirmFill.work.values())
-    void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
+  // A confirmation's document asks again before it fills, so stopping the work is enough;
+  // its content script keeps reading the page (ADR 0035 delivery 3).
   cancelConfirm(rt);
   for (const tabId of rt.bindingReviews.keys()) clearBindingReview(rt, tabId);
   const stopped = new Set<number>();

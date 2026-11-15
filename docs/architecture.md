@@ -4531,9 +4531,12 @@ before storage yields, so its late wait answer cannot act beside the new normal 
 [ADR 0035 delivery 3](adr/0035-page-kinds-per-site.md#implementation-of-delivery-3)
 uses a separate confirmation operation, never a new login attempt. The original
 confirmed login supplies the account; site defaults and popup selections cannot
-replace it. A session-backed proof binds that original attempt, tab, origin,
-connection and item. Local login metadata alone, including a record restored after
-browser restart, is insufficient.
+replace it. A sign-in **Fill only** login or a passive autofill never enables it. A
+session-backed proof binds that original attempt, tab, origin, connection and item.
+Local login metadata alone, including a record restored after browser restart, is
+insufficient. A failed proof write does not fail the login; confirmation filling
+refuses for the rest of the session instead. A released record drops its proof, and
+a replaced tab carries it over with the record.
 
 Only an ordinary preparing fill is executable on a `confirm` or `unclear` page
 under `confirm: fill`. Nonempty or edited inputs, codes, software keyboards,
@@ -4542,9 +4545,13 @@ handler learning, account remembering or binding save runs. The normal
 master-password requirement, item/field policy, URI matching and form destination
 checks still apply. Passive sign-in and confirmation fills also check every form
 submitter's destination, including hidden/default buttons and external form-associated
-button/image controls. The destination snapshot must remain unchanged after awaited
-authorization and before each field mutation or typing continuation. Passive fills
-recheck operation authority after DOM/account readiness, before the first mutation.
+button/image controls. The destinations that need the background's word or are refused
+must remain unchanged after awaited authorization and before each field mutation or
+typing continuation; a same-origin button the page adds or removes meanwhile, as a
+show-password button rendered on input, changes nothing. Passive fills recheck
+operation authority after DOM/account readiness, before the first mutation. A
+master-password window opened for a confirmation holds no tab; once the vault accepts
+the password for the same account, the document announces again and fills once.
 `confirm: off` fills nothing; passkey verification remains
 delegated in either setting.
 
@@ -4564,19 +4571,24 @@ The separate manual-login action keeps its own authority. A claim is written bef
 vault reads and delivery.
 It suppresses repeat work after unknown delivery or acknowledgement and a worker
 restart; the document-start edit recorder also fences repeated or edited inputs.
-The session permits at most 100 proofs and 512 claims and fails closed on corruption,
-storage failure or exhaustion.
+The session permits at most 100 proofs and 512 claims, 64 of them per tab, and fails
+closed on corruption, storage failure or exhaustion. A tab's new top document drops the
+claims of the page it left.
 
 Separate in-memory operation identity authorizes the existing fill command. Every
 secret delivery and document authorization rechecks the original authentication,
 exact document and top page, current settings/profile scope and vault metadata.
 A synchronous recipe-cache mutation fence and provider snapshot check remain valid
 after awaited reads. A frame's account must match both its document and current
-top page. Policy changes cancel confirmation work; manual login, account switching
-and vault replacement cannot run beside it. Confirmation filling leaves the
+top page. Policy changes and in-place route changes cancel the worker's confirmation
+work without disabling the document's content script; manual login, account switching
+and vault replacement cannot run beside it. The page's answer carries the origin's
+first steps, as a `logged-in` answer does. Confirmation filling leaves the
 authenticated login journal intact.
 
 Value-free `not-started` details `confirm-fill` and `confirm-fill-stopped` describe
-the autofill check and its refusal. Existing page-kind evaluation fields and
+the autofill check and its refusal, each logged once per visit with the page's
+evaluation fields once the page reports its first step shown. The popup says whether
+the fill changed a field. Existing page-kind evaluation fields and
 person-submitted tracking remain. A fill acknowledgement is not authentication,
 submission or success of the action guarded by the verification page.

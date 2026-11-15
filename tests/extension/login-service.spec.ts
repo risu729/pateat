@@ -880,13 +880,42 @@ test("a synced confirmation recipe fills the authenticated encrypted-vault accou
           claims: [expect.anything()],
         });
         expect(JSON.stringify(session)).not.toContain("test_password");
+        // The page is logged for evaluation once, with its fields, as the document reported
+        // its first step shown (ADR 0035), never with a value.
+        const diagnostics = await browser.context.newPage();
+        const entries = async () => {
+          await diagnostics.goto(`chrome-extension://${browser.extensionId}/diagnostics.html`);
+          await diagnostics.getByRole("button", { name: "Download logs" }).click();
+          const text = (await diagnostics.locator("#logs-preview").textContent()) ?? "";
+          return text
+            .trim()
+            .split("\n")
+            .slice(1)
+            .map((line) => JSON.parse(line) as Record<string, unknown>);
+        };
+        const confirmRows = async () =>
+          (await entries()).filter(
+            (entry) =>
+              entry["event"] === "login.refused" &&
+              String(entry["detail"]).startsWith("confirm-fill"),
+          );
+        await expect.poll(confirmRows).toEqual([
+          expect.objectContaining({
+            reason: "not-started",
+            detail: "confirm-fill",
+            recipe: "synthetic-confirmation",
+            pageKind: "confirm",
+            url: "/confirm-access",
+          }),
+        ]);
+        expect(JSON.stringify(await entries())).not.toContain("test_password");
         const elsewhere = await browser.context.newPage();
         await elsewhere.goto(`${site}/confirm-access`);
         await expect
           .poll(() => send(options, { version: 1, type: "login.probe.status" }))
           .toMatchObject({
             documents: [
-              expect.objectContaining({ reason: "confirm-fill" }),
+              expect.objectContaining({ reason: "confirm-filled" }),
               expect.objectContaining({ state: "watching" }),
             ],
           });
@@ -895,6 +924,8 @@ test("a synced confirmation recipe fills the authenticated encrypted-vault accou
           await elsewhere.evaluate(() => (window as unknown as { effects: unknown }).effects),
         ).toEqual({ clicks: 0, enters: 0, submits: 0 });
         expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+        // The other tab, with no confirmed login, logs `confirm-unsupported` instead.
+        expect(await confirmRows()).toHaveLength(1);
       },
       { args: ["--ignore-certificate-errors"] },
     );

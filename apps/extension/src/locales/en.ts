@@ -512,8 +512,13 @@ export const en = {
     "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.",
   "Autofill stopped: {{why}}. Nothing was pressed.":
     "Autofill stopped: {{why}}. Nothing was pressed.",
-  "verification autofill checked this page; review its fields and press the button yourself":
-    "verification autofill checked this page; review its fields and press the button yourself",
-  "verification autofill stopped; check the page, vault and settings before continuing":
-    "verification autofill stopped; check the page, vault and settings before continuing",
+  "Verification autofill: {{why}}.": "Verification autofill: {{why}}.",
+  "checking this page, and filling only its empty fields":
+    "checking this page, and filling only its empty fields",
+  "filled this page's empty fields; review them and press the button yourself":
+    "filled this page's empty fields; review them and press the button yourself",
+  "filled nothing, as this page's fields already had values; press the button yourself when ready":
+    "filled nothing, as this page's fields already had values; press the button yourself when ready",
+  "stopped; check the page, vault and settings before continuing":
+    "stopped; check the page, vault and settings before continuing",
 } as const;

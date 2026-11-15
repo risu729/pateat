@@ -17,6 +17,8 @@ const { sent, listeners, authorization } = vi.hoisted(() => ({
   authorization: {
     before: undefined as undefined | (() => Promise<void> | void),
     destination: undefined as undefined | (() => Promise<void>),
+    /** The background's answer to the document's announcements, when a test sets one. */
+    ready: undefined as undefined | ((message: Record<string, unknown>) => unknown),
   },
 }));
 vi.mock("wxt/browser", () => ({
@@ -44,6 +46,8 @@ vi.mock("../messaging/protocol", () => ({
       await authorization.destination?.();
       return { ok: new URL(String(message["destination"])).hostname === location.hostname };
     }
+    if (message["type"] === "login.document.ready" && authorization.ready)
+      return authorization.ready(message);
     return { ok: false, reason: "stale-document" };
   },
 }));
@@ -57,6 +61,7 @@ beforeEach(() => {
   listeners.length = 0;
   authorization.before = undefined;
   authorization.destination = undefined;
+  authorization.ready = undefined;
 });
 afterEach(() => {
   uninstall?.();
@@ -341,4 +346,94 @@ test("a confirmation keeps a prefilled username that a sign-in fill replaces", a
     ok: true,
   });
   expect(input("username").value).toBe("fixture@example.com");
+});
+
+test.each(["attempt-fill", "confirm:authenticated-login"])(
+  "a same-origin button the page renders on input does not stop a passive fill (%s)",
+  async (attemptId) => {
+    await install(
+      `<form action="${self.origin}/signin"><label>Password<input id="password" type="password"></label><span id="slot"></span><button type="submit">Sign in</button></form>`,
+    );
+    // A show-password button without a type, so a submit button, as sites render on input.
+    input("password").addEventListener("input", () => {
+      if (!document.getElementById("reveal"))
+        document
+          .getElementById("slot")!
+          .insertAdjacentHTML("beforeend", '<button id="reveal">Show</button>');
+    });
+    const answer = await fill("password", {
+      attemptId,
+      slot: "password",
+      secret: "password",
+      value: "Synthetic-only!",
+    });
+    expect({ answer, value: input("password").value }).toMatchObject({
+      answer: { ok: true },
+      value: "Synthetic-only!",
+    });
+  },
+);
+
+test("a foreign submitter the page renders on input stops a passive fill", async () => {
+  await install(
+    `<form action="${self.origin}/signin"><label>Password<input id="password" type="password"></label><span id="slot"></span></form>`,
+  );
+  input("password").addEventListener("input", () => {
+    if (!document.getElementById("other"))
+      document
+        .getElementById("slot")!
+        .insertAdjacentHTML(
+          "beforeend",
+          '<button id="other" formaction="https://foreign.example/collect">Go</button>',
+        );
+  });
+  expect(
+    await fill("password", {
+      attemptId: "attempt-fill",
+      slot: "password",
+      secret: "password",
+      value: "Synthetic-only!",
+    }),
+  ).toMatchObject({ ok: false, detail: "form-changed" });
+  expect(input("password").value.length).toBeLessThan("Synthetic-only!".length);
+});
+
+test("a verification page answered with the origin's starts reports its first step shown", async () => {
+  const path = observedPath(location.pathname);
+  const first = { path, require: "writable", targets: [{ by: "id", value: "password" }] };
+  authorization.ready = (message) =>
+    message["shown"]
+      ? { ok: false, reason: "confirm-fill" }
+      : { ok: false, reason: "confirm-fill", starts: [], confirm: first };
+  await install('<label>Password<input id="password" type="password"></label>');
+  // The answer named the page's first step, which shows: the document reports it, and the
+  // background logs the page for evaluation only with that report (ADR 0035).
+  await vi.waitFor(() =>
+    expect(sent.filter((entry) => entry["shown"])).toEqual([
+      expect.objectContaining({ shown: expect.objectContaining({ path }) }),
+    ]),
+  );
+});
+
+test("a page whose classification runs keeps watching the origin's starts in place", async () => {
+  const path = observedPath(location.pathname);
+  authorization.ready = (message) =>
+    message["start"]
+      ? { ok: false, reason: "logged-in" }
+      : {
+          ok: false,
+          reason: "generating",
+          starts: [{ path, require: "writable", targets: [{ by: "id", value: "password" }] }],
+        };
+  await install("<main></main>");
+  // A sign-in form the page shows in place is announced, as after a logout (ADR 0062).
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    '<label>Password<input id="password" type="password"></label>',
+  );
+  await vi.waitFor(() =>
+    expect(sent.filter((entry) => entry["start"])).toEqual([
+      expect.objectContaining({ start: { path } }),
+    ]),
+  );
 });

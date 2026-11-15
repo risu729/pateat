@@ -115,8 +115,10 @@ No site list is kept ([ADR 0033](0033-no-site-specific-features.md)).
 
 Known limits: a secret-question input of `type="text"` does not meet
 [ADR 0016](0016-recipe-generation-trigger.md)'s trigger, frames are not sent (most
-3-D Secure pages), a tab with Pateat's own login of the origin sends nothing, and a
-re-verification on the login page's own URL keeps its `sign-in` recipe.
+3-D Secure pages), a tab with Pateat's own login of the origin sends nothing unless
+that login was confirmed (since [delivery 3](#implementation-of-delivery-3), such a tab
+sends a page once per document and path), and a re-verification on the login page's own
+URL keeps its `sign-in` recipe.
 
 ### Passkey re-verification
 
@@ -334,13 +336,14 @@ followed the same day, all local, with these readings:
   not offered as a site's sign-in entry ([ADR 0031](0031-sign-in-entry-pages.md)) even
   when its URL names the page it guards. The case the count exists for, a person who
   signed in earlier, is counted. On the tab's next document after a password submit the
-  page is part of that sign-in and logs `nothing-offered` `after-sign-in`; after
-  Pateat's own login of the origin in the tab it is not offered for generation, so not
-  counted. Until ADR 0086 sent frames (2026-11-07), `frame` counted when a frame whose
-  page would be sent now showed a sign-in input or such an answer at one of five
-  readings within the step wait. Each logs
-  `recipe.generate` `skipped` with that reason at info, and the bug report counts them
-  over 24 hours, like passkey delegations.
+  page is part of that sign-in and logs `nothing-offered` `after-sign-in`. After
+  Pateat's own confirmed login of the origin in the tab, the page is sent once per
+  document and path ([delivery 3](#implementation-of-delivery-3)), so it is not counted;
+  after an unconfirmed or fill-only login it is not offered, so not counted either.
+  Until ADR 0086 sent frames (2026-11-07), `frame` counted when a frame whose page would
+  be sent now showed a sign-in input or such an answer at one of five readings within
+  the step wait. Each logs `recipe.generate` `skipped` with that reason at info, and the
+  bug report counts them over 24 hours, like passkey delegations.
 
 ## Consequences
 
@@ -450,12 +453,17 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
 
 - Confirmation filling uses only the exact account of the tab's confirmed
   `authenticated` login for the document's origin. A blocked, unconfirmed, watched or
-  fill-only record is insufficient. Defaults, popup picks and another tab's login do
-  not select an account. The original authenticated record remains unchanged.
+  fill-only record is insufficient, and so is a sign-in **Fill only** login or a passive
+  autofill: neither ever enables verification autofill. Defaults, popup picks and
+  another tab's login do not select an account. The original authenticated record
+  remains unchanged.
 - Session evidence of that authentication is written after its durable login record.
   It survives a worker restart and is absent after a browser restart or extension
   reload. Restoring a local attempt by tab ID alone does not authorize confirmation
-  filling.
+  filling. A failed write of that evidence never fails the login itself: the login
+  publishes its result and goes on, and confirmation filling refuses for the rest of
+  the browser session. A released record (ADR 0062) drops its evidence, and a tab
+  Chrome replaces (`tabs.onReplaced`) carries it over with the record it moves.
 - A separate bounded session ledger claims a document/path/recipe/step before vault
   reads and delivery. Unknown delivery or acknowledgement never replays that claim.
   The document-start recorder also protects edited or replaced inputs. Existing
@@ -481,17 +489,36 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   identity, site access, pause/private-window policy, account and field eligibility,
   URI matching, master-password requirements, settings/profile scope, recipe mutation
   fence and the already-open vault snapshot. Unavailable authority refuses the fill.
-  A frame also needs that account to match its current top page.
+  A frame also needs that account to match its current top page. A single-page site's
+  route to a verification is authorized by the document, token and operation, as for a
+  login: the browser keeps a document's load URL as its sender URL.
 - In-flight confirmation work holds off manual login, account switching and vault
   replacement. Changed policy cancels it. Repeat announcements of the same document
-  retain its operation identity; navigation cancels that work. These guards do not
-  grant permission to press a verification button or perform its guarded action.
+  retain its operation identity; navigation cancels that work. A cancel stops only the
+  worker's side: the document asks again before it changes a field, and its content
+  script keeps reading the page. These guards do not grant permission to press a
+  verification button or perform its guarded action.
+- The master password window of a re-prompt item does not hold the tab while it is
+  open: the work ends, so the tab's other frames, **Log in now** and an account switch
+  go on. Once the vault accepts the password for the same vault account while the
+  document and the authenticated login are still the tab's, the document announces
+  again and fills with that answer, once. A closed window, or one answered for another
+  vault account, leaves the page to the person.
+- A verification page's answer carries the origin's first steps, as the authenticated
+  record's `logged-in` answer does, so the page keeps watching for a sign-in form in
+  place (ADR 0062) and reports its first step shown.
 - Existing value-free evaluation fields remain. `login.refused` with
   `not-started` names `confirm-fill` when checking the page and
-  `confirm-fill-stopped` when filling cannot continue. Neither claims an action
-  succeeded. `confirm-unsupported` remains for a page without an eligible confirmed
-  context, and `page-off` for a disabled verification page.
+  `confirm-fill-stopped` when filling cannot continue, each once per visit and with
+  the page's fields, logged when the page reports its first step shown. Neither claims
+  an action succeeded. `confirm-unsupported` remains for a page without an eligible
+  confirmed context, and `page-off` for a disabled verification page. The popup says
+  whether the fill changed a field or kept every value it found.
 
 The session store holds at most 100 authentication proofs and 512 generation/fill
-claims. A full, corrupt or unavailable store refuses further confirmation filling.
-Closing a tab removes its entries. No vault value or page text is written to this store.
+claims, at most 64 of them for one tab, so one long-lived tab cannot turn confirmation
+filling off in the others. A full, corrupt or unavailable store refuses further
+confirmation filling. A tab's new top document drops the claims of the page it left;
+the content script's own record of the inputs it filled still guards a page brought
+back from the back/forward cache. Closing a tab removes its entries. No vault value or
+page text is written to this store.

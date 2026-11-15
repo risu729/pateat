@@ -381,6 +381,42 @@ describe("pageStatusLines", () => {
     ]);
   });
 
+  it("says whether a verification page's autofill filled anything, beside the login (ADR 0035)", () => {
+    const confirm = (reason: string) =>
+      lines({
+        recipe: "page",
+        login: { state: "authenticated" },
+        page: { state: "watching", reason, notStarted: "confirm-fill" },
+      });
+    expect(confirm("confirm-filled")).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+      ["login", "ok", "Logged in."],
+      [
+        "confirm-fill",
+        "idle",
+        "Verification autofill: filled this page's empty fields; review them and press the button yourself.",
+      ],
+    ]);
+    expect(confirm("confirm-fill-kept")[2]?.[2]).toBe(
+      "Verification autofill: filled nothing, as this page's fields already had values; press the button yourself when ready.",
+    );
+    expect(confirm("confirm-fill-stopped")[2]?.slice(0, 2)).toEqual(["confirm-fill", "warn"]);
+    expect(confirm("confirm-fill")[2]?.[2]).toBe(
+      "Verification autofill: checking this page, and filling only its empty fields.",
+    );
+    // Without the login's line, as after the badge forgot it, the page's own line shows.
+    expect(
+      lines({ recipe: "page", page: { state: "watching", notStarted: "confirm-fill-stopped" } }),
+    ).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+      [
+        "confirm-fill",
+        "warn",
+        "Verification autofill: stopped; check the page, vault and settings before continuing.",
+      ],
+    ]);
+  });
+
   it("takes a refusal as the page's latest word over an older not-started reason", () => {
     expect(
       lines({

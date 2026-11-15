@@ -16,6 +16,7 @@ import { probeMode } from "./constants";
 import { manualPending } from "./manual-scope";
 import { hasConfirmAuthentication, type ConfirmWork } from "./confirm-state";
 import { openPasswordWindow } from "./master-password";
+import { settleConfirmFill } from "./not-started";
 import type { Runtime } from "./state";
 
 export function confirmCurrent(rt: Runtime, work: ConfirmWork): boolean {
@@ -167,30 +168,66 @@ export async function confirmPlan(
   };
 }
 
-/** A confirmation gets its own document-bound reprompt, never a saved login grant. */
+/**
+ * A confirmation gets its own document-bound reprompt, never a saved login grant. Its
+ * window does not hold the tab: the work ends while it is open (`asked`), so the tab's
+ * other frames, **Log in now** and an account switch go on meanwhile. Once the vault
+ * accepts the password for the same vault account, while the document and the
+ * authenticated login are still the tab's, the document announces again and its next fill
+ * uses that answer, once. A closed window, or one answered for another vault account,
+ * leaves the page to the person.
+ */
 export async function confirmReprompt(
   rt: Runtime,
   work: ConfirmWork,
   found: NonNullable<Awaited<ReturnType<typeof confirmAccount>>>,
-): Promise<boolean> {
+): Promise<boolean | "asked"> {
   if (!itemAsksForMasterPassword(found.snapshot.snapshot.settings, found.item, work.live.url))
     return true;
   if (!rt.options.askMasterPassword || !confirmCurrent(rt, work)) return false;
-  const key = work.live.document.tabId + " " + work.live.document.documentId;
+  const { live, parent } = work;
+  const { tabId, frameId, documentId } = live.document;
+  const key = tabId + " " + documentId;
+  const grant = parent.id + " " + found.connection.id;
+  const state = rt.confirmFill;
+  if (state.verified.get(key) === grant) {
+    state.verified.delete(key);
+    return true;
+  }
+  if (state.asking.has(key)) return "asked";
   const asked =
     rt.passwordAsks.get(key) ??
     openPasswordWindow(rt, "detail", key, {
-      tabId: work.live.document.tabId,
-      origin: work.live.document.origin,
-      account: work.parent.account,
+      tabId,
+      origin: live.document.origin,
+      account: parent.account,
       connection: found.connection,
       item: found.item,
     });
-  const answer = await asked.answer;
-  return (
-    answer.answer === "verified" &&
-    !answer.aborted &&
-    asked.connectionId === found.connection.id &&
-    confirmCurrent(rt, work)
-  );
+  state.asking.add(key);
+  void asked.answer
+    .then(async ({ answer, aborted }) => {
+      state.asking.delete(key);
+      const page = rt.documents.get(frameKey(live.document));
+      if (
+        answer !== "verified" ||
+        aborted ||
+        asked.connectionId !== found.connection.id ||
+        page?.document.documentId !== documentId ||
+        recordFor(rt, tabId, live.document.origin)?.id !== parent.id
+      ) {
+        if (page?.document.documentId === documentId)
+          await settleConfirmFill(rt, page, live.path, "confirm-fill-stopped");
+        return undefined;
+      }
+      state.verified.set(key, grant);
+      await browser.tabs
+        .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId, documentId })
+        .catch(() => {
+          if (state.verified.get(key) === grant) state.verified.delete(key);
+        });
+      return undefined;
+    })
+    .catch(() => undefined);
+  return "asked";
 }

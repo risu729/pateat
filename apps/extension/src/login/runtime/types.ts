@@ -197,6 +197,10 @@ type ConfirmVisit = {
    * whether the tab's next page is read for E1 (neither its own E1 nor E2 showed).
    */
   logged?: Promise<boolean>;
+  /** The page's last `shown` report on this path, for an entry logged after it. */
+  shown?: Shown;
+  /** The `not-started` details already logged for this visit, each logged once. */
+  noted?: Set<string>;
 };
 
 export /** Why a page offered for generation is not sent, for the log (ADR 0019). */

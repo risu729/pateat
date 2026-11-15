@@ -1,19 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  parseLoginRecipe,
-  type LoginAttemptMetadata,
-  type LoginOperation,
-  type LoginRecipe,
-} from "@pateat/contracts";
+import { describe, expect, it, vi } from "vitest";
+import { parseLoginRecipe, type LoginOperation } from "@pateat/contracts";
 import type { LoginGeneration } from "../runtime/deps";
-import type { LoginReport } from "../runtime/report";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
-const { createRuntimeTestHarness } = await import("./harness");
+const { confirmationFixture } = await import("./confirmation-fixture");
 const {
   harness,
-  recipe,
   origin,
   itemId,
   otherItemId,
@@ -21,109 +14,19 @@ const {
   sender,
   target,
   uriMatch,
-  realTime,
-} = createRuntimeTestHarness(fake);
-const attemptKey = "pateat.login-attempts.v5";
-const sessionKey = "pateat.confirm-fills.v1";
-const popup = {
-  id: "synthetic-extension",
-  url: "chrome-extension://synthetic-extension/popup.html",
-};
-const stored = () => fake.state.storage[attemptKey] as LoginAttemptMetadata[];
-const executes = () =>
-  fake.state.messages.filter((entry) => entry.type === "login.execute") as unknown as {
-    operation: LoginOperation;
-    values: { slot: string; value: string }[];
-  }[];
-const confirmations = () =>
-  executes().filter((entry) => entry.operation.attemptId.startsWith("confirm:"));
-const cached = (kind: "confirm" | "unclear" = "confirm") =>
-  parseLoginRecipe({
-    ...recipe,
-    id: "synthetic-confirm",
-    pageKind: kind,
-    steps: recipe.steps.map((step) => ({ ...step, path: "/confirm" })),
-  });
-const uris = async (_connection: string, url: string) => ({
-  ok: true as const,
-  data: uriMatch({ targetOrigin: new URL(url).origin }),
-});
-beforeEach(() => {
-  realTime();
-  Object.assign(fake.state, {
-    storage: {},
-    session: {},
-    messages: [],
-    badges: {},
-    reconnects: [],
-    onReconnect: undefined,
-    granted: true,
-    pageUrl: `${origin}/signin`,
-    observedPath: "/signin",
-    present: new Set(["password", "login"]),
-    onExecute: undefined,
-    onAwait: undefined,
-    tabUrls: {},
-    incognito: new Set(),
-    observed: ["unique", "missing"],
-    unusable: new Set(),
-    disabled: new Set(),
-    faint: new Set(),
-    ambiguous: new Set(),
-    unobservable: new Set(),
-    awaited: { ok: true },
-    executeReply: undefined,
-    gone: new Set(),
-    goneFrames: new Set(),
-    onPresent: undefined,
-    extracted: {},
-    signs: undefined,
-    loaded: true,
-    openTabs: undefined,
-    signIn: false,
-  });
-});
-afterEach(async () => {
-  for (const listener of fake.state.removed.splice(0))
-    for (const tabId of [1, 2, 3]) listener(tabId);
-  fake.state.replaced.length = 0;
-  vi.restoreAllMocks();
-  vi.useRealTimers();
-});
+  sessionKey,
+  popup,
+  stored,
+  executes,
+  confirmations,
+  cached,
+  uris,
+  authenticated,
+  configure,
+  announce,
+  settled,
+} = confirmationFixture(fake);
 type H = ReturnType<typeof harness>;
-async function authenticated(live: Parameters<typeof harness>[1] = {}) {
-  const reports: LoginReport[] = [];
-  const h = harness({}, { uris, ...live, report: (entry) => reports.push(entry) });
-  fake.state.onExecute = async (message) => {
-    if ((message["operation"] as LoginOperation).step.kind === "click")
-      fake.state.present = new Set(["authenticated"]);
-  };
-  expect(await h.hello()).toEqual({ ok: true });
-  await vi.waitFor(() => expect(stored()[0]).toMatchObject({ state: "authenticated" }));
-  await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-  await vi.waitFor(() =>
-    expect(fake.state.session[sessionKey]).toMatchObject({
-      proofs: [expect.objectContaining({ itemId })],
-    }),
-  );
-  h.fields.mockClear();
-  h.store.update.mockClear();
-  fake.state.onExecute = undefined;
-  return { h, reports, original: structuredClone(stored()) };
-}
-function configure(h: H, confirm: LoginRecipe = cached()) {
-  h.recipes.routes.mockResolvedValue([confirm]);
-  h.recipes.recipe.mockResolvedValue(confirm);
-  fake.state.pageUrl = `${origin}/confirm`;
-  fake.state.observedPath = "/confirm";
-  fake.state.present = new Set(["password", "login"]);
-  return confirm;
-}
-const announce = (h: H, from: Record<string, unknown> = {}) =>
-  h.hello({ documentId: "confirmation-document", ...from }, false);
-async function settled(h: H) {
-  await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-}
 
 describe("confirmed-session confirmation filling", () => {
   it.each(["confirm", "unclear"] as const)(
@@ -204,12 +107,13 @@ describe("confirmed-session confirmation filling", () => {
       if (reason === "browser-restart") fake.state.session = {};
       if (reason === "corrupt-session")
         fake.state.session[sessionKey] = { proofs: "invalid", claims: [] };
+      // Other tabs' claims fill the session; this tab's own are still under its limit.
       if (reason === "full-claims") {
         const session = fake.state.session[sessionKey] as { claims: unknown[] };
         session.claims = Array.from({ length: 512 }, (_, i) => ({
           key: `claimed-${i}`,
-          tabId: 1,
-          document: record.document,
+          tabId: 10 + (i % 16),
+          document: { ...record.document, tabId: 10 + (i % 16) },
         }));
       }
     }
@@ -469,7 +373,6 @@ describe("confirmed-session confirmation filling", () => {
         { documentId: "different" },
         { frameId: 2 },
         { tab: { id: 2, incognito: false } },
-        { url: `${origin}/other` },
         { id: "other-extension" },
       ].map(async (override) => {
         expect(
@@ -481,6 +384,16 @@ describe("confirmed-session confirmation filling", () => {
       }),
     );
     expect(await h.login.handle({ ...request, operationId: "different" }, from)).toBe(false);
+    // `sender.url` keeps the load URL (below); the tab's URL is the page's current one.
+    fake.state.tabUrls[1] = `${origin}/other`;
+    expect(await h.login.handle(request, from)).toBe(false);
+    delete fake.state.tabUrls[1];
+    expect(
+      await h.login.handle(
+        request,
+        sender({ documentId: "confirmation-document", url: `${origin}/landing` }),
+      ),
+    ).toBe(true);
     h.settings.revision += 1;
     expect(await h.login.handle(request, from)).toBe(false);
     held.resolve();

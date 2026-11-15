@@ -28,7 +28,7 @@ import {
   type Execution,
 } from "./types";
 import { leaveConfirm, previousPage } from "./markers";
-import { noteNotStarted } from "./not-started";
+import { noteConfirmFill, noteNotStarted } from "./not-started";
 import { noteUnadmitted, note, loginRelated } from "./generation";
 import { tabAttempt, recordFor } from "./hold";
 import { terminal, siteWaitOver, watchOver } from "./attempt-state";
@@ -48,7 +48,8 @@ import {
 } from "./moves";
 import { signedInAfterFrame, signedInByMove } from "./passkey";
 import type { Runtime } from "./state";
-import { cancelConfirm, hasConfirmAuthentication } from "./confirm-state";
+import { cancelConfirm, hasConfirmAuthentication, leaveConfirmDocuments } from "./confirm-state";
+import { startsFor } from "./generation-scope";
 import { admitConfirm } from "./confirm-admit";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
@@ -161,30 +162,35 @@ export async function admit(
       confirming.live.token === token
     ) {
       const visit = rt.confirmVisits.get(document.tabId);
-      if (
+      const here =
         !confirming.generation &&
-        visit &&
+        visit !== undefined &&
         sameLoginDocument(visit.document, document) &&
-        visit.path === confirming.live.path
-      )
-        noteNotStarted(rt, confirming.live, shown, "confirm-fill", confirming.recipe, visit);
+        visit.path === confirming.live.path;
+      if (here) noteConfirmFill(rt, confirming.live, shown, visit);
+      // The page keeps watching the origin's first steps, as for `logged-in` (ADR 0062).
+      const starts = await startsFor(rt, document.origin);
+      if (rt.hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
       return {
         ok: false,
         reason: confirming.generation ? "generating" : "confirm-fill",
-        ...(visit?.document.documentId === document.documentId ? { confirm: visit.first } : {}),
+        starts,
+        ...(here ? { confirm: visit.first } : {}),
       };
     }
+    // The document moved in place, the tab shows another page, or the frame another
+    // document: only the background's work stops. The document's own fill asks the
+    // background again before it changes a field, so it stops too, while its content
+    // script goes on reading the page for its next announcement.
     if (
       same ||
       document.frameId === confirming.live.document.frameId ||
       (document.frameId === 0 &&
         (confirming.topDocumentId !== document.documentId ||
           (confirming.live.topUrl ?? confirming.live.url) !== url))
-    ) {
+    )
       cancelConfirm(rt, document.tabId);
-      await send(rt, confirming.live, { type: "login.cancel" }).catch(() => undefined);
-      if (rt.hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
-    } else return { ok: false, reason: "tab-busy" };
+    else return { ok: false, reason: "tab-busy" };
   }
 
   // A tab runs one attempt. Another frame of the tab, such as an embedded widget or the
@@ -428,6 +434,9 @@ export async function admit(
 
   rt.documents.set(key, live);
 
+  // The tab's documents of a page it left need no confirmation claim any more (ADR 0035).
+  if (document.frameId === 0) leaveConfirmDocuments(rt, document.tabId, document.documentId);
+
   // The tab's next page after a page Pateat does not fill (ADR 0035).
   const earlier = rt.confirmVisits.get(document.tabId);
 
@@ -559,6 +568,9 @@ export async function admit(
     ctx.recorded = undefined;
   }
   if (duplicate) {
+    // The document that carries its login stays the one recorded, so its next
+    // announcement is a duplicate again rather than a new admission.
+    if (rt.documents.get(key) === live && oldLive) rt.documents.set(key, oldLive);
     note(rt, document, url, "duplicate-document");
     return { ok: false, reason: "duplicate-document" };
   }

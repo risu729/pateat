@@ -21,6 +21,8 @@ const claimSchema = v.strictObject({
   key: v.string(),
   tabId: v.number(),
   document: loginDocumentSchema,
+  /** The tab's top document when it was claimed; a new top document drops the claim. */
+  top: v.optional(v.string()),
 });
 const schema = v.strictObject({
   proofs: v.pipe(v.array(proofSchema), v.maxLength(100)),
@@ -28,6 +30,10 @@ const schema = v.strictObject({
 });
 type Proof = v.InferOutput<typeof proofSchema>;
 type Claim = v.InferOutput<typeof claimSchema>;
+/** One tab never holds more claims than this, so it cannot use up every other tab's. */
+export const TAB_CLAIMS = 64;
+/** How a document's confirmation fill on a path ended, for the popup (ADR 0038). */
+export type ConfirmOutcome = "confirm-filled" | "confirm-fill-kept" | "confirm-fill-stopped";
 export type ConfirmWork = {
   live: LiveDocument;
   parent: LoginAttemptMetadata;
@@ -48,6 +54,15 @@ export function createConfirmState() {
     proofs: [] as Proof[],
     claims: [] as Claim[],
     work: new Map<number, ConfirmWork>(),
+    /** `tabId documentId` to how its fill on `path` ended, in memory only. */
+    outcomes: new Map<string, { path: string; reason: ConfirmOutcome }>(),
+    /**
+     * `tabId documentId` to the `attemptId connectionId` whose master password the
+     * confirmation's own window accepted, used once by the document's next fill.
+     */
+    verified: new Map<string, string>(),
+    /** Documents whose confirmation waits for its master password window to answer. */
+    asking: new Set<string>(),
     healthy: true,
     queue: Promise.resolve(),
     loaded: Promise.resolve(),
@@ -142,13 +157,21 @@ export const hasConfirmClaim = (rt: Runtime, key: string): boolean =>
 /** Claim before any read/delivery; an unknown acknowledgement is never replayed. */
 export async function claimConfirm(rt: Runtime, work: ConfirmWork, key: string): Promise<boolean> {
   const state = rt.confirmFill;
+  const { tabId, frameId, documentId } = work.live.document;
   if (
     !state.healthy ||
     state.claims.some((entry) => entry.key === key) ||
-    state.claims.length >= 512
+    state.claims.length >= 512 ||
+    state.claims.filter((entry) => entry.tabId === tabId).length >= TAB_CLAIMS
   )
     return false;
-  state.claims.push({ key, tabId: work.live.document.tabId, document: work.live.document });
+  const top = frameId === 0 ? documentId : work.topDocumentId;
+  state.claims.push({
+    key,
+    tabId,
+    document: work.live.document,
+    ...(top === undefined ? {} : { top }),
+  });
   await write(rt);
   return !work.cancelled && state.work.get(work.live.document.tabId) === work;
 }
@@ -165,14 +188,86 @@ export function cancelConfirm(rt: Runtime, tabId?: number): void {
   }
 }
 
-export function forgetConfirmTab(rt: Runtime, tabId: number): void {
-  cancelConfirm(rt, tabId);
+/** Runs `change` once the session state is read, and writes it only when it changed. */
+function update(rt: Runtime, change: (state: { proofs: Proof[]; claims: Claim[] }) => boolean) {
   void rt.confirmFill.loaded
     .then(async () => {
-      rt.confirmFill.proofs = rt.confirmFill.proofs.filter((entry) => entry.tabId !== tabId);
-      rt.confirmFill.claims = rt.confirmFill.claims.filter((entry) => entry.tabId !== tabId);
-      await write(rt);
+      if (change(rt.confirmFill)) await write(rt);
       return undefined;
     })
     .catch(() => undefined);
+}
+
+const dropDocuments = (rt: Runtime, keep: (key: string) => boolean) => {
+  for (const map of [rt.confirmFill.outcomes, rt.confirmFill.verified])
+    for (const key of [...map.keys()]) if (!keep(key)) map.delete(key);
+};
+
+export function forgetConfirmTab(rt: Runtime, tabId: number): void {
+  cancelConfirm(rt, tabId);
+  dropDocuments(rt, (key) => !key.startsWith(`${tabId} `));
+  update(rt, (state) => {
+    const proofs = state.proofs.filter((entry) => entry.tabId !== tabId);
+    const claims = state.claims.filter((entry) => entry.tabId !== tabId);
+    if (proofs.length === state.proofs.length && claims.length === state.claims.length)
+      return false;
+    state.proofs = proofs;
+    state.claims = claims;
+    return true;
+  });
+}
+
+/**
+ * The tab shows the top document `documentId`: claims of the documents it left, its old
+ * page's and that page's frames', are dropped, so a long-lived tab does not keep them until
+ * it closes. A document brought back from the back/forward cache still keeps the inputs it
+ * was filled into from another fill (`claimFill`), and its filled values from being replaced.
+ */
+export function leaveConfirmDocuments(rt: Runtime, tabId: number, documentId: string): void {
+  const shown = new Set(
+    [...rt.documents.values()].map((live) => `${live.document.tabId} ${live.document.documentId}`),
+  );
+  dropDocuments(
+    rt,
+    (key) => !key.startsWith(`${tabId} `) || key === `${tabId} ${documentId}` || shown.has(key),
+  );
+  update(rt, (state) => {
+    const claims = state.claims.filter(
+      (entry) => entry.tabId !== tabId || entry.top === documentId,
+    );
+    if (claims.length === state.claims.length) return false;
+    state.claims = claims;
+    return true;
+  });
+}
+
+/** The tab's login record of the origin was released (ADR 0062): so is its proof. */
+export function forgetConfirmProof(rt: Runtime, tabId: number, origin: string): void {
+  update(rt, (state) => {
+    const proofs = state.proofs.filter((entry) => entry.tabId !== tabId || entry.origin !== origin);
+    if (proofs.length === state.proofs.length) return false;
+    state.proofs = proofs;
+    return true;
+  });
+}
+
+/**
+ * Chrome replaced tab `removed` with `added` (`tabs.onReplaced`): the proofs move with the
+ * login records, which move to the new tab too. The gone page's claims and outcomes go with
+ * its documents.
+ */
+export function moveConfirmTab(rt: Runtime, removed: number, added: number): void {
+  cancelConfirm(rt, removed);
+  dropDocuments(rt, (key) => !key.startsWith(`${removed} `));
+  update(rt, (state) => {
+    if (!state.proofs.some((entry) => entry.tabId === removed)) return false;
+    const moved = new Set(
+      state.proofs.flatMap((entry) => (entry.tabId === removed ? [entry.origin] : [])),
+    );
+    state.proofs = state.proofs
+      .filter((entry) => entry.tabId !== added || !moved.has(entry.origin))
+      .map((entry) => (entry.tabId === removed ? { ...entry, tabId: added } : entry));
+    state.claims = state.claims.filter((entry) => entry.tabId !== removed);
+    return true;
+  });
 }
