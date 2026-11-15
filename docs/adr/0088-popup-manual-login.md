@@ -2,13 +2,14 @@
 
 Status: requested by the owner on 2026-11-11 UTC (recorded at 15:07 UTC),
 「あと、UIでポップアップからforce login(条件などで止まっているもの)できるようにして」.
-This change implements the request. The scope and lifecycle details below are the
-implementation's interpretation of that request, not separately confirmed choices.
+This change implements the request. The scope and lifecycle details below began as the
+implementation's interpretation of that request; the owner approved merging the change
+with them on 2026-11-15.
 Amends [ADR 0022](0022-login-attempts-per-tab-and-origin.md),
 [ADR 0035](0035-page-kinds-per-site.md) and
 [ADR 0062](0062-log-in-again-after-a-logout.md) for this new explicit action;
 ordinary automatic logins and the existing account-choice action keep their behavior.
-Verification is synthetic; no real account or paid model request was used.
+Testing is synthetic; no real account or paid model request was used.
 
 Date: 2026-11-11
 
@@ -52,10 +53,18 @@ which is unnecessary for one requested login.
 - The popup distinguishes preparation or generation from an actually started login
   and from a refusal. A second click cannot create another pending request for the tab.
   A stale or unavailable page is reported rather than silently choosing another page.
+  A web page where no document reported a sign-in form says so, without asking the
+  person to reload it.
 - Pending permission is bounded and stays in memory. Page replacement, a changed URL,
-  tab removal, expiry, a failed evaluation or a worker restart ends it. Another frame's
-  announcement does not gain or cancel the selected frame's permission. After an
-  attempt starts, its existing account and attempt scope govern continuation.
+  tab removal, expiry, a failed evaluation, the popup's **Cancel this login** or a
+  worker restart ends it. A changed top-level URL ends it as soon as the tab reports
+  the navigation, so a page restored from the back/forward cache with its old document
+  and URL does not revive it. Cancel ends only the named pending request; it does not
+  stop a login that already started. Another frame's announcement does not gain or
+  cancel the selected frame's permission. After an attempt starts, its existing account
+  and attempt scope govern continuation.
+- Starting the login clears the tab's ask for an account after a rejected or stopped
+  login of the origin (ADR 0062 B), as an ordinary popup pick does.
 - Success does not save a default, retain a session account, clear an ask-every-time
   choice or resume a timed pause. The original account-choice and account-switch
   controls keep their existing setting changes.
@@ -64,7 +73,10 @@ which is unnecessary for one requested login.
 
 Delivery 2 of ADR 0035 adds a passive sign-in attempt. **Log in now** may take over that
 attempt only while it is parked on its read-only page-change wait, with no input,
-acknowledgement, generation or passkey request in flight. A restored passive record with
+acknowledgement, generation or passkey request in flight. A conditional passkey request
+of the document that only waits for that document's login does not count: the login
+answers it ([ADR 0034](0034-answer-page-passkey-requests.md)); once the login
+hands it an item to sign, it counts again. A restored passive record with
 no running operation can also yield. A passive attempt that ended, because it filled its
 last safe field (`fillDone`) or its watch ran out, holds no page and is retried like any
 other ended record. Planning, active field reads, mutation intents, challenge watches
@@ -80,12 +92,12 @@ The final authorization checks and removal of the old run occur without an inter
 await. Existing run identity, operation and document checks then fence its late wait
 response or acknowledgement before storage yields; a new manual attempt gets its own
 identity and the selected pick's authority. Another tab's idle passive wait does not
-block the request, but a wake of that old wait cannot act beside the manual login.
-This changes no site/profile setting and grants no account remembering or default save.
+block the request, but a wake of that old wait cannot act beside the manual login. This
+changes no site or profile setting and grants no account remembering or default save.
 
 A valid request may also reach normal start-page repair when a cached `confirm` or
 `unclear` page is set to `off`. It does not execute the cached recipe or change its kind
-locally. A page still classified as a verification is left untouched; normal repair,
+locally. A page still classified as a confirmation is left untouched; normal repair,
 inference, spending, scope and output-validation limits apply. These are integration
 details of the existing explicit action, not a new permission to submit confirmations.
 

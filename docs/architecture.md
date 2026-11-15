@@ -846,8 +846,14 @@ destination checks still apply.
 
 Pending manual authority is held only in memory for the chosen page, for at most five
 minutes, including while its generation or master-password prompt waits. Navigation,
-failure, prompt closure, expiry or a worker restart ends it. A sibling frame's
-announcement cannot use or cancel it. Once an attempt starts, only the ordinary
+failure, prompt closure, expiry, the popup's **Cancel this login** or a worker restart
+ends it. The worker ends it as soon as `tabs.onUpdated` reports a changed top-level
+URL, so a page restored from the back/forward cache with its old document and URL does
+not revive it; this needs no permission beyond the HTTP(S) host access. Cancel names
+the pending request and never stops a login that already started. A sibling frame's
+announcement cannot use or cancel it. Starting the login clears the tab's ask after a
+rejected or stopped login of the origin (`stoppedAsks`, `rejectedAsks`), as an ordinary
+popup pick does. Once an attempt starts, only the ordinary
 attempt-scoped account pick and its manual provenance persist. The popup distinguishes
 preparation and generation from a started login and displays actionable blockers.
 This action saves no default, keeps no session account, changes no ask-every-time
@@ -4515,5 +4521,6 @@ limit that a later change may narrow.
 The popup's **Log in now** ([ADR 0088](adr/0088-popup-manual-login.md)) is such an
 explicit pick. It may replace a passive attempt only while that attempt is parked on its
 read-only wait with no operation, generation or passkey request in flight, or after the
-attempt ended; the old run is removed before storage yields, so its late wait answer
-cannot act beside the new normal login.
+attempt ended. A conditional passkey request parked for its document's login is not in
+flight until that login hands it an item to sign (ADR 0034). The old run is removed
+before storage yields, so its late wait answer cannot act beside the new normal login.

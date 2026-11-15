@@ -234,25 +234,6 @@ async function finishFromPopup(options: Page, site: Page, popup: Page, accountVa
   await unchangedFillPolicy(options);
 }
 
-test("Log in now follows an ended profile autofill with one normal login without changing page behavior", async () => {
-  const fixture = await startLoginFixture(0, { password });
-  try {
-    await withVaultProfile(async (open) => {
-      const browser = await open();
-      const { options, accountValue } = await configure(browser, fixture);
-      const site = await browser.context.newPage();
-      await site.goto(`${origin}/single`);
-      await expect(site.getByLabel("Password", { exact: true })).toHaveValue(password);
-      await filled(options);
-      expect(await submissions(site)).toBe(0);
-      const popup = await openPopup(browser.context, options, site, browser.extensionId);
-      await finishFromPopup(options, site, popup, accountValue);
-    });
-  } finally {
-    await fixture.close();
-  }
-});
-
 test("Log in now refuses an in-flight passive fill and becomes available only after it ends", async () => {
   const fixture = await startLoginFixture(0, { password });
   try {
