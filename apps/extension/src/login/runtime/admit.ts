@@ -48,7 +48,12 @@ import {
 } from "./moves";
 import { signedInAfterFrame, signedInByMove } from "./passkey";
 import type { Runtime } from "./state";
-import { cancelConfirm, hasConfirmAuthentication, leaveConfirmDocuments } from "./confirm-state";
+import {
+  cancelConfirm,
+  enterConfirmPath,
+  hasConfirmAuthentication,
+  leaveConfirmDocuments,
+} from "./confirm-state";
 import { startsFor } from "./generation-scope";
 import { admitConfirm } from "./confirm-admit";
 import { admitRecord } from "./admit-record";
@@ -434,8 +439,10 @@ export async function admit(
 
   rt.documents.set(key, live);
 
-  // The tab's documents of a page it left need no confirmation claim any more (ADR 0035).
+  // The tab's documents of a page it left need no confirmation claim any more, and this
+  // announcement takes its document's master password grant, if any (ADR 0035).
   if (document.frameId === 0) leaveConfirmDocuments(rt, document.tabId, document.documentId);
+  enterConfirmPath(rt, live);
 
   // The tab's next page after a page Pateat does not fill (ADR 0035).
   const earlier = rt.confirmVisits.get(document.tabId);

@@ -265,6 +265,55 @@ describe("confirmation claims and proofs over a tab's life", () => {
     expect(proofs()).toHaveLength(1);
   });
 
+  it("keeps a frame's claim when the frame announced before its page's top document", async () => {
+    const h = harness({}, { uris });
+    const portal = `${origin}/portal`;
+    fake.state.pageUrl = portal;
+    fake.state.tabUrls[1] = portal;
+    await h.hello({ documentId: "portal-top", url: portal }, false);
+    fake.state.observedPath = "/signin";
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as LoginOperation).step.kind === "click")
+        fake.state.present = new Set(["authenticated"]);
+    };
+    const frame = {
+      frameId: 3,
+      documentId: "authentication-frame",
+      url: `${origin}/signin`,
+      tab: { id: 1, incognito: false, url: portal },
+    };
+    expect(await h.hello(frame)).toEqual({ ok: true });
+    await vi.waitFor(() => expect(proofs()).toHaveLength(1));
+    await settled(h);
+    fake.state.onExecute = undefined;
+    // A restarted worker knows no document of the tab yet, and the frame announces first.
+    fake.state.openTabs = [1];
+    const next = harness({}, { uris });
+    configure(next);
+    fake.state.pageUrl = portal;
+    const confirmation = { ...frame, documentId: "confirmation-frame", url: `${origin}/confirm` };
+    await announce(next, confirmation);
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    await settled(next);
+    await vi.waitFor(() => expect(claims()).toHaveLength(1));
+    fake.state.observedPath = "/portal";
+    await next.hello({ documentId: "portal-top", url: portal }, false);
+    await vi.waitFor(() =>
+      expect(claims()).toEqual([expect.objectContaining({ top: "portal-top" })]),
+    );
+    // Even in a worker restarted again, the frame's fill is never delivered again.
+    const again = harness({}, { uris });
+    configure(again);
+    fake.state.pageUrl = portal;
+    fake.state.observedPath = "/portal";
+    await again.hello({ documentId: "portal-top", url: portal }, false);
+    fake.state.observedPath = "/confirm";
+    await announce(again, confirmation);
+    await settled(again);
+    expect(confirmations()).toHaveLength(1);
+    expect(claims()).toHaveLength(1);
+  });
+
   it("refuses a confirmation once its tab holds as many claims as one tab may", async () => {
     await authenticated();
     const record = stored()[0]!;

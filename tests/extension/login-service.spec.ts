@@ -835,7 +835,7 @@ test("a synced confirmation recipe fills the authenticated encrypted-vault accou
         await browser.context.route(`${site}/confirm-access`, async (request) =>
           request.fulfill({
             contentType: "text/html",
-            body: `<!doctype html><title>Confirm access</title><h1>Confirm access</h1><form><label>Password<input id="verification-password" type="password" autocomplete="current-password"></label><button id="guarded-action">Perform guarded action</button></form><script>window.effects={clicks:0,enters:0,submits:0};document.querySelector('button').addEventListener('click',()=>window.effects.clicks++);document.addEventListener('keydown',e=>{if(e.key==='Enter')window.effects.enters++});document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.effects.submits++})</script>`,
+            body: `<!doctype html><title>Confirm access</title><h1>Confirm access</h1><form><label>Password<input id="verification-password" type="password" autocomplete="current-password"></label><button id="guarded-action">Perform guarded action</button></form><p id="authenticated">Signed in</p><script>window.effects={clicks:0,enters:0,submits:0};document.querySelector('button').addEventListener('click',()=>window.effects.clicks++);document.addEventListener('keydown',e=>{if(e.key==='Enter')window.effects.enters++});document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.effects.submits++})</script>`,
           }),
         );
         await setupProbe(browser.page, { action: "configure", variant: "uri" });
@@ -899,6 +899,7 @@ test("a synced confirmation recipe fills the authenticated encrypted-vault accou
               entry["event"] === "login.refused" &&
               String(entry["detail"]).startsWith("confirm-fill"),
           );
+        // The verification shows the recipes' signed-in marker, so its signs are read at once.
         await expect.poll(confirmRows).toEqual([
           expect.objectContaining({
             reason: "not-started",
@@ -924,8 +925,16 @@ test("a synced confirmation recipe fills the authenticated encrypted-vault accou
           await elsewhere.evaluate(() => (window as unknown as { effects: unknown }).effects),
         ).toEqual({ clicks: 0, enters: 0, submits: 0 });
         expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
-        // The other tab, with no confirmed login, logs `confirm-unsupported` instead.
-        expect(await confirmRows()).toHaveLength(1);
+        // The other tab, with no confirmed login, logs `confirm-unsupported` instead, and
+        // no row of a confirmation fill.
+        const rows = async () =>
+          (await entries()).filter(
+            (entry) =>
+              entry["event"] === "login.refused" && String(entry["detail"]).startsWith("confirm-"),
+          );
+        await expect
+          .poll(async () => (await rows()).map((entry) => entry["detail"]))
+          .toEqual(["confirm-fill", "confirm-unsupported"]);
       },
       { args: ["--ignore-certificate-errors"] },
     );

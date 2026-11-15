@@ -457,13 +457,14 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   autofill: neither ever enables verification autofill. Defaults, popup picks and
   another tab's login do not select an account. The original authenticated record
   remains unchanged.
-- Session evidence of that authentication is written after its durable login record.
-  It survives a worker restart and is absent after a browser restart or extension
-  reload. Restoring a local attempt by tab ID alone does not authorize confirmation
-  filling. A failed write of that evidence never fails the login itself: the login
-  publishes its result and goes on, and confirmation filling refuses for the rest of
-  the browser session. A released record (ADR 0062) drops its evidence, and a tab
-  Chrome replaces (`tabs.onReplaced`) carries it over with the record it moves.
+- Session evidence of that authentication is written after its durable login record. It
+  survives a worker restart and is absent after a browser restart or extension reload.
+  Restoring a local attempt by tab ID alone does not authorize confirmation filling. A
+  failed write of that evidence never fails the login itself: the login publishes its
+  result and goes on, and confirmation filling refuses until the extension's worker
+  restarts and reads the store again; the login whose evidence was not written never
+  enables it. A released record (ADR 0062) drops its evidence, and a tab Chrome replaces
+  (`tabs.onReplaced`) carries it over with the record it moves.
 - A separate bounded session ledger claims a document/path/recipe/step before vault
   reads and delivery. Unknown delivery or acknowledgement never replays that claim.
   The document-start recorder also protects edited or replaced inputs. Existing
@@ -501,9 +502,19 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
 - The master password window of a re-prompt item does not hold the tab while it is
   open: the work ends, so the tab's other frames, **Log in now** and an account switch
   go on. Once the vault accepts the password for the same vault account while the
-  document and the authenticated login are still the tab's, the document announces
-  again and fills with that answer, once. A closed window, or one answered for another
-  vault account, leaves the page to the person.
+  document, still on the same path, and the authenticated login are the tab's, the
+  document announces again and that announcement fills with the answer, once, on that
+  path with the same recipe, within the step wait (`LOGIN_STEP_WAIT_MS`). Any other
+  announcement of the document drops the answer, so a later visit of a verification
+  asks again. A closed window, or one answered for another vault account, leaves the
+  page to the person: no announcement of that document on that path opens it again
+  until the document moves to another path, also when the page comes back from the
+  back/forward cache while the worker still runs.
+- A passive fill (a sign-in **Fill only** or a confirmation fill) whose form gains a
+  refused destination or one that needs the background's word while it types stops
+  with `form-changed`, and its inputs the person has not edited get back the values
+  they had before it, so no part of a value stays where Enter or a click could send it
+  there (ADR 0051).
 - A verification page's answer carries the origin's first steps, as the authenticated
   record's `logged-in` answer does, so the page keeps watching for a sign-in form in
   place (ADR 0062) and reports its first step shown.
@@ -518,7 +529,10 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
 The session store holds at most 100 authentication proofs and 512 generation/fill
 claims, at most 64 of them for one tab, so one long-lived tab cannot turn confirmation
 filling off in the others. A full, corrupt or unavailable store refuses further
-confirmation filling. A tab's new top document drops the claims of the page it left;
-the content script's own record of the inputs it filled still guards a page brought
-back from the back/forward cache. Closing a tab removes its entries. No vault value or
+confirmation filling. A tab's new top document drops the claims of the page it left,
+except those of documents the tab still shows, as a frame that announced before its
+page's top document. A page brought back from the back/forward cache may therefore be
+filled again, by design: the content script's own record of the inputs it filled still
+keeps those inputs and their values, so only fields still empty and untouched are
+filled. Closing a tab removes its entries. No vault value or
 page text is written to this store.

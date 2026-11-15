@@ -3,6 +3,7 @@
 import type * as v from "valibot";
 import { fillOnlyStep } from "@pateat/contracts";
 import { pageChange } from "../page/page-change";
+import { fillUntouched } from "../page/fill-edits";
 import type { commandSchema } from "./wire/commands";
 import type { LoginReadiness } from "./wire/readiness";
 import type { FormDestination } from "../page/form-destination";
@@ -20,12 +21,48 @@ export const confirmOperation = (operation: { attemptId: string }): boolean =>
 /**
  * Reads where a passive fill's values may go now, and answers later whether they still go
  * only there. Only destinations that need the background's word or are refused are read
- * (`passiveDestinations`), so the page's own same-origin buttons may come and go.
+ * (`passiveDestinations`), so the page's own same-origin buttons may come and go. Once they
+ * changed, the fill's inputs the person has not edited get back the values they had before
+ * it, so no part of a value is left where Enter or a click could send it to the new
+ * destination (ADR 0051). Any other fill reads its destinations once, beforehand.
  */
-export function destinationWatch(read: () => FormDestination[]): () => boolean {
+export function destinationWatch(
+  operation: { signInFill?: boolean | undefined },
+  read: () => FormDestination[],
+  inputs: readonly Element[],
+): () => boolean {
+  if (!operation.signInFill) return () => true;
   const before = JSON.stringify(read());
-  return () => JSON.stringify(read()) === before;
+  const values = inputs.map((input) => valueOf(input));
+  return () => {
+    if (JSON.stringify(read()) === before) return true;
+    for (const [index, input] of inputs.entries()) {
+      const value = values[index];
+      const view = input.ownerDocument.defaultView;
+      if (
+        value === undefined ||
+        !input.isConnected ||
+        valueOf(input) === value ||
+        !view ||
+        !fillUntouched(view, input)
+      )
+        continue;
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set?.call(
+        input,
+        value,
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    return false;
+  };
 }
+
+const valueOf = (input: Element): string | undefined =>
+  input instanceof HTMLInputElement ||
+  input instanceof HTMLTextAreaElement ||
+  input instanceof HTMLSelectElement
+    ? input.value
+    : undefined;
 
 /**
  * Just before a passive fill changes its first field: readiness may have awaited the page

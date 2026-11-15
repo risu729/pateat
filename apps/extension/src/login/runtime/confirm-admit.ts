@@ -21,7 +21,7 @@ import {
 } from "./confirm-state";
 import { confirmAccount, confirmCurrent } from "./confirm-scope";
 import { fillConfirmation, type ConfirmFillEnd } from "./confirm-fill";
-import { confirmOutcome, noteConfirmFill, settleConfirmFill } from "./not-started";
+import { confirmEnded, noteConfirmFill, settleConfirmFill } from "./not-started";
 import { manualPending } from "./manual-scope";
 import type { Runtime } from "./state";
 import type { AdmitContext } from "./admit-context";
@@ -74,9 +74,10 @@ export async function admitConfirm(rt: Runtime, ctx: AdmitContext): Promise<Read
   )
     cancelConfirm(rt, ctx.document.tabId);
   if (confirmBusy(rt, ctx.document.tabId)) return answer("confirm-fill", visit);
-  // The document's fill on this path already went into the page: it is never repeated.
-  const ended = visit && confirmOutcome(rt, ctx.live);
-  if (visit && (ended === "confirm-filled" || ended === "confirm-fill-kept")) {
+  // The document's fill on this path already went into the page, or the person closed its
+  // master password window: it is never started again while the document stays here.
+  const ended = visit && confirmEnded(rt, ctx.live);
+  if (visit && ended) {
     noteConfirmFill(rt, ctx.live, ctx.shown, visit);
     ctx.live.state = "watching";
     ctx.live.reason = ended;

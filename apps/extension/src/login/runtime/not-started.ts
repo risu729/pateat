@@ -83,24 +83,33 @@ export function noteConfirmFill(
     noteNotStarted(rt, live, reported, "confirm-fill-stopped", undefined, visit);
 }
 
-/** How the document's fill on `path` ended, as the popup shows it, if one did. */
-export function confirmOutcome(rt: Runtime, live: LiveDocument): ConfirmOutcome | undefined {
+/**
+ * How the document's fill on its path ended, if it ended for good: it went into the page,
+ * or the person closed its master password window. Another fill is never started for it.
+ */
+export function confirmEnded(rt: Runtime, live: LiveDocument): ConfirmOutcome | undefined {
   const outcome = rt.confirmFill.outcomes.get(documentOf(live));
-  return outcome?.path === live.path ? outcome.reason : undefined;
+  if (outcome?.path !== live.path) return undefined;
+  return outcome.reason !== "confirm-fill-stopped" || outcome.declined ? outcome.reason : undefined;
 }
 
 /**
- * Records how the document's confirmation fill on `path` ended. While `page`, the
- * document's latest announcement, is still on that path, its status shows the end and a
- * stop is logged.
+ * Records how the document's confirmation fill on `path` ended, `declined` when the person
+ * closed its master password window. While `page`, the document's latest announcement, is
+ * still on that path, its status shows the end and a stop is logged.
  */
 export async function settleConfirmFill(
   rt: Runtime,
   page: LiveDocument,
   path: string,
   reason: ConfirmOutcome,
+  declined = false,
 ): Promise<void> {
-  rt.confirmFill.outcomes.set(documentOf(page), { path, reason });
+  rt.confirmFill.outcomes.set(documentOf(page), {
+    path,
+    reason,
+    ...(declined ? { declined: true as const } : {}),
+  });
   if (page.path !== path) return;
   page.state = "watching";
   page.reason = reason;

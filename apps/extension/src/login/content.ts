@@ -2160,9 +2160,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           operation.signInFill
             ? passiveDestinations(writableInputs)
             : formDestinations(writableInputs[0]!, "fill");
-        const passiveDestinationsCurrent = operation.signInFill
-          ? destinationWatch(fillDestinations)
-          : () => true;
+        const passiveCurrent = destinationWatch(operation, fillDestinations, writableInputs);
         const formRefused = await destinationRefusal(fillDestinations);
         if (formRefused === "document-cancelled" || formRefused === "operation-expired")
           return fail("cancelled", formRefused);
@@ -2307,7 +2305,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
         try {
           if (operation.signInFill) {
-            const stop = await passiveRecheck(authorize, passiveDestinationsCurrent);
+            const stop = await passiveRecheck(authorize, passiveCurrent);
             if (stop) return fail("cancelled", stop);
             if (!fillEditsReady(window)) return fail("cancelled", "document-cancelled");
           }
@@ -2320,7 +2318,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             // fields may change the page.
             const current = matches(field.target);
             const value = command.values.find((entry) => entry.slot === field.slot)!;
-            if (!passiveDestinationsCurrent()) return fail("cancelled", "form-changed");
+            if (!passiveCurrent()) return fail("cancelled", "form-changed");
             if (
               cancelled ||
               pagePath() !== step.path ||
@@ -2497,7 +2495,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   beforeInput: buttonless ? lastIn : code?.typed,
                   between: () => {
                     if (cancelled) return "document-cancelled";
-                    if (!passiveDestinationsCurrent()) return "form-changed";
+                    if (!passiveCurrent()) return "form-changed";
                     if (operation.signInFill && !fillUntouched(window, input))
                       return "field-changed";
                     if (pagePath() !== step.path) return "page-changed";
@@ -2581,6 +2579,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             const rejection = fillRejection(writableInputs, baseline);
             if (rejection) return fail("fill-rejected", rejection.detail, rejection.fieldIndex);
           }
+          // Only a confirmation fill reads `mutation` on success (confirm-fill.ts).
           return { ok: true, mutation: mutated ? "possible" : "none" };
         } finally {
           code?.stop();

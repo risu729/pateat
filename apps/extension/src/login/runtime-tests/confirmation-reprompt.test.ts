@@ -17,8 +17,11 @@ vi.mock(import("../runtime/master-password"), async (original) => {
 });
 vi.stubEnv("MODE", "production");
 const { confirmationFixture } = await import("./confirmation-fixture");
+const { LOGIN_STEP_WAIT_MS } = await import("../wire");
 const {
   popup,
+  origin,
+  shownHello,
   otherItemId,
   connectionId,
   confirmations,
@@ -27,6 +30,15 @@ const {
   announce,
   settled,
 } = confirmationFixture(fake);
+const statuses = () =>
+  fake.state.messages
+    .filter((entry) => entry.type === "login.status")
+    .map((entry) => entry["outcome"]);
+/** The document moves in place to `path`, and announces it when asked to. */
+const moveTo = (path: string) => {
+  fake.state.pageUrl = `${origin}${path}`;
+  fake.state.observedPath = path;
+};
 
 type Answer = "verified" | "closed" | "unavailable";
 
@@ -110,5 +122,93 @@ describe("a confirmation's master password window", () => {
     expect(h.fields).not.toHaveBeenCalled();
     expect(confirmations()).toEqual([]);
     window.otherAccount = false;
+  });
+
+  it.each(["closed", "unavailable"] as const)(
+    "leaves the page to the person once the window is %s, until the document moves elsewhere",
+    async (answer) => {
+      const { h, ask, answers } = await asking();
+      await settled(h);
+      answers[0]!.resolve(answer);
+      await vi.waitFor(() => expect(statuses()).toContain("confirm-fill-stopped"));
+      // The report of the page's first step, a reconnect and another announcement of the
+      // same document and path start no work: nothing can open the window again.
+      expect(await shownHello(h, { documentId: "confirmation-document" })).toMatchObject({
+        reason: "confirm-fill",
+      });
+      expect(await announce(h)).toMatchObject({ reason: "confirm-fill" });
+      await settled(h);
+      expect(ask).toHaveBeenCalledTimes(1);
+      // A later visit of the verification, after the document moved on in place, asks again.
+      moveTo("/dashboard");
+      await announce(h);
+      moveTo("/confirm");
+      await announce(h);
+      await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+      await settled(h);
+      expect(confirmations()).toEqual([]);
+    },
+  );
+
+  it("opens no window closed on a page that comes back from the back/forward cache", async () => {
+    const { h, ask, answers } = await asking();
+    await settled(h);
+    answers[0]!.resolve("closed");
+    await vi.waitFor(() => expect(statuses()).toContain("confirm-fill-stopped"));
+    moveTo("/home");
+    await h.hello({ documentId: "next-document" }, false);
+    moveTo("/confirm");
+    expect(await announce(h)).toMatchObject({ reason: "confirm-fill" });
+    await settled(h);
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps no accepted password for a later visit once the document announced another path", async () => {
+    const { h, ask, answers } = await asking();
+    await settled(h);
+    // The person moved on in place before answering: the reconnect announces another path.
+    moveTo("/dashboard");
+    answers[0]!.resolve("verified");
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    await settled(h);
+    expect(confirmations()).toEqual([]);
+    // The same document shows the verification again later: its window opens again.
+    moveTo("/confirm");
+    await announce(h);
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+    await settled(h);
+    expect(confirmations()).toEqual([]);
+  });
+
+  it("keeps no accepted password for a document that announced another path before the answer", async () => {
+    const { h, ask, answers } = await asking();
+    await settled(h);
+    moveTo("/dashboard");
+    await announce(h);
+    answers[0]!.resolve("verified");
+    // Only once the answer was handled can the verification's next visit ask again.
+    moveTo("/confirm");
+    await vi.waitFor(async () => {
+      await announce(h);
+      expect(ask).toHaveBeenCalledTimes(2);
+    });
+    await settled(h);
+    expect(fake.state.reconnects).toEqual([]);
+    expect(confirmations()).toEqual([]);
+  });
+
+  it("keeps an accepted password no longer than a step's wait", async () => {
+    const { h, ask, answers } = await asking();
+    await settled(h);
+    // The document's reconnect does not reach the worker in time.
+    fake.state.onReconnect = undefined;
+    answers[0]!.resolve("verified");
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + LOGIN_STEP_WAIT_MS);
+    await announce(h);
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+    await settled(h);
+    expect(confirmations()).toEqual([]);
   });
 });

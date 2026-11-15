@@ -4535,7 +4535,7 @@ replace it. A sign-in **Fill only** login or a passive autofill never enables it
 session-backed proof binds that original attempt, tab, origin, connection and item.
 Local login metadata alone, including a record restored after browser restart, is
 insufficient. A failed proof write does not fail the login; confirmation filling
-refuses for the rest of the session instead. A released record drops its proof, and
+refuses until the worker restarts instead. A released record drops its proof, and
 a replaced tab carries it over with the record.
 
 Only an ordinary preparing fill is executable on a `confirm` or `unclear` page
@@ -4548,10 +4548,13 @@ submitter's destination, including hidden/default buttons and external form-asso
 button/image controls. The destinations that need the background's word or are refused
 must remain unchanged after awaited authorization and before each field mutation or
 typing continuation; a same-origin button the page adds or removes meanwhile, as a
-show-password button rendered on input, changes nothing. Passive fills recheck
+show-password button rendered on input, changes nothing. A change stops the fill and
+puts the values its unedited inputs had before it back. Passive fills recheck
 operation authority after DOM/account readiness, before the first mutation. A
 master-password window opened for a confirmation holds no tab; once the vault accepts
-the password for the same account, the document announces again and fills once.
+the password for the same account, the document's next announcement on the same path
+fills once, with the same recipe, within the step wait; any other announcement drops
+the answer. A closed window is not reopened for that document and path.
 `confirm: off` fills nothing; passkey verification remains
 delegated in either setting.
 
@@ -4573,7 +4576,7 @@ It suppresses repeat work after unknown delivery or acknowledgement and a worker
 restart; the document-start edit recorder also fences repeated or edited inputs.
 The session permits at most 100 proofs and 512 claims, 64 of them per tab, and fails
 closed on corruption, storage failure or exhaustion. A tab's new top document drops the
-claims of the page it left.
+claims of the page it left, except those of documents the tab still shows.
 
 Separate in-memory operation identity authorizes the existing fill command. Every
 secret delivery and document authorization rechecks the original authentication,

@@ -34,6 +34,12 @@ type Claim = v.InferOutput<typeof claimSchema>;
 export const TAB_CLAIMS = 64;
 /** How a document's confirmation fill on a path ended, for the popup (ADR 0038). */
 export type ConfirmOutcome = "confirm-filled" | "confirm-fill-kept" | "confirm-fill-stopped";
+/**
+ * A master password the confirmation's own window accepted for `attemptId connectionId`:
+ * it fills the document once, on the path and with the recipe it was asked for, before it
+ * expires (ADR 0035 delivery 3).
+ */
+export type ConfirmGrant = { grant: string; path: string; recipeId: string; expires: number };
 export type ConfirmWork = {
   live: LiveDocument;
   parent: LoginAttemptMetadata;
@@ -54,13 +60,15 @@ export function createConfirmState() {
     proofs: [] as Proof[],
     claims: [] as Claim[],
     work: new Map<number, ConfirmWork>(),
-    /** `tabId documentId` to how its fill on `path` ended, in memory only. */
-    outcomes: new Map<string, { path: string; reason: ConfirmOutcome }>(),
     /**
-     * `tabId documentId` to the `attemptId connectionId` whose master password the
-     * confirmation's own window accepted, used once by the document's next fill.
+     * `tabId documentId` to how its fill on `path` ended, in memory only; `declined` when
+     * the person closed its master password window.
      */
-    verified: new Map<string, string>(),
+    outcomes: new Map<string, { path: string; reason: ConfirmOutcome; declined?: true }>(),
+    /** `tabId documentId` to the grant its window left for the document's next announcement. */
+    verified: new Map<string, ConfirmGrant>(),
+    /** The announcement that took its document's grant, for its own fill only. */
+    granted: new WeakMap<LiveDocument, ConfirmGrant>(),
     /** Documents whose confirmation waits for its master password window to answer. */
     asking: new Set<string>(),
     healthy: true,
@@ -198,9 +206,12 @@ function update(rt: Runtime, change: (state: { proofs: Proof[]; claims: Claim[] 
     .catch(() => undefined);
 }
 
-const dropDocuments = (rt: Runtime, keep: (key: string) => boolean) => {
-  for (const map of [rt.confirmFill.outcomes, rt.confirmFill.verified])
-    for (const key of [...map.keys()]) if (!keep(key)) map.delete(key);
+/** Drops what is kept in memory of documents `keep` refuses; `declined` keeps a closed window's. */
+const dropDocuments = (rt: Runtime, keep: (key: string) => boolean, declined = false) => {
+  const { outcomes, verified } = rt.confirmFill;
+  for (const [key, outcome] of outcomes)
+    if (!keep(key) && !(declined && outcome.declined)) outcomes.delete(key);
+  for (const key of verified.keys()) if (!keep(key)) verified.delete(key);
 };
 
 export function forgetConfirmTab(rt: Runtime, tabId: number): void {
@@ -220,25 +231,49 @@ export function forgetConfirmTab(rt: Runtime, tabId: number): void {
 /**
  * The tab shows the top document `documentId`: claims of the documents it left, its old
  * page's and that page's frames', are dropped, so a long-lived tab does not keep them until
- * it closes. A document brought back from the back/forward cache still keeps the inputs it
- * was filled into from another fill (`claimFill`), and its filled values from being replaced.
+ * it closes. A document the tab still shows keeps its claims, as a frame that announced
+ * before its page's top document did. A document brought back from the back/forward cache
+ * still keeps the inputs it was filled into from another fill (`claimFill`), and its filled
+ * values from being replaced, but its page may be filled again.
  */
 export function leaveConfirmDocuments(rt: Runtime, tabId: number, documentId: string): void {
   const shown = new Set(
     [...rt.documents.values()].map((live) => `${live.document.tabId} ${live.document.documentId}`),
   );
+  // A page brought back from the back/forward cache does not open a window closed on it.
   dropDocuments(
     rt,
     (key) => !key.startsWith(`${tabId} `) || key === `${tabId} ${documentId}` || shown.has(key),
+    true,
   );
   update(rt, (state) => {
-    const claims = state.claims.filter(
-      (entry) => entry.tabId !== tabId || entry.top === documentId,
-    );
-    if (claims.length === state.claims.length) return false;
-    state.claims = claims;
-    return true;
+    let changed = false;
+    state.claims = state.claims.flatMap((entry) => {
+      const kept = shown.has(`${entry.tabId} ${entry.document.documentId}`);
+      if (entry.tabId !== tabId || entry.top === documentId || (kept && entry.top)) return [entry];
+      changed = true;
+      // A frame claimed before its page's top document announced belongs to that page.
+      return kept ? [{ ...entry, top: documentId }] : [];
+    });
+    return changed;
   });
+}
+
+/**
+ * Each announcement of a document takes the grant its master password window left for it,
+ * which only an announcement on the path the window was asked for may use, before it
+ * expires; any other announcement drops it. A window the person closed on a path leaves
+ * the page to them until the document announces another path.
+ */
+export function enterConfirmPath(rt: Runtime, live: LiveDocument): void {
+  const state = rt.confirmFill;
+  const key = `${live.document.tabId} ${live.document.documentId}`;
+  const grant = state.verified.get(key);
+  state.verified.delete(key);
+  if (grant && grant.path === live.path && Date.now() < grant.expires)
+    state.granted.set(live, grant);
+  const outcome = state.outcomes.get(key);
+  if (outcome?.declined && outcome.path !== live.path) state.outcomes.delete(key);
 }
 
 /** The tab's login record of the origin was released (ADR 0062): so is its proof. */

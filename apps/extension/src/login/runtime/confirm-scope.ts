@@ -17,6 +17,7 @@ import { manualPending } from "./manual-scope";
 import { hasConfirmAuthentication, type ConfirmWork } from "./confirm-state";
 import { openPasswordWindow } from "./master-password";
 import { settleConfirmFill } from "./not-started";
+import { LOGIN_STEP_WAIT_MS } from "../wire";
 import type { Runtime } from "./state";
 
 export function confirmCurrent(rt: Runtime, work: ConfirmWork): boolean {
@@ -172,10 +173,11 @@ export async function confirmPlan(
  * A confirmation gets its own document-bound reprompt, never a saved login grant. Its
  * window does not hold the tab: the work ends while it is open (`asked`), so the tab's
  * other frames, **Log in now** and an account switch go on meanwhile. Once the vault
- * accepts the password for the same vault account, while the document and the
- * authenticated login are still the tab's, the document announces again and its next fill
- * uses that answer, once. A closed window, or one answered for another vault account,
- * leaves the page to the person.
+ * accepts the password for the same vault account, while the document, still on the same
+ * path, and the authenticated login are the tab's, the document announces again and that
+ * announcement's fill uses the answer, once, on that path with the same recipe, within
+ * `LOGIN_STEP_WAIT_MS`. A closed window, or one answered for another vault account,
+ * leaves the page to the person until the document moves to another path.
  */
 export async function confirmReprompt(
   rt: Runtime,
@@ -190,10 +192,12 @@ export async function confirmReprompt(
   const key = tabId + " " + documentId;
   const grant = parent.id + " " + found.connection.id;
   const state = rt.confirmFill;
-  if (state.verified.get(key) === grant) {
-    state.verified.delete(key);
+  const recipeId = work.recipe?.id;
+  const granted = state.granted.get(live);
+  state.granted.delete(live);
+  if (granted?.grant === grant && granted.recipeId === recipeId && Date.now() < granted.expires)
     return true;
-  }
+  if (!recipeId) return false;
   if (state.asking.has(key)) return "asked";
   const asked =
     rt.passwordAsks.get(key) ??
@@ -209,22 +213,30 @@ export async function confirmReprompt(
     .then(async ({ answer, aborted }) => {
       state.asking.delete(key);
       const page = rt.documents.get(frameKey(live.document));
+      const here = page?.document.documentId === documentId ? page : undefined;
+      const declined =
+        answer !== "verified" || aborted || asked.connectionId !== found.connection.id;
       if (
-        answer !== "verified" ||
-        aborted ||
-        asked.connectionId !== found.connection.id ||
-        page?.document.documentId !== documentId ||
+        declined ||
+        here?.path !== live.path ||
         recordFor(rt, tabId, live.document.origin)?.id !== parent.id
       ) {
-        if (page?.document.documentId === documentId)
-          await settleConfirmFill(rt, page, live.path, "confirm-fill-stopped");
+        if (here)
+          await settleConfirmFill(
+            rt,
+            here,
+            live.path,
+            "confirm-fill-stopped",
+            declined && here.path === live.path,
+          );
         return undefined;
       }
-      state.verified.set(key, grant);
+      const entry = { grant, path: live.path, recipeId, expires: Date.now() + LOGIN_STEP_WAIT_MS };
+      state.verified.set(key, entry);
       await browser.tabs
         .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId, documentId })
         .catch(() => {
-          if (state.verified.get(key) === grant) state.verified.delete(key);
+          if (state.verified.get(key) === entry) state.verified.delete(key);
         });
       return undefined;
     })
