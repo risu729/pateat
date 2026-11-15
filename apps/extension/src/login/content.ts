@@ -50,6 +50,7 @@ import { fillBaseline, fillRejection, inputValueMismatch, unreadyForm } from "..
 import {
   clickDestinations,
   formDestinations,
+  passiveDestinations,
   submitterDestinations,
   type FormDestination,
 } from "../page/form-destination";
@@ -60,7 +61,13 @@ import { nextFrame } from "../page/frames";
 import { watchFrameShown } from "../page/frame-shown";
 import { pageChange } from "../page/page-change";
 import { claimFill, fillUntouched, fillEditsReady } from "../page/fill-edits";
-import { awaitFillChange, beyondSignInFill } from "./sign-in-fill-page";
+import {
+  awaitFillChange,
+  beyondSignInFill,
+  confirmOperation,
+  destinationWatch,
+  passiveRecheck,
+} from "./sign-in-fill-page";
 import { documentLoaded } from "../page/document-load";
 import { breaksQuiet, pageWatch, settled } from "../page/quiet";
 import {
@@ -98,6 +105,7 @@ import {
 } from "../page/sign-in-state";
 import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
+import { destinationRefusal as refusedDestination } from "./destination-refusal";
 import { acceptsSecret, maskedSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
 import { askedQuestion, type AskedQuestion } from "../page/question";
@@ -105,7 +113,6 @@ import { cardHints } from "../page/card-hints";
 import { siteValueChoice, stopSiteValues } from "../page/site-values";
 import {
   commandSchema,
-  destinationAnswerSchema,
   LOGIN_STEP_WAIT_MS,
   readySchema,
   START_TRIES,
@@ -1846,57 +1853,37 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             : {}),
         mutation: mutated ? "possible" : "none",
       });
-      const authorized: unknown = await sendMessage("login", {
-        version: 1,
-        type: "login.operation.authorize",
-        token,
-        attemptId: operation.attemptId,
-        operationId: operation.operationId,
-      });
+      const authorize = () =>
+        sendMessage("login", {
+          version: 1,
+          type: "login.operation.authorize",
+          token,
+          attemptId: operation.attemptId,
+          operationId: operation.operationId,
+        });
+      const authorized: unknown = await authorize();
       if (authorized !== true) return fail("cancelled", "not-authorized");
       // What the page sets in its inputs from now on may be Pateat's own filling.
       stopSiteValues(window);
-      /**
-       * Why the step may not send its form where `read` says it goes: a destination the
-       * page refuses, or one off the document's origin that the background does not allow
-       * by the login's vault item (ADR 0051). The destinations are read again after the
-       * answers, and one that changed meanwhile refuses the step as a changed form.
-       */
-      const destinationRefusal = async (
-        read: () => FormDestination[],
-      ): Promise<ExecutionDetail | undefined> => {
-        const destinations = read();
-        if (destinations.some((entry) => entry.kind === "refused")) return "form-off-origin";
-        const answers = await Promise.all(
-          destinations.flatMap((entry) =>
-            entry.kind === "other-origin"
-              ? [
-                  sendMessage("login", {
-                    version: 1,
-                    type: "login.destination.check",
-                    token,
-                    attemptId: operation.attemptId,
-                    operationId: operation.operationId,
-                    destination: entry.url,
-                  })
-                    // A worker that cannot answer, as while it restarts, leaves it unchecked.
-                    .catch(() => undefined)
-                    .then((answer) => v.safeParse(destinationAnswerSchema, answer)),
-                ]
-              : [],
-          ),
+      const destinationRefusal = (read: () => FormDestination[]) =>
+        refusedDestination(
+          read,
+          (destination) =>
+            sendMessage("login", {
+              version: 1,
+              type: "login.destination.check",
+              token,
+              attemptId: operation.attemptId,
+              operationId: operation.operationId,
+              destination,
+            }),
+          () =>
+            cancelled
+              ? "document-cancelled"
+              : Date.now() >= operation.expiresAt
+                ? "operation-expired"
+                : undefined,
         );
-        if (cancelled) return "document-cancelled";
-        if (Date.now() >= operation.expiresAt) return "operation-expired";
-        if (answers.some((answer) => !answer.success)) return "form-destination-unchecked";
-        const refusals = answers.flatMap((answer) =>
-          answer.success && !answer.output.ok ? [answer.output.reason] : [],
-        );
-        if (refusals.some((reason) => reason !== "unchecked")) return "form-off-origin";
-        if (refusals.length) return "form-destination-unchecked";
-        if (JSON.stringify(read()) !== JSON.stringify(destinations)) return "form-changed";
-        return undefined;
-      };
       if (cancelled) return fail("cancelled", "document-cancelled");
       if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
       if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
@@ -2133,7 +2120,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // A username or password never goes into a code input (issue #1413).
         const usable = (input: Element | undefined, index: number) =>
           (step.fields[index]!.keypad ? keyable(input) : takes(input, secretOf(index))) &&
-          !(signInSlot(step.fields[index]!.slot) && codeMarked(input));
+          !(signInSlot(step.fields[index]!.slot) && codeMarked(input)) &&
+          !(operation.signInFill && codeMarked(input));
         if (inputs.some((input, index) => !usable(input, index)))
           return fail("structural-mismatch", "target-missing");
         // Each field's keypad, which holds the keys, shown or not yet.
@@ -2167,10 +2155,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (writableInputs.some((input) => formOf(input) !== form))
           return fail("structural-mismatch", "fields-split");
         // The form sends its values only to this document's origin, or to a destination
-        // the background allows (ADR 0051).
-        const formRefused = await destinationRefusal(() =>
-          formDestinations(writableInputs[0]!, "fill"),
-        );
+        // the background allows (ADR 0051); a passive fill's, through any submitter too.
+        const fillDestinations = () =>
+          operation.signInFill
+            ? passiveDestinations(writableInputs)
+            : formDestinations(writableInputs[0]!, "fill");
+        const passiveCurrent = destinationWatch(operation, fillDestinations, writableInputs);
+        const formRefused = await destinationRefusal(fillDestinations);
         if (formRefused === "document-cancelled" || formRefused === "operation-expired")
           return fail("cancelled", formRefused);
         if (formRefused) return fail("structural-mismatch", formRefused);
@@ -2313,8 +2304,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           codeIn &&
           (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
         try {
-          if (operation.signInFill && !fillEditsReady(window))
-            return fail("cancelled", "document-cancelled");
+          if (operation.signInFill) {
+            const stop = await passiveRecheck(authorize, passiveCurrent);
+            if (stop) return fail("cancelled", stop);
+            if (!fillEditsReady(window)) return fail("cancelled", "document-cancelled");
+          }
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as Control;
             // A preparing fill lets the page's handlers for the previous field run first.
@@ -2324,6 +2318,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             // fields may change the page.
             const current = matches(field.target);
             const value = command.values.find((entry) => entry.slot === field.slot)!;
+            if (!passiveCurrent()) return fail("cancelled", "form-changed");
             if (
               cancelled ||
               pagePath() !== step.path ||
@@ -2343,7 +2338,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                     : "field-changed",
               );
             // As Bitwarden's autofill on page load fills only empty password fields
-            // (`onlyEmptyFields`), a sign-in fill keeps a password already in its input.
+            // (`onlyEmptyFields`), a sign-in fill keeps a password already in its input. A
+            // confirmation fill keeps any value already there (ADR 0035 delivery 3).
             const keptPassword =
               (value.secret === "password" ||
                 (input instanceof HTMLInputElement && input.type === "password")) &&
@@ -2351,6 +2347,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             if (
               operation.signInFill &&
               (keptPassword ||
+                (confirmOperation(operation) && input.value !== "") ||
                 !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot))
             ) {
               value.value = "";
@@ -2498,6 +2495,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   beforeInput: buttonless ? lastIn : code?.typed,
                   between: () => {
                     if (cancelled) return "document-cancelled";
+                    if (!passiveCurrent()) return "form-changed";
                     if (operation.signInFill && !fillUntouched(window, input))
                       return "field-changed";
                     if (pagePath() !== step.path) return "page-changed";
@@ -2581,7 +2579,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             const rejection = fillRejection(writableInputs, baseline);
             if (rejection) return fail("fill-rejected", rejection.detail, rejection.fieldIndex);
           }
-          return { ok: true, mutation: "possible" };
+          // Only a confirmation fill reads `mutation` on success (confirm-fill.ts).
+          return { ok: true, mutation: mutated ? "possible" : "none" };
         } finally {
           code?.stop();
         }

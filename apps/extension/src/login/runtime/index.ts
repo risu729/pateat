@@ -59,6 +59,7 @@ import {
 import type { Runtime } from "./state";
 import { explicitlyPicked, pagePermission, signInPermission } from "./page-permission";
 import { createRuntimeState } from "./state";
+import { moveConfirmTab } from "./confirm-state";
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 
 export { LOGIN_SITE_WAIT_ALARM } from "./constants";
@@ -472,6 +473,8 @@ function startRuntime(rt: Runtime) {
       });
     // The discarded page was not left: it loads again in the new tab and is logged there.
     rt.confirmVisits.delete(removed);
+    // The tab's confirmed logins move with their records (ADR 0035 delivery 3).
+    moveConfirmTab(rt, removed, added);
     forgetTab(rt, removed);
   });
 

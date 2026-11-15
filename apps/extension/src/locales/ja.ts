@@ -181,8 +181,8 @@ export const ja = {
     "このタブでのこのサイトへの前回のログインは中断されました",
   "the sign-in form shows, but the recipe's first step was not found":
     "ログインフォームは表示されていますが、レシピの最初の手順が見つかりませんでした",
-  "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again":
-    "AI がこのページをログイン中の本人確認と判定したか、判定できなかったため、Pateat は入力しません。判定が誤っている場合は、サービスのサイトページ（/manage/sites）でこのサイトのレシピを取り消すと、ページがもう一度送られます",
+  "the AI classified this page as a verification while signed in, or could not tell, and Pateat fills one only for a login it confirmed in this tab and browser session; if this is a sign-in page, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again":
+    "AI の判定では、このページはログイン中の本人確認か、種類のわからないページです。本人確認ページには、このタブとブラウザーのセッションで Pateat がログインを確認した場合だけ入力します。ログインページの場合は、サービスのサイトページ（/manage/sites）でこのサイトのレシピを取り消すと、ページがもう一度送られます",
   "no recipe of this site starts on this page":
     "このページから始まるこのサイトのレシピがありません",
   "Pateat waits for you to choose an account": "Pateat はアカウントの選択を待っています",
@@ -518,4 +518,13 @@ export const ja = {
     "自動入力のみ：Pateat はログイン欄に入力する場合がありますが、ボタンは押しません。サイトの手順はご自身で進めてください。",
   "Autofill stopped: {{why}}. Nothing was pressed.":
     "自動入力を停止しました：{{why}}。ボタンは押していません。",
+  "Verification autofill: {{why}}.": "本人確認ページへの自動入力：{{why}}。",
+  "checking this page, and filling only its empty fields":
+    "このページを確認しています。入力するのは空欄だけです",
+  "filled this page's empty fields; review them and press the button yourself":
+    "このページの空欄に入力しました。内容を確かめて、ボタンは自分で押してください",
+  "filled nothing, as this page's fields already had values; press the button yourself when ready":
+    "このページの入力欄にはすでに値があったため、何も入力していません。準備ができたら、ボタンは自分で押してください",
+  "stopped; check the page, vault and settings before continuing":
+    "停止しました。ページ、保管庫、設定を確認してから続けてください",
 } satisfies Record<keyof typeof en, string>;

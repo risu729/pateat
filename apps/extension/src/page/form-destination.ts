@@ -89,6 +89,23 @@ export function submitterDestinations(
   );
 }
 
+/**
+ * Where a passive fill's values may go once the person submits them: the forms around
+ * `controls` ({@link formDestinations}) and every submitter of those forms
+ * ({@link submitterDestinations}), as Pateat presses nothing there. Only the destinations
+ * that are not `allowed` count, so a same-origin button the page adds or removes while
+ * the person types, as a show-password or clear button rendered on input, changes nothing,
+ * while one that would send the values elsewhere does.
+ */
+export function passiveDestinations(
+  controls: readonly (HTMLButtonElement | HTMLInputElement | HTMLSelectElement)[],
+): FormDestination[] {
+  return [
+    ...controls.flatMap((control) => formDestinations(control, "fill")),
+    ...submitterDestinations(controls),
+  ].filter((entry) => entry.kind !== "allowed");
+}
+
 /** The submit buttons and image inputs in `root`'s tree, in tree order ({@link submitsForm}). */
 function submittersIn(root: Node): (HTMLButtonElement | HTMLInputElement)[] {
   const query =

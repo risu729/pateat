@@ -53,6 +53,18 @@ const UNSETTLED = new Set([
 /** Failures of the recipe itself, which Pateat does not make again on its own. */
 const RECIPE_FAILURES = new Set(["structural-mismatch", "timeout", "retry-limit"]);
 
+/**
+ * A verification page's autofill for the tab's confirmed login (ADR 0035 delivery 3): while
+ * it checks the page, and whether it filled anything once it ended.
+ */
+const CONFIRM_FILL: Record<string, string> = {
+  "confirm-fill": "checking this page, and filling only its empty fields",
+  "confirm-filled": "filled this page's empty fields; review them and press the button yourself",
+  "confirm-fill-kept":
+    "filled nothing, as this page's fields already had values; press the button yourself when ready",
+  "confirm-fill-stopped": "stopped; check the page, vault and settings before continuing",
+};
+
 /** Why the page's sign-in did not start a login, in plain words. */
 const NOT_STARTED: Record<string, string> = {
   "logged-in": "this site is already logged in",
@@ -65,7 +77,7 @@ const NOT_STARTED: Record<string, string> = {
     "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again",
   "page-off": "verification filling is turned off for this site or profile",
   "confirm-unsupported":
-    "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
+    "the AI classified this page as a verification while signed in, or could not tell, and Pateat fills one only for a login it confirmed in this tab and browser session; if this is a sign-in page, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
   "account-ambiguous": "several accounts match; choose one to log in",
   paused: "automatic login is paused on this site; choose an account to log in",
   // In a private window whose automatic login is off (ADR 0062).
@@ -273,10 +285,29 @@ export function hostnameOf(origin: string): string {
   return normalizeHostname(hostname) ?? hostname;
 }
 
+/** The page's verification autofill, beside the login it fills for (ADR 0035). */
+function confirmLines(status: Status, t: TFunction): StatusLine[] {
+  const code = [status.page?.reason, status.page?.notStarted].find(
+    (entry) => entry !== undefined && Object.hasOwn(CONFIRM_FILL, entry),
+  );
+  return code
+    ? [
+        {
+          id: "confirm-fill",
+          tone: code === "confirm-fill-stopped" ? "warn" : "idle",
+          text: t("Verification autofill: {{why}}.", { why: plain(CONFIRM_FILL, code, t) }),
+        },
+      ]
+    : [];
+}
+
 function attemptLines(status: Status, t: TFunction): StatusLine[] {
   const login = status.login;
   if (!login) {
     if (status.refused) return [];
+    // A verification page's autofill says how it went.
+    const confirm = confirmLines(status, t);
+    if (confirm.length) return confirm;
     // A refusal is the page's latest word; a sign-in input that did not start is logged
     // while the page only watches.
     const why = status.page?.state === "denied" ? status.page.reason : status.page?.notStarted;
@@ -327,6 +358,7 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
       login.unconfirmed
         ? { id: "login", tone: "warn", text: t("The login could not be confirmed.") }
         : { id: "login", tone: "ok", text: t("Logged in.") },
+      ...confirmLines(status, t),
     ];
   const outcome = login.outcome ?? "";
   // A result that settled as unknown is watched as after a `challenge` (ADR 0027).
