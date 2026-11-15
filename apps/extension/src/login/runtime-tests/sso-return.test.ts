@@ -680,12 +680,55 @@ describe("an RP page before and after the IdP is reached", () => {
     const h = harness({ ok: true, identity: "absent" }, false);
     await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
     spent(h);
+    // The page first waits for the flow, which then follows that very document.
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(h.work.live).toBe(h.ctx.live);
+    delivered.mockClear();
     const manual = { ...h.ctx, manual: { request: "manual-request" } } as unknown as AdmitContext;
     expect(await ssoAdmit(h.rt, manual)).toBeUndefined();
     expect(h.work.ended).toBe(true);
     expect(h.rt.sso.flows.has(7)).toBe(false);
     // Nor does the flow's interrupted hold keep the manual request waiting.
     expect(h.rt.sso.interrupted.has(7)).toBe(false);
+    // The page's own login goes on: its content script is never cancelled, and its live
+    // document is not marked denied.
+    expect(delivered.mock.calls.some(([, message]) => message["type"] === "login.cancel")).toBe(
+      false,
+    );
+    expect(h.ctx.live.state).not.toBe("denied");
+    expect(h.ctx.live.reason).toBeUndefined();
+  });
+  it("still cancels the flow's own page when Log in now comes from another RP page", async () => {
+    const h = harness({ ok: true, identity: "absent" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    h.work.live = h.work.rpLive;
+    const manual = { ...h.ctx, manual: { request: "manual-request" } } as unknown as AdmitContext;
+    expect(await ssoAdmit(h.rt, manual)).toBeUndefined();
+    expect(delivered).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ type: "login.cancel" }),
+      expect.objectContaining({ documentId: "initial-rp" }),
+    );
+    expect(h.work.rpLive.state).toBe("denied");
+  });
+  it("waits when an instant return's entry cannot be read, as on a page moving on", async () => {
+    const h = harness({ ok: true, identity: "absent" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const base = delivered.getMockImplementation()!;
+    delivered.mockImplementation(async (id, message, ...rest) => {
+      if (
+        message["type"] === "login.observe" &&
+        (message["targets"] as { value?: string }[]).some((target) => target.value === "sso-entry")
+      )
+        throw new Error("Could not establish connection. Receiving end does not exist.");
+      return base(id, message, ...rest);
+    });
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(h.work.ended).toBe(false);
+    expect(h.work.parent?.state).not.toBe("blocked");
+    expect(h.signedIn).not.toHaveBeenCalled();
   });
   it("waits on an RP page without local evidence after a spent entry, asking no judge", async () => {
     const h = harness({ ok: true, identity: "absent" }, false);

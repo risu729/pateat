@@ -446,8 +446,11 @@ saves no account choice or default, keeps no session pick
 Without such evidence the flow keeps waiting, as on an RP page on the way to the IdP. A
 page that shows the site's sign-in again (its SSO entry, a password form or a rejected
 sign-in) or another account means the IdP refused at once, as a failed silent sign-in
-or a revoked grant does, and ends the flow. A **Log in now** the person starts on the
-RP also ends it, so an RP page never waits for a flow the person has moved past.
+or a revoked grant does, and ends the flow. Only an entry read as shown counts: a page
+that cannot be read, as one moving on while it is read, keeps the flow waiting. A **Log
+in now** the person starts on the RP also ends it, so an RP page never waits for a flow
+the person has moved past; the page that asked is not cancelled and goes on with that
+login.
 
 ## Review hardening 2026-11-16: settings an SSO flow depends on
 

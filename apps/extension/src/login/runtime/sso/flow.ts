@@ -11,6 +11,7 @@ import {
   sameLoginTarget,
   sameLoginDocument,
   ssoLabelSchema,
+  type LoginDocument,
   type LoginObservation,
   type LoginTarget,
   type SettingsResponse,
@@ -89,7 +90,16 @@ async function username(rt: Runtime, work: SsoWork, live: LiveDocument, idp: boo
   const value = await rt.fields({ connection, account, fieldId }).catch(() => undefined);
   return (await ssoScope(rt, work, live))?.() ? value : undefined;
 }
-export function cancelSso(rt: Runtime, tabId: number, reason = "sso-cancelled") {
+/**
+ * Ends a tab's flow. `goesOn` names a document that goes on with its own login, such as the
+ * page whose Log in now ended the flow: it gets no cancel and keeps its state.
+ */
+export function cancelSso(
+  rt: Runtime,
+  tabId: number,
+  reason = "sso-cancelled",
+  goesOn?: LoginDocument,
+) {
   const work = rt.sso.flows.get(tabId);
   if (!work || work.ended) return;
   work.ended = true;
@@ -98,7 +108,8 @@ export function cancelSso(rt: Runtime, tabId: number, reason = "sso-cancelled") 
   rt.sso.flows.delete(tabId);
   rt.sso.native.delete(tabId);
   holdInterrupted(rt, tabId, work);
-  void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
+  const kept = goesOn !== undefined && sameLoginDocument(work.live.document, goesOn);
+  if (!kept) void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
   void rt.sso.write().catch(() => undefined);
   if (work.parent && work.parent.state !== "authenticated") {
     const ended = parseAttemptMetadata({
@@ -113,6 +124,7 @@ export function cancelSso(rt: Runtime, tabId: number, reason = "sso-cancelled") 
       reportAttempt(rt, ended, undefined, undefined, { reason });
     });
   }
+  if (kept) return;
   work.live.state = "denied";
   work.live.reason = reason;
   void publish(rt, work.live);
@@ -182,7 +194,7 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
   const layout = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
   for (const entry of layout?.entries ?? []) {
     // oxlint-disable-next-line no-await-in-loop -- every original SSO entry must still be absent
-    if (await ssoEntryShown(rt, live, entry.target)) return false;
+    if ((await ssoEntryShown(rt, live, entry.target)) !== false) return false;
   }
   const matched = identity.output.identity === "match";
   if (instant && work.form !== "url" && !matched) return false;
@@ -292,7 +304,7 @@ async function ssoEntryShown(
   rt: Runtime,
   live: LiveDocument,
   target: LoginTarget,
-): Promise<boolean> {
+): Promise<boolean | undefined> {
   const reading = v.safeParse(
     observationSchema,
     await send(rt, live, {
@@ -302,12 +314,10 @@ async function ssoEntryShown(
       require: ["shown"],
     }).catch(() => undefined),
   );
-  // A missing reading cannot prove absence, including a visible but disabled entry.
-  return (
-    !reading.success ||
-    reading.output.targets[0] === undefined ||
-    ["unique", "ambiguous"].includes(reading.output.targets[0])
-  );
+  // A missing reading proves neither absence, including a visible but disabled entry, nor
+  // presence, as when the page navigates away while it is read: it answers undefined.
+  if (!reading.success || reading.output.targets[0] === undefined) return undefined;
+  return ["unique", "ambiguous"].includes(reading.output.targets[0]);
 }
 async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
   const targets =
@@ -382,7 +392,9 @@ async function returned(
   const own = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
   for (const entry of own?.entries ?? []) {
     // oxlint-disable-next-line no-await-in-loop -- any original entry still shown prevents completion
-    if (await ssoEntryShown(rt, live, entry.target)) return "refused";
+    const shown = await ssoEntryShown(rt, live, entry.target);
+    // Only an entry read as shown is a refusal; an unread page, often one moving on, waits.
+    if (shown !== false) return shown === true ? "refused" : false;
   }
   const marker = await showsMarkers(
     rt,
@@ -673,7 +685,7 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   // The person's own Log in now on the RP ends the flow, and the page is admitted as any
   // manual request is: an RP page never waits for a flow the person has moved past.
   if (ctx.manual && ctx.document.frameId === 0 && ctx.document.origin === work.account.origin) {
-    cancelSso(rt, ctx.document.tabId, "sso-manual-request");
+    cancelSso(rt, ctx.document.tabId, "sso-manual-request", ctx.document);
     return interruptedAdmit(rt, ctx);
   }
   if (ctx.document.frameId !== 0) return ctx.refuse("sso-top-document-only");
