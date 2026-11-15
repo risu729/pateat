@@ -138,6 +138,20 @@ also export helpers to their siblings. The owners import each other without a ru
 cycle. This source split preserves schema construction order, validation messages and
 helper behavior; tests keep their files and cases and only import from the owners.
 
+`packages/contracts/src/login-attempt.ts` keeps the attempt's lifecycle entry points:
+`createAttemptMetadata`, `transitionLoginAttempt`, `withdrawAccountSwitch` and
+`recoverLoginAttempt`. Its state and planning live under
+`packages/contracts/src/login-attempt/`: `schema-primitives.ts` owns limits and the
+state schema; `metadata.ts` the stored attempt record; `events.ts` the event schema;
+`policy.ts` the scope, stop and budget predicates; `record.ts` the per-event record
+update; `machine.ts` the XState machine; `timing.ts` the attempt clock; and
+`operations.ts` route choice and the next operation. `login-attempt.ts` does not
+re-export them: other modules import each name from its owner, and the package index
+re-exports the same public names as before, listing them for `policy.ts` and
+`schema-primitives.ts`, whose other exports serve their siblings. The step predicates
+stay in `login-attempt-steps.ts`. This split preserves the machine, its transitions and
+validation messages; tests keep their files and cases.
+
 `apps/extension/src/crypto/host.ts` keeps the crypto broker, its session lifecycle,
 request lanes and cancellation effects. `host-result.ts` owns pure operation-result
 admission, including account binding, requested item coverage and passkey signature

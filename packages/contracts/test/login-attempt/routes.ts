@@ -3,9 +3,11 @@ import {
   attemptPlan,
   attemptRouteChoice,
   attemptUsesCode,
-  createAttemptMetadata,
   handlerSlots,
   nextLoginOperation,
+} from "../../src/login-attempt/operations";
+import {
+  createAttemptMetadata,
   recoverLoginAttempt,
   transitionLoginAttempt,
 } from "../../src/login-attempt";

@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  nextLoginOperation,
-  parseAttemptMetadata,
-  transitionLoginAttempt,
-} from "../../src/login-attempt";
+import { nextLoginOperation } from "../../src/login-attempt/operations";
+import { parseAttemptMetadata } from "../../src/login-attempt/metadata";
+import { transitionLoginAttempt } from "../../src/login-attempt";
 import type { PasswordStopTestContext } from "./context";
 
 export function registerPasswordStopPasskeys({

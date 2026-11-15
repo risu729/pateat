@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  attemptPlan,
-  createAttemptMetadata,
-  nextLoginOperation,
-  transitionLoginAttempt,
-} from "../../src/login-attempt";
+import { attemptPlan, nextLoginOperation } from "../../src/login-attempt/operations";
+import { createAttemptMetadata, transitionLoginAttempt } from "../../src/login-attempt";
 import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginStep } from "../../src/login/targets";
 import type { LoginAttemptTestContext } from "./context";

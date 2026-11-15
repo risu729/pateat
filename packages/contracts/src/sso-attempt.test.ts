@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  attemptRouteChoice,
-  createAttemptMetadata,
-  parseAttemptMetadata,
-  transitionLoginAttempt,
-} from "./login-attempt";
+import { attemptRouteChoice } from "./login-attempt/operations";
+import { createAttemptMetadata, transitionLoginAttempt } from "./login-attempt";
+import { parseAttemptMetadata } from "./login-attempt/metadata";
 import type { LoginRecipe } from "./login/route-schema";
 
 const document = {

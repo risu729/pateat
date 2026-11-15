@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   attemptPlan,
-  createAttemptMetadata,
   handlerSlots,
   nextLoginOperation,
-  parseAttemptMetadata,
-  recoverLoginAttempt,
-  judgedPages,
-  MAX_JUDGED_PAGES,
-  transitionLoginAttempt,
   validateLoginOperation,
+} from "../../src/login-attempt/operations";
+import {
+  createAttemptMetadata,
+  recoverLoginAttempt,
+  transitionLoginAttempt,
 } from "../../src/login-attempt";
+import { parseAttemptMetadata } from "../../src/login-attempt/metadata";
+import { judgedPages, MAX_JUDGED_PAGES } from "../../src/login-attempt/schema-primitives";
 import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginAttemptTestContext } from "./context";
 

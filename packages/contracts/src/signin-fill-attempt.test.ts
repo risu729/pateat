@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   createAttemptMetadata,
-  nextLoginOperation,
-  parseAttemptMetadata,
   recoverLoginAttempt,
   transitionLoginAttempt,
-  validateLoginOperation,
-  type LoginAttemptMetadata,
 } from "./login-attempt";
+import { nextLoginOperation, validateLoginOperation } from "./login-attempt/operations";
+import { parseAttemptMetadata, type LoginAttemptMetadata } from "./login-attempt/metadata";
 import { holdsOrigin } from "./login-attempt-hold";
 import { parseLoginRecipe, type LoginDocument } from "./login/account";
 import type { LoginRecipe } from "./login/route-schema";

@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { nextLoginOperation, transitionLoginAttempt } from "../../src/login-attempt";
+import { nextLoginOperation } from "../../src/login-attempt/operations";
+import { transitionLoginAttempt } from "../../src/login-attempt";
 import type { LoginRecipe } from "../../src/login/route-schema";
 import type { LoginAttemptTestContext } from "./context";
 

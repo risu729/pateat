@@ -101,6 +101,23 @@ export {
 } from "./login/targets";
 export * from "./recipe-layouts";
 export * from "./login-attempt";
+export { effectfulStep, fillOnlyStep, fillOnlyStops } from "./login-attempt-steps";
+export * from "./login-attempt/events";
+export * from "./login-attempt/machine";
+export * from "./login-attempt/metadata";
+export * from "./login-attempt/operations";
+export { watchedAtStop } from "./login-attempt/policy";
+export {
+  attemptTimingSchema,
+  type AttemptTiming,
+  MAX_ATTEMPT_SUBMISSIONS,
+  MAX_JUDGED_PAGES,
+  WATCH_PATH_MAX,
+  judgedPages,
+  pagesLeft,
+  loginAttemptStateSchema,
+} from "./login-attempt/schema-primitives";
+export * from "./login-attempt/timing";
 export * from "./login-attempt-hold";
 export * from "./logout-words";
 export * from "./manage";

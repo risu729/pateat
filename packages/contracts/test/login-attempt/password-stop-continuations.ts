@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  nextLoginOperation,
-  parseAttemptMetadata,
-  recoverLoginAttempt,
-  transitionLoginAttempt,
-  validateLoginOperation,
-} from "../../src/login-attempt";
+import { nextLoginOperation, validateLoginOperation } from "../../src/login-attempt/operations";
+import { parseAttemptMetadata } from "../../src/login-attempt/metadata";
+import { recoverLoginAttempt, transitionLoginAttempt } from "../../src/login-attempt";
 import { CHOOSER_ENTRY_TARGET } from "../../src/login/document-schema";
 import type { LoginRecipe } from "../../src/login/route-schema";
 import type { PasswordStopTestContext } from "./context";

@@ -1,12 +1,8 @@
-import {
-  attemptPlan,
-  createAttemptMetadata,
-  fillOnlyStep,
-  MAX_ATTEMPT_SUBMISSIONS,
-  nextLoginOperation,
-  transitionLoginAttempt,
-  type LoginAttemptMetadata,
-} from "../login-attempt";
+import { attemptPlan, nextLoginOperation } from "../login-attempt/operations";
+import { createAttemptMetadata, transitionLoginAttempt } from "../login-attempt";
+import { fillOnlyStep } from "../login-attempt-steps";
+import { MAX_ATTEMPT_SUBMISSIONS } from "../login-attempt/schema-primitives";
+import type { LoginAttemptMetadata } from "../login-attempt/metadata";
 import { holdsOrigin } from "../login-attempt-hold";
 import {
   continuesRecipe,
