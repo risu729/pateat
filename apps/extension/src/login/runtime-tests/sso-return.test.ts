@@ -558,3 +558,47 @@ describe("RP completion persistence boundaries", () => {
     },
   );
 });
+
+describe("an RP page before and after the IdP is reached", () => {
+  it.each(["prepared", "entering-idp"] as const)(
+    "never completes with an RP page while the flow is %s",
+    async (phase) => {
+      const h = harness({ ok: true, identity: "match" }, true);
+      await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+      h.work.phase = phase;
+      const result = await ssoAdmit(h.rt, h.ctx);
+      expect(result).toEqual({
+        ok: false,
+        reason: phase === "prepared" ? "sso-page-changed" : "sso-in-progress",
+      });
+      expect(h.work.parent?.state).not.toBe("authenticated");
+      expect(h.signedIn).not.toHaveBeenCalled();
+      expect(h.update).not.toHaveBeenCalled();
+      expect(h.rt.confirmFill.proofs).toEqual([]);
+      expect(h.work.ended).toBe(phase === "prepared");
+      expect(
+        delivered.mock.calls.some(([, message]) => message["type"] === "login.sso.return"),
+      ).toBe(false);
+    },
+  );
+  it.each(["at-idp", "returning-rp"] as const)(
+    "ends the flow when the original RP page comes back from the cache (%s)",
+    async (phase) => {
+      const h = harness({ ok: true, identity: "match" }, true);
+      await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+      h.work.phase = phase;
+      const restored = { ...h.work.rpLive, seenAt: Date.now() };
+      h.rt.documents.set("7:0", restored);
+      fake.state.tabUrls[7] = restored.url;
+      const ctx = { ...h.ctx, document: restored.document, live: restored } as AdmitContext;
+      expect(heldElsewhere(h.rt, 8, idp)).toBe(true);
+      expect(await ssoAdmit(h.rt, ctx)).toEqual({ ok: false, reason: "sso-abandoned" });
+      expect(h.work.ended).toBe(true);
+      expect(h.work.parent?.state).not.toBe("authenticated");
+      expect(h.signedIn).not.toHaveBeenCalled();
+      // The abandoned flow no longer holds its IdP in the person's other tabs; the RP keeps
+      // only the ordinary hold of a login that may have submitted (ADR 0022).
+      expect(heldElsewhere(h.rt, 8, idp)).toBe(false);
+    },
+  );
+});

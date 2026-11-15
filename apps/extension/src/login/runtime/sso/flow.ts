@@ -656,11 +656,21 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     return ctx.refuse("sso-scope-changed");
   }
   if (ctx.document.origin === work.account.origin) {
-    if (
-      ctx.live.document.documentId === work.rpLive.document.documentId &&
-      ctx.live.path === work.rpLive.path
-    )
-      return ctx.refuse("sso-in-progress");
+    const original = ctx.live.document.documentId === work.rpLive.document.documentId;
+    if (work.phase === "prepared" || work.phase === "entering-idp") {
+      // Before the IdP is reached no RP page is the return: the original page waits while
+      // its entry is pressed, and so does an RP page on the way to the IdP. A new page
+      // before anything was pressed ends the flow.
+      if (original || work.phase === "entering-idp") return ctx.refuse("sso-in-progress");
+      cancelSso(rt, ctx.document.tabId, "sso-page-changed");
+      return ctx.refuse("sso-page-changed");
+    }
+    if (original) {
+      // The original page shown again once the IdP was reached comes back from the
+      // back/forward cache: the person left the flow.
+      cancelSso(rt, ctx.document.tabId, "sso-abandoned");
+      return ctx.refuse("sso-abandoned");
+    }
     work.phase = "returning-rp";
     await releaseChild(rt, work);
     if (await returned(rt, work, ctx.live)) return { ok: false as const, reason: "sso-completed" };

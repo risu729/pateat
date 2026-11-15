@@ -404,3 +404,11 @@ tab's top document goes to another origin, when the person starts a login there,
 the tab closes or is replaced, or ten minutes after it was made. The session journal
 keeps at most 100 records: a fuller journal on restart keeps its newest records, and a
 write drops the oldest holds instead of failing.
+
+## Review hardening 2026-11-16: the RP return comes after the IdP
+
+An RP page is the flow's return only once the tab has reached the IdP. Before that, the
+original page and any RP page on the way to the IdP wait, and a new RP page before the
+entry was pressed ends the flow. The original RP document showing again after the IdP
+was reached comes back from the back/forward cache: the person left, so the flow ends
+and no longer holds the RP and IdP in other tabs.
