@@ -64,6 +64,8 @@ export function createSsoRoutesSchema(schemas: {
   language: typeof recipeLanguageSchema;
   layouts: number;
 }) {
+  // Several labels may name one element, as two of an item's methods may sign in through
+  // one provider's button; one generation answer still names a button of its own per label.
   const entries = v.pipe(
     v.array(v.strictObject({ label: ssoLabelSchema, target: schemas.target })),
     v.minLength(1),
@@ -72,11 +74,6 @@ export function createSsoRoutesSchema(schemas: {
       (values) =>
         new Set(values.map((entry) => normalizeSsoLabel(entry.label))).size === values.length,
       "Duplicate SSO labels",
-    ),
-    v.check(
-      (values) =>
-        new Set(values.map((entry) => ssoTargetKey("", entry.target))).size === values.length,
-      "Duplicate SSO targets",
     ),
   );
   return v.strictObject({

@@ -88,6 +88,31 @@ describe("SSO entries beside native routes", () => {
     expect(sent).toHaveLength(3);
   });
 
+  it("keeps two labels answered on one button, so alternating them makes no more calls", async () => {
+    const device = await owner();
+    // Every call, were one made, would answer the same button.
+    replies.push(...Array.from({ length: 6 }, () => ({ text: ssoAnswer("a") })));
+    for (const label of ["A", "A2", "A", "A2", "A", "A2"])
+      // oxlint-disable-next-line no-await-in-loop -- each request follows the last write
+      expect(await generateSso(device, providers, [label])).toMatchObject({ status: "recipe" });
+    expect(sent).toHaveLength(2);
+    expect(
+      await storedHead(device.ownerId, await generatedRecipeId(ORIGIN, "/login")),
+    ).toMatchObject({
+      revision: 2,
+      sso: {
+        layouts: [
+          {
+            entries: [
+              { label: "A", target: { by: "id", value: "a" } },
+              { label: "A2", target: { by: "id", value: "a" } },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
   it("counts a merged layout's idle time from its newest entries", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");

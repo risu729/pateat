@@ -184,7 +184,8 @@ that differ only by case name one entry and the first spelling is kept. A reques
 at most eight labels. The role names each one by its index in the request and each
 entry by an observation-local candidate ID, so its answer is ASCII and stays within the
 role's 1,024 output tokens. Local checks require one observed button or link per label,
-reject duplicate targets, and retain no invented label or candidate in the request log.
+reject an answer that names one button for two labels, and retain no invented label or
+candidate in the request log.
 Targets are compared canonically, so member order never tells two apart. The role's
 page classification refuses consent, sharing, account creation and unclear pages, even
 when a matching provider button shows. Locally, only a title or main heading that
@@ -203,24 +204,27 @@ The service stores entries with the existing conditional revision write, spend l
 request log and generation retry/repair windows. This is a generation call, not a
 post-login judgement and does not count toward a recipe's 20 judgements a day. A request
 whose labels each have an entry in some layout is answered from the stored recipe
-without a call. New labels join the newest SSO layout, an entry of the same label or
-element being replaced, so asking for one label after another grows one layout instead
-of a layout each. The layout then takes the call's time as its creation time, so idle
-retention counts from its newest entries. Its provenance unit is the whole layout and
-names the call that last changed its entries; each earlier call's request log row keeps
-the layout's key. A repair, whose entries no longer worked, adds the newest layout's
-entries with its new ones as another layout, the least recently used going past three.
-The 10-minute retry window of a request is keyed by its branch, `sso:` and a digest of
-the recipe's stored SSO entries, at base revision 0, whatever labels it names. Varying
-the labels, as with labels the page does not show, buys no further call: one call per
-window until a write of new SSO entries opens it again, and a native write, which leaves
-them alone, does not. A device that learns its labels one at a time gets a call for
-each label the page shows, and none once they are stored; after an abstained answer,
-its next label waits for the window. The request log records the same branch, with the
-page `sso`, which the dashboard does not count as a recipe generated. A device repairs a
-recipe's SSO entries and its native routes once a UTC day each: `recipe_repairs` keys a
-repair by its family, `native` or `sso` (migration 0038), and a device without the
-service keeps the same keys.
+without a call. New labels join the newest SSO layout, an entry of the same label being
+replaced, so asking for one label after another grows one layout instead of a layout
+each. A label answered on a button another stored label already names is kept beside it,
+as two of an item's methods may sign in through one provider's button: neither replaces
+the other's entry, so asking for them in turn changes the stored entries once and the
+retry window below then holds. A layout that new labels join takes the call's time as
+its creation time, so idle retention counts from its newest entries. Its provenance unit
+is the whole layout and names the call that last changed its entries; each earlier
+call's request log row keeps the layout's key. A repair, whose entries no longer worked,
+adds the newest layout's entries with its new ones as another layout, the least recently
+used going past three. The 10-minute retry window of a request is keyed by its branch,
+`sso:` and a digest of the recipe's stored SSO entries, at base revision 0, whatever
+labels it names. Varying the labels, as with labels the page does not show, buys no
+further call: one call per window until a write of new SSO entries opens it again, and a
+native write, which leaves them alone, does not. A device that learns its labels one at
+a time gets a call for each label the page shows, and none once they are stored; after
+an abstained answer, its next label waits for the window. The request log records the
+same branch, with the page `sso`, which the dashboard does not count as a recipe
+generated. A device repairs a recipe's SSO entries and its native routes once a UTC day
+each: `recipe_repairs` keys a repair by its family, `native` or `sso` (migration 0038),
+and a device without the service keeps the same keys.
 
 SSO and native writes keep each other's siblings, with one bounded conditional rebase
 when only the other family changed. A native-only update does not discard a pending SSO

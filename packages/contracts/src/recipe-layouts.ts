@@ -122,18 +122,19 @@ export const ssoCovers = (sso: SsoRoutes | undefined, labels: readonly string[])
   );
 /**
  * `entries` with `added` in them: an added entry replaces one of the same label, ignoring
- * letter case, or of the same element, and goes last; past `MAX_SSO_LABELS` the earliest
- * entries go.
+ * letter case, and goes last, unless it is that entry unchanged, which keeps its place;
+ * past `MAX_SSO_LABELS` the earliest entries go. An entry of another label on the same
+ * element stays, so two labels answered on one button never replace each other's entry
+ * on each write.
  */
 export function mergeSsoEntries(entries: readonly SsoEntry[], added: readonly SsoEntry[]) {
-  const labels = new Set(added.map((entry) => normalizeSsoLabel(entry.label)));
-  const targets = new Set(added.map((entry) => canonicalJson(entry.target)));
+  const key = (entry: SsoEntry) => canonicalJson([normalizeSsoLabel(entry.label), entry.target]);
+  const kept = new Set(entries.map(key));
+  const changed = added.filter((entry) => !kept.has(key(entry)));
+  const labels = new Set(changed.map((entry) => normalizeSsoLabel(entry.label)));
   return [
-    ...entries.filter(
-      (entry) =>
-        !labels.has(normalizeSsoLabel(entry.label)) && !targets.has(canonicalJson(entry.target)),
-    ),
-    ...added,
+    ...entries.filter((entry) => !labels.has(normalizeSsoLabel(entry.label))),
+    ...changed,
   ].slice(-MAX_SSO_LABELS);
 }
 const sameEntries = (left: readonly SsoEntry[], right: readonly SsoEntry[]) =>

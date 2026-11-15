@@ -114,22 +114,7 @@ describe("declarative SSO documents", () => {
       },
       {
         ...original,
-        entries: [
-          { label: "One", target: target("same") },
-          { label: "Two", target: target("same") },
-        ],
-      },
-      {
-        ...original,
         entries: [{ label: "Example", target: target("one"), origin: "https://idp.example.test" }],
-      },
-      // The same element with its members in another order (canonical comparison).
-      {
-        ...original,
-        entries: [
-          { label: "One", target: { by: "id", value: "same" } },
-          { label: "Two", target: { value: "same", by: "id" } },
-        ],
       },
       { ...original, createdAt: -1 },
     ];
@@ -137,6 +122,24 @@ describe("declarative SSO documents", () => {
       expect(
         v.is(storedLoginRecipeSchema, { ...document(), sso: { path: "/login", layouts: [item] } }),
       ).toBe(false);
+    // Several labels may name one element, however its members are ordered.
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...document(),
+        sso: {
+          path: "/login",
+          layouts: [
+            {
+              ...original,
+              entries: [
+                { label: "One", target: { by: "id", value: "same" } },
+                { label: "Two", target: { value: "same", by: "id" } },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
     for (const layouts of [
       [],
       [layout(), layout()],
@@ -185,13 +188,21 @@ describe("declarative SSO documents", () => {
   it("merges new labels into the newest layout and keeps old entries on a repair", () => {
     const meta = (key: string) => ({ key, createdAt: Number(key) });
     const entry = (label: string, value = label) => ({ label, target: target(value) });
-    // Entries of the same label, ignoring case, or of the same element, are replaced.
+    // An entry of the same label, ignoring case, is replaced; one of another label on the
+    // same element stays beside the new one.
     expect(
       mergeSsoEntries(
         [entry("A"), entry("B"), entry("C")],
         [entry("a", "a2"), { label: "D", target: { value: "B", by: "id" } }],
       ),
-    ).toEqual([entry("C"), entry("a", "a2"), { label: "D", target: { value: "B", by: "id" } }]);
+    ).toEqual([
+      entry("B"),
+      entry("C"),
+      entry("a", "a2"),
+      { label: "D", target: { value: "B", by: "id" } },
+    ]);
+    const shared = mergeSsoEntries([entry("A", "a")], [entry("A2", "a")]);
+    expect(mergeSsoEntries(shared, [entry("A", "a")])).toEqual(shared);
     const many = Array.from({ length: MAX_SSO_LABELS + 1 }, (_, index) => entry(`L${index}`));
     expect(mergeSsoEntries(many.slice(0, -1), many.slice(-1))).toEqual(many.slice(1));
 
