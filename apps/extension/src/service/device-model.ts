@@ -24,7 +24,7 @@ import {
 import { clefModels, clefUrl, estimateClefCostUsd } from "@pateat/inference/clef-models";
 import * as v from "valibot";
 import { isoDay } from "../time";
-import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
+import type { InferenceResult, ServiceTiming, ServiceTransport, SsoTransport } from "./transport";
 
 // A paired device's own Anthropic API key (ADR 0040): with one saved, this device makes the
 // model calls of the service's generation and judge routes itself, and the service only
@@ -231,12 +231,10 @@ export function callCostMicroUsd(body: string, response: DeviceModelResponse): n
   return Math.ceil((estimateClaudeCost(usage, rates) ?? 0) * 1_000_000);
 }
 
-type DeviceModelRequests = Pick<
-  ServiceTransport,
-  "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
->;
+type DeviceModelRequests = Partial<SsoTransport> &
+  Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion">;
 const timed = ({ timing }: { timing?: ServiceTiming }) => (timing ? { timing } : {});
-/** Every answer of the four routes can say the service did not call the model. */
+/** Every generation or judge route can say the service did not call the model. */
 type Unavailable = { version: 1; status: "unavailable"; reason: GenerationUnavailableReason };
 
 /**
@@ -517,9 +515,18 @@ export function createDeviceModel(options: {
       sendClef,
       charge,
     },
-    /** The four requests, made with this device's key when one is saved. */
+    /** Generation and judge requests, made with this device's key when one is saved. */
     wrap(transport: DeviceModelRequests): DeviceModelRequests {
+      const sso = transport.generateSso;
       return {
+        ...(sso
+          ? {
+              generateSso: ((origin, credential, request) =>
+                relay((deviceModel) =>
+                  sso(origin, credential, { ...request, ...(deviceModel ? { deviceModel } : {}) }),
+                )) as NonNullable<DeviceModelRequests["generateSso"]>,
+            }
+          : {}),
         generateRecipe: (origin, credential, request) =>
           relay((deviceModel) =>
             transport.generateRecipe(origin, credential, {

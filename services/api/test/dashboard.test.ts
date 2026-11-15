@@ -302,6 +302,8 @@ describe("dashboard aggregation", () => {
         row({ role: "generate", recipePage: "first", revision: 1, recipeId: "gen-new" }),
         row({ role: "generate", recipePage: "first", revision: null }),
         row({ role: "generate", recipePage: "continuation", revision: 2 }),
+        // SSO entries are not a recipe generated (ADR 0026 amendment of 2026-11-12).
+        row({ role: "generate", recipePage: "sso", revision: 1, recipeId: "gen-sso" }),
       ],
       logins: [
         login({

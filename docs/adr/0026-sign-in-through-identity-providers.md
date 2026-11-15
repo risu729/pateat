@@ -1,10 +1,11 @@
 # ADR 0026: Signing in to a site through an identity provider
 
 Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented apart
-from the account choice in the last section (2026-11-07). The owner set it as low
-priority: this record fixes the direction, and implementation waits. Builds on
-[ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11 by
-[ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
+from account choice and the local discovery / declarative generation foundations
+([2026-11-12 amendment](#amendment-2026-11-12-declarative-sso-entry-generation)). The
+owner set it as low priority: this record fixes the direction, and implementation waits.
+Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
+by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
 by [ADR 0033](0033-no-site-specific-features.md) (owner, 13:46 UTC): no fixed list of
 identity providers or of their pages; the IdP's origin comes from the item and its pages
@@ -163,3 +164,85 @@ later or a paused site offers, hidden usernames and the chooser's comparisons st
 every match. Until the `sso` route exists, a pick or the only match of such an item runs
 the password route, which stops with `no-route` when the item holds no password and no
 passkey.
+
+## Amendment 2026-11-12: declarative SSO entry generation
+
+Implementation detail chosen by an agent within ADR 0085. A recipe document now accepts
+an `sso` sibling holding its start path and up to three layouts of `{label, target}`
+entries. A document may hold SSO alone or beside its native form and chooser layouts.
+These entries are not `LoginStep` clicks, native route projections or credential grants.
+The existing executor cannot act on them. Native route selection is unchanged.
+
+A dedicated `kind: "sso"` generation request contains a value-free page observation and
+labels for the chosen RP account/method, never a vault-wide label inventory, IdP
+username, IdP origin, item reference, comparison proof or local mapping. A label must
+be one local discovery can read
+([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-method-discovery-and-mapping-validation)):
+trimmed, at most 128 UTF-16 units, with no bracket, control, format, line or paragraph
+separator character. Labels are compared ignoring letter case, so a request's labels
+that differ only by case name one entry and the first spelling is kept. A request names
+at most eight labels. The role names each one by its index in the request and each
+entry by an observation-local candidate ID, so its answer is ASCII and stays within the
+role's 1,024 output tokens. Local checks require one observed button or link per label,
+reject an answer that names one button for two labels, and retain no invented label or
+candidate in the request log.
+Targets are compared canonically, so member order never tells two apart. The role's
+page classification refuses consent, sharing, account creation and unclear pages, even
+when a matching provider button shows. Locally, only a title or main heading that
+clearly grants access, shares account data or only creates an account refuses the page,
+and the chosen candidate's own label must not sign up, register, create an account,
+authorize, grant, allow or agree. A page that offers signing in beside signing up, a
+cookie banner's heading and a personal detail field beside the provider buttons are left
+to the role. The later coordinator must check these boundaries again on the live
+document. Claude answers the request alone: Clef answers only sign-in forms with slots
+([ADR 0083](0083-clef-first-for-sign-in-forms.md)), and an SSO request has none. As with
+the other generation requests, a paired device with its own key makes the call through
+the device-model protocol and a device without a pairing makes it itself
+([ADR 0040](0040-running-without-the-service.md)).
+
+The service stores entries with the existing conditional revision write, spend limits,
+request log and generation retry/repair windows. This is a generation call, not a
+post-login judgement and does not count toward a recipe's 20 judgements a day. A request
+whose labels each have an entry in some layout is answered from the stored recipe
+without a call. New labels join the newest SSO layout, an entry of the same label being
+replaced, so asking for one label after another grows one layout instead of a layout
+each. A label answered on a button another stored label already names is kept beside it,
+as two of an item's methods may sign in through one provider's button: neither replaces
+the other's entry, so asking for them in turn changes the stored entries once and the
+retry window below then holds. A layout that new labels join takes the call's time as
+its creation time, so idle retention counts from its newest entries. Its provenance unit
+is the whole layout and names the call that last changed its entries; each earlier
+call's request log row keeps the layout's key. A repair, whose entries no longer worked,
+adds the newest layout's entries with its new ones as another layout, the least recently
+used going past three. The 10-minute retry window of a request is keyed by its branch,
+`sso:` and a digest of the recipe's stored SSO entries, at base revision 0, whatever
+labels it names. Varying the labels, as with labels the page does not show, buys no
+further call: one call per window until a write of new SSO entries opens it again, and a
+native write, which leaves them alone, does not. A device that learns its labels one at
+a time gets a call for each label the page shows, and none once they are stored; after
+an abstained answer, its next label waits for the window. The request log records the
+same branch, with the page `sso`, which the dashboard does not count as a recipe
+generated. A device repairs a recipe's SSO entries and its native routes once a UTC day
+each: `recipe_repairs` keys a repair by its family, `native` or `sso` (migration 0038),
+and a device without the service keeps the same keys.
+
+SSO and native writes keep each other's siblings, with one bounded conditional rebase
+when only the other family changed. A native-only update does not discard a pending SSO
+repair. SSO entries do not run yet, so they give way to a native route: a native write
+drops each SSO entry on an element the route uses, a layout left empty and the family
+with its last layout, and the SSO role is never offered such an element. A native
+answer of a confirm or unclear page beside SSO entries alone is written beside them, as
+on a page with no recipe. Layout-key collisions are renamed together with the generated
+provenance and the successful call's inference-log layout; ordinary native and repair
+log scope remains unchanged. The winning document must still match the requested recipe
+ID, origin and start path. SSO targets cannot overlap native form, chooser or handler
+controls. SSO layouts have their own provenance units and participate in layout keys,
+removal and start-path validation; the management page lists each one's entries, label
+and target, with the same control that removes a native layout. Individual SSO layouts
+age under the same idle retention as native forms and account lists: an idle family is
+removed while another family remains, and the whole recipe retains its existing
+last-layout revocation rule. They never acquire fill slots or a native submission.
+
+The method chooser, local mapping UI, same-tab RP/IdP coordinator, IdP intermediate-page
+handling and final RP authentication remain the next required implementation. This
+amendment does not claim end-to-end, packaged-browser or real-account compatibility.

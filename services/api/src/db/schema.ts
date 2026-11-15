@@ -1,4 +1,9 @@
-import { pageJudgementVerdicts, recipePages, recipeUnitOrigins } from "@pateat/generation/backend";
+import {
+  pageJudgementVerdicts,
+  recipePages,
+  recipeUnitOrigins,
+  repairFamilies,
+} from "@pateat/generation/backend";
 import { sql } from "drizzle-orm";
 import {
   check,
@@ -204,11 +209,12 @@ export const recipeLayoutUses = sqliteTable(
  * Which call made each part ("unit") of an active recipe and when (ADR 0060): the service's
  * own record, never synced to devices and never in the recipe document. A unit is a page of
  * a layout's route (`page:<n>`), a handler (`handler:<i>`), a signed-in marker
- * (`marker:<i>`), a chooser layout's list buttons (`list`) or an entry recipe (`entry`); a
- * chooser branch's units start with `account/` or `other/` (`packages/generation/src/units.ts`). Rows are
- * written in the batch of the recipe write that adds the unit and only when that write
- * wins; rows of layouts a write drops go with that write, and every row of the recipe with
- * its revocation. The request log's delete-all clears `device_id` and `log_id`.
+ * (`marker:<i>`), a chooser layout's list buttons (`list`), an SSO layout's entries (`sso`)
+ * or an entry recipe (`entry`); a chooser branch's units start with `account/` or `other/`
+ * (`packages/generation/src/units.ts`). Rows are written in the batch of the recipe write
+ * that adds the unit and only when that write wins; rows of layouts a write drops go with
+ * that write, and every row of the recipe with its revocation. The request log's
+ * delete-all clears `device_id` and `log_id`.
  */
 export const recipeUnitSources = sqliteTable(
   "recipe_unit_sources",
@@ -366,7 +372,8 @@ export const inferenceLog = sqliteTable(
     recipeId: text("recipe_id"),
     /**
      * The recipe layout (ADR 0060) and chooser branch (ADR 0028) as `recipeBranchSchema`
-     * names them, or empty for a recipe's first page.
+     * names them, empty for a recipe's first page, or `sso:<digest>` for an SSO entry
+     * request (`ssoBranch`).
      */
     branch: text("branch"),
     /**
@@ -393,7 +400,8 @@ export const inferenceLog = sqliteTable(
      * For generation: `first` for a page that starts its recipe (a new one, one generated
      * again after its revocation, a list of accounts or an entry page), `continuation` for
      * a page sent with a base (a later page, a chooser branch's pages included), `logout` for
-     * any page of an account switch's logout (ADR 0063), which the dashboard counts apart.
+     * any page of an account switch's logout (ADR 0063), which the dashboard counts apart,
+     * and `sso` for an SSO entry request, which it does not count as a recipe generated.
      */
     recipePage: text("recipe_page", { enum: recipePages }),
     /**
@@ -621,7 +629,8 @@ export const generationAttempts = sqliteTable(
     recipeId: text("recipe_id").notNull(),
     /**
      * The layout (ADR 0060) and chooser branch (ADR 0028) the page continues, as
-     * `recipeBranchSchema` names them, or empty for a recipe's first page.
+     * `recipeBranchSchema` names them, empty for a recipe's first page, or `sso:<digest>`
+     * for an SSO entry request (`ssoBranch`), whose base revision is 0.
      */
     branch: text("branch").notNull().default(""),
     origin: text("origin").notNull(),
@@ -637,9 +646,10 @@ export const generationAttempts = sqliteTable(
 );
 
 /**
- * The last repair call per generated recipe and device (ADR 0041): a device asks
+ * The last repair call per generated recipe, device and family (ADR 0041): a device asks
  * to repair a recipe whose start page no longer matches at most once a UTC day, whatever
- * came of the call.
+ * came of the call, for its native routes and for its SSO entries apart (ADR 0026
+ * amendment of 2026-11-12).
  */
 export const recipeRepairs = sqliteTable(
   "recipe_repairs",
@@ -649,11 +659,15 @@ export const recipeRepairs = sqliteTable(
       .references(() => owners.id),
     recipeId: text("recipe_id").notNull(),
     deviceId: text("device_id").notNull(),
+    /** `native` for its forms, lists and entry, `sso` for its SSO entries. */
+    family: text("family", { enum: repairFamilies }).notNull().default("native"),
     /** The revision the call was to repair. */
     revision: integer("revision").notNull(),
     repairedAt: integer("repaired_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.ownerId, table.recipeId, table.deviceId] })],
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.recipeId, table.deviceId, table.family] }),
+  ],
 );
 
 /**

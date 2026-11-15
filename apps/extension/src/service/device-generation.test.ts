@@ -125,6 +125,8 @@ function setup(
     /** Runs while a model call is in flight, before its answer. */
     during?: () => Promise<void>;
     writeSpend?: () => Promise<void>;
+    /** The device's generation record as stored before. */
+    record?: unknown;
   } = {},
 ) {
   const replies = [...(options.replies ?? [])];
@@ -203,7 +205,7 @@ function setup(
     },
     transport: { writeRecipe: vi.fn() },
   });
-  let record: unknown;
+  let record: unknown = options.record;
   const backend = createDeviceGenerationBackend({
     recipes,
     storage: {
@@ -410,9 +412,39 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     await backend.recordAttempt({ ...attempt, path: "/other" }, 5_000, 2_000);
     expect(await backend.attemptedSince(attempt, 0)).toBe(false);
 
-    await backend.recordRepair("gen_synthetic", 1, 1_000, 0);
-    expect(await backend.repairedSince("gen_synthetic", 1_000)).toBe(true);
-    expect(await backend.repairedSince("gen_synthetic", 1_001)).toBe(false);
+    await backend.recordRepair("gen_synthetic", "native", 1, 1_000, 0);
+    expect(await backend.repairedSince("gen_synthetic", "native", 1_000)).toBe(true);
+    expect(await backend.repairedSince("gen_synthetic", "native", 1_001)).toBe(false);
+    // The SSO entries are a family of their own, repaired apart (ADR 0041).
+    expect(await backend.repairedSince("gen_synthetic", "sso", 0)).toBe(false);
+    await backend.recordRepair("gen_synthetic", "sso", 2, 1_500, 0);
+    expect(await backend.repairedSince("gen_synthetic", "sso", 1_500)).toBe(true);
+    expect(await backend.repairedSince("gen_synthetic", "native", 1_000)).toBe(true);
+  });
+
+  it("keeps a repair recorded before repair families as a native one", async () => {
+    const attempt = {
+      recipeId: "gen_synthetic",
+      branch: "",
+      origin: page.origin,
+      path: "/login",
+      baseRevision: 0,
+      at: 1_000,
+    };
+    const { backend } = setup({
+      record: {
+        version: 1,
+        attempts: [attempt],
+        repairs: [{ recipeId: "gen_synthetic", revision: 1, at: 1_000 }],
+        judgements: [],
+        layoutUses: [],
+      },
+    });
+    expect(await backend.repairedSince("gen_synthetic", "native", 1_000)).toBe(true);
+    expect(await backend.repairedSince("gen_synthetic", "sso", 0)).toBe(false);
+    // The record's other windows stay too.
+    const { at: _at, ...key } = attempt;
+    expect(await backend.attemptedSince(key, 999)).toBe(true);
   });
 
   it("writes a recipe only over the revision it expects", async () => {
@@ -642,5 +674,102 @@ describe("the connection generation runs under (ADR 0040)", () => {
         async () => false,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("standalone label-only SSO generation", () => {
+  const ssoRequest = {
+    version: 1 as const,
+    kind: "sso" as const,
+    labels: ["Example"],
+    observation: {
+      ...page,
+      candidates: [
+        ...page.candidates,
+        {
+          id: "provider",
+          role: "button" as const,
+          label: "Continue with Example",
+          target: { by: "id" as const, value: "provider" },
+        },
+      ],
+    },
+  };
+  const ssoPlan = JSON.stringify({
+    result: {
+      decision: "plan",
+      page: "sign-in",
+      entries: [{ labelIndex: 0, candidate: "provider" }],
+    },
+  });
+
+  it("keeps SSO and native siblings with no SSO slot mapping", async () => {
+    const { generation, recipes, sent } = setup({ replies: [ssoPlan, plan] });
+    const sso = await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest);
+    expect(sso).toMatchObject({
+      kind: "result",
+      result: { status: "recipe", change: { revision: 1 } },
+    });
+    expect(sso).not.toHaveProperty("result.slots");
+    expect(sso).not.toHaveProperty("result.slotMap");
+    const native = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(native).toMatchObject({
+      kind: "result",
+      result: { status: "recipe", change: { revision: 2 } },
+    });
+    expect(await recipes.list()).toEqual([
+      expect.objectContaining({
+        layouts: expect.any(Array),
+        sso: {
+          path: "/login",
+          layouts: [
+            expect.objectContaining({
+              entries: [{ label: "Example", target: { by: "id", value: "provider" } }],
+            }),
+          ],
+        },
+      }),
+    ]);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("validates label-only requests before making a call or writing an attempt", async () => {
+    const { generation, sent, record } = setup();
+    expect(
+      await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", {
+        ...ssoRequest,
+        slots: request.slots,
+      } as typeof ssoRequest),
+    ).toMatchObject({ kind: "failed", error: "unexpected-response" });
+    expect(sent).toHaveLength(0);
+    expect(record()).toBeUndefined();
+  });
+
+  it("keeps credential and spending gates for SSO-only pages", async () => {
+    const missing = setup({ setting: undefined });
+    expect(
+      await missing.generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest),
+    ).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "credentials-not-configured" },
+    });
+    expect(missing.sent).toHaveLength(0);
+    const day = new Date().toISOString().slice(0, 10);
+    const limited = setup({
+      spend: {
+        version: 1,
+        day,
+        dayMicroUsd: 5_000_000,
+        month: day.slice(0, 7),
+        monthMicroUsd: 5_000_000,
+      },
+    });
+    expect(
+      await limited.generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest),
+    ).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "daily-limit" },
+    });
+    expect(limited.sent).toHaveLength(0);
   });
 });

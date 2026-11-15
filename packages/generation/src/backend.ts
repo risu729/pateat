@@ -31,9 +31,10 @@ export const MAX_OUTPUT_TOKENS = 1_024;
 
 /**
  * Whether the page a generation request sent starts its recipe, or is an account switch's
- * logout page (ADR 0063), for the request log (ADR 0012).
+ * logout page (ADR 0063), or an SSO entry request (ADR 0026 amendment of 2026-11-12), for
+ * the request log (ADR 0012).
  */
-export const recipePages = ["first", "continuation", "logout"] as const;
+export const recipePages = ["first", "continuation", "logout", "sso"] as const;
 export type RecipePage = (typeof recipePages)[number];
 
 /**
@@ -214,7 +215,16 @@ export type KeptJudgement = {
   inputs: string | null;
 };
 
-/** A generation attempt's key (ADR 0016): the chooser branch is empty without one. */
+/**
+ * The routes of a recipe a repair is for (ADR 0041): its native forms, lists and entry, or
+ * its SSO entries (ADR 0026 amendment of 2026-11-12), each repaired once a day.
+ */
+export const repairFamilies = ["native", "sso"] as const;
+export type RepairFamily = (typeof repairFamilies)[number];
+/**
+ * A generation attempt's key (ADR 0016): the chooser branch is empty without one, and an
+ * SSO entry request's is `ssoBranch`'s, with base revision 0 (`generateSso`).
+ */
 export type AttemptKey = {
   recipeId: string;
   branch: string;
@@ -279,13 +289,19 @@ export interface GenerationBackend {
    * in one write.
    */
   recordAttempt(key: AttemptKey, now: number, expired: number): Promise<void>;
-  /** Whether this device asked to repair the recipe since `since` (ADR 0041). */
-  repairedSince(recipeId: string, since: number): Promise<boolean>;
+  /** Whether this device asked to repair the recipe's family since `since` (ADR 0041). */
+  repairedSince(recipeId: string, family: RepairFamily, since: number): Promise<boolean>;
   /**
-   * Records this device's repair of the recipe at `baseRevision`, and forgets the owner's
-   * repairs made before `expired`, in one write.
+   * Records this device's repair of the recipe's family at `baseRevision`, and forgets the
+   * owner's repairs made before `expired`, in one write.
    */
-  recordRepair(recipeId: string, baseRevision: number, now: number, expired: number): Promise<void>;
+  recordRepair(
+    recipeId: string,
+    family: RepairFamily,
+    baseRevision: number,
+    now: number,
+    expired: number,
+  ): Promise<void>;
   /**
    * The kept judgement of a page, with its verdict (null while unanswered) and the digest
    * of the inputs its description showed (null on a row kept without one).
@@ -326,8 +342,8 @@ export interface GenerationBackend {
   call<T>(call: GenerationCall<T>): Promise<GenerationCallResult<T>>;
   /** Logs a request answered without a model call under its code (ADR 0012). */
   logUnsent(unsent: UnsentRequest, code: UnsentOutcome): Promise<void>;
-  /** Names on a call's log row the recipe revision its answer wrote. */
-  keepLogRevision(logId: string | undefined, revision: number): Promise<void>;
+  /** Names the written revision, and optionally remaps a generated layout after a collision. */
+  keepLogRevision(logId: string | undefined, revision: number, layout?: string): Promise<void>;
   /**
    * Keeps a repeat login's signed-in page in the request log (ADR 0029): false when the
    * owner already has a recent sample of the recipe and branch.

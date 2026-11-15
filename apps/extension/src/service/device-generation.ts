@@ -1,4 +1,5 @@
 import {
+  ssoGenerationRequestSchema,
   DEFAULT_MODEL_CONFIG,
   DEVICE_MODEL_URL,
   MAX_ACTIVE_RECIPE_BYTES,
@@ -22,11 +23,13 @@ import {
   choiceAttempts,
   CLEF_MODEL,
   generateEntry,
+  generateSso,
   generateRecipe,
   generateLogout,
   judgeCompletion,
   nextAttempt,
   pageJudgementVerdicts,
+  repairFamilies,
   roleChoices,
   servedModel,
   type GenerationBackend,
@@ -45,7 +48,7 @@ import * as v from "valibot";
 import type { createDeviceModel } from "./device-model";
 import type { createDeviceRecipes } from "./device-recipes";
 import type { ServiceConnection } from "./runtime";
-import type { InferenceResult, ServiceTransport } from "./transport";
+import type { InferenceResult, ServiceTransport, SsoTransport } from "./transport";
 
 // Generation on a device without a pairing (ADR 0040, owner 2026-10-23 21:11 UTC): the
 // service's own generation and judge routes run here, against the recipes this device
@@ -88,7 +91,14 @@ const recordSchema = v.strictObject({
     }),
   ),
   repairs: v.array(
-    v.strictObject({ recipeId: syncRecipeIdSchema, revision: revisionSchema, at: timeSchema }),
+    v.strictObject({
+      recipeId: syncRecipeIdSchema,
+      // Native routes and SSO entries are each repaired once a day (ADR 0041); a repair
+      // kept before SSO entries had one of its own was a native one.
+      family: v.optional(v.picklist(repairFamilies), "native"),
+      revision: revisionSchema,
+      at: timeSchema,
+    }),
   ),
   judgements: v.array(
     v.strictObject({
@@ -433,17 +443,20 @@ export function createDeviceGenerationBackend(options: {
         ],
       }));
     },
-    async repairedSince(recipeId, since) {
+    async repairedSince(recipeId, family, since) {
       return (await current()).repairs.some(
-        (entry) => entry.recipeId === recipeId && entry.at >= since,
+        (entry) => entry.recipeId === recipeId && entry.family === family && entry.at >= since,
       );
     },
-    recordRepair(recipeId, baseRevision, at, expired) {
+    recordRepair(recipeId, family, baseRevision, at, expired) {
       return change((record) => ({
         ...record,
         repairs: [
-          ...record.repairs.filter((entry) => entry.recipeId !== recipeId && entry.at >= expired),
-          { recipeId, revision: baseRevision, at },
+          ...record.repairs.filter(
+            (entry) =>
+              (entry.recipeId !== recipeId || entry.family !== family) && entry.at >= expired,
+          ),
+          { recipeId, family, revision: baseRevision, at },
         ],
       }));
     },
@@ -511,10 +524,8 @@ export function createDeviceGenerationBackend(options: {
   };
 }
 
-type Requests = Pick<
-  ServiceTransport,
-  "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
->;
+type Requests = SsoTransport &
+  Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion">;
 
 /**
  * The generation routes' answers for this device's own requests, as the transport gives
@@ -534,6 +545,11 @@ export function createDeviceGeneration(backend: GenerationBackend): Requests {
     }
   }
   return {
+    generateSso: (_origin, _credential, request) =>
+      run(async () => {
+        const parsed = v.safeParse(ssoGenerationRequestSchema, request);
+        return parsed.success ? generateSso(backend, parsed.output) : undefined;
+      }),
     generateRecipe: (_origin, _credential, request) =>
       run(async () => {
         const parsed = v.safeParse(recipeGenerationRequestSchema, request);

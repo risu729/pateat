@@ -121,7 +121,7 @@ export async function generateEntry(
     recipe: { ...logged.recipe, baseRevision },
     // A repair is limited to one a UTC day per recipe and device (ADR 0041).
     ...(repair
-      ? repairWindow(backend, { recipeId, baseRevision }, recheck)
+      ? repairWindow(backend, { recipeId, baseRevision, family: "native" }, recheck)
       : attemptWindow(backend, { recipeId, branch: "", origin, path, baseRevision }, recheck)),
     invoke: (model) => createEntryGenerator({ model, ...roleConfig })({ observation }),
     logValue: ({ entry: candidate }) => ({ entry: candidate }),

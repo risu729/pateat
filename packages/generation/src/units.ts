@@ -20,6 +20,9 @@ import {
 // - `list` a chooser layout's list buttons (`other`, `continue`).
 // - `account/<unit>` and `other/<unit>` a unit of that chooser layout's branch's route,
 //   and `passkey/<unit>` one of its passkey route beside the list (ADR 0079).
+// - `sso` an SSO layout's entries (ADR 0026 amendment of 2026-11-12), the whole layout:
+//   new labels join the newest layout, so its record names the call that last changed its
+//   entries, and each earlier call stays in the request log under the layout's key.
 // - `entry` an entry recipe (ADR 0031), which has no layout.
 // - `logout` a logout recipe's clicks (ADR 0063), which has no layout either.
 //
@@ -34,6 +37,7 @@ export type DigestedUnit = RecipeUnit & { digest: string };
 export const ENTRY_UNIT = "entry";
 export const LIST_UNIT = "list";
 export const LOGOUT_UNIT = "logout";
+export const SSO_UNIT = "sso";
 /** A page of a route, by the index of its first step. */
 export const pageUnit = (firstStep: number) => `page:${firstStep}`;
 /** A route's handler, by its index in `handlers`. */
@@ -122,6 +126,15 @@ export async function documentUnits(
       : "logout" in recipe
         ? [{ layout: null, unit: LOGOUT_UNIT, content: recipe.logout }]
         : [
+            ...(recipe.sso?.layouts ?? []).map((layout) => ({
+              layout: layout.key,
+              unit: SSO_UNIT,
+              content: {
+                path: recipe.sso!.path,
+                entries: layout.entries,
+                language: layout.language,
+              },
+            })),
             ...(recipe.layouts ?? []).flatMap((layout) =>
               routeContents(layout, startsOf(layout.key), undefined, layout.language).map(
                 ([unit, content]) => ({ layout: layout.key, unit, content }),

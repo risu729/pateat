@@ -3,7 +3,7 @@ import {
   type LoginRecipe,
   type SyncRecipeChange,
 } from "@pateat/contracts";
-import { type AttemptKey, type GenerationBackend } from "../backend";
+import { type AttemptKey, type GenerationBackend, type RepairFamily } from "../backend";
 
 /** A page tried is not sent to the model again for this long (owner, 2026-10-12). */
 export const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
@@ -28,26 +28,30 @@ export async function generatedRecipeId(origin: string, startPath: string) {
 }
 
 /**
- * The repair limit of ADR 0041: a device asks to repair a recipe at most once a
- * UTC day, whatever came of the call. `recheck` reads the stored head again once the
- * request holds a call slot. Two repairs at once both pass and are both charged; the
- * recipe's revision claim keeps one write (ADR 0018).
+ * The repair limit of ADR 0041: a device asks to repair a recipe's family at most once a
+ * UTC day, whatever came of the call. The native routes (forms, lists and entries) and the
+ * SSO entries (ADR 0026 amendment of 2026-11-12) are separate families, so a repair of
+ * one never uses up the other's. `recheck` reads the stored head again once the request
+ * holds a call slot. Two repairs at once both pass and are both charged; the recipe's
+ * revision claim keeps one write (ADR 0018).
  */
 export function repairWindow(
   backend: GenerationBackend,
-  key: { recipeId: string; baseRevision: number },
+  key: { recipeId: string; baseRevision: number; family: RepairFamily },
   recheck: () => Promise<GenerationUnavailableReason | undefined>,
 ) {
-  const { recipeId, baseRevision } = key;
+  const { recipeId, baseRevision, family } = key;
   return {
     gate: async (now: number) => {
       const stale = await recheck();
       if (stale) return stale;
-      return (await backend.repairedSince(recipeId, utcDayStart(now))) ? "repair-limit" : undefined;
+      return (await backend.repairedSince(recipeId, family, utcDayStart(now)))
+        ? "repair-limit"
+        : undefined;
     },
     // Earlier days' rows decide nothing any more.
     beforeSend: (now: number) =>
-      backend.recordRepair(recipeId, baseRevision, now, utcDayStart(now)),
+      backend.recordRepair(recipeId, family, baseRevision, now, utcDayStart(now)),
   };
 }
 

@@ -9,6 +9,10 @@ import {
   type RecipeDocument,
   storedLoginRecipeSchema,
   storedRecipeStartPath,
+  storedLayouts,
+  newLayoutKey,
+  isSsoDocument,
+  ssoBesideNative,
   type ChooserBranch,
   type LoginChooserRecipe,
   type LoginRecipe,
@@ -67,6 +71,7 @@ import {
   attemptWindow,
   sameRoute,
 } from "./policy";
+import { rebaseNativeOverSso } from "../sso-write";
 import { stored, newLayoutMeta, markWritten, buildLoginLayout } from "./layout";
 
 /**
@@ -216,6 +221,17 @@ export async function generateRecipe(
     // Only the recipe generated here answers; a device write under the ID cannot redirect it.
     if (current && !(await generatedHere(current.recipe)))
       return { answer: unavailable("recipe-conflict") };
+    // A native start page may add its family beside an SSO-only document.
+    if (
+      current &&
+      !base &&
+      isSsoDocument(current.recipe) &&
+      !isLoginRecipeDocument(current.recipe) &&
+      !isChooserDocument(current.recipe)
+    )
+      return (await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES))
+        ? { base: undefined, repaired: current.recipe }
+        : { answer: unavailable("recipe-limit") };
     // An entry recipe (ADR 0031), a chooser for a form or a route recipe for a list of this
     // origin and path is no recipe to answer with.
     const answer = answerable(head);
@@ -296,6 +312,11 @@ export async function generateRecipe(
   // in the page's language; only a repair adds another (ADR 0041). Its key is chosen before
   // the call, so the request log names the layout the answer creates.
   const meta = newLayoutMeta(observation.language, Date.now());
+  if (repaired)
+    meta.key = newLayoutKey(
+      meta.createdAt,
+      storedLayouts(repaired).map((layout) => layout.key),
+    );
 
   // Another device may have stored this recipe while this request waited for a call slot.
   const recheck = async () => {
@@ -320,7 +341,7 @@ export async function generateRecipe(
     // A repair is limited to one a UTC day per recipe and device instead of the page's retry
     // window (ADR 0041).
     ...(repair
-      ? repairWindow(backend, { recipeId, baseRevision }, recheck)
+      ? repairWindow(backend, { recipeId, baseRevision, family: "native" }, recheck)
       : attemptWindow(
           backend,
           { recipeId, branch: attemptBranch, origin, path, baseRevision },
@@ -416,6 +437,7 @@ export async function generateRecipe(
   ): Promise<RecipeGenerationResult> => {
     let next = recipe;
     let expectedRevision = baseRevision;
+    let remappedLogLayout: string | undefined;
     for (let tries = 0; ; tries += 1) {
       // eslint-disable-next-line no-await-in-loop
       const written = await backend.writeRecipe(
@@ -425,7 +447,9 @@ export async function generateRecipe(
       );
       if (written.ok) {
         // eslint-disable-next-line no-await-in-loop
-        await backend.keepLogRevision(logId, written.change.revision);
+        await (remappedLogLayout === undefined
+          ? backend.keepLogRevision(logId, written.change.revision)
+          : backend.keepLogRevision(logId, written.change.revision, remappedLogLayout));
         // eslint-disable-next-line no-await-in-loop
         if (branch !== undefined) await markWritten(backend, recipeId, branch);
         const change = answerable(written.change);
@@ -438,8 +462,27 @@ export async function generateRecipe(
         };
       }
       if (written.limited) return unavailable("recipe-limit");
-      // eslint-disable-next-line no-await-in-loop
-      const moved = tries === 0 ? await rebase?.(written.current) : undefined;
+      const latest = active(written.current);
+      let moved: StoredLoginRecipe | undefined;
+      if (tries === 0) {
+        // oxlint-disable-next-line no-await-in-loop -- at most one conditional sibling rebase
+        moved = await rebase?.(written.current);
+        if (!moved && latest) {
+          const sibling = rebaseNativeOverSso(next, active(headAtStart)?.recipe, latest.recipe);
+          if (sibling) {
+            moved = sibling.recipe;
+            units = units.map((unit) => ({
+              ...unit,
+              layout:
+                unit.layout === null ? null : (sibling.renamed.get(unit.layout) ?? unit.layout),
+            }));
+            if (copied) copied = { ...copied, to: sibling.renamed.get(copied.to) ?? copied.to };
+            // Only a new native first page originally logged meta.key. Repairs and
+            // continuations retain their existing branch/layout logging semantics.
+            if (!base && !repair) remappedLogLayout = sibling.renamed.get(meta.key);
+          }
+        }
+      }
       if (!moved) {
         // A write lost to another device answers with that device's recipe, as above.
         // eslint-disable-next-line no-await-in-loop
@@ -456,8 +499,14 @@ export async function generateRecipe(
   // A recipe generated again follows its tombstone's revision.
   const revision = baseRevision + 1;
   /** A new recipe document, checked as devices check what they sync. */
-  const document = (recipe: StoredLoginRecipe) =>
-    v.is(storedLoginRecipeSchema, recipe) ? recipe : undefined;
+  const document = (recipe: StoredLoginRecipe) => {
+    // SSO entries on an element the answer uses give way to it: they do not run yet.
+    const kept =
+      repaired && isSsoDocument(repaired) && !("entry" in recipe) && !("logout" in recipe)
+        ? ssoBesideNative({ ...recipe, sso: repaired.sso })
+        : recipe;
+    return v.is(storedLoginRecipeSchema, kept) ? kept : undefined;
+  };
   /** The current recipe as the answer to a repair that writes nothing. */
   const unchanged = async (): Promise<RecipeGenerationResult> => {
     const current = answerable(await backend.readHead(recipeId));
@@ -559,7 +608,11 @@ export async function generateRecipe(
   // A recipe of a list alone whose start page showed a form gets the form's layout beside
   // its list, and an entry recipe whose page became a form is replaced by a login recipe
   // (ADR 0041 section 6), unless the answer is no sign-in page.
-  if (repaired && !isLoginRecipeDocument(repaired) && !runsLogin(next)) return unchanged();
+  // A recipe of SSO entries alone has no native family the answer would replace, so a confirm
+  // or unclear page's answer is written beside them as on a page with no recipe.
+  const ssoOnly = repaired && isSsoDocument(repaired) && !isChooserDocument(repaired);
+  if (repaired && !isLoginRecipeDocument(repaired) && !ssoOnly && !runsLogin(next))
+    return unchanged();
   if (repaired && isLoginRecipeDocument(repaired)) {
     const uses = await backend.layoutUses(recipeId);
     // An answer that is no sign-in page, as a maintenance page answered 200 that kept an
