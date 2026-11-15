@@ -654,19 +654,23 @@ names and counts as well as the local Worker tests when changing this layout.
 
 `services/api/test/generation.test.ts` remains the sole discovered entry for the
 service's generation suite. It owns the synthetic pages and helpers, the token and
-Messages API interception, the root hooks and all sixteen describe scopes, with the
-helpers local to the recipe generation and page judgement scopes. Plain `*-cases.ts`
-modules in `services/api/test/generation/` export synchronous registration functions
-for contiguous case groups, which the entry calls inside those scopes in the original
-order; importing a module registers no cases. `context.ts` holds the shared types,
-and each registrar takes the helpers it uses as a `Pick<>` of them. The entry keeps
-owning the interception's mutable replies, hooks, delays, token status and sent
+Messages API interception, the root hooks and all sixteen describe scopes. Plain
+`*-cases.ts` modules in `services/api/test/generation/` export synchronous
+registration functions for contiguous case groups, which the entry calls inside those
+scopes in the original order; importing a module registers no cases. The entry
+exports the types of its helper sets, `GenerationFixtures`, `RecipeChoiceFixtures` and
+`PageJudgementFixtures`, taken with `typeof` from the helpers themselves; `context.ts`
+names them as the registrars' contexts with `import type` and holds the shared data
+types, and each registrar takes the helpers it uses as a `Pick<>` of them. The entry
+keeps owning the interception's mutable replies, hooks, delays, token status and sent
 requests; the registrars read and write them through the getters and setters of its
 `state` object, so a case that replaces one replaces it for the interceptor too. The
 modules lack the `.test.ts` suffix and sit outside `src/`, so they are neither
 discovered nor in the coverage include. Each file follows the 1,000-line limit.
-Compare the expanded test names and counts and run the local Worker tests when
-changing this layout.
+When changing this layout, compare the expanded test names and counts and run the
+local Worker tests. Vitest 5's `vitest list` parses files statically by default
+(`--staticParse`) and so lists no case a registrar adds; compare the output of
+`vitest list --staticParse=false` or of `vitest run --reporter=json` instead.
 
 ### Observation reader test organization
 
@@ -703,8 +707,9 @@ positions. The `*-cases.tsx` modules own contiguous opening, pause policy, setti
 choice, page section, detail, locked vault and page behavior cases, without their own
 hooks or suites, so every test stays a root test of `popup.test.tsx`. The entry
 defines each helper before the registrar that takes it and exports its
-`PopupTestContext` type, which the modules import with `import type` and narrow with
-`Pick<>`, so there is no runtime import cycle. Each file follows the 1,000-line limit.
+`PopupTestFixtures` type. `popup/context.ts` builds each registrar's context from it as
+a `Pick<>` with `import type`, and the modules import their context from there, so
+there is no runtime import cycle. Each file follows the 1,000-line limit.
 
 ### Connection settings test organization
 
@@ -764,7 +769,9 @@ of `passkeys.spec.ts` and its own round-robin shard unit, keeps its per-test tim
 and starts its own browser profile and relying party. The production-build case
 resolves the build directory from its own module, so its relative path climbs one
 directory more. Each file follows the 1,000-line limit. Compare the `--list` output
-for each shard when changing this layout.
+for each shard when changing this layout. Test locations now point at
+`passkey-cases/*.ts`, so select a single test with `-g` and its title rather than
+`passkeys.spec.ts:<line>`; the login spec's `login-cases/` works the same way.
 
 ### Connection setup service test organization
 

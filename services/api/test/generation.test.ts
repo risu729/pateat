@@ -14,14 +14,7 @@ import { env, exports } from "cloudflare:workers";
 import { afterAll, beforeAll, beforeEach, describe, expect, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
-import type {
-  Device,
-  GenerationContext,
-  GenerationState,
-  PageJudgementContext,
-  Reply,
-  Row,
-} from "./generation/context";
+import type { Device, GenerationState, Reply, Row } from "./generation/context";
 import { registerGenerationCallCases } from "./generation/generation-calls-cases";
 import { registerGenerationChoiceCases } from "./generation/generation-choice-cases";
 import { registerGenerationAdmissionCases } from "./generation/generation-admission-cases";
@@ -534,26 +527,109 @@ const context = {
   twoPageRecipe,
   bigSlots,
   state,
-} satisfies GenerationContext;
+};
+
+/** The helpers the registrars take; `generation/context.ts` names their contexts. */
+export type GenerationFixtures = typeof context;
+
+const choice = (model: string, effort: "low" | "medium", speed: "standard" | "fast") => ({
+  provider: "anthropic" as const,
+  model,
+  effort,
+  speed,
+});
+const asked = () =>
+  sent.map(({ body }) => {
+    const { model, speed, output_config } = body as {
+      model: string;
+      speed?: string;
+      output_config?: { effort?: string };
+    };
+    return { model, effort: output_config?.effort, speed };
+  });
+
+export type RecipeChoiceFixtures = GenerationFixtures & {
+  choice: typeof choice;
+  asked: typeof asked;
+};
+
+const judgeReply = (result: unknown) => ({ text: JSON.stringify({ result }) });
+const webauthnPage = observation("/login/webauthn", [
+  element("key", "button", "Use security key"),
+  element("recovery", "link", "Use a recovery code"),
+]);
+// One clock read: the clock can tick between two, which gives the previous day's last
+// millisecond and lets the judgement purge delete a row seeded as today's.
+const dayStart = () => {
+  const now = Date.now();
+  return now - (now % DAY_MS);
+};
+const judgements = (device: Device) =>
+  rows(
+    "SELECT recipe_id, revision, path FROM page_judgements WHERE owner_id = ? ORDER BY recipe_id, revision, path",
+    device.ownerId,
+  );
+/** A judgement row; without a prompt version, as an earlier judge left it. */
+const seed = (
+  device: Device,
+  recipeId: string,
+  revision: number,
+  path: string,
+  at: number,
+  {
+    promptVersion = "",
+    verdict = null,
+    inputs = null,
+  }: { promptVersion?: string; verdict?: string | null; inputs?: string | null } = {},
+) =>
+  // A row of the layout the recipe's logins run (ADR 0060).
+  layoutKey(device.ownerId, recipeId).then((branch) =>
+    env.DB.prepare(
+      "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict, inputs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        device.ownerId,
+        recipeId,
+        branch ?? "",
+        revision,
+        ORIGIN,
+        path,
+        promptVersion,
+        at,
+        verdict,
+        inputs,
+      )
+      .run(),
+  );
+const spend = (device: Device) =>
+  rows(
+    "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
+    device.ownerId,
+  );
+const head = async (device: Device, recipeId: string) =>
+  (
+    await rows(
+      "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+      device.ownerId,
+      recipeId,
+    )
+  )[0]?.["revision"];
+
+const judgementContext = {
+  ...context,
+  judgeReply,
+  webauthnPage,
+  dayStart,
+  judgements,
+  seed,
+  spend,
+  head,
+};
+
+export type PageJudgementFixtures = typeof judgementContext;
 
 describe("recipe generation", () => {
   registerGenerationCallCases(context);
-
-  const choice = (model: string, effort: "low" | "medium", speed: "standard" | "fast") => ({
-    provider: "anthropic" as const,
-    model,
-    effort,
-    speed,
-  });
-  const asked = () =>
-    sent.map(({ body }) => {
-      const { model, speed, output_config } = body as {
-        model: string;
-        speed?: string;
-        output_config?: { effort?: string };
-      };
-      return { model, effort: output_config?.effort, speed };
-    });
 
   registerGenerationChoiceCases({ ...context, choice, asked });
 
@@ -573,79 +649,6 @@ describe("completion judgement", () => {
 });
 
 describe("page judgement (ADR 0027)", () => {
-  const judgeReply = (result: unknown) => ({ text: JSON.stringify({ result }) });
-  const webauthnPage = observation("/login/webauthn", [
-    element("key", "button", "Use security key"),
-    element("recovery", "link", "Use a recovery code"),
-  ]);
-  // One clock read: the clock can tick between two, which gives the previous day's last
-  // millisecond and lets the judgement purge delete a row seeded as today's.
-  const dayStart = () => {
-    const now = Date.now();
-    return now - (now % DAY_MS);
-  };
-  const judgements = (device: Device) =>
-    rows(
-      "SELECT recipe_id, revision, path FROM page_judgements WHERE owner_id = ? ORDER BY recipe_id, revision, path",
-      device.ownerId,
-    );
-  /** A judgement row; without a prompt version, as an earlier judge left it. */
-  const seed = (
-    device: Device,
-    recipeId: string,
-    revision: number,
-    path: string,
-    at: number,
-    {
-      promptVersion = "",
-      verdict = null,
-      inputs = null,
-    }: { promptVersion?: string; verdict?: string | null; inputs?: string | null } = {},
-  ) =>
-    // A row of the layout the recipe's logins run (ADR 0060).
-    layoutKey(device.ownerId, recipeId).then((branch) =>
-      env.DB.prepare(
-        "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict, inputs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      )
-        .bind(
-          device.ownerId,
-          recipeId,
-          branch ?? "",
-          revision,
-          ORIGIN,
-          path,
-          promptVersion,
-          at,
-          verdict,
-          inputs,
-        )
-        .run(),
-    );
-  const spend = (device: Device) =>
-    rows(
-      "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
-      device.ownerId,
-    );
-  const head = async (device: Device, recipeId: string) =>
-    (
-      await rows(
-        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
-        device.ownerId,
-        recipeId,
-      )
-    )[0]?.["revision"];
-
-  const judgementContext = {
-    ...context,
-    judgeReply,
-    webauthnPage,
-    dayStart,
-    judgements,
-    seed,
-    spend,
-    head,
-  } satisfies PageJudgementContext;
-
   registerJudgementRouteCases(judgementContext);
 
   registerJudgementQuotaHandlerCases(judgementContext);

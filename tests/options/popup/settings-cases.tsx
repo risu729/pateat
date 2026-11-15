@@ -3,7 +3,12 @@ import { page, userEvent } from "vitest/browser";
 import { cleanup } from "vitest-browser-react";
 import { popupOrigin } from "../../../apps/extension/src/popup/site-app";
 import { createDefaultSettings } from "../../../packages/contracts/src/index";
-import type { PopupTestContext } from "../popup.test";
+import type {
+  PopupOpeningContext,
+  PopupPolicyContext,
+  PopupSettingsContext,
+  PopupPageBehaviorContext,
+} from "./context";
 
 export function registerPopupOpeningCases({
   saved,
@@ -11,7 +16,7 @@ export function registerPopupOpeningCases({
   store,
   noChoice,
   mount,
-}: Pick<PopupTestContext, "saved" | "demoSiteAccounts" | "store" | "noChoice" | "mount">) {
+}: PopupOpeningContext) {
   test("only HTTP(S) pages with a valid hostname are a site the popup edits", () => {
     expect(popupOrigin("https://bank.example/login?next=1")).toBe("https://bank.example");
     expect(popupOrigin("https://bank.example:8443/")).toBe("https://bank.example:8443");
@@ -185,7 +190,7 @@ export function registerPopupPolicyCases({
   noChoice,
   mount,
   pageOf,
-}: Pick<PopupTestContext, "saved" | "store" | "noChoice" | "mount" | "pageOf">) {
+}: PopupPolicyContext) {
   test("Until turned back on pauses the whole site with a rule, and Resume removes it (ADR 0062)", async () => {
     const { client, current } = store();
     const choices = pageOf("https://login.bank.example");
@@ -441,21 +446,7 @@ export function registerPopupSettingsCases({
   resultMessage,
   onPage,
   lineText,
-}: Pick<
-  PopupTestContext,
-  | "saved"
-  | "demoSiteAccounts"
-  | "store"
-  | "noChoice"
-  | "mount"
-  | "fakeDeadline"
-  | "pageOf"
-  | "pressWithKeyboard"
-  | "holdNextSave"
-  | "resultMessage"
-  | "onPage"
-  | "lineText"
->) {
+}: PopupSettingsContext) {
   test("saving or removing the default with the keyboard keeps focus in the popup", async () => {
     const { client } = store();
     await mount(client, "https://bank.example/login");
@@ -832,11 +823,7 @@ export function registerPopupSettingsCases({
   });
 }
 
-export function registerPopupPageBehaviorCases({
-  saved,
-  store,
-  mount,
-}: Pick<PopupTestContext, "saved" | "store" | "mount">) {
+export function registerPopupPageBehaviorCases({ saved, store, mount }: PopupPageBehaviorContext) {
   test("the page behavior control saves an exact-host rule, waits while saving and reloads after a conflict", async () => {
     const state = store();
     let release = () => {};

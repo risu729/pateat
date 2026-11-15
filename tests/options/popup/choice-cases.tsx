@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import type { ChoiceClient } from "../../../apps/extension/src/login/choice-wire";
 import { createDefaultSettings } from "../../../packages/contracts/src/index";
-import type { PopupTestContext } from "../popup.test";
+import type { PopupChoiceContext } from "./context";
 
 export function registerPopupChoiceCases({
   saved,
@@ -13,10 +13,7 @@ export function registerPopupChoiceCases({
   POLL_MS,
   fakePolls,
   pageOf,
-}: Pick<
-  PopupTestContext,
-  "saved" | "demoSiteAccounts" | "store" | "noChoice" | "mount" | "POLL_MS" | "fakePolls" | "pageOf"
->) {
+}: PopupChoiceContext) {
   test("a login refused for several matches is restarted with the account picked here", async () => {
     const { client, current } = store();
     const choices = noChoice();

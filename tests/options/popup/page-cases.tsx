@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createDefaultSettings } from "../../../packages/contracts/src/index";
-import type { PopupTestContext } from "../popup.test";
+import type { PopupPageContext } from "./context";
 
 export function registerPopupPageCases({
   saved,
@@ -13,18 +13,7 @@ export function registerPopupPageCases({
   onPage,
   lineText,
   pageLines,
-}: Pick<
-  PopupTestContext,
-  | "saved"
-  | "store"
-  | "noChoice"
-  | "mount"
-  | "POLL_MS"
-  | "fakePolls"
-  | "onPage"
-  | "lineText"
-  | "pageLines"
->) {
+}: PopupPageContext) {
   test("the page section shows a recipe on the page and a login that signed in", async () => {
     const { client } = store();
     const choices = onPage({ recipe: "page", login: { state: "authenticated" } });

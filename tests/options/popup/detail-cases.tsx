@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createDefaultSettings, DUMMY_VAULT_CATALOG } from "../../../packages/contracts/src/index";
-import type { PopupTestContext } from "../popup.test";
+import type { PopupDetailContext, PopupAvailabilityContext } from "./context";
 
 export function registerPopupDetailCases({
   saved,
@@ -13,18 +13,7 @@ export function registerPopupDetailCases({
   onPage,
   withDetails,
   birthOffer,
-}: Pick<
-  PopupTestContext,
-  | "saved"
-  | "store"
-  | "noChoice"
-  | "noDetails"
-  | "mount"
-  | "resultMessage"
-  | "onPage"
-  | "withDetails"
-  | "birthOffer"
->) {
+}: PopupDetailContext) {
   test("a page that asks for a detail offers the vault fields, the best guess selected", async () => {
     const { client } = store();
     const details = withDetails({ offer: birthOffer });
@@ -270,7 +259,7 @@ export function registerPopupAvailabilityCases({
   store,
   mount,
   withLocked,
-}: Pick<PopupTestContext, "store" | "mount" | "withLocked">) {
+}: PopupAvailabilityContext) {
   test("a locked vault is named with a link to unlock it in settings", async () => {
     expect(DUMMY_VAULT_CATALOG.connections.length).toBeGreaterThanOrEqual(2);
     const { client } = store(withLocked(1));

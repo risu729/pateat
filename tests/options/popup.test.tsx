@@ -309,7 +309,8 @@ registerPopupAvailabilityCases({ store, mount, withLocked });
 
 registerPopupPageBehaviorCases({ saved, store, mount });
 
-export type PopupTestContext = {
+/** The helpers the registrars take; `popup/context.ts` narrows them per registrar. */
+export type PopupTestFixtures = {
   saved: typeof saved;
   demoSiteAccounts: typeof demoSiteAccounts;
   store: typeof store;
