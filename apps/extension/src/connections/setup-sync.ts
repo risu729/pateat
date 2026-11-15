@@ -3,7 +3,7 @@ import {
   type PasswordTokenOutcome,
   type BitwardenProfile,
 } from "@pateat/bitwarden";
-import type { LocalVaultHandle } from "../vault/manager";
+import type { LocalVaultHandle } from "../vault/manager-types";
 import type { VaultEntry } from "../vault/record";
 import type { VaultApplyHold } from "./auto-sync";
 import { error } from "./setup-reply";

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { LocalVaultHandle } from "./manager";
+import type { LocalVaultHandle } from "./manager-types";
 import { vaultFailure } from "./record";
 import type { HostSessionRef } from "../crypto/wire";
 import { disabledEntry, snapshotId } from "./__fixtures__/vault";

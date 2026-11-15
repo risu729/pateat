@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import type { KeyRetention } from "../../src/vault/manager";
+import type { KeyRetention } from "../../src/vault/manager-types";
 import { type VaultEntry, vaultFailure } from "../../src/vault/record";
 import {
   legacyItemKey,

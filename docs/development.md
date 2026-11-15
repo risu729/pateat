@@ -169,6 +169,18 @@ admission, including account binding, requested item coverage and passkey signat
 bounds. The public host exports remain available from `host.ts`; existing test files
 and assertions stay in place.
 
+`apps/extension/src/vault/manager.ts` keeps `createLocalVaultManager`, which composes
+the manager from its owners in the same property order. `manager-session.ts` owns the
+manager's state (the epoch, live and staged sessions, retirements and the durable
+checks that guard them) and its lock, status and dispose; the bindings and helpers
+stay one closure, and the session object reads and updates them through accessors.
+`manager-snapshots.ts` owns accept, restore and offline unlock; `manager-keys.ts`
+disabling auto-unlock, locking, key retention and removal; `manager-capabilities.ts`
+the field, URI, username, passkey and master-password reads. Their method bodies are
+unchanged except that the session's names read as `context.<name>`. The handle,
+summary, checkpoint, retention and options types live in `manager-types.ts`, which
+other modules import directly. Tests keep their files and cases.
+
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided

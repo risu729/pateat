@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { KeyRetention } from "./manager";
+import type { KeyRetention } from "./manager-types";
 import {
   createVaultTimeout,
   DEFAULT_VAULT_TIMEOUT,

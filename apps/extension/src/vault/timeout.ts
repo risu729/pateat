@@ -1,6 +1,6 @@
 import { vaultTimeoutSchema } from "@pateat/contracts";
 import * as v from "valibot";
-import type { KeyRetention } from "./manager";
+import type { KeyRetention } from "./manager-types";
 
 export {
   MAX_CUSTOM_MINUTES,

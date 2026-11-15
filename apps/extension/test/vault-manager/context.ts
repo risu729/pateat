@@ -1,4 +1,5 @@
-import type { LocalVaultHandle, LocalVaultManager } from "../../src/vault/manager";
+import type { LocalVaultHandle } from "../../src/vault/manager-types";
+import type { LocalVaultManager } from "../../src/vault/manager";
 import type { accepted, candidate, gate, harness, itemId, managers } from "./harness";
 
 type Harness = ReturnType<typeof harness>;
