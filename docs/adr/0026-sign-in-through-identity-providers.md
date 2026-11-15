@@ -411,8 +411,10 @@ account lists keep their own rules.
 ## Review hardening 2026-11-16: interrupted holds
 
 An ended flow leaves an interrupted hold only when it may have spent its entry: a click
-intent was made durable or pressed, or the tab had already left for the IdP. A flow that
-stopped before that leaves none. A hold waits only for automatic logins on the flow's RP
+intent was made durable or pressed, or the tab had already reached the IdP. A flow that
+stopped before that, as when preparing its entry failed, leaves none. After a worker
+restart every flow the journal still names becomes a hold, since what it did last is
+unknown. A hold waits only for automatic logins on the flow's RP
 and IdP origins in that tab; other origins and frames are not held. It ends when the
 tab's top document goes to another origin, when the person starts a login there, when
 the tab closes or is replaced, or ten minutes after it was made. The session journal
@@ -445,3 +447,16 @@ carries the flow over to it, and each scope check compares the same things rathe
 the revision. Every effect still checks the current settings before it acts. The IdP's
 own native login, while it runs, stops on any settings change as every native login
 does ([ADR 0027](0027-per-account-login-routes.md)), which ends the flow with it.
+
+## Known limits 2026-11-16
+
+- **A layout full of unseen markers.** An SSO layout keeps at most four RP-return
+  markers. When all four are kept and a return shows none of them, the page is no longer
+  sent to the RP-return judge, so no fifth marker is learned. A URL-form method, whose
+  return needs a marker, then never completes on that layout until its recipe is revoked
+  or ages out and is generated again. A bracket-form method still completes on the
+  selected identity.
+- **Settings changes during the IdP's own login.** The IdP's native login stops on any
+  settings change, as every native login does
+  ([ADR 0027](0027-per-account-login-routes.md)), and the flow ends with it, even when
+  the change does not touch anything the flow depends on.

@@ -4,11 +4,12 @@ import type { Runtime } from "../state";
 
 /**
  * Whether an ended flow may have spent its entry: a click intent was made durable or
- * pressed, or the tab already left for the IdP. A flow that stopped before that pressed
- * nothing, so it leaves no hold.
+ * pressed, or the tab already reached the IdP. A flow that stopped before that, as when
+ * preparing its entry failed, pressed nothing, so it leaves no hold.
  */
 const mayHaveSpent = (work: SsoWork) =>
-  work.phase !== "prepared" ||
+  work.phase === "at-idp" ||
+  work.phase === "returning-rp" ||
   (work.operation !== undefined && work.operation.stage !== "prepared");
 
 /** Holds the tab's RP and IdP origins after a flow ended unconfirmed and may have clicked. */

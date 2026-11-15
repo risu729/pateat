@@ -97,15 +97,26 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("an interrupted SSO flow's hold (ADR 0026)", () => {
-  it("leaves no hold after a flow that stopped before any click intent", async () => {
-    const h = harness();
-    await h.rt.sso.loaded;
-    h.rt.sso.flows.set(7, h.flow({ operation: { ...operation("prepared") } }));
-    cancelSso(h.rt, 7, "sso-generation-refused");
-    expect(h.rt.sso.interrupted.has(7)).toBe(false);
-    expect(await h.admit("https://unrelated.example.test")).toBeUndefined();
-    expect(await h.admit(rp)).toBeUndefined();
-  });
+  it.each([
+    ["a prepared entry", { operation: { ...operation("prepared") } }],
+    // Pressing the entry failed while preparing it, after the flow began entering the IdP.
+    ["a failed entry preparation", { phase: "entering-idp" as const }],
+    [
+      "an entry prepared on the way to the IdP",
+      { phase: "entering-idp" as const, operation: operation("prepared") },
+    ],
+  ])(
+    "leaves no hold after a flow that stopped at %s, before any click intent",
+    async (_name, change) => {
+      const h = harness();
+      await h.rt.sso.loaded;
+      h.rt.sso.flows.set(7, h.flow(change));
+      cancelSso(h.rt, 7, "sso-generation-refused");
+      expect(h.rt.sso.interrupted.has(7)).toBe(false);
+      expect(await h.admit("https://unrelated.example.test")).toBeUndefined();
+      expect(await h.admit(rp)).toBeUndefined();
+    },
+  );
   it.each([
     ["a durable click intent", { operation: operation("intent") }],
     ["a pressed entry", { operation: operation("spent") }],
@@ -130,7 +141,7 @@ describe("an interrupted SSO flow's hold (ADR 0026)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const h = harness();
     await h.rt.sso.loaded;
-    h.rt.sso.flows.set(7, h.flow({ phase: "entering-idp" }));
+    h.rt.sso.flows.set(7, h.flow({ phase: "entering-idp", operation: operation("intent") }));
     cancelSso(h.rt, 7, "sso-stopped");
     vi.setSystemTime(Date.now() + SSO_INTERRUPTED_HOLD_MS - 1);
     expect(await h.admit(rp)).toEqual({ ok: false, reason: "sso-interrupted" });
