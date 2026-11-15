@@ -644,7 +644,7 @@ describe("actual pause persistence fences an IdP operation before pause UI finis
         ([, message]) => message["type"] === "login.sso.commit",
       ).length;
       if (operation.endsWith("scope") || operation === "opposite-private") {
-        expect(await ssoScope(h.rt, work, live)).toBe(operation === "opposite-private");
+        expect(!!(await ssoScope(h.rt, work, live))?.()).toBe(operation === "opposite-private");
       } else if (operation === "rp-press") {
         expect(
           await ssoPress(h.rt, work, live, { by: "id", value: "continue-entry" }, "continue", {
@@ -712,11 +712,11 @@ it("reads an already persisted RP pause on an active IdP without relying on pare
   work.phase = "at-idp";
   h.rt.documents.set("7:0", live);
   fake.state.tabUrls[7] = live.url;
-  expect(await ssoScope(h.rt, work, live)).toBe(true);
+  expect((await ssoScope(h.rt, work, live))?.()).toBe(true);
   await h.rt.pauses.pause(rp, false, "10m");
   expect(work.ended).toBe(false);
   expect(h.rt.sso.flows.get(7)).toBe(work);
-  expect(await ssoScope(h.rt, work, live)).toBe(false);
+  expect(await ssoScope(h.rt, work, live)).toBeUndefined();
 });
 describe("same-document native IdP handoff", () => {
   it.each([true, false, undefined])(

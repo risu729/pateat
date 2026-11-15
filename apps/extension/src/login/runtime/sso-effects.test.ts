@@ -36,7 +36,6 @@ function harness() {
     rpLive: live,
     live,
     used: new Set(),
-    deliveryFence: () => true,
     saved: { snapshot: { revision: 3 } },
   } as unknown as SsoWork;
   const write = vi.fn(async () => undefined);
@@ -48,6 +47,9 @@ function harness() {
       : { ok: true },
   );
   seams.tab.mockResolvedValue({ id: 7, url: live.url });
+  // The fence each scope check returns; a test closes it to make the checked scope stale.
+  const fence = { open: true };
+  seams.scope.mockResolvedValue(() => fence.open);
   const authorization = (phase: "pointer" | "click" = "click") => ({
     phase,
     version: 1,
@@ -66,12 +68,12 @@ function harness() {
       stage: "pointer",
     };
   };
-  return { rt, work, live, write, authorization, intent };
+  return { rt, work, live, write, authorization, intent, fence };
 }
 beforeEach(() => {
   for (const seam of Object.values(seams)) seam.mockReset();
   seams.current.mockReturnValue(true);
-  seams.scope.mockResolvedValue(true);
+  seams.scope.mockResolvedValue(() => true);
   seams.destination.mockResolvedValue(undefined);
 });
 describe("single-use SSO mutation intents", () => {
@@ -108,7 +110,7 @@ describe("single-use SSO mutation intents", () => {
   it("withdraws authority if scope changes while intent is persisted", async () => {
     const h = harness();
     h.write.mockImplementation(async () => {
-      seams.scope.mockResolvedValue(false);
+      seams.scope.mockResolvedValue(undefined);
     });
     expect(await ssoPress(h.rt, h.work, h.live, target, "rp-entry")).toBe(false);
     expect(seams.send).toHaveBeenCalledTimes(1);
@@ -200,7 +202,7 @@ describe("single-use SSO mutation intents", () => {
     const h = harness();
     h.intent();
     h.write.mockImplementation(async () => {
-      seams.scope.mockResolvedValue(false);
+      seams.scope.mockResolvedValue(undefined);
     });
     expect(await authorizeSso(h.rt, h.authorization(), sender)).toEqual({ ok: false });
     expect(h.work.operation?.stage).toBe("spent");
@@ -270,7 +272,7 @@ describe("single-use SSO mutation intents", () => {
   it("checks the synchronous delivery fence after the durable intent await", async () => {
     const h = harness();
     h.write.mockImplementation(async () => {
-      h.work.deliveryFence = () => false;
+      h.fence.open = false;
     });
     expect(await ssoPress(h.rt, h.work, h.live, target, "rp-entry")).toBe(false);
     expect(seams.send).toHaveBeenCalledTimes(1);
@@ -280,7 +282,7 @@ describe("single-use SSO mutation intents", () => {
     h.intent();
     h.work.operation!.destinations = [rp + "/submit"];
     seams.destination.mockImplementationOnce(async () => {
-      h.work.deliveryFence = () => false;
+      h.fence.open = false;
       return undefined;
     });
     expect(await authorizeSso(h.rt, h.authorization(), sender)).toEqual({ ok: false });
@@ -289,12 +291,15 @@ describe("single-use SSO mutation intents", () => {
   it("does not grant if the final asynchronous scope result becomes stale before its continuation", async () => {
     const h = harness();
     h.intent();
-    seams.scope.mockResolvedValueOnce(true).mockImplementationOnce(async () => {
-      queueMicrotask(() => {
-        h.work.deliveryFence = () => false;
+    const late = { open: true };
+    seams.scope
+      .mockResolvedValueOnce(() => true)
+      .mockImplementationOnce(async () => {
+        queueMicrotask(() => {
+          late.open = false;
+        });
+        return () => late.open;
       });
-      return true;
-    });
     expect(await authorizeSso(h.rt, h.authorization(), sender)).toEqual({ ok: false });
     expect(h.work.operation?.stage).toBe("spent");
     expect(await authorizeSso(h.rt, h.authorization(), sender)).toEqual({ ok: false });
@@ -332,7 +337,7 @@ describe("single-use SSO mutation intents", () => {
     h.intent();
     h.work.operation!.stage = "intent";
     expect(await authorizeSso(h.rt, h.authorization("pointer"), sender)).toEqual({ ok: true });
-    seams.scope.mockResolvedValue(false);
+    seams.scope.mockResolvedValue(undefined);
     expect(await authorizeSso(h.rt, h.authorization("click"), sender)).toEqual({ ok: false });
     expect(h.work.operation?.stage).toBe("pointer");
     expect(h.write).toHaveBeenCalledTimes(1);

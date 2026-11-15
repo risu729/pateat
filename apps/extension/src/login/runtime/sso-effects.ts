@@ -106,12 +106,8 @@ export async function ssoPress(
   work.operation.stage = "intent";
   await rt.sso.write();
   // A policy/document change during the durable write withdraws this intent.
-  if (
-    !(await ssoScope(rt, work, live)) ||
-    work.operation?.id !== operationId ||
-    !work.deliveryFence?.()
-  )
-    return false;
+  const fence = await ssoScope(rt, work, live);
+  if (!fence || work.operation?.id !== operationId || !fence()) return false;
   try {
     work.stopReason = "sso-entry-commit";
     const result = await send(rt, live, {
@@ -148,16 +144,17 @@ export async function authorizeSso(
     operation.id !== request.operationId ||
     operation.handle !== request.handle ||
     operation.live.token !== request.token ||
-    !sameLoginDocument(operation.live.document, document) ||
-    !(await ssoScope(rt, work, operation.live)) ||
-    !(await destinationsAllowed(rt, work, operation.live, operation.destinations))
+    !sameLoginDocument(operation.live.document, document)
   )
     return { ok: false };
+  const fence = await ssoScope(rt, work, operation.live);
   if (
+    !fence ||
+    !(await destinationsAllowed(rt, work, operation.live, operation.destinations)) ||
     work.operation !== operation ||
     operation.stage !== (request.phase === "pointer" ? "intent" : "pointer") ||
     !ssoCurrent(rt, work, operation.live) ||
-    !work.deliveryFence?.()
+    !fence()
   )
     return { ok: false };
   const next = request.phase === "pointer" ? "pointer" : "spent";
@@ -165,10 +162,6 @@ export async function authorizeSso(
   await rt.sso.write();
   const scoped = await ssoScope(rt, work, operation.live);
   return {
-    ok:
-      scoped &&
-      work.operation === operation &&
-      operation.stage === next &&
-      work.deliveryFence?.() === true,
+    ok: !!scoped && work.operation === operation && operation.stage === next && scoped(),
   };
 }

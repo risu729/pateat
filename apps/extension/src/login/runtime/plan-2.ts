@@ -17,8 +17,7 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
     if (
       !parent ||
       parent.childId !== run.metadata.id ||
-      !(await ssoScope(rt, parent, run.live)) ||
-      !parent.deliveryFence?.()
+      !(await ssoScope(rt, parent, run.live))?.()
     )
       return undefined;
   }
@@ -84,8 +83,7 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
     if (
       !parent ||
       parent.childId !== run.metadata.id ||
-      !(await ssoScope(rt, parent, run.live)) ||
-      !parent.deliveryFence?.()
+      !(await ssoScope(rt, parent, run.live))?.()
     )
       return undefined;
   }

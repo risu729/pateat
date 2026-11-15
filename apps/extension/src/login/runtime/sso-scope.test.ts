@@ -124,9 +124,22 @@ beforeEach(() => {
 });
 
 describe("SSO live scope", () => {
+  it("returns each check's own fence and keeps none on the shared flow", async () => {
+    const h = harness();
+    const first = await ssoScope(h.rt, h.work);
+    expect(first?.()).toBe(true);
+    // The same page announced again: a later check of its new entry passes, and never
+    // revives the first check's scope for the caller still holding it.
+    const again = { ...h.live, token: "rp-token-again" };
+    h.rt.documents.set("7:0", again);
+    const second = await ssoScope(h.rt, h.work, again);
+    expect(second?.()).toBe(true);
+    expect(first?.()).toBe(false);
+    expect(h.work).not.toHaveProperty("deliveryFence");
+  });
   it("checks both vault accounts and origins, the exact tab URL, mapping, URI and final policy", async () => {
     const h = harness();
-    expect(await ssoScope(h.rt, h.work)).toBe(true);
+    expect((await ssoScope(h.rt, h.work))?.()).toBe(true);
     expect(h.snapshot).toHaveBeenCalledWith("rp", snapshotId);
     expect(h.snapshot).toHaveBeenCalledWith("idp", snapshotId);
     expect(h.validate).toHaveBeenCalledWith(h.work.source, h.work.selected);
@@ -162,7 +175,7 @@ describe("SSO live scope", () => {
     if (change === "journal") h.rt.sso.healthy = () => false;
     if (change === "storage") h.rt.vars.storageHealthy = false;
     expect(ssoCurrent(h.rt, h.work)).toBe(false);
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     expect(seams.tab).not.toHaveBeenCalled();
   });
   it.each(["manual-pick", "switch", "review", "no-sso"])(
@@ -173,7 +186,7 @@ describe("SSO live scope", () => {
       if (change === "switch") h.rt.switchesRunning.add(7);
       if (change === "review") h.rt.bindingReviews.set(7, {} as never);
       if (change === "no-sso") delete h.rt.options.sso;
-      expect(await ssoScope(h.rt, h.work)).toBe(false);
+      expect(await ssoScope(h.rt, h.work)).toBeUndefined();
       expect(h.validate).not.toHaveBeenCalled();
     },
   );
@@ -186,7 +199,7 @@ describe("SSO live scope", () => {
   ])("refuses mismatched or missing current tab %#", async (tab) => {
     const h = harness();
     seams.tab.mockResolvedValue(tab);
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     expect(h.read).not.toHaveBeenCalled();
   });
   it("checks a child against the selected IdP's own URI, never the RP item", async () => {
@@ -199,7 +212,7 @@ describe("SSO live scope", () => {
     h.rt.documents.set("7:0", child);
     h.work.live = child;
     seams.tab.mockResolvedValue({ id: 7, url: child.url, incognito: false });
-    expect(await ssoScope(h.rt, h.work, child)).toBe(true);
+    expect((await ssoScope(h.rt, h.work, child))?.()).toBe(true);
     expect(seams.match).toHaveBeenCalledWith(
       h.rt,
       h.current(),
@@ -254,7 +267,7 @@ describe("SSO live scope", () => {
     if (["quarantined", "inactive", "missing-snapshot"].includes(change))
       h.work.saved.catalog = structuredClone(current.catalog);
     if (change === "stale-vault") h.snapshot.mockReturnValue(false);
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     expect(seams.match).not.toHaveBeenCalled();
   });
   it("a manual RP choice never overrides the IdP's fill-only permission", async () => {
@@ -265,7 +278,7 @@ describe("SSO live scope", () => {
       confirm: "fill",
       "personal-details": "fill",
     };
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     expect(h.validate).not.toHaveBeenCalled();
   });
   it.each(["revision", "catalog", "mapping", "mapping-revision", "uri", "paused"])(
@@ -279,7 +292,7 @@ describe("SSO live scope", () => {
         h.validate.mockResolvedValue({ ok: true, data: { policyRevision: 4 } });
       if (change === "uri") seams.match.mockResolvedValue({ reason: "uri-unavailable" });
       if (change === "paused") seams.pause.mockResolvedValue(true);
-      expect(await ssoScope(h.rt, h.work)).toBe(false);
+      expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     },
   );
   it.each(["tab", "pause", "settings", "mapping", "uri", "final-settings"])(
@@ -321,7 +334,7 @@ describe("SSO live scope", () => {
             replace();
             return structuredClone(h.current());
           });
-      expect(await ssoScope(h.rt, h.work)).toBe(false);
+      expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     },
   );
   it("rechecks policy after the provider URI await", async () => {
@@ -330,7 +343,7 @@ describe("SSO live scope", () => {
       h.current().snapshot.revision++;
       return {};
     });
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("rechecks durable vault authority after the provider URI await", async () => {
     const h = harness();
@@ -338,7 +351,7 @@ describe("SSO live scope", () => {
       h.snapshot.mockReturnValue(false);
       return {};
     });
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("rechecks durable vault authority after the final settings await", async () => {
     const h = harness();
@@ -348,7 +361,7 @@ describe("SSO live scope", () => {
         h.snapshot.mockReturnValue(false);
         return structuredClone(h.current());
       });
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("requires the same SSO recipe revision and targets after the recipe lookup", async () => {
     const h = harness();
@@ -372,7 +385,7 @@ describe("SSO live scope", () => {
     const changed = structuredClone(h.work.recipe);
     changed.revision++;
     h.rt.recipes.sso = vi.fn(async () => [changed]);
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("withdraws a vault invalidated during the recipe await", async () => {
     const h = harness();
@@ -397,7 +410,7 @@ describe("SSO live scope", () => {
       h.snapshot.mockReturnValue(false);
       return [h.work.recipe!];
     });
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("withdraws a recipe invalidated during the final settings await", async () => {
     const h = harness();
@@ -426,7 +439,7 @@ describe("SSO live scope", () => {
         currentRecipe = false;
         return structuredClone(h.current());
       });
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("a single-page RP pick never overrides RP or IdP fill policy for an SSO hop", async () => {
     const h = harness();
@@ -434,26 +447,26 @@ describe("SSO live scope", () => {
     h.current().snapshot.settings.sitePagePermissions = [
       { hostname: "rp.example.test", includeSubdomains: false, permissions: { "sign-in": "fill" } },
     ];
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     expect(h.validate).not.toHaveBeenCalled();
     h.current().snapshot.settings.sitePagePermissions!.push({
       hostname: "idp.example.test",
       includeSubdomains: false,
       permissions: { "sign-in": "fill" },
     });
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("does not turn an automatic RP match into the account-pick policy exception", async () => {
     const h = harness();
     h.current().snapshot.settings.sitePagePermissions = [
       { hostname: "rp.example.test", includeSubdomains: false, permissions: { "sign-in": "fill" } },
     ];
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("withdraws a flow when a newly different popup account pick supersedes it", async () => {
     const h = harness();
     h.rt.picked.set(7, { attemptId: "another-login" } as never);
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     expect(h.validate).not.toHaveBeenCalled();
   });
 });
@@ -499,30 +512,30 @@ describe("SSO final scope preserves real origin-busy and cookie partition rules"
     };
     h.rt.sso.flows.set(8, other);
     h.rt.incognitoTabs.set(8, false);
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     expect(h.validate).not.toHaveBeenCalled();
   });
   it("refuses an existing native IdP submission in another ordinary tab", async () => {
     const h = harness();
     h.rt.persisted.set("8 " + idp, otherNative());
     h.rt.incognitoTabs.set(8, false);
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("keeps another tab's native hold conservative when its private-window state is unknown", async () => {
     const h = harness();
     h.rt.persisted.set("8 " + idp, otherNative());
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
   it("does not conflate separate ordinary and private cookie partitions", async () => {
     const h = harness();
     h.rt.persisted.set("8 " + idp, otherNative());
     h.rt.incognitoTabs.set(8, true);
-    expect(await ssoScope(h.rt, h.work)).toBe(true);
+    expect((await ssoScope(h.rt, h.work))?.()).toBe(true);
   });
   it("does not mistake the same tab's own IdP child for another login", async () => {
     const h = harness();
     h.rt.persisted.set("7 " + idp, otherNative(7));
-    expect(await ssoScope(h.rt, h.work)).toBe(true);
+    expect((await ssoScope(h.rt, h.work))?.()).toBe(true);
   });
   it("withdraws a choice if a native IdP submission starts during the awaited URI check", async () => {
     const h = harness();
@@ -531,6 +544,6 @@ describe("SSO final scope preserves real origin-busy and cookie partition rules"
       h.rt.incognitoTabs.set(8, false);
       return {};
     });
-    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(await ssoScope(h.rt, h.work)).toBeUndefined();
   });
 });

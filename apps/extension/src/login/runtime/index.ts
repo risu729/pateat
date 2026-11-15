@@ -109,8 +109,7 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
           !child ||
           child.metadata.id !== sso.childId ||
           child.live.document.documentId !== input.documentId ||
-          !(await ssoScope(rt, sso, child.live)) ||
-          !sso.deliveryFence?.()
+          !(await ssoScope(rt, sso, child.live))?.()
         )
           return "sso-child-not-ready";
       }

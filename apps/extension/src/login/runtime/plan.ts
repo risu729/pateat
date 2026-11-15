@@ -218,9 +218,7 @@ export async function destinationRefusal(
       destination,
     );
     if (refusal) return refusal;
-    return (await ssoScope(rt, parent, run.live)) && parent.deliveryFence?.()
-      ? undefined
-      : "unchecked";
+    return (await ssoScope(rt, parent, run.live))?.() ? undefined : "unchecked";
   }
   return accountDestinationRefusal(
     rt,

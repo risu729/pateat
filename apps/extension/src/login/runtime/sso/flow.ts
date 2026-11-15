@@ -86,7 +86,7 @@ async function username(rt: Runtime, work: SsoWork, live: LiveDocument, idp: boo
   )
     return undefined;
   const value = await rt.fields({ connection, account, fieldId }).catch(() => undefined);
-  return (await ssoScope(rt, work, live)) && work.deliveryFence?.() ? value : undefined;
+  return (await ssoScope(rt, work, live))?.() ? value : undefined;
 }
 export function cancelSso(rt: Runtime, tabId: number, reason = "sso-cancelled") {
   const work = rt.sso.flows.get(tabId);
@@ -134,7 +134,7 @@ export async function ssoVaultChanged(rt: Runtime): Promise<void> {
       cancelSso(rt, tabId, "sso-vault-changed");
 }
 async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
-  if (!work.parent || !(await ssoScope(rt, work, live)) || !work.deliveryFence?.()) return false;
+  if (!work.parent || !(await ssoScope(rt, work, live))?.()) return false;
   let selected = work.form === "url" ? undefined : await username(rt, work, live, false);
   const identity = v.safeParse(
     ssoReturnResultSchema,
@@ -181,7 +181,8 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
       live,
       await markerProofs(rt, work.account.origin, work.account.origin),
     ));
-  if (!positive || !(await ssoScope(rt, work, live)) || !work.deliveryFence?.()) return false;
+  const fence = positive ? await ssoScope(rt, work, live) : undefined;
+  if (!fence?.()) return false;
   const before = work.parent;
   const ended = parseAttemptMetadata({
     ...before,
@@ -194,20 +195,19 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
   clearTimeout(work.timer);
   work.parent = ended;
   rt.sso.interrupted.delete(live.document.tabId);
-  await keep(rt, ended, true, work.deliveryFence);
-  if (!work.deliveryFence?.()) return false;
+  await keep(rt, ended, true, fence);
+  if (!fence()) return false;
   reportAttempt(rt, ended, undefined);
   noteSignedIn(rt, before, ended, work.account.origin);
   countRelogin(rt, before, ended, live.incognito === true);
   if (work.choice && rt.settings.update) {
     const choice = work.choice;
-    const fence = work.deliveryFence;
     await rt.settings
       .update(
         work.saved.snapshot.revision,
         "account-choice",
         (snapshot) => {
-          if (!fence?.()) return snapshot;
+          if (!fence()) return snapshot;
           return { ...snapshot, settings: withChoice(snapshot.settings, choice) };
         },
         async (snapshot, catalog) => {
@@ -216,7 +216,7 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
           return (
             snapshot.revision === work.saved.snapshot.revision &&
             JSON.stringify(latestCatalog) === JSON.stringify(work.saved.catalog) &&
-            !!fence?.()
+            !!fence()
           );
         },
       )
@@ -313,8 +313,7 @@ async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
   return (
     read.success &&
     read.output.targets.some((state) => state === "unique") &&
-    (await ssoScope(rt, work, live)) &&
-    !!work.deliveryFence?.()
+    !!(await ssoScope(rt, work, live))?.()
   );
 }
 /** A return must carry positive RP authentication evidence, never just an absent form. */

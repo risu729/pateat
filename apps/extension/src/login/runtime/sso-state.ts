@@ -48,7 +48,6 @@ export type SsoWork = {
   abort: AbortController;
   startedAt: number;
   recipe?: SsoRecipeDocument;
-  deliveryFence?: () => boolean;
   layout?: string;
   parent?: LoginAttemptMetadata;
   choice?: UnsavedChoice;
