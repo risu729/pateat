@@ -9,6 +9,7 @@ import { manualHeldElsewhere, tabAttempt, recordFor } from "./hold";
 import { terminal, passiveFillWaiting } from "./attempt-state";
 import { forget } from "./session-store";
 import { MANUAL_START_MS, endManual, type ManualStart } from "./manual-scope";
+import { cancelSso, ssoWaiting } from "./sso/flow";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
 
@@ -22,7 +23,9 @@ const passiveRetryable = (rt: Runtime, live: LiveDocument, record: LoginAttemptM
 const retryable = (rt: Runtime, live: LiveDocument, record: LoginAttemptMetadata) =>
   terminal(record) ||
   (record.state === "reconciling" && record.settled === true) ||
-  passiveRetryable(rt, live, record);
+  passiveRetryable(rt, live, record) ||
+  // An SSO flow that only waits on its RP page is not active reconciliation (ADR 0026).
+  ssoWaiting(rt, live, record);
 
 /** A fingerprint carries no URL, and makes a same-document navigation invalidate an offer. */
 async function fingerprint(rt: Runtime, live: LiveDocument): Promise<string> {
@@ -213,7 +216,13 @@ export async function manualStart(
       endManual(rt, tabId, "timed-out", pending);
   }, MANUAL_START_MS);
   try {
-    const recorded = recordFor(rt, tabId, live.document.origin);
+    let recorded = recordFor(rt, tabId, live.document.origin);
+    if (recorded && ssoWaiting(rt, live, recorded)) {
+      // The person moves past a flow that only waits: it ends as stopped, and this page,
+      // which it does not cancel, goes on with the person's own login.
+      cancelSso(rt, tabId, "sso-manual-request", live.document);
+      recorded = recordFor(rt, tabId, live.document.origin);
+    }
     if (recorded) {
       if (!retryable(rt, live, recorded)) {
         endManual(rt, tabId, "login-running", pending);

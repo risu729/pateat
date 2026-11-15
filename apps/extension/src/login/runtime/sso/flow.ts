@@ -11,6 +11,7 @@ import {
   sameLoginTarget,
   sameLoginDocument,
   ssoLabelSchema,
+  type LoginAttemptMetadata,
   type LoginDocument,
   type LoginObservation,
   type LoginTarget,
@@ -128,6 +129,27 @@ export function cancelSso(
   work.live.state = "denied";
   work.live.reason = reason;
   void publish(rt, work.live);
+}
+/**
+ * Whether a tab's SSO flow only waits on this RP page, so the person's **Log in now** may
+ * end it (ADR 0026, ADR 0088): its entry was spent and the tab came back, or its IdP login
+ * finished, and nothing is in flight. An operation being written or pressed, the flow's
+ * own step and an admission of the tab's top page still under way keep the request out.
+ */
+export function ssoWaiting(rt: Runtime, live: LiveDocument, record: LoginAttemptMetadata) {
+  const work = rt.sso.flows.get(live.document.tabId);
+  return (
+    work !== undefined &&
+    !work.ended &&
+    !work.busy &&
+    work.parent?.id === record.id &&
+    live.document.frameId === 0 &&
+    live.document.origin === work.account.origin &&
+    (work.operation === undefined || work.operation.stage === "spent") &&
+    ((work.phase === "entering-idp" && work.operation?.stage === "spent") ||
+      work.phase === "returning-rp") &&
+    !rt.admitting.has(`${live.document.tabId}:0`)
+  );
 }
 /**
  * A vault notice or a settings change ends the flows whose own accounts, pages or rules

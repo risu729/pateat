@@ -452,7 +452,11 @@ or a revoked grant does, and ends the flow. Only an entry read as shown counts: 
 that cannot be read, as one moving on while it is read, keeps the flow waiting. A **Log
 in now** the person starts on the RP also ends it, so an RP page never waits for a flow
 the person has moved past; the page that asked is not cancelled and goes on with that
-login.
+login. The popup offers it on the flow's top RP page only while the flow just waits:
+its entry was spent and the tab came back, or its IdP login finished, and no entry,
+step or admission of the page is in flight. While the tab is at the IdP, or something
+is in flight, the request is refused as a running login
+([ADR 0088](0088-popup-manual-login.md)).
 
 ## Review hardening 2026-11-16: settings an SSO flow depends on
 

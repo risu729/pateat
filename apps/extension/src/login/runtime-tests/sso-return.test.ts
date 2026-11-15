@@ -23,6 +23,8 @@ vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { createRuntimeState } = await import("../runtime/state");
 const { ssoAdmit } = await import("../runtime/sso/flow");
 const { heldElsewhere } = await import("../runtime/hold");
+const { manualOffer, manualStart } = await import("../runtime/manual");
+const { createLoginSites } = await import("../sites");
 const { createLoginBadge, memoryBadgeStorage } = await import("../badge");
 const rp = "https://rp.example.test";
 const idp = "https://idp.example.test";
@@ -139,6 +141,24 @@ function harness(
         })),
       },
       bindingSnapshotCurrent: () => true,
+      sites: createLoginSites({ read: async () => structuredClone(saved.snapshot) }),
+      uris: async (id, url) => {
+        const entry = catalog.connections.find((other) => other.id === id)!;
+        return {
+          ok: true as const,
+          data: {
+            connectionId: id,
+            userId: entry.userId!,
+            snapshotId,
+            targetOrigin: new URL(url).origin,
+            candidates: entry.items
+              .filter((item) => item.allowedOrigins.includes(new URL(url).origin))
+              .map((item) => ({ itemId: item.id, matches: [{ uriIndex: 0, match: 0 }] })),
+            unavailableUris: [],
+            unavailableItemIds: [],
+          },
+        };
+      },
     },
   );
   rt.attemptRecords.write = vi.fn(async () => undefined);
@@ -698,6 +718,59 @@ describe("an RP page before and after the IdP is reached", () => {
     expect(h.ctx.live.state).not.toBe("denied");
     expect(h.ctx.live.reason).toBeUndefined();
   });
+  it("offers the popup's Log in now on a waiting flow's RP page and starts it there", async () => {
+    const h = harness({ ok: true, identity: "absent" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    const offer = await manualOffer(h.rt, 7);
+    expect(offer).toMatchObject({
+      ok: true,
+      targets: [
+        {
+          document: h.ctx.document,
+          candidates: [{ connectionId: "rp-vault", itemId: rpItem }],
+        },
+      ],
+    });
+    if (!offer.ok) throw new Error("No offer");
+    delivered.mockClear();
+    const started = await manualStart(h.rt, {
+      requestId: "manual-request",
+      document: h.ctx.document,
+      scope: offer.targets[0]!.scope,
+      connectionId: "rp-vault",
+      itemId: rpItem,
+    });
+    expect(started).toMatchObject({ ok: true });
+    // The flow ended as stopped, without cancelling the page the login now runs on.
+    expect(h.work.ended).toBe(true);
+    expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
+    expect(h.rt.sso.flows.has(7)).toBe(false);
+    expect(h.rt.picked.get(7)).toMatchObject({ documentId: "returned-rp", manual: true });
+    const sent = delivered.mock.calls.map(([, message]) => message["type"]);
+    expect(sent).toContain("login.reconnect");
+    expect(sent).not.toContain("login.cancel");
+    expect(h.ctx.live.state).not.toBe("denied");
+  });
+  it.each(["at-idp", "in-flight", "busy", "admitting"] as const)(
+    "keeps Log in now out while the flow is %s",
+    async (moment) => {
+      const h = harness({ ok: true, identity: "absent" }, false);
+      await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+      spent(h);
+      if (moment === "at-idp") h.work.phase = "at-idp";
+      if (moment === "in-flight") h.work.operation!.stage = "intent";
+      if (moment === "busy") h.work.busy = true;
+      if (moment === "admitting") h.rt.admitting.set("7:0", new Promise(() => undefined));
+      expect(await manualOffer(h.rt, 7)).toMatchObject({
+        ok: true,
+        targets: [],
+        reason: "login-running",
+      });
+      expect(h.work.ended).toBe(false);
+    },
+  );
   it("still cancels the flow's own page when Log in now comes from another RP page", async () => {
     const h = harness({ ok: true, identity: "absent" }, false);
     await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
