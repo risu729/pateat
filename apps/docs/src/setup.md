@@ -299,8 +299,9 @@ pause the site first. If Pateat logged in to a site twice in the last 10 minutes
 asks for an account instead of logging in a third time.
 
 SSO sign-in is still being implemented, and its method chooser is not shown yet. The
-method is chosen only after the site account. Identity provider account and origin
-mappings are not synced: they stay on this device, where the chooser replaces or removes
-them. A chosen method applies only to that sign-in. A locked or changed vault, an
-invalid SSO field or an unresolved mapping stops the choice. A mapping approves no new
+method is chosen only after the site account is chosen. Identity provider account and
+origin mappings are not synced: they stay on this device, where the chooser replaces or
+removes them. A chosen method applies only to that sign-in. A locked or changed vault or
+an invalid SSO field stops the choice. An unresolved mapping stops only its SSO method,
+so the account's own passkey or password can still be chosen. A mapping approves no new
 permission, account creation or consent page.

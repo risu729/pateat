@@ -329,30 +329,61 @@ then consumes it with fresh validation just before its own document-scoped opera
   proposed and the owner accepted ("Keep the provider username, credential values and
   private account mapping local"). A reinstall or another device therefore chooses each
   mapping again; syncing them needs the owner's decision first.
-- **What a mapping holds.** The source account and method number, the encrypted-source
-  evidence, the selected IdP account and concrete origin, and the provider, server and
-  user of both connections. It holds no username, comparison proof, field ID, decrypted
-  label or vault snapshot. A vault sync that brings a new snapshot keeps it: a changed
-  source item changes its evidence, and reuse always validates the IdP item again. A
-  changed source or another provider account behind a connection withdraws reuse.
-  Validation is never a stored credential-release grant.
-- **Choosing a mapping.** An unknown mapping needs an explicit choice of a saved account
-  and origin; the popup also replaces or removes one. Every enabled method is validated
-  before a choice can run, so two methods never name the same IdP account, even through
-  two connections to one provider account. The site's own account or origin is never
-  its own IdP.
+- **What a mapping holds.** The site account and method number, the encrypted-source
+  evidence, and the selected IdP account with its concrete origin. Both accounts are
+  named by provider, server, user and item ID, as synced settings name accounts
+  ([ADR 0023](0023-synced-vault-policy.md)), never by a per-device connection ID, so a
+  reconnected connection resolves the same mapping through whichever open connection
+  holds the item; item IDs compare without letter case. A mapping holds no username,
+  comparison proof, field ID, decrypted label or vault snapshot. A vault sync that
+  brings a new snapshot keeps it: a changed source item changes its evidence, and reuse
+  always validates the IdP item again. Validation is never a stored credential-release
+  grant.
+- **The record.** `pateat.login.sso-mappings.v1` holds `{version: 1, entries}` with at
+  most 1,000 entries, one per site account and method. A record or an entry that does
+  not parse counts as none, as no older format is kept, and the next save overwrites
+  it. A full store refuses `mapping-limit`. Its entries already name accounts as synced
+  settings do, so syncing them later needs the owner's decision but no new identity.
+- **Pruning.** A save, and a vault notice after which the catalog's accounts changed,
+  drop the mappings whose site or IdP account the catalog shows is gone: its provider
+  account has no connection, or every open connection to it lacks the item. A locked
+  connection, or one whose user is unknown, never shows anything gone.
+- **Choosing a mapping.** A saved mapping is validated directly, without discovery, so
+  another item that refuses discovery cannot hold it back; the person can still ask to
+  list other accounts. A method without one lists the person's saved IdP accounts and
+  origins, and needs an explicit choice; the popup also replaces or removes one. The
+  site's own account or origin is never its own IdP, and an account the catalog cannot
+  identify refuses `vault-unavailable`.
 - **Choosing a method.** Automatic selection takes a passkey, then the enabled `SSO`
-  method, then the `password` route. A malformed or unresolved preferred method never
-  falls back. A numbered method or an explicit native choice applies only to this
-  sign-in and saves no site or IdP default. During an IdP hop only that account's native
-  routes are offered.
+  method, then, only for an item without an enabled `SSO` method, the `password` route.
+  A malformed, unmapped or unresolved preferred method never falls back: the choice
+  stays open with its reason, or stops. An SSO route validates its own method again and
+  refuses when another mapped method names the same IdP account, even through two
+  connections to one provider account. A native route needs no SSO method to be mapped
+  or valid, so an explicit passkey or password stays available beside an unresolved
+  one; only a site item whose SSO fields cannot be read or parsed blocks every route. A
+  numbered method or an
+  explicit native choice applies only to this sign-in and saves no site or IdP default.
+  During an IdP hop only that account's native routes are offered.
+- **A refused passkey.** [ADR 0034](0034-answer-page-passkey-requests.md) rule 6 goes
+  back to the password when the site refuses a passkey. For an item with an enabled
+  `SSO` method, this ADR's order puts that method before the password, so the
+  coordinator requests a new automatic choice without the passkey route: it lands on
+  the validated preferred SSO method, or stops with that method's reason. Only an item
+  without an enabled `SSO` method goes back to the password as rule 6 says.
 - **The URL form.** It has no label. The coordinator supplies the entries it observed on
-  the page by opaque ID with a freshness check, and the popup chooses one with its
-  displayed label. The exact target stays with the coordinator, and the entry is checked
-  again when chosen and when consumed.
+  the page by opaque ID with a freshness check: at most 100, each with a unique ID and a
+  label of at most 200 characters, or the request refuses `entry-invalid`. The popup
+  chooses one with its displayed label; a bracket method takes no entry. The exact
+  target stays with the coordinator, and the entry is checked again when chosen and
+  when consumed.
 - **Offers and receipts.** They hold no credentials and stay in worker memory for at
-  most ten minutes. Cancelling, a settings change, a vault state change, closing the tab
-  and a document or path change withdraw them; a worker restart discards them.
+  most ten minutes. Cancelling, a settings change, closing the tab, a vault notice after
+  which the offer's accounts no longer match the catalog, and a new document or path in
+  the offer's own frame or the top frame withdraw them. Paths are compared as observed,
+  so a new query or fragment and a vault status read that changes nothing keep an
+  offer. A request that fails while preparing ends with `unavailable`, and the popup
+  sees an offer only after its automatic decision. A worker restart discards them.
 
 This layer performs no click, navigation, credential release, service request or
 real-account operation. SSO execution and real-site compatibility remain open.

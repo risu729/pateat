@@ -4620,12 +4620,18 @@ first. A coordinator requests a method choice for that account and consumes a on
 opaque receipt that is validated again; it still owns same-tab navigation, exact
 document and origin checks and credential release.
 
-The trusted device-local mapping record (`pateat.login.sso-mappings`, never synced, as
-ADR 0085 keeps the mapping local) holds only source references, encrypted-source
-evidence, the selected account and origin, and the provider, server and user of both
-connections, so a vault sync keeps it. Popup choices are memory-only, bounded to ten
-minutes and withdrawn on cancellation or scope changes. Every enabled method is checked
-before a choice can run, so two methods cannot name the same IdP account through
-different connections. A URL-form choice names an observed entry by opaque ID and
-checks it again locally; no mapping or exact target goes to inference. Native credential
-origin checks are unchanged.
+The trusted device-local mapping record (`pateat.login.sso-mappings.v1`, never synced,
+as ADR 0085 keeps the mapping local) is `{version: 1, entries}`, at most 1,000 entries.
+Each names its site and IdP accounts by provider, server, user and item ID, as synced
+settings do, with the method number, encrypted-source evidence and selected origin, so a
+vault sync or a reconnected connection keeps it. A record or an entry that does not
+parse counts as none and is overwritten. A save and a vault notice whose accounts
+changed drop the mappings of accounts the catalog shows are gone. A saved mapping is
+validated directly; discovery runs only for an unmapped method or when the person asks.
+Popup choices are memory-only, bounded to ten minutes and withdrawn on cancellation, a
+settings change, a catalog change behind the offer's accounts, and a new document or
+path in the offer's own frame or the top frame. An SSO route validates its own method
+and refuses another mapped method on the same IdP account, even through different
+connections; a native route needs no SSO method. A URL-form choice names one of at most
+100 observed entries by opaque ID and checks it again locally; no mapping or exact
+target goes to inference. Native credential origin checks are unchanged.
