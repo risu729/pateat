@@ -199,7 +199,8 @@ async function harness(pauses: ReturnType<typeof createLoginPauses>) {
   rt.picked.set(7, pick);
   rt.manualStarts.set(7, request);
   if (policy === "idp-paused")
-    rt.pauses.until = async (urls) => (urls.includes(idp) ? Date.now() + 60_000 : undefined);
+    rt.pauses.until = async (urls) =>
+      urls.some((url) => url === idp) ? Date.now() + 60_000 : undefined;
   const ctx = {
     document: live.document,
     live,
