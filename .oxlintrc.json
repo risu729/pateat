@@ -34,7 +34,6 @@
       "files": [
         "apps/extension/src/login/content.ts",
         "apps/extension/src/popup/site-app.tsx",
-        "apps/extension/src/service/generation.test.ts",
         "apps/extension/src/vault/manager.ts",
         "packages/contracts/src/login-attempt.ts",
         "packages/contracts/src/login.ts",

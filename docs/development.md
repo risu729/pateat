@@ -1067,6 +1067,22 @@ exports they use directly. The entry exports its `TransportTestFixtures` type, a
 runtime import cycle. The modules sit outside `src/`, so they stay outside the coverage
 root and are not discovered as test files. Each file follows the 1,000-line limit.
 
+### Service generation test organization
+
+`apps/extension/src/service/generation.test.ts` remains the discovered entry for the
+extension's generation service suite. It owns the synthetic connection, pages, recipe
+changes and `setup` harness, all nine describe scopes and the fixtures and setup
+helpers local to them. Plain `*-cases.ts` modules in
+`apps/extension/test/service/generation/` export synchronous registration functions
+for the request, timing, handler, continuation, repair, continuation claim, slot map,
+page sample and repair claim case groups, which the entry calls inside those scopes in
+the original order with the same fixture and helper references; importing a module
+registers no cases. The entry exports its `GenerationTestFixtures` type, and
+`context.ts` adds the scope-local fixture types to it with `import type`, so there is
+no runtime import cycle; each registrar takes the references it uses as a `Pick<>` of
+that context. The modules sit outside `src/`, so they stay outside the coverage root
+and are not discovered as test files. Each file follows the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
