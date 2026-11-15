@@ -56,8 +56,7 @@ import {
   type DetailResponse,
 } from "../login/detail-wire";
 import { pauseSite } from "../login/pause";
-import type { ManualClient } from "../login/manual-wire";
-import { ManualLogin } from "./manual-login";
+import { PopupManualLogin, type ManualClient } from "./manual-login";
 import { hostnameOf, PageStatusSection } from "./page-status";
 import { PopupPagePermissions } from "./page-permissions";
 import { PopupBindingReview, type BindingReviewClient } from "./binding-review";
@@ -1707,18 +1706,16 @@ export function SiteApp({
           </span>
         </p>
       )}
-      {manual && tabId !== undefined && origin && saved && (
-        <ManualLogin
-          client={manual}
-          tabId={tabId}
-          saved={saved}
-          accounts={accounts.data?.ok ? accounts.data : undefined}
-          disabled={busy}
-          onBusy={setBusy}
-          onStarted={() => host.close()}
-          onReprompt={() => void askAgain()}
-        />
-      )}
+      <PopupManualLogin
+        client={manual}
+        tabId={origin ? tabId : undefined}
+        saved={saved}
+        accounts={accounts.data}
+        disabled={busy}
+        onBusy={setBusy}
+        host={host}
+        onReprompt={() => void askAgain()}
+      />
       {body}
       <PopupBindingReview client={bindingReviews} tabId={tabId} origin={origin} host={host} />
     </main>

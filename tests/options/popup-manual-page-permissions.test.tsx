@@ -35,6 +35,7 @@ async function mount(initial: ManualOfferResponse) {
   const client = {
     get: vi.fn<ManualClient["get"]>().mockResolvedValue(initial),
     start: vi.fn<ManualClient["start"]>().mockResolvedValue({ ok: true, state: "evaluating" }),
+    cancel: vi.fn<ManualClient["cancel"]>().mockResolvedValue({ ok: true }),
   };
   const onStarted = vi.fn();
   const query = createMetadataQueryClient();

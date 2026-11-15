@@ -9,6 +9,8 @@ import type { ManualClient, ManualOfferResponse } from "../login/manual-wire";
 import { Button } from "../options/button";
 import { siteAccountOptions } from "../options/site-policy";
 
+export type { ManualClient } from "../login/manual-wire";
+
 /** Explain blockers without exposing internal refusal codes in the popup. */
 export function manualReason(reason: string | undefined, t: TFunction): string {
   switch (reason) {
@@ -31,13 +33,15 @@ export function manualReason(reason: string | undefined, t: TFunction): string {
     case "tab-busy":
     case "preparing":
       return t("Another login is still running. Finish or stop it, then try again.");
-    case "already-signed-in":
-      return t("This tab is already signed in. Use Switch account to change accounts.");
     case "page-changed":
     case "stale-document":
     case "document-gone":
-    case "no-document":
       return t("The page changed or is not ready. Reload it, then try again.");
+    // Shown on every web page: one without a sign-in form is not asked to reload.
+    case "no-document":
+      return t("No sign-in form was found on this page.");
+    case "cancelled":
+      return t("Cancelled. Nothing will start from this request.");
     case "not-a-login-page":
     case "form-not-ready":
     case "sign-in-page-required":
@@ -84,6 +88,37 @@ type Offer = Extract<ManualOfferResponse, { ok: true }>;
 const targetKey = (target: Offer["targets"][number]) =>
   JSON.stringify([target.document.frameId, target.document.documentId, target.scope]);
 
+/** The popup's section, shown on a web page once settings are read. */
+export function PopupManualLogin({
+  client,
+  tabId,
+  saved,
+  accounts,
+  host,
+  ...rest
+}: {
+  client: ManualClient | undefined;
+  tabId: number | undefined;
+  saved: Extract<SettingsResponse, { ok: true }> | undefined;
+  accounts: SiteAccountsResponse | undefined;
+  host: { close(): void };
+  disabled: boolean;
+  onBusy(busy: boolean): void;
+  onReprompt(): void;
+}) {
+  if (!client || tabId === undefined || !saved) return null;
+  return (
+    <ManualLogin
+      {...rest}
+      client={client}
+      tabId={tabId}
+      saved={saved}
+      accounts={accounts?.ok ? accounts : undefined}
+      onStarted={() => host.close()}
+    />
+  );
+}
+
 /** An explicit, one-time login stays available independently of the optional page-status section. */
 export function ManualLogin({
   client,
@@ -127,10 +162,12 @@ export function ManualLogin({
     },
   });
   const found = offer.data?.ok ? offer.data : undefined;
-  if (!target && found?.targets[0]) setTarget(targetKey(found.targets[0]));
+  // Until the person chooses, the tab's current first page is used. A choice of page or
+  // account keeps that page, so one that went away is reported rather than replaced.
   const selected = target
     ? found?.targets.find((entry) => targetKey(entry) === target)
     : found?.targets[0];
+  const frames = found?.targets.filter((entry) => entry.document.frameId !== 0) ?? [];
   const matches: Extract<SiteAccountsResponse, { ok: true }> | undefined = selected && {
     version: 1,
     ok: true,
@@ -150,6 +187,7 @@ export function ManualLogin({
       ? options[0]
       : undefined;
   const preparing = found?.status?.state === "evaluating" || found?.status?.state === "generating";
+  const pending = preparing ? found?.status?.requestId : undefined;
   useEffect(() => {
     if (submitted && found?.status?.requestId === submitted && found.status.state === "started")
       onStarted();
@@ -172,6 +210,20 @@ export function ManualLogin({
       });
       if (response.ok && response.state === "started") onStarted();
       else if (!response.ok) setFailure(response.reason);
+      await offer.refetch();
+    } catch {
+      setFailure("unavailable");
+    } finally {
+      running.current = false;
+      onBusy(false);
+    }
+  }
+  async function cancel() {
+    if (!pending || running.current) return;
+    running.current = true;
+    onBusy(true);
+    try {
+      await client.cancel(tabId, pending);
       await offer.refetch();
     } catch {
       setFailure("unavailable");
@@ -214,14 +266,14 @@ export function ManualLogin({
             <option value="" disabled>
               {t("Choose a page")}
             </option>
-            {found.targets.map((entry, index) => (
+            {found.targets.map((entry) => (
               <option key={targetKey(entry)} value={targetKey(entry)}>
                 {entry.document.frameId === 0
                   ? t("This page ({{hostname}})", {
                       hostname: new URL(entry.document.origin).hostname,
                     })
                   : t("Embedded form {{number}} ({{hostname}})", {
-                      number: index + 1,
+                      number: frames.indexOf(entry) + 1,
                       hostname: new URL(entry.document.origin).hostname,
                     })}
               </option>
@@ -237,6 +289,7 @@ export function ManualLogin({
             value={picked?.value ?? ""}
             disabled={disabled || preparing}
             onChange={(event) => {
+              if (!target) setTarget(targetKey(selected));
               setAccount(event.target.value);
               setFailure(undefined);
             }}
@@ -283,6 +336,11 @@ export function ManualLogin({
         )}
         {t("Log in now")}
       </Button>
+      {pending && (
+        <Button type="button" variant="outline" disabled={disabled} onClick={() => void cancel()}>
+          {t("Cancel this login")}
+        </Button>
+      )}
     </section>
   );
 }

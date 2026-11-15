@@ -6,7 +6,6 @@ import {
   createMetadataQueryClient,
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
-import type { ManualClient } from "../../apps/extension/src/login/manual-wire";
 import type { ChoiceClient } from "../../apps/extension/src/login/choice-wire";
 import type { DetailClient, DetailResponse } from "../../apps/extension/src/login/detail-wire";
 import { popupOrigin, SiteApp, type PopupHost } from "../../apps/extension/src/popup/site-app";
@@ -103,7 +102,6 @@ async function mount(
   incognito = false,
   listingWaitMs?: number,
   details: DetailClient = noDetails(),
-  manual?: ManualClient,
 ) {
   const unwatched = vi.fn<() => void>();
   let onSettings = () => {};
@@ -126,7 +124,6 @@ async function mount(
         client={client}
         choices={choices}
         details={details}
-        {...(manual ? { manual } : {})}
         host={host}
         {...(listingWaitMs === undefined ? {} : { listingWaitMs })}
       />
@@ -2359,52 +2356,4 @@ test("the page behavior control saves an exact-host rule, waits while saving and
     .getByRole("button", { name: "Edit profile defaults and site rules", exact: true })
     .click();
   expect(host.openSettings).toHaveBeenCalledExactlyOnceWith("page-permissions");
-});
-
-test("hiding This page keeps the one-time login available and its pending status visible", async () => {
-  const hidden = { ...createDefaultSettings(), popupPageSection: false };
-  const { client } = store(saved(0, hidden));
-  const choices = noChoice();
-  const document = {
-    origin: "https://bank.example",
-    tabId: 7,
-    frameId: 0,
-    documentId: "manual-page",
-  };
-  let requestId = "";
-  const manual = {
-    get: vi.fn<ManualClient["get"]>().mockImplementation(async () =>
-      requestId
-        ? { ok: true, targets: [], status: { requestId, state: "generating" } }
-        : {
-            ok: true,
-            targets: [
-              {
-                document,
-                scope: "scope",
-                candidates: [{ connectionId: "demo-personal", itemId: "primary" }],
-              },
-            ],
-          },
-    ),
-    start: vi.fn<ManualClient["start"]>().mockImplementation(async (request) => {
-      requestId = request.requestId;
-      return { ok: true, state: "generating" };
-    }),
-  };
-  await mount(client, "https://bank.example/login", choices, false, undefined, noDetails(), manual);
-  await expect
-    .element(page.getByRole("heading", { name: "Log in now", exact: true }))
-    .toBeVisible();
-  await expect
-    .element(page.getByRole("heading", { name: "This page", exact: true }))
-    .not.toBeInTheDocument();
-  await userEvent.click(page.getByRole("button", { name: "Log in now", exact: true }));
-  expect(manual.get).toHaveBeenCalledWith(7);
-  expect(manual.start).toHaveBeenCalledTimes(1);
-  await expect
-    .element(page.getByText("Checking the page before starting the login…"))
-    .toBeVisible();
-  expect(choices.status).not.toHaveBeenCalled();
-  expect(client.saveSettings).not.toHaveBeenCalled();
 });

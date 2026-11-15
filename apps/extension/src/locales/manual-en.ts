@@ -15,8 +15,6 @@ export const manualEn = {
     "No eligible account matches this page. Check the item's site address and sync the vault.",
   "Another login is still running. Finish or stop it, then try again.":
     "Another login is still running. Finish or stop it, then try again.",
-  "This tab is already signed in. Use Switch account to change accounts.":
-    "This tab is already signed in. Use Switch account to change accounts.",
   "The page changed or is not ready. Reload it, then try again.":
     "The page changed or is not ready. Reload it, then try again.",
   "No login form could be used on this page. Open the site's sign-in page and try again.":
@@ -33,4 +31,8 @@ export const manualEn = {
     "The login could not start. Check Diagnostics for the reason, then try again.",
   "Checking the page before starting the login…": "Checking the page before starting the login…",
   "Preparing this login…": "Preparing this login…",
+  "No sign-in form was found on this page.": "No sign-in form was found on this page.",
+  "Cancel this login": "Cancel this login",
+  "Cancelled. Nothing will start from this request.":
+    "Cancelled. Nothing will start from this request.",
 };

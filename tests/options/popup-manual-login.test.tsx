@@ -40,6 +40,7 @@ async function mount(initial: ManualOfferResponse = { ok: true, targets: [target
   const client = {
     get: vi.fn<ManualClient["get"]>().mockResolvedValue(initial),
     start: vi.fn<ManualClient["start"]>().mockResolvedValue({ ok: true, state: "evaluating" }),
+    cancel: vi.fn<ManualClient["cancel"]>().mockResolvedValue({ ok: true }),
   };
   const onStarted = vi.fn();
   const onBusy = vi.fn();
@@ -195,4 +196,85 @@ test("keeps the master password action available without starting another reques
   );
   expect(h.onReprompt).toHaveBeenCalledTimes(1);
   expect(h.client.start).not.toHaveBeenCalled();
+});
+
+test("a request that keeps preparing can be cancelled, and only that request", async () => {
+  const h = await mount({
+    ok: true,
+    targets: [],
+    status: { requestId: "pending", state: "evaluating" },
+  });
+  const cancel = page.getByRole("button", { name: "Cancel this login", exact: true });
+  await expect.element(cancel).toBeEnabled();
+  h.client.cancel.mockImplementation(async () => {
+    h.client.get.mockResolvedValue({
+      ok: true,
+      targets: [target()],
+      status: { requestId: "pending", state: "blocked", reason: "cancelled" },
+    });
+    return { ok: true };
+  });
+  await userEvent.click(cancel);
+  expect(h.client.cancel).toHaveBeenCalledExactlyOnceWith(7, "pending");
+  await expect
+    .element(page.getByText("Cancelled. Nothing will start from this request."))
+    .toBeVisible();
+  await expect.element(cancel).not.toBeInTheDocument();
+  await expect.element(button()).toBeEnabled();
+  expect(h.client.start).not.toHaveBeenCalled();
+  expect(h.onBusy.mock.calls).toEqual([[true], [false]]);
+});
+
+test("offers no cancel without a pending request", async () => {
+  await mount({ ok: true, targets: [target()], status: { requestId: "old", state: "started" } });
+  await expect.element(button()).toBeEnabled();
+  await expect
+    .element(page.getByRole("button", { name: "Cancel this login", exact: true }))
+    .not.toBeInTheDocument();
+});
+
+test("numbers embedded forms among frames only", async () => {
+  await mount({ ok: true, targets: [target(), target(3), target(5)] });
+  const pages = page.getByRole("combobox", { name: "Page to log in to" });
+  await expect.element(pages).toBeVisible();
+  await expect
+    .element(page.getByRole("option", { name: "This page (bank.example)", exact: true }))
+    .toBeInTheDocument();
+  await expect
+    .element(page.getByRole("option", { name: "Embedded form 1 (bank.example)", exact: true }))
+    .toBeInTheDocument();
+  await expect
+    .element(page.getByRole("option", { name: "Embedded form 2 (bank.example)", exact: true }))
+    .toBeInTheDocument();
+});
+
+test("follows the tab's current page until a choice, then reports that page going away", async () => {
+  const replaced = (frameId: number, candidates = [primary, secondary]) => ({
+    ...target(frameId, candidates),
+    document: { ...target(frameId).document, documentId: "replacement" },
+  });
+  const h = await mount({ ok: true, targets: [target(0, [primary])] });
+  await expect.element(button()).toBeEnabled();
+  h.update({ ok: true, targets: [replaced(0, [primary])] });
+  await userEvent.click(button());
+  expect(h.client.start).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ document: replaced(0).document }),
+  );
+  h.update({ ok: true, targets: [target(0, [primary, secondary])] });
+  await page
+    .getByRole("combobox", { name: "Account to log in with" })
+    .selectOptions(JSON.stringify([secondary.connectionId, secondary.itemId]));
+  await expect.element(button()).toBeEnabled();
+  h.update({ ok: true, targets: [replaced(0)] });
+  await expect.element(button()).toBeDisabled();
+  await expect
+    .element(page.getByText("The page changed or is not ready. Reload it, then try again."))
+    .toBeVisible();
+  expect(h.client.start).toHaveBeenCalledTimes(1);
+});
+
+test("says plainly when the page has no sign-in form", async () => {
+  await mount({ ok: true, targets: [], reason: "no-document" });
+  await expect.element(page.getByText("No sign-in form was found on this page.")).toBeVisible();
+  await expect.element(button()).toBeDisabled();
 });

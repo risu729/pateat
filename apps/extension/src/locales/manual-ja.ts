@@ -15,8 +15,6 @@ export const manualJa = {
     "このページに一致する利用可能なアカウントがありません。アイテムのサイトアドレスを確認し、保管庫を同期してください。",
   "Another login is still running. Finish or stop it, then try again.":
     "別のログインが進行中です。完了するか停止してから、もう一度お試しください。",
-  "This tab is already signed in. Use Switch account to change accounts.":
-    "このタブではログイン済みです。別のアカウントを使うには「アカウントを切り替え」を選んでください。",
   "The page changed or is not ready. Reload it, then try again.":
     "ページが変わったか、準備ができていません。再読み込みしてから、もう一度お試しください。",
   "No login form could be used on this page. Open the site's sign-in page and try again.":
@@ -33,4 +31,9 @@ export const manualJa = {
     "ログインを開始できませんでした。診断で理由を確認してから、もう一度お試しください。",
   "Checking the page before starting the login…": "ログインを始める前にページを確認しています…",
   "Preparing this login…": "このログインを準備しています…",
+  "No sign-in form was found on this page.":
+    "このページにはログインフォームが見つかりませんでした。",
+  "Cancel this login": "このログインをキャンセル",
+  "Cancelled. Nothing will start from this request.":
+    "キャンセルしました。この操作からログインが始まることはありません。",
 };
