@@ -433,7 +433,8 @@ recipe as a login, change its kind locally or bypass model-output validation.
 Automatic handling of these page kinds is unchanged.
 
 With delivery 2, the action can replace a passive sign-in only at its read-only wait,
-with no field, generation or passkey operation in flight. It starts a separate normal
+with no field, generation or passkey operation in flight, or once it ended (`fillDone`
+or an expired watch). As an explicit pick, it starts a separate normal
 login for the selected account while the site's/profile's `fill` setting stays in
 place. A cached confirmation set to `off` may be re-evaluated through the same repair
 path, but is never executed or relabelled by the click itself. The handoff and its

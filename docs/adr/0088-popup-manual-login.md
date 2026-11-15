@@ -65,8 +65,16 @@ which is unnecessary for one requested login.
 Delivery 2 of ADR 0035 adds a passive sign-in attempt. **Log in now** may take over that
 attempt only while it is parked on its read-only page-change wait, with no input,
 acknowledgement, generation or passkey request in flight. A restored passive record with
-no running operation can also yield. Planning, active field reads, mutation intents,
-challenge watches and account switches keep their existing refusal rules.
+no running operation can also yield. A passive attempt that ended, because it filled its
+last safe field (`fillDone`) or its watch ran out, holds no page and is retried like any
+other ended record. Planning, active field reads, mutation intents, challenge watches
+and account switches keep their existing refusal rules.
+
+The request is an explicit popup pick for the selected document, so ADR 0035's pick
+rule makes this one login press as an `auto` page would, also when the document's own
+site or its tab's site sets `sign-in` to `fill`. Once that login has started, its later
+pages keep pressing while it runs as a normal login; the next passive attempt on the
+site follows the setting again.
 
 The final authorization checks and removal of the old run occur without an intervening
 await. Existing run identity, operation and document checks then fence its late wait

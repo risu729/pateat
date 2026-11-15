@@ -4512,3 +4512,8 @@ fields, a passive fill keeps a password the page or person already entered. The 
 recorder also keeps each edited field's bare kind, such as a text input, so one edit
 leaves every field of that kind in the document to the person: a known, conservative
 limit that a later change may narrow.
+The popup's **Log in now** ([ADR 0088](adr/0088-popup-manual-login.md)) is such an
+explicit pick. It may replace a passive attempt only while that attempt is parked on its
+read-only wait with no operation, generation or passkey request in flight, or after the
+attempt ended; the old run is removed before storage yields, so its late wait answer
+cannot act beside the new normal login.
