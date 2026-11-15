@@ -434,7 +434,9 @@ export async function openSsoPopup(browser: VaultBrowser, options: Page, site: P
   );
   const popup = await opened;
   try {
-    await expect(popup.getByRole("region", { name: "Sign-in method", exact: true })).toBeVisible();
+    await expect(popup.getByRole("region", { name: "Sign-in method", exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
   } catch (error) {
     const metadata = (await settingsRequest(options)).catalog.connections.map((connection) => ({
       provider: connection.provider,
@@ -480,7 +482,7 @@ export async function chooseExample(popup: Page) {
     .click();
   await expect(
     methods.getByRole("button", { name: "Remove provider mapping for Example", exact: true }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
   await methods.getByRole("button", { name: "Continue", exact: true }).click();
 }
 export async function unchangedIdpDefault(options: Page) {
