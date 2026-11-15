@@ -3451,7 +3451,8 @@ entries on an element a native route uses give way to it. A dedicated `kind: "ss
 generation request sends only selected account/method labels and a value-free page
 description; no IdP origin, account, username or mapping is sent. New labels join the
 newest SSO layout, each family is repaired once a UTC day apart, and the retry window
-follows the labels and SSO entries rather than the recipe's revision. The
+follows the stored SSO entries rather than the requested labels or the recipe's
+revision. The
 method chooser, local mapping, same-tab coordinator and IdP behavior still must
 integrate those contracts before any SSO entry executes.
 

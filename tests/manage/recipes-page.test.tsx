@@ -749,7 +749,7 @@ test("lists a recipe's SSO entries beside its form and removes their layout (ADR
     "Layout 2",
     "LanguageEnglish",
     "Last usedNot used yet",
-    "SSO entries made byclaude-synthetic, 2026-10-11 08:15 UTC",
+    "SSO entries last changed byclaude-synthetic, 2026-10-11 08:15 UTC",
     "SSO entries2 on /login. Devices do not click them yet.",
     'Example WorkClick id "work-sso"',
     'グーグルClick test-id "google"',

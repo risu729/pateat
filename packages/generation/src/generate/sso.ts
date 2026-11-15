@@ -4,7 +4,6 @@ import {
   isSsoDocument,
   nativeTargetOn,
   newLayoutKey,
-  normalizeSsoLabel,
   ssoBesideNative,
   ssoCovers,
   storedLayouts,
@@ -44,16 +43,16 @@ import {
 } from "./policy";
 
 /**
- * The branch an SSO entry request is logged and retried under (ADR 0016): its labels,
- * ignoring letter case and order, and the SSO entries it would change. A native write
- * leaves both alone, so the retry window holds across it; new SSO entries open it again.
+ * The branch an SSO entry request is logged and retried under (ADR 0016): the recipe's
+ * stored SSO entries, whatever labels the request names. Another label set gets no call
+ * of its own within the window, so labels absent from the page never buy one call each;
+ * only a write of new SSO entries opens the window again, and a native write, which
+ * leaves them alone, does not.
  */
-export async function ssoBranch(labels: readonly string[], sso: SsoRoutes | undefined) {
+export async function ssoBranch(sso: SsoRoutes | undefined) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(
-      canonicalJson({ labels: labels.map(normalizeSsoLabel).toSorted(), sso: sso ?? null }),
-    ),
+    new TextEncoder().encode(canonicalJson(sso ?? null)),
   );
   return `sso:${new Uint8Array(digest).toHex().slice(0, 16)}`;
 }
@@ -81,7 +80,7 @@ export async function generateSso(
     ...observation,
     candidates: observation.candidates.filter((candidate) => !native(candidate.target)),
   };
-  const branch = await ssoBranch(labels, startDocument?.sso);
+  const branch = await ssoBranch(startDocument?.sso);
   const logged = {
     role: "generate",
     promptVersion: await ssoGenerationPromptVersion(),

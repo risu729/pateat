@@ -199,9 +199,14 @@ describe("declarative SSO documents", () => {
       repair: false,
     });
     expect(added.layout).toBe("2000");
+    // The layout is as new as its newest entries.
     expect(added.recipe.sso?.layouts).toEqual([
-      { ...layout(), entries: [...layout().entries, entry("Other")] },
+      { ...layout(), createdAt: 5000, entries: [...layout().entries, entry("Other")] },
     ]);
+    expect(
+      withSsoEntries(document(), "/login", meta("1000"), [entry("Other")], { repair: false }).recipe
+        .sso?.layouts[0]?.createdAt,
+    ).toBe(2000);
     expect(ssoCovers(added.recipe.sso, ["example", "OTHER"])).toBe(true);
     expect(ssoCovers(added.recipe.sso, ["Example", "Missing"])).toBe(false);
     expect(ssoCovers(undefined, ["Example"])).toBe(false);

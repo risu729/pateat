@@ -141,7 +141,8 @@ const sameEntries = (left: readonly SsoEntry[], right: readonly SsoEntry[]) =>
 /**
  * The recipe with SSO entries generated on `path` (ADR 0026 amendment of 2026-11-12), and
  * the key of the layout that holds them. New labels join the newest layout, so a family
- * grows with the labels asked for instead of a layout each. A repair, whose entries no
+ * grows with the labels asked for instead of a layout each; the layout takes `meta`'s
+ * creation time, as its idle retention counts from its newest entries. A repair, whose entries no
  * longer worked, adds the newest layout's entries with the new ones as another layout
  * (up to `MAX_RECIPE_LAYOUTS`, the least recently used going first), keeping the old ones
  * for a page that still shows them. The recipe itself when nothing changes, or when its
@@ -160,8 +161,11 @@ export function withSsoEntries(
   const entries = mergeSsoEntries(newest?.entries ?? [], added);
   if (newest && !options.repair) {
     if (sameEntries(entries, newest.entries)) return { recipe, layout: newest.key };
+    // The layout is as new as its newest entries, so idle retention counts from them.
     const layouts = previous.layouts.map((layout) =>
-      layout === newest ? { ...layout, entries } : layout,
+      layout === newest
+        ? { ...layout, createdAt: Math.max(layout.createdAt, meta.createdAt), entries }
+        : layout,
     );
     return { recipe: { ...recipe, sso: { path, layouts } }, layout: newest.key };
   }

@@ -311,7 +311,8 @@ function RecipeDetails({
               <KeyValues
                 entries={[
                   ...common,
-                  ["SSO entries made by", firstPageSource(firstPage)],
+                  // New labels join a layout, so its record is of the call that last changed it.
+                  ["SSO entries last changed by", firstPageSource(firstPage)],
                   [
                     "SSO entries",
                     `${sso.entries.length} on ${family.path}. Devices do not click them yet.`,

@@ -1,5 +1,7 @@
 import { generatedRecipeId } from "@pateat/generation";
-import { describe, expect, it } from "vitest";
+import { env } from "cloudflare:workers";
+import { describe, expect, it, vi } from "vitest";
+import { revokeUnusedRecipes } from "../src/recipe-store";
 import {
   claude,
   element,
@@ -10,6 +12,7 @@ import {
   owner,
   plan,
   rows,
+  seed,
   ssoAnswer,
   storedHead,
   useSyntheticClaude,
@@ -58,6 +61,74 @@ describe("SSO entries beside native routes", () => {
         ],
       },
     });
+  });
+
+  it("makes no further call for other labels while the SSO entries are unchanged", async () => {
+    const device = await owner();
+    replies.push({ text: abstain });
+    // Labels that are not on the page, varied on each request.
+    for (const [index, labels] of Array.from({ length: 6 }, (_, at) => ["A", `x${at}`]).entries())
+      // oxlint-disable-next-line no-await-in-loop -- each request follows the last one's answer
+      expect(await generateSso(device, providers, labels)).toMatchObject(
+        index === 0 ? { status: "abstained" } : { status: "unavailable", reason: "recently-tried" },
+      );
+    expect(await generateSso(device, providers, ["A"])).toMatchObject({
+      status: "unavailable",
+      reason: "recently-tried",
+    });
+    expect(sent).toHaveLength(1);
+    // A write of new entries opens the window again for the next label.
+    const other = await owner();
+    replies.push({ text: ssoAnswer("a") }, { text: ssoAnswer("b") });
+    expect(await generateSso(other, providers, ["A"])).toMatchObject({ status: "recipe" });
+    expect(await generateSso(other, providers, ["B"])).toMatchObject({ status: "recipe" });
+    for (const labels of [["A"], ["b"], ["B", "a"]])
+      // oxlint-disable-next-line no-await-in-loop -- answered from the stored entries
+      expect(await generateSso(other, providers, labels)).toMatchObject({ status: "recipe" });
+    expect(sent).toHaveLength(3);
+  });
+
+  it("counts a merged layout's idle time from its newest entries", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    await seed(device, {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      sso: {
+        path: "/login",
+        layouts: [
+          {
+            key: "2000",
+            createdAt: 2000,
+            entries: [{ label: "A", target: { by: "id", value: "a" } }],
+          },
+        ],
+      },
+    });
+    replies.push({ text: ssoAnswer("b") });
+    const before = Date.now();
+    expect(await generateSso(device, providers, ["B"])).toMatchObject({
+      status: "recipe",
+      change: { revision: 2 },
+    });
+    const head = (await storedHead(device.ownerId, recipeId)) as {
+      sso: { layouts: { key: string; createdAt: number; entries: unknown[] }[] };
+    };
+    expect(head.sso.layouts).toHaveLength(1);
+    expect(head.sso.layouts[0]).toMatchObject({ key: "2000", entries: [{}, {}] });
+    expect(head.sso.layouts[0]!.createdAt).toBeGreaterThanOrEqual(before);
+    // The layout stays for the label added today.
+    expect(await revokeUnusedRecipes(env.DB, device.ownerId, Date.now())).toBe(0);
+    expect(await storedHead(device.ownerId, recipeId)).toEqual(head);
+    // Its record names the call that last changed its entries.
+    expect(
+      await rows(
+        "SELECT layout, unit, origin FROM recipe_unit_sources WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ layout: "2000", unit: "sso", origin: "generated" }]);
   });
 
   it("keeps an abstained SSO request's retry window across a native write", async () => {
@@ -168,11 +239,23 @@ describe("SSO entries beside native routes", () => {
     });
     if (native.status !== "recipe") throw new Error(native.status);
     expect(native.change.recipe).not.toHaveProperty("sso");
-    replies.push({ text: ssoAnswer("a") });
+    // With no SSO entries left, the family is as it was before the first request, whose
+    // retry window holds for ten minutes (ADR 0016).
     expect(await generateSso(device, shared, ["A"])).toMatchObject({
-      status: "recipe",
-      change: { revision: 3, recipe: { sso: { layouts: [{ entries: [{ label: "A" }] }] } } },
+      status: "unavailable",
+      reason: "recently-tried",
     });
+    const later = Date.now() + 11 * 60_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(later);
+    try {
+      replies.push({ text: ssoAnswer("a") });
+      expect(await generateSso(device, shared, ["A"])).toMatchObject({
+        status: "recipe",
+        change: { revision: 3, recipe: { sso: { layouts: [{ entries: [{ label: "A" }] }] } } },
+      });
+    } finally {
+      clock.mockRestore();
+    }
     expect(sent).toHaveLength(3);
     const body = sent[2]!.body as { messages: { content: { text: string }[] }[] };
     const input = JSON.parse(body.messages[0]!.content[0]!.text) as {
