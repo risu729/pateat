@@ -1,6 +1,7 @@
 import { bitwardenEn } from "./bitwarden-en";
 import { bindingReviewEn } from "./binding-review-en";
 import { diagnosticsEn } from "./diagnostics-en";
+import { manualEn } from "./manual-en";
 import { serviceEn } from "./service-en";
 import { settingsEn } from "./settings-en";
 export const en = {
@@ -512,4 +513,3 @@ export const en = {
   "Autofill stopped: {{why}}. Nothing was pressed.":
     "Autofill stopped: {{why}}. Nothing was pressed.",
 } as const;
-import { manualEn } from "./manual-en";

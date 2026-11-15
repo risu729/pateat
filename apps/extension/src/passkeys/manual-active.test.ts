@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPasskeyRuntime, type PasskeySource } from "./runtime";
+import { createPasskeyRuntime, type ConditionalDecision, type PasskeySource } from "./runtime";
 
 const extensionId = "synthetic-extension";
 const origin = "https://login.example.com";
@@ -109,6 +109,63 @@ describe("passkey activity fences for manual login handoff", () => {
     signing.resolve(signature());
     await Promise.resolve();
     expect(answered).not.toHaveBeenCalled();
+    expect(runtime.active("document-a")).toBe(false);
+  });
+  it("does not count a conditional request waiting for its page's login, until it is handed an item (ADR 0034)", async () => {
+    const decision = Promise.withResolvers<ConditionalDecision>();
+    const signing = Promise.withResolvers<Uint8Array>();
+    const backing = source({ sign: vi.fn(async () => signing.promise) });
+    const conditional = vi.fn(async () => decision.promise);
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      policy: () => policy,
+      conditional,
+    });
+    const pending = runtime.handle(
+      { ...request(), request: { ...request().request, mediation: "conditional" } },
+      sender,
+    );
+    await vi.waitFor(() => expect(conditional).toHaveBeenCalledTimes(1));
+    expect(runtime.active("document-a")).toBe(false);
+    const answered = vi.fn();
+    decision.resolve({
+      kind: "answer",
+      item: { connectionId: "personal", itemId: "login-item" },
+      answered,
+    });
+    await vi.waitFor(() => expect(backing.sign).toHaveBeenCalledTimes(1));
+    expect(runtime.active("document-a")).toBe(true);
+    signing.resolve(signature());
+    expect(await pending).toMatchObject({ kind: "assertion" });
+    expect(answered.mock.calls).toEqual([[true]]);
+    expect(runtime.active("document-a")).toBe(false);
+  });
+
+  it("still counts another request of the document while a conditional one waits", async () => {
+    const decision = Promise.withResolvers<ConditionalDecision>();
+    const signing = Promise.withResolvers<Uint8Array>();
+    const backing = source({ sign: vi.fn(async () => signing.promise) });
+    const conditional = vi.fn(async () => decision.promise);
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      policy: () => policy,
+      conditional,
+    });
+    const parked = { ...request(), request: { ...request().request, mediation: "conditional" } };
+    const waiting = runtime.handle(parked, sender);
+    await vi.waitFor(() => expect(conditional).toHaveBeenCalledTimes(1));
+    expect(runtime.active("document-a")).toBe(false);
+    const modal = runtime.handle(request(), sender);
+    await vi.waitFor(() => expect(backing.sign).toHaveBeenCalledTimes(1));
+    expect(runtime.active("document-a")).toBe(true);
+    signing.resolve(signature());
+    expect(await modal).toMatchObject({ kind: "assertion" });
+    expect(runtime.active("document-a")).toBe(false);
+    await runtime.handle(
+      { version: 1, type: "passkey.cancel", operationId: parked.operationId },
+      sender,
+    );
+    expect(await waiting).toMatchObject({ kind: "cancelled" });
     expect(runtime.active("document-a")).toBe(false);
   });
 });

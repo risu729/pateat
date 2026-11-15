@@ -1,7 +1,4 @@
 import * as v from "valibot";
-import { manualOfferRequestSchema, manualStartRequestSchema } from "../manual-wire";
-import { manualOffer, manualStart } from "./manual";
-import { endManual } from "./manual-scope";
 import {
   keypadStep,
   sameLoginDocument,
@@ -43,6 +40,11 @@ import {
   detailRemoveRequestSchema,
   detailRequestSchema,
 } from "../detail-wire";
+import {
+  manualCancelRequestSchema,
+  manualOfferRequestSchema,
+  manualStartRequestSchema,
+} from "../manual-wire";
 import { probeMode } from "./constants";
 import { type Sender, type Execution } from "./types";
 import { change, send, current, saveSession, report, inProgress, unsubmitted } from "./attempt";
@@ -56,6 +58,8 @@ import {
   pauseOf,
 } from "./pause";
 import { switchFor } from "./switch-run";
+import { manualCancel, manualOffer, manualStart } from "./manual";
+import { endManual } from "./manual-scope";
 import { popupDetail, popupDetailFill, popupDetailRemove, detailFillCurrent } from "./detail-popup";
 import { repromptFor, dropReprompt } from "./master-password";
 import { routedHere, describedHere, terminal, idle } from "./attempt-state";
@@ -203,6 +207,8 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     if (manualGet.success) return manualOffer(rt, manualGet.output.tabId);
     const manualRun = v.safeParse(manualStartRequestSchema, message);
     if (manualRun.success) return manualStart(rt, manualRun.output);
+    const manualStop = v.safeParse(manualCancelRequestSchema, message);
+    if (manualStop.success) return manualCancel(rt, manualStop.output);
     const ask = v.safeParse(choiceRequestSchema, message);
     if (ask.success) return popupChoice(rt, ask.output.tabId);
     const pausing = v.safeParse(pauseRequestSchema, message);

@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
   createManualClient,
+  manualCancelRequestSchema,
   manualOfferRequestSchema,
   manualOfferResponseSchema,
   manualStartRequestSchema,
@@ -80,5 +81,23 @@ describe("the popup's one-time login contract", () => {
     await expect(client.start(request)).rejects.toThrow();
     send.mockResolvedValue({ ok: true, targets: [], password: "unexpected" });
     await expect(client.get(7)).rejects.toThrow();
+  });
+
+  it("cancels only a named request of one tab and validates the reply", async () => {
+    const cancel = { version: 1, type: "login.manual.cancel", tabId: 7, requestId: "manual" };
+    expect(v.parse(manualCancelRequestSchema, cancel)).toEqual(cancel);
+    for (const changed of [
+      { tabId: -1 },
+      { requestId: "" },
+      { requestId: "x".repeat(513) },
+      { document },
+      { makeDefault: false },
+    ])
+      expect(v.safeParse(manualCancelRequestSchema, { ...cancel, ...changed }).success).toBe(false);
+    const send = vi.fn<(message: unknown) => Promise<unknown>>().mockResolvedValue({ ok: true });
+    expect(await createManualClient(send).cancel(7, "manual")).toEqual({ ok: true });
+    expect(send).toHaveBeenCalledExactlyOnceWith(cancel);
+    send.mockResolvedValue({ ok: true, state: "started" });
+    await expect(createManualClient(send).cancel(7, "manual")).rejects.toThrow();
   });
 });

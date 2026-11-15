@@ -48,7 +48,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
 ) {
   const operations = new Map<string, Operation>();
   // Includes the final reply after `get` removes its operation. A manual handoff must
-  // not slip between signing and returning the assertion to the content script.
+  // not slip between signing and returning the assertion to the content script. A
+  // conditional request parked for its document's login is not counted while it waits:
+  // that login is what answers it (ADR 0034).
   const answering = new Map<string, number>();
   /**
    * Requests still reading the device's policy, before they become operations: a page's
@@ -391,7 +393,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   return {
     /** Local coordination only; a manual login must not overlap a page's passkey request. */
     active(documentId: string): boolean {
-      return (answering.get(documentId) ?? 0) > 0;
+      let waiting = 0;
+      for (const operation of operations.values())
+        if (operation.documentId === documentId && operation.parked) waiting += 1;
+      return (answering.get(documentId) ?? 0) > waiting;
     },
     /**
      * Settings changed, so in-flight operations no longer follow them and are cancelled. One

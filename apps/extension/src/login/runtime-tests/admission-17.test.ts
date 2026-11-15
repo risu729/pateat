@@ -228,13 +228,7 @@ describe("production login document admission", () => {
         starts: [expect.objectContaining({ path: "/signin" })],
         generate: true,
       });
-      expect(service.available).toHaveBeenCalledWith(
-        origin,
-        "/signin/id",
-        undefined,
-        undefined,
-        false,
-      );
+      expect(service.available).toHaveBeenCalledWith(origin, "/signin/id");
     });
     it("offers no page of a tab whose attempt ended without a switch", async () => {
       const service = generation();

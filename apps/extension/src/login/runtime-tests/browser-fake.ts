@@ -78,6 +78,8 @@ export function createBrowserFake() {
     removed: [] as ((tabId: number) => void)[],
     /** Every runtime's tab-replaced listener, as Chrome calls it for a discarded tab. */
     replaced: [] as ((added: number, removed: number) => void)[],
+    /** Every runtime's tab-updated listener, as Chrome calls it when a tab's page changes. */
+    updated: [] as ((tabId: number, change: { url?: string; status?: string }) => void)[],
     /** The open windows, by whether each is incognito. */
     windows: [false] as boolean[],
     /** Every runtime's window-closed listener. */
@@ -380,6 +382,13 @@ export function createBrowserFake() {
       onReplaced: {
         addListener: (listener: (added: number, removed: number) => void) => {
           state.replaced.push(listener);
+        },
+      },
+      onUpdated: {
+        addListener: (
+          listener: (tabId: number, change: { url?: string; status?: string }) => void,
+        ) => {
+          state.updated.push(listener);
         },
       },
     },

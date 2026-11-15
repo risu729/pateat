@@ -17,6 +17,14 @@ export const manualStartRequestSchema = v.strictObject({
   connectionId: ref,
   itemId: ref,
 });
+/** Ends the tab's pending request before it starts a login; a started login is not stopped. */
+export const manualCancelRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.manual.cancel"),
+  tabId,
+  requestId: ref,
+});
+export const manualCancelResponseSchema = v.strictObject({ ok: v.boolean() });
 export const manualStatusSchema = v.strictObject({
   requestId: ref,
   state: v.picklist(["evaluating", "generating", "started", "blocked"]),
@@ -61,6 +69,7 @@ export type ManualStartResponse = v.InferOutput<typeof manualStartResponseSchema
 export interface ManualClient {
   get(tabId: number): Promise<ManualOfferResponse>;
   start(request: ManualStartRequest): Promise<ManualStartResponse>;
+  cancel(tabId: number, requestId: string): Promise<{ ok: boolean }>;
 }
 
 export function createManualClient(send: (message: unknown) => Promise<unknown>): ManualClient {
@@ -74,6 +83,11 @@ export function createManualClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         manualStartResponseSchema,
         await send({ version: 1, type: "login.manual.start", ...request }),
+      ),
+    cancel: async (tab, requestId) =>
+      v.parse(
+        manualCancelResponseSchema,
+        await send({ version: 1, type: "login.manual.cancel", tabId: tab, requestId }),
       ),
   };
 }

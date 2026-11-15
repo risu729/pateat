@@ -289,7 +289,7 @@ export function createLoginGeneration(options: {
     path: string,
     base?: GenerationBase,
     branch?: string,
-    manual = false,
+    { manual = false }: { manual?: boolean } = {},
   ): Promise<true | GenerationHold> {
     if (!(await connected())) return "not-connected";
     await pendingAttempts();

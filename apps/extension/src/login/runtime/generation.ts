@@ -1,4 +1,3 @@
-import { manualPending, manualGenerating, endManual } from "./manual-scope";
 import * as v from "valibot";
 import {
   recipeBranch,
@@ -28,6 +27,7 @@ import { report, send, spinning, spendBefore, saveSession } from "./attempt";
 import { terminal } from "./attempt-state";
 import { type GenerationOutcome } from "./report";
 import { frameKey, logCode, acceptedObservation, asksAccount, outcomeFields } from "./steps";
+import { manualPending, manualGenerating, endManual } from "./manual-scope";
 import { EXTRACT_READS, EXTRACT_RETRY_MS, probeMode, CHOICE_SAVED } from "./constants";
 import { readUsernames, usernameShape, signedInHint, hideUsernames } from "./markers";
 import { usernameReads, customSlots, pausedMeanwhile } from "./generation-scope";
@@ -98,10 +98,14 @@ export async function generateFor(
 ): Promise<void> {
   if (!rt.generation) return;
   const manualRequest = manualPending(rt, live);
-  manualGenerating(rt, live);
   // A chooser's `other` branch is named by its layout (ADR 0060); only the probe build's
-  // choosers have none, and their pages are never offered.
-  if (otherless && otherless.layout === undefined) return;
+  // choosers have none, and their pages are never offered. A one-time request for such a
+  // page ends at once rather than showing generation until it expires.
+  if (otherless && otherless.layout === undefined) {
+    if (manualRequest) endManual(rt, live.document.tabId, "not-started", manualRequest);
+    return;
+  }
+  manualGenerating(rt, live);
   const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
   const otherBranch = otherless?.layout && recipeBranch(otherless.layout, "other");
   // The page kind a skipped page is logged with.

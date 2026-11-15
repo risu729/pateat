@@ -1,4 +1,3 @@
-import { manualPending, endManual } from "./manual-scope";
 import {
   type LoginAccount,
   type LoginDocument,
@@ -11,6 +10,7 @@ import { type RepromptResponse } from "../choice-wire";
 import { type DetailSite } from "../details";
 import { type PickedAccount, type DetailOffer } from "./session-schemas";
 import { frameKey } from "./steps";
+import { manualPending, endManual } from "./manual-scope";
 import { quietly } from "./session-store";
 import { saveSession } from "./attempt";
 import { tabAttempt } from "./hold";

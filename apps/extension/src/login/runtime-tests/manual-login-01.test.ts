@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualOfferResponseSchema, type ManualStartRequest } from "../manual-wire";
 import type { LoginGeneration } from "../runtime/deps";
 import type { LiveUriMatcher } from "../../vault/site-candidates";
+import { createPasskeyRuntime } from "../../passkeys/runtime";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
@@ -83,6 +84,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const listener of fake.state.removed.splice(0)) for (const tabId of [1, 2]) listener(tabId);
   fake.state.replaced.length = 0;
+  fake.state.updated.length = 0;
 });
 
 describe("one-time login through the popup and actual runtime", () => {
@@ -180,6 +182,62 @@ describe("one-time login through the popup and actual runtime", () => {
       status: { state: "evaluating", requestId: "manual-request" },
     });
     expect(JSON.stringify(fake.state.session)).not.toContain('"manual":true');
+    expect(executes()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("cancels only its own pending request, after which the page starts nothing and is offered again", async () => {
+    realTime();
+    const h = harness(
+      { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+      { uris: uris() },
+    );
+    await h.hello();
+    const pick = await request(h);
+    // The page never shows its sign-in input again, so the request keeps preparing.
+    expect(await run(h, pick)).toEqual({ ok: true, state: "evaluating" });
+    const cancel = (requestId: string, from: unknown = popup) =>
+      h.login.handle(
+        { version: 1, type: "login.manual.cancel", tabId: 1, requestId },
+        from as never,
+      );
+    expect(await cancel("manual-request", sender())).toBeUndefined();
+    expect(await cancel("another-request")).toEqual({ ok: false });
+    expect(await offer(h)).toMatchObject({ targets: [], status: { state: "evaluating" } });
+    expect(await cancel("manual-request")).toEqual({ ok: true });
+    expect(await offer(h)).toMatchObject({
+      targets: [expect.objectContaining({ document: pick.document })],
+      status: { requestId: "manual-request", state: "blocked", reason: "cancelled" },
+    });
+    expect(await cancel("manual-request")).toEqual({ ok: false });
+    expect(await h.hello()).toMatchObject({ ok: false });
+    expect(executes()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.session["pateat.login-picks.v1"] ?? []).toEqual([]);
+  });
+
+  it("ends a pending request when the tab navigates, so a page restored from the cache starts nothing", async () => {
+    realTime();
+    const h = harness(
+      { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+      { uris: uris() },
+    );
+    await h.hello();
+    const pick = await request(h);
+    expect(await run(h, pick)).toEqual({ ok: true, state: "evaluating" });
+    const navigate = (change: { url?: string; status?: string }) => {
+      for (const listener of fake.state.updated) listener(1, change);
+    };
+    // A load in the page or a report of the same address is no navigation away.
+    navigate({ status: "loading" });
+    navigate({ url: fake.state.pageUrl });
+    expect(await offer(h)).toMatchObject({ status: { state: "evaluating" } });
+    navigate({ url: origin + "/elsewhere" });
+    expect(await offer(h)).toMatchObject({
+      status: { requestId: "manual-request", state: "blocked", reason: "page-changed" },
+    });
+    // Back to the same document and address, as the back/forward cache restores it.
+    expect(await h.hello()).toMatchObject({ ok: false });
     expect(executes()).toEqual([]);
     expect(h.fields).not.toHaveBeenCalled();
   });
@@ -504,4 +562,49 @@ it("keeps an existing ask-every-time policy after a successful manual login", as
   expect(fake.state.session["pateat.login-switch-picks.v1"]).toBeUndefined();
   expect(h.settings).toEqual(settings);
   expect(h.store.update).not.toHaveBeenCalled();
+});
+
+it("offers and starts a page whose own conditional passkey request waits for its login (ADR 0034)", async () => {
+  realTime();
+  let passkeys: ReturnType<typeof createPasskeyRuntime> | undefined;
+  const h = harness({}, { uris: uris(), passkeyActive: (id) => passkeys?.active(id) ?? false });
+  const conditional = vi.fn(h.login.conditionalRequest);
+  passkeys = createPasskeyRuntime(
+    {
+      candidates: vi.fn(async () => ({ candidates: [], complete: true })),
+      sign: vi.fn(async () => new Uint8Array()),
+    },
+    {
+      extensionId: "synthetic-extension",
+      policy: () => ({ presence: "always", verification: "always" }),
+      conditional,
+    },
+  );
+  expect(await h.hello()).toEqual({ ok: true });
+  await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+  const waiting = passkeys.handle(
+    {
+      version: 1,
+      type: "passkey.get",
+      operationId: crypto.randomUUID(),
+      request: {
+        challenge: "AAECAwQFBgcICQoLDA0ODw",
+        rpId: "login.example",
+        allowCredentials: [],
+        mediation: "conditional",
+      },
+      userActivation: false,
+      focused: true,
+    },
+    { ...(sender() as object), documentLifecycle: "active" } as never,
+  );
+  await vi.waitFor(() => expect(conditional).toHaveBeenCalledTimes(1));
+  expect(passkeys.active("synthetic-document")).toBe(false);
+  const pick = await request(h);
+  fake.state.onReconnect = () => h.hello();
+  expect(await run(h, pick)).toMatchObject({ ok: true });
+  await vi.waitFor(() => expect(executes()).toHaveLength(4));
+  await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+  // The document's own login signed in, so its waiting request is withheld (ADR 0034).
+  expect(await waiting).toEqual({ kind: "withheld" });
 });

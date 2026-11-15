@@ -78,6 +78,7 @@ const fake = vi.hoisted(() => {
       },
       onRemoved: { addListener: () => undefined },
       onReplaced: { addListener: () => undefined },
+      onUpdated: { addListener: () => undefined },
     },
   };
   // WXT storage reads `chrome` when it loads.

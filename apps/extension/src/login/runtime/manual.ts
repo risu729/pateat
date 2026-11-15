@@ -1,11 +1,6 @@
-import * as v from "valibot";
 import { sameLoginDocument, type LoginAttemptMetadata } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import {
-  manualStartRequestSchema,
-  type ManualOfferResponse,
-  type ManualStartResponse,
-} from "../manual-wire";
+import type { ManualOfferResponse, ManualStartRequest, ManualStartResponse } from "../manual-wire";
 import { frameKey, recordKey, logCode, siteOf } from "./steps";
 import { siteCandidates } from "./choice-save";
 import { clearChoice } from "./choice";
@@ -85,8 +80,7 @@ function attemptRefusal(rt: Runtime, live: LiveDocument): string | undefined {
   )
     return "login-running";
   const own = recordFor(rt, live.document.tabId, live.document.origin);
-  if (own && !retryable(rt, live, own))
-    return own.state === "authenticated" ? "already-signed-in" : "login-running";
+  if (own && !retryable(rt, live, own)) return "login-running";
   return manualHeldElsewhere(rt, live.document.tabId, live.document.origin)
     ? "origin-busy"
     : undefined;
@@ -156,7 +150,7 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
 /** An explicit request grants one new attempt; it never changes the site's automatic policy. */
 export async function manualStart(
   rt: Runtime,
-  request: v.InferOutput<typeof manualStartRequestSchema>,
+  request: ManualStartRequest,
 ): Promise<ManualStartResponse> {
   await rt.vars.loaded;
   await rt.vars.sessionLoaded;
@@ -270,4 +264,18 @@ export async function manualStart(
     endManual(rt, tabId, "unavailable", pending);
     return refuse("unavailable");
   }
+}
+
+/**
+ * The person stops a request that is still preparing, as when the page never shows its
+ * sign-in input. Only the named pending request ends; a started login is not stopped here.
+ */
+export function manualCancel(
+  rt: Runtime,
+  request: { tabId: number; requestId: string },
+): { ok: boolean } {
+  const pending = rt.manualStarts.get(request.tabId);
+  if (!preparing(pending) || pending?.status.requestId !== request.requestId) return { ok: false };
+  endManual(rt, request.tabId, "cancelled", pending);
+  return { ok: true };
 }

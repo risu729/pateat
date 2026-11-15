@@ -1,6 +1,7 @@
 import { bitwardenJa } from "./bitwarden-ja";
 import { bindingReviewJa } from "./binding-review-ja";
 import { diagnosticsJa } from "./diagnostics-ja";
+import { manualJa } from "./manual-ja";
 import { serviceJa } from "./service-ja";
 import type { en } from "./en";
 import { settingsJa } from "./settings-ja";
@@ -518,4 +519,3 @@ export const ja = {
   "Autofill stopped: {{why}}. Nothing was pressed.":
     "自動入力を停止しました：{{why}}。ボタンは押していません。",
 } satisfies Record<keyof typeof en, string>;
-import { manualJa } from "./manual-ja";

@@ -1,4 +1,3 @@
-import { manualPending } from "./manual-scope";
 import {
   connectionEnabled,
   getItemEligibility,
@@ -27,6 +26,7 @@ import { catalogItems, generationSlots, offersGenerationField, logCode } from ".
 import { listedBrowserSite, pauseOf } from "./pause";
 import { skipGeneration } from "./generation";
 import { readUsernames, usernameShape } from "./markers";
+import { manualPending } from "./manual-scope";
 import type { Runtime } from "./state";
 
 /**
@@ -92,15 +92,12 @@ export async function offersGeneration(
     routes.some((recipe) => !runsLogin(recipe) && recipe.steps[0]?.path === live.path)
   )
     return undefined;
-  return rt.generation
-    .available(
-      live.document.origin,
-      live.path,
-      undefined,
-      undefined,
-      manualPending(rt, live) !== undefined,
-    )
-    .catch(() => undefined);
+  const { origin } = live.document;
+  return (
+    manualPending(rt, live)
+      ? rt.generation.available(origin, live.path, undefined, undefined, { manual: true })
+      : rt.generation.available(origin, live.path)
+  ).catch(() => undefined);
 }
 
 /**
