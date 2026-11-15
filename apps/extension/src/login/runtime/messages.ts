@@ -1,7 +1,7 @@
 import { ssoMoved } from "./sso/moved";
 import { authorizeSso } from "./sso-effects";
 import { ssoAuthorizeSchema } from "../sso-operation-wire";
-import { cancelSso } from "./sso/flow";
+import { cancelSso, ssoVaultChanged } from "./sso/flow";
 import * as v from "valibot";
 import { ssoPopupMessage } from "./sso-choices";
 import { authorizeConfirmation } from "./confirm-fill";
@@ -489,7 +489,8 @@ export async function operationRun(
  */
 export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
   rt.ssoChoices?.invalidateAll("settings-changed");
-  for (const tabId of [...rt.sso.flows.keys()]) cancelSso(rt, tabId, "sso-settings-changed");
+  // An SSO flow ends only when what it depends on changed; its effects check meanwhile.
+  void ssoVaultChanged(rt, "sso-settings-changed").catch(() => undefined);
   // A confirmation's document asks again before it fills, so stopping the work is enough;
   // its content script keeps reading the page (ADR 0035 delivery 3).
   cancelConfirm(rt);

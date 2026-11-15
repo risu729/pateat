@@ -417,3 +417,15 @@ original page and any RP page on the way to the IdP wait, and a new RP page befo
 entry was pressed ends the flow. The original RP document showing again after the IdP
 was reached comes back from the back/forward cache: the person left, so the flow ends
 and no longer holds the RP and IdP in other tabs.
+
+## Review hardening 2026-11-16: settings an SSO flow depends on
+
+A settings change or a vault notice ends an active parent flow only when something the
+flow depends on changed: either account's eligibility, item or connection snapshot, the
+RP and IdP pages' sign-in permission, exclusion, allow list or master-password ask,
+private-window pausing, or the two origins' saved defaults. A newer revision that
+changes none of these, as another site's account choice or a sync of unrelated settings,
+carries the flow over to it, and each scope check compares the same things rather than
+the revision. Every effect still checks the current settings before it acts. The IdP's
+own native login, while it runs, stops on any settings change as every native login
+does ([ADR 0027](0027-per-account-login-routes.md)), which ends the flow with it.

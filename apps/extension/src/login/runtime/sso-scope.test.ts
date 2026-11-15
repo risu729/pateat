@@ -341,9 +341,31 @@ describe("SSO live scope", () => {
     const h = harness();
     seams.match.mockImplementationOnce(async () => {
       h.current().snapshot.revision++;
+      h.current().snapshot.settings.pagePermissionDefaults = {
+        "sign-in": "fill",
+        confirm: "fill",
+        "personal-details": "fill",
+      };
       return {};
     });
     expect(await ssoScope(h.rt, h.work)).toBeUndefined();
+  });
+  it("carries the flow over a newer revision that changes nothing it depends on", async () => {
+    const h = harness();
+    const next = structuredClone(h.current());
+    next.snapshot.revision = 4;
+    // Another site's account choice, as another tab's login saves it.
+    next.snapshot.settings.siteDefaults.push({
+      origin: "https://elsewhere.example.test",
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: rpItem,
+      itemId: rpItem,
+    });
+    h.replace(next);
+    h.validate.mockResolvedValue({ ok: true, data: { policyRevision: 4 } });
+    expect((await ssoScope(h.rt, h.work))?.()).toBe(true);
+    expect(h.work.saved.snapshot.revision).toBe(4);
   });
   it("rechecks durable vault authority after the provider URI await", async () => {
     const h = harness();

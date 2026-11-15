@@ -11,6 +11,7 @@ import { browser } from "wxt/browser";
 import { frameKey } from "./steps";
 import { pauseOf } from "./pause";
 import { itemMatchesUrl } from "./plan";
+import { ssoDependenciesKept } from "./sso/dependencies";
 import type { Runtime } from "./state";
 import type { SsoWork } from "./sso-state";
 import type { LiveDocument } from "./types";
@@ -80,12 +81,7 @@ export async function ssoScope(
   if (pauses.some(Boolean)) return undefined;
   if (!ssoCurrent(rt, work, live)) return undefined;
   const saved = await rt.settings.handle({ version: 1, type: "settings.get" });
-  if (
-    !saved.ok ||
-    !ssoCurrent(rt, work, live) ||
-    saved.snapshot.revision !== work.saved.snapshot.revision ||
-    JSON.stringify(saved.catalog) !== JSON.stringify(work.saved.catalog)
-  )
+  if (!saved.ok || !ssoCurrent(rt, work, live) || !ssoDependenciesKept(work, work.saved, saved))
     return undefined;
   if (pausedInPrivate(saved.snapshot.settings, live.incognito)) return undefined;
   for (const page of [work.rpLive.url, live.url, work.selected.origin]) {
@@ -122,7 +118,7 @@ export async function ssoScope(
   const mapping = await rt.options.sso.validate(work.source, work.selected);
   if (
     !mapping.ok ||
-    mapping.data.policyRevision !== work.saved.snapshot.revision ||
+    mapping.data.policyRevision !== saved.snapshot.revision ||
     !ssoCurrent(rt, work, live)
   )
     return undefined;
@@ -160,12 +156,8 @@ export async function ssoScope(
     snapshotCurrent() &&
     work.recipe === recipe &&
     (!recipe || recipeCurrent?.() === true);
-  if (
-    !current() ||
-    !latest.ok ||
-    latest.snapshot.revision !== saved.snapshot.revision ||
-    JSON.stringify(latest.catalog) !== JSON.stringify(saved.catalog)
-  )
-    return undefined;
+  if (!current() || !latest.ok || !ssoDependenciesKept(work, saved, latest)) return undefined;
+  // A newer revision that changed nothing the flow depends on carries the flow over.
+  work.saved = latest;
   return current;
 }

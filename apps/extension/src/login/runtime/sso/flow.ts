@@ -1,4 +1,5 @@
 import { holdInterrupted, interruptedAdmit, releaseInterrupted } from "./interrupted";
+import { ssoDependenciesKept } from "./dependencies";
 import { browser } from "wxt/browser";
 import * as v from "valibot";
 import {
@@ -117,21 +118,24 @@ export function cancelSso(rt: Runtime, tabId: number, reason = "sso-cancelled") 
   void publish(rt, work.live);
 }
 /**
- * A vault notice ends the flows whose settings or vault catalog really changed, as it
- * withdraws SSO offers; a status read that changes nothing keeps them.
+ * A vault notice or a settings change ends the flows whose own accounts, pages or rules
+ * changed; a status read, another site's account choice or a sync of unrelated settings
+ * keeps them, carried over to the newer settings. Each later effect checks the current
+ * settings again before it acts.
  */
-export async function ssoVaultChanged(rt: Runtime): Promise<void> {
+export async function ssoVaultChanged(
+  rt: Runtime,
+  reason: "sso-vault-changed" | "sso-settings-changed" = "sso-vault-changed",
+): Promise<void> {
   if (rt.sso.flows.size === 0) return;
   const saved = await rt.settings
     .handle({ version: 1, type: "settings.get" })
     .catch(() => undefined);
-  for (const [tabId, work] of [...rt.sso.flows])
-    if (
-      !saved?.ok ||
-      saved.snapshot.revision !== work.saved.snapshot.revision ||
-      JSON.stringify(saved.catalog) !== JSON.stringify(work.saved.catalog)
-    )
-      cancelSso(rt, tabId, "sso-vault-changed");
+  for (const [tabId, work] of [...rt.sso.flows]) {
+    if (work.ended) continue;
+    if (!saved?.ok || !ssoDependenciesKept(work, work.saved, saved)) cancelSso(rt, tabId, reason);
+    else work.saved = saved;
+  }
 }
 async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
   if (!work.parent || !(await ssoScope(rt, work, live))?.()) return false;
