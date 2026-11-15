@@ -4,7 +4,7 @@ Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 「これはそのまま反映していいです」, the proposal of
 [#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not
 implemented as a complete route. Amended on 2026-11-12 by the local discovery
-[implementation note](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
+[amendment](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
 execution remains unimplemented. The owner asked for the format itself: keep the
 SSO-only format, keep a mixed account's own credentials, one readable value such as
 `[GitHub] github-user` per SSO method, and no separate provider and username fields or
@@ -222,23 +222,41 @@ unchanged.
   `[label] username`, with white space separating the closing bracket and username; each
   part is trimmed. Labels retain their spelling, up to 128 UTF-16 units. Usernames are
   compared after trimming and `toLowerCase()`, without Unicode compatibility
-  normalization or aliases, up to 1,024 units. Brackets, line breaks and control
-  characters in either part refuse. Controls, including tab and line separators, refuse
-  anywhere in the raw value, before trimming; surrounding non-control white space is
-  trimmed. A value is at most 4,096 units, and an item has at most 32 enabled methods.
+  normalization or aliases, up to 1,024 units. Brackets in either part refuse. Control
+  characters (Unicode `Cc`, including tab and line breaks), format characters (`Cf`,
+  such as bidirectional overrides and zero-width characters) and line and paragraph
+  separators (`Zl`, `Zp`) refuse anywhere in the raw value, before trimming; surrounding
+  other white space is trimmed. A value is at most 4,096 units, and an item has at most
+  32 enabled methods. An item whose enabled fields mix the URL and bracket forms refuses
+  `mixed-forms` before any one value is checked.
 - The URL form is one unsuffixed enabled method with an empty stored password and a
-  usable built-in username. Its absolute HTTP(S) URL is reduced to its origin. URL
-  credentials, backslashes, white space and control characters refuse. No host is
-  inferred from a label, item name, username or URI order. Concrete IdP origins are
-  enumerated from that IdP item's own non-Regex, non-Never URI rules; unavailable rules
-  are reported, never silently treated as no match.
+  usable built-in username. Its absolute HTTP(S) URL is reduced to its origin. Any `@`
+  in the authority, backslashes, white space and the characters refused above refuse. A
+  trailing-dot host keeps its dot, so it names a different origin from the host without
+  it, as browsers treat it. No host is inferred from a label, item name, username or URI
+  order.
+- Concrete IdP origins are enumerated from that IdP item's own non-Never URI rules. A
+  rule that can never match a web page is ignored, as the native matcher ignores it: one
+  with another scheme, such as the `androidapp:` and `iosapp:` URIs Bitwarden's mobile
+  apps add, and a malformed one. A bare host such as `accounts.example.com` is read as
+  `https://` for a Domain or Host rule, which match it on any scheme, and ignored for a
+  StartsWith or Exact rule, which compare raw text that never begins a page URL. A Regex
+  rule, an unavailable default match and an unsupported mode are reported, never
+  silently treated as no match: they refuse discovery, but validation of a chosen origin
+  that is among the item's own concrete origins does not depend on them.
+- An IdP account never signs in through an IdP itself (ADR 0026): an item with an SSO
+  field not in the bracket form (enabled or not), or with an enabled one and an empty
+  password, is passed over in discovery and refused when chosen. So is an item with an
+  unreadable custom field, which could hide such a field. The site account is never its
+  own IdP account either.
 - Methods are read from decrypted items for one call, then discarded. No new decrypted
   field cache is added to ADR 0080. The source operation returns an opaque username
   comparison proof under the existing offscreen document's HMAC key, domain-separated
-  for SSO. Another connection's Worker compares that proof locally. Proofs are
-  transient, are invalid when that offscreen key changes, and never go to storage, a
-  popup or the service. A full decrypted native username confirms the cache's shortlist
-  so a truncated display username cannot identify a different account.
+  for SSO. The background holds that proof in memory for the call and passes it to each
+  IdP connection's Worker, which compares it locally. Proofs are transient, are invalid
+  when that offscreen key changes, and never go to storage, a popup or the service. A
+  full decrypted native username confirms the cache's shortlist so a truncated display
+  username cannot identify a different account.
 - Public method descriptors contain only method number, form, automatic status and
   optional bracket label. A source reference contains the account, method number and
   SHA-256 of the encrypted source item; it contains no decrypted field value. The
@@ -248,13 +266,16 @@ unchanged.
   timeout, durable vault state and snapshots. Discovery does not count as vault use.
   Validation rereads the source and exact chosen IdP item, compares usernames, checks
   that the chosen origin is in that item's own concrete URIs, then checks policy and
-  snapshot continuity. A candidate URI is no credential-release grant. Unknown mappings
+  snapshot continuity. Discovery checks every connection it considered again at the end,
+  including vaults that gave no candidate, so a sync that adds a matching item is not
+  missed. A candidate URI is no credential-release grant. Unknown mappings
   still need the future local chooser; a label alone never selects an IdP account.
   This foundation validates one method at a time. The dependent mapping layer must
   refuse when two enabled methods resolve to the same IdP account, before any click.
 - A partly unreadable custom field can hide even the preferred method's name. Discovery
   conservatively refuses such a source rather than treating it as having no SSO. Errors
-  contain field names and fixed reason codes, never field values.
+  contain fixed reason codes and the canonical field name, `SSO` or `SSO <n>`, never the
+  field's stored spelling or value.
 
 The URL form has no label to send to generation. Its future executor first looks for an
 unambiguous local entry whose observed destination is the selected origin. Otherwise the

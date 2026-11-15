@@ -45,8 +45,18 @@ const refusal = v.picklist([
   "mixed-forms",
   "url-needs-empty-password",
   "username-missing",
-  "uri-unavailable",
 ]);
+/** Why a candidate whose username matched is not a complete answer. */
+const unavailableCandidate = v.picklist([
+  "item-unavailable",
+  "field-unreadable",
+  "username-missing",
+  "uri-unavailable",
+  /** The account itself signs in through an IdP, so it is never an IdP account. */
+  "signs-in-with-sso",
+]);
+/** A refusal names a field only by its canonical `SSO` or `SSO <n>`, never the stored spelling. */
+const reportedField = v.pipe(v.string(), v.regex(/^SSO(?: (?:0|[1-9][0-9]{0,15}))?$/u));
 export const ssoMethodSchema = v.strictObject({
   method: ssoMethodRefSchema,
   /** Snapshot-bound field ID is not a persistent method reference. */
@@ -72,7 +82,7 @@ export const ssoMethodsSchema = v.strictObject({
     v.strictObject({
       status: v.literal("refused"),
       reason: refusal,
-      field: v.optional(v.pipe(v.string(), v.maxLength(128))),
+      field: v.optional(reportedField),
     }),
   ]),
 });
@@ -85,7 +95,7 @@ export const ssoCandidatesSchema = v.strictObject({
         itemId: uuid,
         origins: v.pipe(v.array(origin), v.maxLength(1_000)),
         /** An unevaluated URI prevents treating this item as a complete answer. */
-        unavailable: v.optional(refusal),
+        unavailable: v.optional(unavailableCandidate),
       }),
     ),
     v.maxLength(SSO_CANDIDATE_LIMIT),

@@ -24,6 +24,8 @@ export type SsoSourceRef = {
 export type SsoIdpChoice = { account: AccountRef; origin: string };
 export type SsoCandidate = { account: AccountRef; snapshotId: string; origins: string[] };
 export type SsoDiscovery<T> = { ok: true; data: T } | { ok: false; reason: string; field?: string };
+const sameAccount = (one: AccountRef, two: AccountRef) =>
+  one.connectionId === two.connectionId && one.itemId.toLowerCase() === two.itemId.toLowerCase();
 const refused = (reason: string, field?: string): SsoDiscovery<never> => ({
   ok: false,
   reason,
@@ -76,7 +78,18 @@ export function createVaultSsoSource(
       return { ok: false as const, reason: "vault-unavailable" };
     return { ok: true as const, connection, fieldIds: found.fieldIds };
   }
-  async function unchanged(saved: Snapshot, touched: VaultConnectionMetadata[]) {
+  /**
+   * `touched` vaults were read and must still be live on the same snapshot; every
+   * `considered` connection, read or not, must be unchanged, so a sync that adds a
+   * matching item to a vault with no candidates before is not missed. Discovery also
+   * needs the same set of connections, so a newly added one is not missed either.
+   */
+  async function unchanged(
+    saved: Snapshot,
+    touched: VaultConnectionMetadata[],
+    considered: VaultConnectionMetadata[] = touched,
+    everyConnection = false,
+  ) {
     for (const connection of touched) {
       // oxlint-disable-next-line no-await-in-loop -- check expiry without resetting the timeout
       if (!(await managerFor(connection))) return false;
@@ -84,6 +97,9 @@ export function createVaultSsoSource(
     // This is the final awaited read. Eligibility cannot change unnoticed during the
     // timeout/durable checks above; the remaining snapshot fences are synchronous.
     const latest = await snapshot();
+    const same = (connection: VaultConnectionMetadata) =>
+      JSON.stringify(latest?.catalog.connections.find((entry) => entry.id === connection.id)) ===
+      JSON.stringify(connection);
     return (
       latest !== undefined &&
       latest.snapshot.revision === saved.snapshot.revision &&
@@ -91,20 +107,28 @@ export function createVaultSsoSource(
         (connection) =>
           connection.snapshotId !== undefined &&
           connections.snapshotCurrent(connection.id, connection.snapshotId) &&
-          JSON.stringify(latest.catalog.connections.find((entry) => entry.id === connection.id)) ===
-            JSON.stringify(connection),
-      )
+          same(connection),
+      ) &&
+      considered.every(same) &&
+      (!everyConnection ||
+        JSON.stringify(latest.catalog.connections.map((entry) => entry.id)) ===
+          JSON.stringify(saved.catalog.connections.map((entry) => entry.id)))
     );
   }
-  async function methods(saved: Snapshot, account: AccountRef): Promise<SsoDiscovery<SsoMethods>> {
+  async function methods(
+    saved: Snapshot,
+    account: AccountRef,
+    signal?: AbortSignal,
+  ): Promise<SsoDiscovery<SsoMethods>> {
     const use = eligible(saved, account);
     if (!use.ok) return refused(use.reason);
     const vault = await managerFor(use.connection);
     if (!vault) return refused("vault-unavailable");
-    const result = await vault.manager.ssoMethods(vault.handle, {
-      itemId: account.itemId,
-      allowedFieldIds: use.fieldIds,
-    });
+    const result = await vault.manager.ssoMethods(
+      vault.handle,
+      { itemId: account.itemId, allowedFieldIds: use.fieldIds },
+      signal,
+    );
     if (!result.ok) return refused(result.error.code);
     if (result.data.result.status === "refused")
       return refused(result.data.result.reason, result.data.result.field);
@@ -114,6 +138,7 @@ export function createVaultSsoSource(
   async function resolve(
     source: SsoSourceRef,
     selected?: SsoIdpChoice,
+    signal?: AbortSignal,
   ): Promise<
     SsoDiscovery<{
       sourceEvidence: string;
@@ -121,9 +146,11 @@ export function createVaultSsoSource(
       candidates: SsoCandidate[];
     }>
   > {
+    // The site account never signs in through itself (ADR 0085).
+    if (selected && sameAccount(selected.account, source.account)) return refused("source-item");
     const saved = await snapshot();
     if (!saved) return refused("settings-unavailable");
-    const described = await methods(saved, source.account);
+    const described = await methods(saved, source.account, signal);
     if (!described.ok) return described;
     if (described.data.sourceEvidence !== source.sourceEvidence) return refused("source-changed");
     const result = described.data.result;
@@ -132,6 +159,7 @@ export function createVaultSsoSource(
     if (!method) return refused("method-unavailable");
     const candidates: SsoCandidate[] = [];
     const touched: VaultConnectionMetadata[] = [];
+    const considered: VaultConnectionMetadata[] = [];
     const sourceConnection = saved.catalog.connections.find(
       (entry) => entry.id === source.account.connectionId,
     );
@@ -141,9 +169,11 @@ export function createVaultSsoSource(
       const use = connectionUse(saved.snapshot.settings, saved.catalog, connection.id);
       if (use === "disabled") continue;
       if (use !== "enabled") return refused(use);
+      considered.push(connection);
       const inputs = [];
       for (const item of connection.items) {
         if (selected && selected.account.itemId !== item.id) continue;
+        if (sameAccount({ connectionId: connection.id, itemId: item.id }, source.account)) continue;
         const candidate = eligible(saved, { connectionId: connection.id, itemId: item.id });
         if (!candidate.ok) {
           if (
@@ -163,14 +193,31 @@ export function createVaultSsoSource(
       if (!vault) return refused("vault-unavailable");
       touched.push(connection);
       for (let start = 0; start < inputs.length; start += SSO_CANDIDATE_LIMIT) {
+        if (signal?.aborted) return refused("cancelled");
         // oxlint-disable-next-line no-await-in-loop -- never run a second job on the same vault
-        const matched = await vault.manager.ssoCandidates(vault.handle, {
-          usernameProof: method.usernameProof,
-          candidates: inputs.slice(start, start + SSO_CANDIDATE_LIMIT),
-        });
+        const matched = await vault.manager.ssoCandidates(
+          vault.handle,
+          {
+            usernameProof: method.usernameProof,
+            candidates: inputs.slice(start, start + SSO_CANDIDATE_LIMIT),
+          },
+          signal,
+        );
         if (!matched.ok) return refused(matched.error.code);
         for (const candidate of matched.data.candidates) {
-          if (candidate.unavailable) return refused(candidate.unavailable);
+          // An account that signs in through an IdP is not one: discovery passes over it,
+          // and choosing it refuses.
+          if (candidate.unavailable === "signs-in-with-sso" && !selected) continue;
+          // A chosen origin among the item's own concrete URIs needs no other rule of it.
+          if (
+            candidate.unavailable &&
+            !(
+              selected &&
+              candidate.unavailable === "uri-unavailable" &&
+              candidate.origins.includes(selected.origin)
+            )
+          )
+            return refused(candidate.unavailable);
           const origins = candidate.origins.filter(
             (origin) =>
               (method.origin === undefined || origin === method.origin) &&
@@ -185,7 +232,7 @@ export function createVaultSsoSource(
         }
       }
     }
-    if (!(await unchanged(saved, touched))) return refused("scope-changed");
+    if (!(await unchanged(saved, touched, considered, !selected))) return refused("scope-changed");
     if (selected && (candidates.length !== 1 || candidates[0]?.origins.length !== 1))
       return refused("mapping-unresolved");
     return {
@@ -200,12 +247,13 @@ export function createVaultSsoSource(
   return {
     async describe(
       account: AccountRef,
+      signal?: AbortSignal,
     ): Promise<
       SsoDiscovery<{ sourceEvidence: string; policyRevision: number; methods: SafeSsoMethod[] }>
     > {
       const saved = await snapshot();
       if (!saved) return refused("settings-unavailable");
-      const described = await methods(saved, account);
+      const described = await methods(saved, account, signal);
       if (!described.ok) return described;
       if (described.data.result.status !== "ready")
         return refused(described.data.result.reason, described.data.result.field);
@@ -220,8 +268,9 @@ export function createVaultSsoSource(
         },
       };
     },
-    candidates: (source: SsoSourceRef) => resolve(source),
-    validate: (source: SsoSourceRef, selected: SsoIdpChoice) => resolve(source, selected),
+    candidates: (source: SsoSourceRef, signal?: AbortSignal) => resolve(source, undefined, signal),
+    validate: (source: SsoSourceRef, selected: SsoIdpChoice, signal?: AbortSignal) =>
+      resolve(source, selected, signal),
   };
 }
 export type VaultSsoSource = ReturnType<typeof createVaultSsoSource>;

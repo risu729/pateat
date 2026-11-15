@@ -5,6 +5,7 @@ import {
   findLoginBinding,
   isSsoFieldName,
   resolveBindingFields,
+  ssoMethodName,
   resolveDetailSourceField,
   templateLoginBinding,
 } from "../../src/recipes";
@@ -128,6 +129,30 @@ export function registerSyncedBindings({
       expect(isSsoFieldName(name), name).toBe(true);
     for (const name of [null, undefined, "", "SSO2", "SSO-2", "SSO login", "My SSO", "SSO 2a"])
       expect(isSsoFieldName(name), String(name)).toBe(false);
+  });
+
+  it("numbers SSO methods: unsuffixed is automatic, alternatives are 2 to 1,000,000", () => {
+    for (const [name, number] of [
+      ["SSO", 1],
+      [" ｓｓｏ ", 1],
+      ["SSO 2", 2],
+      ["sso\t02", 2],
+      ["ＳＳＯ　１０", 10],
+      ["SSO 1000000", 1_000_000],
+    ] as const)
+      expect(ssoMethodName(name), name).toEqual({ number, automatic: number === 1 });
+    for (const name of [
+      null,
+      undefined,
+      "SSO2",
+      "SSO login",
+      "SSO 0",
+      "SSO 1",
+      "SSO 01",
+      "SSO 1000001",
+      "SSO 9007199254740993",
+    ])
+      expect(ssoMethodName(name), String(name)).toBeUndefined();
   });
 
   it("counts same-name fields over the whole item in vault order", () => {

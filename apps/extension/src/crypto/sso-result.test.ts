@@ -109,6 +109,18 @@ describe("SSO strict response binding", () => {
         ],
       },
     },
+    ...[
+      "SSO\n2",
+      "sso",
+      "ＳＳＯ",
+      "SSO 02",
+      "SSO  2",
+      "Private value",
+      `SSO ${"9".repeat(17)}`,
+    ].map((field) => ({
+      ...methods(),
+      result: { status: "refused", reason: "invalid-value", field },
+    })),
   ])("refuses widened, inconsistent or value-bearing source answer case %#", (data) => {
     expect(validSsoResult(methodsOperation, data)).toBe(false);
   });
@@ -174,8 +186,48 @@ describe("SSO strict response binding", () => {
       snapshotId,
       candidates: [{ itemId, origins: ["https://idp.example.test/"], unavailable: "invented" }],
     },
+    ...["invalid-value", "mixed-forms", "field-name"].map((unavailable) => ({
+      snapshotId,
+      candidates: [{ itemId, origins: [], unavailable }],
+    })),
+    ...["item-unavailable", "field-unreadable", "username-missing", "signs-in-with-sso"].map(
+      (unavailable) => ({
+        snapshotId,
+        candidates: [{ itemId, origins: ["https://idp.example.test"], unavailable }],
+      }),
+    ),
   ])("refuses widened, duplicate or nonorigin candidate answer case %#", (data) => {
     expect(validSsoResult(candidateOperation, data)).toBe(false);
+  });
+  it("accepts canonical refused fields and the fixed candidate unavailability codes", () => {
+    for (const field of ["SSO", "SSO 2", "SSO 0", "SSO 1000000"])
+      expect(
+        validSsoResult(methodsOperation, {
+          ...methods(),
+          result: { status: "refused", reason: "invalid-value", field },
+        }),
+      ).toBe(true);
+    for (const unavailable of [
+      "item-unavailable",
+      "field-unreadable",
+      "username-missing",
+      "uri-unavailable",
+      "signs-in-with-sso",
+    ])
+      expect(
+        validSsoResult(candidateOperation, {
+          snapshotId,
+          candidates: [{ itemId, origins: [], unavailable }],
+        }),
+      ).toBe(true);
+    expect(
+      validSsoResult(candidateOperation, {
+        snapshotId,
+        candidates: [
+          { itemId, origins: ["https://idp.example.test"], unavailable: "uri-unavailable" },
+        ],
+      }),
+    ).toBe(true);
   });
 });
 

@@ -91,11 +91,11 @@ function harness() {
       entry.id,
       {
         status: vi.fn(() => ({ handle: { userId: entry.userId, snapshotId: entry.snapshotId } })),
-        ssoMethods: vi.fn(async (_handle: unknown, _input: unknown) => ({
+        ssoMethods: vi.fn(async (_handle: unknown, _input: unknown, _signal?: AbortSignal) => ({
           ok: true as const,
           data: structuredClone(methodData),
         })),
-        ssoCandidates: vi.fn(async (_handle: unknown, _input: unknown) => ({
+        ssoCandidates: vi.fn(async (_handle: unknown, _input: unknown, _signal?: AbortSignal) => ({
           ok: true as const,
           data: {
             snapshotId,
@@ -220,21 +220,15 @@ describe("public SSO discovery and exact local selection", () => {
         ],
       },
     });
-    expect(h.sourceManager.ssoCandidates).toHaveBeenCalledWith(
-      { userId: sourceId, snapshotId },
-      {
-        usernameProof: proof,
-        candidates: [
-          { itemId: sourceId, allowedFieldIds: ["login.username", "login.password", fieldId] },
-        ],
-      },
-    );
+    // The site account itself is never its own IdP account.
+    expect(h.sourceManager.ssoCandidates).not.toHaveBeenCalled();
     expect(h.targetManager.ssoCandidates).toHaveBeenCalledWith(
       { userId: targetId, snapshotId },
       {
         usernameProof: proof,
         candidates: [{ itemId: targetId, allowedFieldIds: ["login.username", "login.password"] }],
       },
+      undefined,
     );
     expectNoUse(h);
   });
@@ -391,10 +385,11 @@ describe("discovery policy, timeout and snapshot fences", () => {
       "login.username",
     );
     await h.api.candidates(source);
-    expect(h.sourceManager.ssoMethods).toHaveBeenCalledWith(expect.anything(), {
-      itemId: sourceId,
-      allowedFieldIds: ["login.username", "login.password"],
-    });
+    expect(h.sourceManager.ssoMethods).toHaveBeenCalledWith(
+      expect.anything(),
+      { itemId: sourceId, allowedFieldIds: ["login.username", "login.password"] },
+      undefined,
+    );
     expect(h.targetManager.ssoCandidates).not.toHaveBeenCalled();
   });
   it.each(["timeout", "snapshot", "user", "closed"])(
@@ -571,5 +566,161 @@ describe("inactive vault items never provide SSO discovery authority", () => {
     expect((await h.api.validate(source, selected)).ok).toBe(false);
     expect(h.targetManager.ssoCandidates).not.toHaveBeenCalled();
     expectNoUse(h);
+  });
+});
+
+describe("the source and SSO accounts are never the IdP account", () => {
+  const siblingId = "a0000000-0000-4000-8000-000000000003";
+  it("passes over the source item but not its siblings in the same vault", async () => {
+    const h = harness();
+    const site = h.saved().catalog.connections[0]!;
+    site.items.push({ ...structuredClone(site.items[0]!), id: siblingId });
+    setAccountPolicy(h.saved().snapshot.settings, site);
+    await h.api.candidates(source);
+    expect(h.sourceManager.ssoCandidates).toHaveBeenCalledOnce();
+    const [, input] = h.sourceManager.ssoCandidates.mock.calls[0]!;
+    expect((input as { candidates: { itemId: string }[] }).candidates).toEqual([
+      expect.objectContaining({ itemId: siblingId }),
+    ]);
+  });
+  it("refuses choosing the source item as its own IdP account", async () => {
+    const h = harness();
+    for (const account of [sourceAccount, { ...sourceAccount, itemId: sourceId.toUpperCase() }])
+      // oxlint-disable-next-line no-await-in-loop -- each choice is refused before any read
+      expect(await h.api.validate(source, { account, origin: selected.origin })).toEqual({
+        ok: false,
+        reason: "source-item",
+      });
+    expect(h.sourceManager.ssoMethods).not.toHaveBeenCalled();
+    expect(h.sourceManager.ssoCandidates).not.toHaveBeenCalled();
+    expectNoUse(h);
+  });
+  it("passes over an account that signs in through an IdP, and refuses choosing it", async () => {
+    const h = harness();
+    const nested = {
+      ok: true as const,
+      data: {
+        snapshotId,
+        candidates: [{ itemId: targetId, origins: [], unavailable: "signs-in-with-sso" as const }],
+      },
+    };
+    h.targetManager.ssoCandidates.mockResolvedValue(nested);
+    expect(await h.api.candidates(source)).toEqual({
+      ok: true,
+      data: { sourceEvidence: evidence, policyRevision: 7, candidates: [] },
+    });
+    expect(await h.api.validate(source, selected)).toEqual({
+      ok: false,
+      reason: "signs-in-with-sso",
+    });
+    expectNoUse(h);
+  });
+});
+
+describe("unrelated URI rules on a chosen IdP item", () => {
+  const partial = (origins: string[]) => ({
+    ok: true as const,
+    data: {
+      snapshotId,
+      candidates: [{ itemId: targetId, origins, unavailable: "uri-unavailable" as const }],
+    },
+  });
+  it("validates a chosen concrete origin beside an unevaluable sibling rule", async () => {
+    const h = harness();
+    h.targetManager.ssoCandidates.mockResolvedValueOnce(partial([selected.origin]));
+    expect(await h.api.validate(source, selected)).toEqual({
+      ok: true,
+      data: {
+        sourceEvidence: evidence,
+        policyRevision: 7,
+        candidates: [{ account: selected.account, snapshotId, origins: [selected.origin] }],
+      },
+    });
+  });
+  it("still refuses when the chosen origin is not among the concrete ones", async () => {
+    const h = harness();
+    h.targetManager.ssoCandidates.mockResolvedValueOnce(partial(["https://other.example.test"]));
+    expect(await h.api.validate(source, selected)).toEqual({
+      ok: false,
+      reason: "uri-unavailable",
+    });
+  });
+});
+
+describe("discovery fences every connection it considered", () => {
+  const quietId = "a0000000-0000-4000-8000-000000000004";
+  function withQuietVault() {
+    const h = harness();
+    const quiet = { ...connection("quiet", quietId), userId: quietId };
+    h.saved().catalog.connections.push(quiet);
+    setAccountPolicy(h.saved().snapshot.settings, quiet);
+    // No candidate is asked of this vault: its only item's username is excluded.
+    excludeField(h.saved().snapshot.settings, quiet, quietId, "login.username");
+    return { ...h, quiet };
+  }
+  it("drops discovery when a sync adds an item to a vault that had no candidates", async () => {
+    const h = withQuietVault();
+    expect((await h.api.candidates(source)).ok).toBe(true);
+    h.targetManager.ssoCandidates.mockImplementationOnce(async () => {
+      const quiet = h.saved().catalog.connections[2]!;
+      quiet.items.push({
+        ...structuredClone(quiet.items[0]!),
+        id: "a0000000-0000-4000-8000-000000000005",
+      });
+      return { ok: true, data: { snapshotId, candidates: [] } };
+    });
+    expect(await h.api.candidates(source)).toEqual({ ok: false, reason: "scope-changed" });
+    expectNoUse(h);
+  });
+  it("drops discovery when a connection is added meanwhile", async () => {
+    const h = harness();
+    h.targetManager.ssoCandidates.mockImplementationOnce(async () => {
+      h.saved().catalog.connections.push(connection("added", quietId));
+      return { ok: true, data: { snapshotId, candidates: [] } };
+    });
+    expect(await h.api.candidates(source)).toEqual({ ok: false, reason: "scope-changed" });
+  });
+  it("does not drop a validation for a change in a vault it did not choose", async () => {
+    const h = withQuietVault();
+    h.targetManager.ssoCandidates.mockImplementationOnce(async () => {
+      h.saved().catalog.connections[2]!.items[0]!.label = "Renamed elsewhere";
+      return {
+        ok: true,
+        data: { snapshotId, candidates: [{ itemId: targetId, origins: [selected.origin] }] },
+      };
+    });
+    expect((await h.api.validate(source, selected)).ok).toBe(true);
+  });
+});
+
+describe("cancellation", () => {
+  it("passes the caller's signal to each vault request", async () => {
+    const h = harness();
+    const { signal } = new AbortController();
+    await h.api.describe(sourceAccount, signal);
+    await h.api.candidates(source, signal);
+    await h.api.validate(source, selected, signal);
+    for (const call of h.sourceManager.ssoMethods.mock.calls) expect(call[2]).toBe(signal);
+    for (const call of h.targetManager.ssoCandidates.mock.calls) expect(call[2]).toBe(signal);
+    expect(h.sourceManager.ssoMethods).toHaveBeenCalledTimes(3);
+    expect(h.targetManager.ssoCandidates).toHaveBeenCalledTimes(2);
+  });
+  it("asks for no further batch once the signal is aborted", async () => {
+    const h = harness();
+    const target = h.saved().catalog.connections[1]!;
+    target.items = Array.from({ length: 2001 }, (_, index) => ({
+      ...structuredClone(target.items[0]!),
+      id: `d0000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    }));
+    const controller = new AbortController();
+    h.targetManager.ssoCandidates.mockImplementation(async () => {
+      controller.abort();
+      return { ok: true, data: { snapshotId, candidates: [] } };
+    });
+    expect(await h.api.candidates(source, controller.signal)).toEqual({
+      ok: false,
+      reason: "cancelled",
+    });
+    expect(h.targetManager.ssoCandidates).toHaveBeenCalledOnce();
   });
 });

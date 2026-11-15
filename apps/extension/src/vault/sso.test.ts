@@ -24,16 +24,18 @@ describe("SSO metadata operations preserve durable live-vault authority", () => 
             result: { status: "ready", methods: [] },
           }
         : { snapshotId, candidates: [] };
-    const host = vi.fn(async (_session: HostSessionRef, _input: unknown) => ({
-      ok: true as const,
-      data,
-    }));
+    const host = vi.fn(
+      async (_session: HostSessionRef, _input: unknown, _signal?: AbortSignal) => ({
+        ok: true as const,
+        data,
+      }),
+    );
     Object.assign(h.host, { [kind]: host });
     const input = kind === "ssoMethods" ? sourceInput : candidateInput;
-    const invoke = (handle: LocalVaultHandle) =>
+    const invoke = (handle: LocalVaultHandle, signal?: AbortSignal) =>
       kind === "ssoMethods"
-        ? h.manager.ssoMethods(handle, sourceInput)
-        : h.manager.ssoCandidates(handle, candidateInput);
+        ? h.manager.ssoMethods(handle, sourceInput, signal)
+        : h.manager.ssoCandidates(handle, candidateInput, signal);
     return { ...h, invoke, native: host, input };
   }
   describe.each(["ssoMethods", "ssoCandidates"] as const)("%s", (kind) => {
@@ -46,11 +48,18 @@ describe("SSO metadata operations preserve durable live-vault authority", () => 
       const answer = await h.invoke(handle);
       const opened = await h.host.open.mock.results[0]!.value;
       if (!opened.ok) throw new Error("Synthetic host did not open");
-      expect(h.native).toHaveBeenCalledExactlyOnceWith(opened.data.session, h.input);
+      expect(h.native).toHaveBeenCalledExactlyOnceWith(opened.data.session, h.input, undefined);
       expect(answer).toBe(await h.native.mock.results[0]!.value);
       expect(h.store.read).toHaveBeenCalledTimes(2);
       expect(h.store.compareAndSwap).not.toHaveBeenCalled();
       expect(h.sessionKey.write).not.toHaveBeenCalled();
+    });
+    it("passes the caller's abort signal to its host request", async () => {
+      const h = ssoHarness(kind);
+      const { handle } = await accepted(h);
+      const controller = new AbortController();
+      expect(await h.invoke(handle, controller.signal)).toMatchObject({ ok: true });
+      expect(h.native.mock.calls[0]?.[2]).toBe(controller.signal);
     });
     it("rejects a stale or uncloneable handle before host or storage access", async () => {
       const h = ssoHarness(kind);

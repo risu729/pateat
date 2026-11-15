@@ -22,6 +22,7 @@ export function ssoManagerOperations(
     async ssoMethods(
       handle: LocalVaultHandle,
       input: SsoSourceInput,
+      signal?: AbortSignal,
     ): Promise<VaultResult<SsoMethods>> {
       if (!host.ssoMethods) return vaultFailure("invalid-request");
       try {
@@ -30,11 +31,12 @@ export function ssoManagerOperations(
       } catch {
         return vaultFailure("invalid-request");
       }
-      return withLiveVault(handle, (session) => host.ssoMethods!(session, input));
+      return withLiveVault(handle, (session) => host.ssoMethods!(session, input, signal));
     },
     async ssoCandidates(
       handle: LocalVaultHandle,
       input: SsoCandidateInput,
+      signal?: AbortSignal,
     ): Promise<VaultResult<SsoCandidates>> {
       if (!host.ssoCandidates) return vaultFailure("invalid-request");
       try {
@@ -43,7 +45,7 @@ export function ssoManagerOperations(
       } catch {
         return vaultFailure("invalid-request");
       }
-      return withLiveVault(handle, (session) => host.ssoCandidates!(session, input));
+      return withLiveVault(handle, (session) => host.ssoCandidates!(session, input, signal));
     },
   };
 }

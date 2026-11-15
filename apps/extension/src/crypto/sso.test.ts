@@ -135,12 +135,31 @@ describe("strict local SSO syntax", () => {
   it.each([
     ["SSO", "sso"],
     ["SSO 2", "ＳＳＯ　０２"],
-  ])("refuses duplicate normalized method names %j", async (one, two) => {
-    expect((await fixture([field(one), field(two)]).describe()).result).toEqual({
+  ])(
+    "refuses duplicate normalized method names %j, naming the canonical field",
+    async (one, two) => {
+      expect((await fixture([field(one), field(two)]).describe()).result).toEqual({
+        status: "refused",
+        reason: "duplicate-method",
+        field: one,
+      });
+    },
+  );
+  it.each([
+    ["SSO\n2", "SSO 2"],
+    ["sso\t3", "SSO 3"],
+    ["ＳＳＯ　００４", "SSO 4"],
+    ["sso", "SSO"],
+    ["SSO\n0", "SSO 0"],
+    [`SSO ${"9".repeat(17)}`, undefined],
+  ])("names field %j only as %j in a refusal", async (name, reported) => {
+    const answer = await fixture([field(name, "malformed")]).describe();
+    expect(answer.result).toEqual({
       status: "refused",
-      reason: "duplicate-method",
-      field: two,
+      reason: reported === "SSO 0" || reported === undefined ? "field-name" : "invalid-value",
+      ...(reported ? { field: reported } : {}),
     });
+    expect(JSON.stringify(answer.result)).not.toMatch(/\\[nt]|ＳＳＯ|sso/u);
   });
   it.each([2, 3, 99])("does not interpret custom field type %s as an SSO secret", async (type) => {
     expect(
@@ -169,6 +188,11 @@ describe("strict local SSO syntax", () => {
     "[Provider] user\u0000name",
     "[Provider] user\u0085name",
     "[Provider] user\u2028name",
+    "[Goo\u202egle] person",
+    "[Provider] per\u200bson",
+    "[Provider] person\u200d",
+    "[Provider] \ufeffperson",
+    "[Provider] per\u00adson",
     "[Provider] user\ud800",
     `[${"x".repeat(129)}] person`,
     `[Provider] ${"u".repeat(1025)}`,
@@ -227,6 +251,7 @@ describe("URL form and concrete origins", () => {
     ["http://example.test:8080/login", "http://example.test:8080"],
     ["HTTPS://example.test", "https://example.test"],
     ["https://[::1]:8443/login", "https://[::1]:8443"],
+    ["https://example.test./login", "https://example.test."],
   ])("reduces %s to its own origin", async (value, origin) => {
     expect(ssoUriOrigin(value)).toBe(origin);
     const method = await firstMethod(
@@ -242,6 +267,9 @@ describe("URL form and concrete origins", () => {
     "ftp://example.test",
     "https://user:secret@example.test",
     "https://user@example.test",
+    "https://@example.test",
+    "https://a@b@example.test",
+    "https://exa\u200bmple.test",
     "https://example.test\\evil",
     "https://example.test/a b",
     "https://example.test/\nfoo",
@@ -255,15 +283,20 @@ describe("URL form and concrete origins", () => {
     expect(
       (await fixture([field("SSO", "https://idp.example.test")]).describe()).result,
     ).toMatchObject({ status: "refused", reason: "url-needs-empty-password" });
-    for (const fields of [
-      [field("SSO 2", "https://idp.example.test")],
-      [field("SSO", "https://idp.example.test"), field("SSO 2")],
-      [field(), field("SSO 2", "https://idp.example.test")],
-    ]) {
+    for (const [fields, result] of [
+      [[field("SSO 2", "https://idp.example.test")], { reason: "invalid-value", field: "SSO 2" }],
+      [
+        [field("SSO", "https://idp.example.test"), field("SSO 2", "https://other.example.test")],
+        { reason: "invalid-value", field: "SSO" },
+      ],
+      [[field("SSO", "https://idp.example.test"), field("SSO 2")], { reason: "mixed-forms" }],
+      [[field(), field("SSO 2", "https://idp.example.test")], { reason: "mixed-forms" }],
+      [[field("SSO 2"), field("SSO", "https://idp.example.test")], { reason: "mixed-forms" }],
+    ] as const) {
       expect(
         // oxlint-disable-next-line no-await-in-loop -- exercise bounded synthetic cases in a deterministic order
-        (await fixture(fields, { username: "person", password: "" }).describe()).result.status,
-      ).toBe("refused");
+        (await fixture([...fields], { username: "person", password: "" }).describe()).result,
+      ).toEqual({ status: "refused", ...result });
     }
   });
   it("requires an allowed, readable, bounded native username and readable empty password", async () => {
@@ -283,7 +316,15 @@ describe("URL form and concrete origins", () => {
         reason: "field-unreadable",
       });
     }
-    for (const username of ["", " ", "a".repeat(1025), "person\u0000", "person\ud800"]) {
+    for (const username of [
+      "",
+      " ",
+      "a".repeat(1025),
+      "person\u0000",
+      "person\ud800",
+      "per\u200bson",
+      "person\u202e",
+    ]) {
       // oxlint-disable-next-line no-await-in-loop -- exercise bounded synthetic cases in a deterministic order
       const answer = await fixture([field("SSO", "https://idp.example.test")], {
         username,
@@ -371,8 +412,6 @@ describe("transient proofs and native IdP candidate confirmation", () => {
     [{ uri: "https://regex.example.test", match: 4 }],
     [{ uri: "https://idp.example.test", match: 6 }],
     [{ uri: "https://idp.example.test", match: -1 }],
-    [{ uri: null, match: 0 }],
-    [{ uri: "bare-host.example", match: 1 }],
   ])("reports unevaluable URI rules case %# instead of treating them as no match", async (rule) => {
     const proof = (await firstMethod(fixture())).usernameProof;
     const target = fixture([], { username: "person@example.test", password: "native" });
@@ -444,5 +483,123 @@ describe("SSO archived-item defense", () => {
       { itemId, origins: [], unavailable: "item-unavailable" },
     ]);
     expect(h.decrypt).toHaveBeenCalledOnce();
+  });
+});
+
+describe("IdP accounts that sign in through an IdP themselves", () => {
+  async function target(
+    fields: ReturnType<typeof field>[],
+    password: string,
+    allowed: (index: number) => boolean = () => true,
+  ) {
+    const proof = (await firstMethod(fixture())).usernameProof;
+    const h = fixture(fields, { username: "person@example.test", password });
+    return findSsoCandidates(
+      h.state,
+      {
+        usernameProof: proof,
+        candidates: [
+          {
+            itemId,
+            allowedFieldIds: [
+              "login.username",
+              ...fields.flatMap((_, index) => (allowed(index) ? [fieldId(index)] : [])),
+            ],
+          },
+        ],
+      },
+      await keyOf(),
+    );
+  }
+  const nested = {
+    snapshotId,
+    candidates: [{ itemId, origins: [], unavailable: "signs-in-with-sso" }],
+  };
+  it("refuses an SSO-only item in the URL form, even with its field excluded", async () => {
+    expect(await target([field("SSO", "https://accounts.example.test")], "")).toEqual(nested);
+    expect(await target([field("SSO", "https://accounts.example.test")], "", () => false)).toEqual(
+      nested,
+    );
+    expect(await target([field("SSO", "https://accounts.example.test")], "set")).toEqual(nested);
+  });
+  it("refuses an item with an enabled bracket method and no password of its own", async () => {
+    expect(await target([field("SSO", "[Other] person@example.test")], "")).toEqual(nested);
+    expect(await target([field("SSO 2", "[Other] someone")], "")).toEqual(nested);
+  });
+  it("keeps an IdP item with its own password, or whose bracket method is excluded", async () => {
+    const ready = {
+      snapshotId,
+      candidates: [{ itemId, origins: ["https://idp.example.test"] }],
+    };
+    expect(await target([field("SSO", "[Other] person@example.test")], "set")).toEqual(ready);
+    expect(await target([field("SSO", "[Other] person@example.test")], "", () => false)).toEqual(
+      ready,
+    );
+    expect(await target([field("SSO2", "https://not-reserved.example.test")], "")).toEqual(ready);
+  });
+  it("reports an IdP item whose custom fields are unreadable instead of trusting it", async () => {
+    const proof = (await firstMethod(fixture())).usernameProof;
+    const h = fixture([], { username: "person@example.test", password: "set" });
+    h.state.unreadableFields.set(itemId, new Set([fieldId(0)]));
+    expect((await candidates(h, proof)).candidates).toEqual([
+      { itemId, origins: [], unavailable: "field-unreadable" },
+    ]);
+  });
+});
+
+describe("IdP item URIs that can never match a web page", () => {
+  async function origins(rules: { uri: string | null; match: number | null }[]) {
+    const proof = (await firstMethod(fixture())).usernameProof;
+    const h = fixture([], { username: "person@example.test", password: "native" });
+    h.state.loginUris.set(itemId, rules);
+    return (await candidates(h, proof)).candidates;
+  }
+  it("ignores app, other-scheme, empty and malformed URIs beside a web one", async () => {
+    expect(
+      await origins([
+        { uri: "https://accounts.example.test/signin", match: 0 },
+        { uri: "androidapp://com.example.mail", match: 0 },
+        { uri: "iosapp://com.example.mail", match: null },
+        { uri: "ftp://files.example.test", match: 1 },
+        { uri: null, match: 0 },
+        { uri: "", match: 1 },
+        { uri: "https://", match: 0 },
+        { uri: "https://@userinfo.example.test", match: 0 },
+        { uri: "https://exa mple.test", match: 1 },
+      ]),
+    ).toEqual([{ itemId, origins: ["https://accounts.example.test"] }]);
+  });
+  it("reads a bare host as HTTPS for a Domain or Host rule only", async () => {
+    expect(
+      await origins([
+        { uri: "domain.example.test", match: 0 },
+        { uri: " host.example.test:8443/login ", match: 1 },
+        { uri: "default.example.test/path", match: null },
+        { uri: "starts.example.test", match: 2 },
+        { uri: "exact.example.test", match: 3 },
+        { uri: "localhost", match: 1 },
+        { uri: "back\\slash.example.test", match: 1 },
+      ]),
+    ).toEqual([
+      {
+        itemId,
+        origins: [
+          "https://default.example.test",
+          "https://domain.example.test",
+          "https://host.example.test:8443",
+        ],
+      },
+    ]);
+  });
+  it("still reports a Regex rule beside the concrete origins it found", async () => {
+    expect(
+      await origins([
+        { uri: "https://accounts.example.test", match: 1 },
+        { uri: "androidapp://com.example.mail", match: 0 },
+        { uri: "^https://.*$", match: 4 },
+      ]),
+    ).toEqual([
+      { itemId, origins: ["https://accounts.example.test"], unavailable: "uri-unavailable" },
+    ]);
   });
 });

@@ -38,20 +38,22 @@ async function encryptedEvidence(cipher: unknown) {
     ),
   );
 }
-const hasControl = (value: string) =>
-  [...value].some((part) => {
-    const code = part.charCodeAt(0);
-    return code < 32 || (code >= 127 && code <= 159) || code === 0x2028 || code === 0x2029;
-  });
+/** Controls, format characters such as bidirectional overrides and zero-width joiners, and line or paragraph separators. */
+const hasControl = (value: string) => /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value);
 const validUsername = (value: string) => value.isWellFormed() && !hasControl(value);
 
-/** Strict concrete HTTP(S) URI, never a guessed host or a Regex URI. */
+/**
+ * Strict concrete HTTP(S) URI, never a guessed host or a Regex URI. Any `@` in the
+ * authority refuses, as in the Bitwarden matcher. A trailing-dot host keeps its dot, so
+ * it names a different origin from the host without it, as browsers treat it.
+ */
 export function ssoUriOrigin(value: string): string | undefined {
   if (
     !/^https?:\/\//iu.test(value) ||
     /[\\\s]/u.test(value) ||
     hasControl(value) ||
-    !value.isWellFormed()
+    !value.isWellFormed() ||
+    /^https?:\/\/[^/?#]*@/iu.test(value)
   )
     return undefined;
   const parsed = URL.parse(value);
@@ -62,6 +64,35 @@ export function ssoUriOrigin(value: string): string | undefined {
     !parsed.password
     ? parsed.origin
     : undefined;
+}
+
+/**
+ * The origin an IdP item's own URI rule permits, or undefined for a rule that can never
+ * match a web page: another scheme such as `androidapp:` or `iosapp:`, or a malformed URI,
+ * which the native matcher ignores too. A bare host is read as `https://` for a Domain or
+ * Host rule, which match it on any scheme; a StartsWith or Exact rule compares the raw
+ * text, which never begins a page URL.
+ */
+function ownUriOrigin(stored: string, mode: 0 | 1 | 2 | 3): string | undefined {
+  const value = stored.trim();
+  const scheme = /^([a-z][a-z0-9+.-]*):/iu.exec(value)?.[1]?.toLowerCase();
+  const bareHostPort = /^([^/?#:@]+):[0-9]+(?:[/?#]|$)/u.exec(value)?.[1]?.includes(".") === true;
+  if (scheme && scheme !== "http" && scheme !== "https" && !bareHostPort) return undefined;
+  if (!value.includes("://")) {
+    const host = /^[^/?#]*/u.exec(value)?.[0] ?? "";
+    if ((mode !== 0 && mode !== 1) || !host.includes(".")) return undefined;
+    return ssoUriOrigin(`https://${host}`);
+  }
+  const authority = /^https?:\/\/[^/\\?#]*/iu.exec(value)?.[0];
+  return authority ? ssoUriOrigin(authority) : undefined;
+}
+
+/** The canonical `SSO` or `SSO <n>` a refusal names, never the stored spelling. */
+function reportedField(name: string): string | undefined {
+  const parsed = ssoMethodName(name);
+  if (parsed) return parsed.automatic ? "SSO" : `SSO ${parsed.number}`;
+  const digits = /^sso\s+0*([0-9]{1,16})$/iu.exec(name.normalize("NFKC").trim())?.[1];
+  return digits === undefined ? undefined : `SSO ${digits}`;
 }
 
 /** A request decrypts its source once. No custom-field value is retained in Worker state. */
@@ -82,7 +113,7 @@ export async function describeSsoMethods(
     field?: string,
   ): SsoMethods => ({
     ...base,
-    result: { status: "refused", reason, ...(field ? { field: field.slice(0, 128) } : {}) },
+    result: { status: "refused", reason, ...(field ? { field } : {}) },
   });
   if (!cipher) return refused("item-unavailable");
   const decrypted = await state.session.decryptCipher({
@@ -109,12 +140,20 @@ export async function describeSsoMethods(
     }))
     .filter(({ field, fieldId }) => isSsoFieldName(field.name) && allowed.has(fieldId));
   if (active.length > SSO_METHOD_LIMIT) return refused("too-many-methods");
+  // One item never mixes the forms; check before a URL value is refused as an alternative.
+  const forms = new Set(
+    active
+      .map(({ field }) => field.value?.trim())
+      .filter((value) => value)
+      .map((value) => value!.startsWith("[")),
+  );
+  if (forms.size > 1) return refused("mixed-forms");
   const methods: Extract<SsoMethods["result"], { status: "ready" }>["methods"] = [];
   const seen = new Set<number>();
   for (const { field, fieldId } of active) {
-    const name = field.name ?? "SSO";
+    const name = reportedField(field.name ?? "SSO");
     if (state.unreadableFields.get(itemId)?.has(fieldId)) return refused("field-unreadable", name);
-    const parsedName = ssoMethodName(name);
+    const parsedName = ssoMethodName(field.name);
     if (!parsedName) return refused("field-name", name);
     if (seen.has(parsedName.number)) return refused("duplicate-method", name);
     seen.add(parsedName.number);
@@ -170,11 +209,6 @@ export async function describeSsoMethods(
       usernameProof: proof,
     });
   }
-  if (
-    methods.some((method) => method.form === "url") &&
-    methods.some((method) => method.form === "bracket")
-  )
-    return refused("mixed-forms");
   return { ...base, result: { status: "ready", methods } };
 }
 
@@ -220,6 +254,26 @@ export async function findSsoCandidates(
     }
     // oxlint-disable-next-line no-await-in-loop -- verify the complete value after the cache shortlist
     if ((await usernameProof(fullUsername, key)) !== input.usernameProof) continue;
+    // An account that itself signs in through an IdP is never an IdP account (ADR 0026,
+    // ADR 0085): any SSO field not in the bracket form, or an enabled one with no password.
+    // Hidden custom fields could hold such a field, so they leave the account unknown.
+    if ([...(state.unreadableFields.get(itemId) ?? [])].some((id) => id.startsWith("custom."))) {
+      candidates.push({ itemId, origins: [], unavailable: "field-unreadable" });
+      continue;
+    }
+    const allowed = new Set(item.allowedFieldIds);
+    const nested = (decrypted.data.fields ?? []).some((raw, index) => {
+      const field = raw as Field;
+      if (!isSsoFieldName(field.name)) return false;
+      if (!field.value?.trim().startsWith("[")) return true;
+      return (
+        allowed.has(`custom.${state.ref.snapshotId}.${index}`) && !decrypted.data.login?.password
+      );
+    });
+    if (nested) {
+      candidates.push({ itemId, origins: [], unavailable: "signs-in-with-sso" });
+      continue;
+    }
     const origins = new Set<string>();
     let unavailable = false;
     const uris = state.loginUris.get(itemId);
@@ -228,20 +282,14 @@ export async function findSsoCandidates(
       for (const entry of uris) {
         const mode = entry.match ?? state.uriContext?.defaultMatch;
         if (mode === 5) continue;
-        if (
-          mode === 4 ||
-          mode === "unavailable" ||
-          mode === undefined ||
-          mode < 0 ||
-          mode > 5 ||
-          !entry.uri
-        ) {
+        // A Regex rule, an unknown default and an unsupported mode are reported, never
+        // treated as no match; a rule that can never match a web page is ignored.
+        if (mode === 4 || mode === "unavailable" || mode === undefined || mode < 0 || mode > 5) {
           unavailable = true;
           continue;
         }
-        const origin = ssoUriOrigin(entry.uri);
+        const origin = entry.uri ? ownUriOrigin(entry.uri, mode as 0 | 1 | 2 | 3) : undefined;
         if (origin) origins.add(origin);
-        else unavailable = true;
       }
     candidates.push({
       itemId,

@@ -82,7 +82,7 @@ describe("SSO crypto host input and result fencing", () => {
     ).toEqual({ ok: false, error: { code: "invalid-request" } });
     expect(h.commands).toHaveLength(1);
   });
-  it.each(["snapshotId", "itemId", "fieldId", "extra-value"])(
+  it.each(["snapshotId", "itemId", "fieldId", "extra-value", "raw-field-name"])(
     "locks a source session on changed %s response",
     async (change) => {
       const h = harness();
@@ -94,6 +94,10 @@ describe("SSO crypto host input and result fencing", () => {
       if (change === "fieldId") data.result.methods[0]!.fieldId = "login.password";
       if (change === "extra-value")
         Object.assign(data.result.methods[0]!, { username: "synthetic-private-username" });
+      if (change === "raw-field-name")
+        Object.assign(data, {
+          result: { status: "refused", reason: "invalid-value", field: "SSO\nsynthetic" },
+        });
       h.reply(await h.command(1), { ok: true, data });
       expect(await pending).toEqual({ ok: false, error: { code: "crypto-locked" } });
       expect(h.host.isOpen(session)).toBe(false);
@@ -103,24 +107,31 @@ describe("SSO crypto host input and result fencing", () => {
       });
     },
   );
-  it.each(["snapshotId", "itemId", "duplicate-origin", "value"])(
-    "locks a candidate session on changed %s response",
-    async (change) => {
-      const h = harness();
-      const session = await h.open();
-      const pending = h.host.ssoCandidates(session, candidateInput);
-      const data = structuredClone(candidateResult);
-      if (change === "snapshotId") data.snapshotId = crypto.randomUUID();
-      if (change === "itemId") data.candidates[0]!.itemId = crypto.randomUUID();
-      if (change === "duplicate-origin")
-        data.candidates[0]!.origins.push("https://idp.example.test");
-      if (change === "value")
-        Object.assign(data.candidates[0]!, { username: "synthetic-private-username" });
-      h.reply(await h.command(1), { ok: true, data });
-      expect(await pending).toEqual({ ok: false, error: { code: "crypto-locked" } });
-      expect(h.host.isOpen(session)).toBe(false);
-    },
-  );
+  it.each([
+    "snapshotId",
+    "itemId",
+    "duplicate-origin",
+    "value",
+    "unknown-code",
+    "origins-beside-unavailable-item",
+  ])("locks a candidate session on changed %s response", async (change) => {
+    const h = harness();
+    const session = await h.open();
+    const pending = h.host.ssoCandidates(session, candidateInput);
+    const data = structuredClone(candidateResult);
+    if (change === "snapshotId") data.snapshotId = crypto.randomUUID();
+    if (change === "itemId") data.candidates[0]!.itemId = crypto.randomUUID();
+    if (change === "duplicate-origin") data.candidates[0]!.origins.push("https://idp.example.test");
+    if (change === "value")
+      Object.assign(data.candidates[0]!, { username: "synthetic-private-username" });
+    if (change === "unknown-code")
+      Object.assign(data.candidates[0]!, { origins: [], unavailable: "invalid-value" });
+    if (change === "origins-beside-unavailable-item")
+      Object.assign(data.candidates[0]!, { unavailable: "item-unavailable" });
+    h.reply(await h.command(1), { ok: true, data });
+    expect(await pending).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(h.host.isOpen(session)).toBe(false);
+  });
   it.each(["ssoMethods", "ssoCandidates"] as const)(
     "drops %s reply after native document replacement",
     async (kind) => {

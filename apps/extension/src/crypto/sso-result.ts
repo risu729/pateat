@@ -43,7 +43,11 @@ export function validSsoResult(
     checked.output.candidates.every(
       (item) =>
         operation.candidates.some((candidate) => candidate.itemId.toLowerCase() === item.itemId) &&
-        new Set(item.origins).size === item.origins.length,
+        new Set(item.origins).size === item.origins.length &&
+        // Only incomplete URI evaluation may still carry the origins found so far.
+        (item.unavailable === undefined ||
+          item.unavailable === "uri-unavailable" ||
+          item.origins.length === 0),
     )
   );
 }
