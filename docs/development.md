@@ -747,6 +747,25 @@ closes its own synthetic fixture and browser profile, and keeps its per-test tim
 Each file follows the 1,000-line limit. Compare the `--list` output for each shard
 when changing this layout.
 
+### Packaged passkey test organization
+
+`tests/extension/passkeys.spec.ts` remains the sole packaged passkey spec entry. It
+owns the virtual authenticator, relying-party page, request, assertion, probe-control
+and chooser helpers and the vault fixture constants, and calls the passive synchronous
+registrars in `tests/extension/passkey-cases/` at the original registration positions.
+These plain `*-cases.ts` leaves own the request and cancellation, chooser and timeout,
+provider wrapper and vault and production-build cases; they import the shared fixture
+modules, Node built-ins and Playwright's `chromium` directly, and take the test API and
+the spec's own helpers as a `Pick<>` of `context.ts`, which also holds the page's
+`Serialized` result and request `Spec` types. The spec exports its helper types, and
+`context.ts` imports them with `import type`, so there is no runtime import cycle.
+The registrars add no suites, hooks or fixture scopes, so every test stays a root test
+of `passkeys.spec.ts` and its own round-robin shard unit, keeps its per-test timeout
+and starts its own browser profile and relying party. The production-build case
+resolves the build directory from its own module, so its relative path climbs one
+directory more. Each file follows the 1,000-line limit. Compare the `--list` output
+for each shard when changing this layout.
+
 ### Connection setup service test organization
 
 `apps/extension/src/connections/setup.test.ts` is the discovered entry for the
