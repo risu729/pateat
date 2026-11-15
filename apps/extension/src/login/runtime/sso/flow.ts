@@ -137,7 +137,14 @@ export async function ssoVaultChanged(
     else work.saved = saved;
   }
 }
-async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
+/**
+ * Completes the flow on the RP page's positive evidence. After an IdP that showed no page
+ * (`instant`) nothing confirmed which IdP account signed in: a bracket-form method then
+ * needs the RP to show the selected identity itself, and a URL-form method completing on
+ * a marker alone is recorded as unconfirmed, which saves no account choice, keeps no
+ * session pick and leaves no confirmation proof.
+ */
+async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, instant = false) {
   if (!work.parent || !(await ssoScope(rt, work, live))?.()) return false;
   let selected = work.form === "url" ? undefined : await username(rt, work, live, false);
   const identity = v.safeParse(
@@ -177,8 +184,11 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
     // oxlint-disable-next-line no-await-in-loop -- every original SSO entry must still be absent
     if (await ssoEntryShown(rt, live, entry.target)) return false;
   }
+  const matched = identity.output.identity === "match";
+  if (instant && work.form !== "url" && !matched) return false;
+  const unconfirmed = instant && !matched;
   const positive =
-    identity.output.identity === "match" ||
+    matched ||
     (await ssoMarkerShown(rt, work, live)) ||
     (await showsMarkers(
       rt,
@@ -193,6 +203,7 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
     document: live.document,
     state: "authenticated",
     outcome: "authenticated",
+    ...(unconfirmed ? { unconfirmed: true as const } : {}),
     timing: { ...before.timing, pageMs: Date.now() - work.startedAt },
   });
   // No awaited work between the last delivery fence and the state transition.
@@ -204,7 +215,7 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
   reportAttempt(rt, ended, undefined);
   noteSignedIn(rt, before, ended, work.account.origin);
   countRelogin(rt, before, ended, live.incognito === true);
-  if (work.choice && rt.settings.update) {
+  if (work.choice && !unconfirmed && rt.settings.update) {
     const choice = work.choice;
     await rt.settings
       .update(
@@ -320,13 +331,19 @@ async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
     !!(await ssoScope(rt, work, live))?.()
   );
 }
-/** A return must carry positive RP authentication evidence, never just an absent form. */
 /**
- * Whether the RP page completes the flow. With `local`, only the page's own evidence does
- * (the selected identity, a native marker or a learned SSO marker), and the RP-return
- * judge is never asked.
+ * Whether the RP page completes the flow: `completed`, `refused` when it shows the site's
+ * sign-in again (its SSO entry, a password form or a rejected sign-in) or another account,
+ * or false when it proves nothing. A return must carry positive RP authentication
+ * evidence, never just an absent form. With `instant`, after an IdP that showed no page,
+ * only the page's own evidence counts and the RP-return judge is never asked.
  */
-async function returned(rt: Runtime, work: SsoWork, live: LiveDocument, local = false) {
+async function returned(
+  rt: Runtime,
+  work: SsoWork,
+  live: LiveDocument,
+  instant = false,
+): Promise<"completed" | "refused" | false> {
   if (!(await ssoScope(rt, work, live))) return false;
   let value = work.form === "url" ? undefined : await username(rt, work, live, false);
   const identity = v.safeParse(
@@ -335,12 +352,11 @@ async function returned(rt: Runtime, work: SsoWork, live: LiveDocument, local = 
       () => undefined,
     ),
   );
-  if (
-    !identity.success ||
-    !identity.output.ok ||
-    identity.output.identity === "different" ||
-    !(await ssoScope(rt, work, live))
-  ) {
+  if (identity.success && identity.output.ok && identity.output.identity === "different") {
+    value = undefined;
+    return "refused";
+  }
+  if (!identity.success || !identity.output.ok || !(await ssoScope(rt, work, live))) {
     value = undefined;
     return false;
   }
@@ -361,11 +377,12 @@ async function returned(rt: Runtime, work: SsoWork, live: LiveDocument, local = 
   )
     return false;
   const signs = reading.output.signs;
-  if (signs.password || signs.code || signs.captcha || signs.invalid || signs.alert) return false;
+  if (signs.password || signs.invalid) return "refused";
+  if (signs.code || signs.captcha || signs.alert) return false;
   const own = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
   for (const entry of own?.entries ?? []) {
     // oxlint-disable-next-line no-await-in-loop -- any original entry still shown prevents completion
-    if (await ssoEntryShown(rt, live, entry.target)) return false;
+    if (await ssoEntryShown(rt, live, entry.target)) return "refused";
   }
   const marker = await showsMarkers(
     rt,
@@ -373,8 +390,8 @@ async function returned(rt: Runtime, work: SsoWork, live: LiveDocument, local = 
     await markerProofs(rt, work.account.origin, work.account.origin),
   );
   if (identity.output.identity === "match" || marker || (await ssoMarkerShown(rt, work, live)))
-    return completeSso(rt, work, live);
-  if (local || work.completionTried || !work.recipe || !work.layout || !rt.generation?.judgeSso)
+    return (await completeSso(rt, work, live, instant)) && "completed";
+  if (instant || work.completionTried || !work.recipe || !work.layout || !rt.generation?.judgeSso)
     return false;
   work.completionTried = true;
   const page = await ssoObservation(rt, live);
@@ -436,7 +453,8 @@ async function returned(rt: Runtime, work: SsoWork, live: LiveDocument, local = 
       finalState.output.signs.invalid,
       finalState.output.signs.alert,
     ].some(Boolean) &&
-    (await completeSso(rt, work, live))
+    (await completeSso(rt, work, live)) &&
+    "completed"
   );
 }
 export async function beginSso(
@@ -652,6 +670,12 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   await rt.sso.loaded;
   const work = rt.sso.flows.get(ctx.document.tabId);
   if (!work) return interruptedAdmit(rt, ctx);
+  // The person's own Log in now on the RP ends the flow, and the page is admitted as any
+  // manual request is: an RP page never waits for a flow the person has moved past.
+  if (ctx.manual && ctx.document.frameId === 0 && ctx.document.origin === work.account.origin) {
+    cancelSso(rt, ctx.document.tabId, "sso-manual-request");
+    return interruptedAdmit(rt, ctx);
+  }
   if (ctx.document.frameId !== 0) return ctx.refuse("sso-top-document-only");
   if (work.parent?.state === "authenticated") return ctx.refuse("sso-completed");
   if (ctx.document.origin !== work.account.origin && ctx.document.origin !== work.selected.origin) {
@@ -671,8 +695,14 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
       // return. It completes only on the page's own evidence, with no judge, and without
       // it the flow waits, as an RP page on the way to the IdP does.
       if (!original && work.phase === "entering-idp" && work.operation?.stage === "spent") {
-        if (await returned(rt, work, ctx.live, true))
-          return { ok: false as const, reason: "sso-completed" };
+        const result = await returned(rt, work, ctx.live, true);
+        if (result === "completed") return { ok: false as const, reason: "sso-completed" };
+        // The IdP refused at once, as a failed silent sign-in or a revoked grant does: the
+        // site shows its sign-in again, so the flow ends rather than waiting for nothing.
+        if (result === "refused") {
+          cancelSso(rt, ctx.document.tabId, "sso-return-unconfirmed");
+          return ctx.refuse("sso-return-unconfirmed");
+        }
         return ctx.refuse("sso-in-progress");
       }
       // Before that no RP page is the return: the original page waits while its entry is
@@ -689,7 +719,8 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     }
     work.phase = "returning-rp";
     await releaseChild(rt, work);
-    if (await returned(rt, work, ctx.live)) return { ok: false as const, reason: "sso-completed" };
+    if ((await returned(rt, work, ctx.live)) === "completed")
+      return { ok: false as const, reason: "sso-completed" };
     cancelSso(rt, ctx.document.tabId, "sso-return-unconfirmed");
     return ctx.refuse("sso-return-unconfirmed");
   }

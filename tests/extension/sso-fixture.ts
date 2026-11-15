@@ -46,7 +46,8 @@ export type SsoScenario =
   | "intermediate"
   | "same-document"
   | "same-document-dom"
-  | "instant";
+  | "instant"
+  | "instant-refused";
 export type SsoEvidence = {
   entries: number;
   posts: number;
@@ -112,6 +113,12 @@ export async function configureSso(
         return route.fulfill({
           status: 302,
           headers: { location: origins.rp + "/callback?code=synthetic" },
+        });
+      // A failed silent sign-in or a revoked grant: straight back to the site's sign-in.
+      if (scenario === "instant-refused")
+        return route.fulfill({
+          status: 302,
+          headers: { location: origins.rp + "/login?error=access_denied" },
         });
       if (scenario === "intermediate" && url.pathname === "/login")
         return respond(

@@ -432,9 +432,18 @@ and no longer holds the RP and IdP in other tabs.
 An IdP with an existing grant and session often sends the tab straight back with no page
 of its own, so no IdP document is ever seen. Once the RP entry's click was spent, a new
 RP page is therefore a possible return even before the IdP was reached. It completes
-only on the page's own evidence: the selected identity, a native signed-in marker or a
-learned SSO marker. The RP-return judge is not asked there, and without that evidence
-the flow keeps waiting, as on an RP page on the way to the IdP, rather than ending.
+only on the page's own evidence, and the RP-return judge is not asked there. Nothing
+showed which IdP account signed in, and the IdP may hold another of the person's
+accounts, so a bracket-form method needs the RP to show the selected identity itself;
+a marker alone is not enough. A URL-form method, which has no RP identity to compare,
+may complete on a native or learned marker, but only as an unconfirmed sign-in: it
+saves no account choice or default, keeps no session pick
+([ADR 0063](0063-switch-accounts-from-the-popup.md)) and leaves no confirmation proof.
+Without such evidence the flow keeps waiting, as on an RP page on the way to the IdP. A
+page that shows the site's sign-in again (its SSO entry, a password form or a rejected
+sign-in) or another account means the IdP refused at once, as a failed silent sign-in
+or a revoked grant does, and ends the flow. A **Log in now** the person starts on the
+RP also ends it, so an RP page never waits for a flow the person has moved past.
 
 ## Review hardening 2026-11-16: settings an SSO flow depends on
 

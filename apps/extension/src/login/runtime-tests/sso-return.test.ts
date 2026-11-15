@@ -619,12 +619,73 @@ describe("an RP page before and after the IdP is reached", () => {
     expect(h.work.parent?.state).toBe("authenticated");
     expect(h.signedIn).toHaveBeenCalledWith(7, rp);
   });
-  it("completes an IdP that sent the tab straight back, on a native RP marker", async () => {
+  it("never completes a bracket-form method on a marker alone after an instant return", async () => {
+    // The IdP may have signed in another of the person's accounts: a marker says nothing
+    // about which, so the RP must show the selected identity itself.
     const h = harness({ ok: true, identity: "absent" }, true);
     await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
     spent(h);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(h.work.ended).toBe(false);
+    expect(h.work.parent?.state).not.toBe("authenticated");
+    expect(h.signedIn).not.toHaveBeenCalled();
+    expect(h.update).not.toHaveBeenCalled();
+    expect(h.rt.confirmFill.proofs).toEqual([]);
+  });
+  it("records a URL-form marker-only instant return as unconfirmed, saving nothing", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    h.work.form = "url";
     expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
-    expect(h.work.parent?.state).toBe("authenticated");
+    expect(h.work.parent).toMatchObject({ state: "authenticated", unconfirmed: true });
+    // No account choice or site default, no session pick (ADR 0063), no confirmation
+    // proof and no signed-in notice for an account nothing confirmed.
+    expect(h.update).not.toHaveBeenCalled();
+    expect(h.saved.snapshot.settings.siteDefaults.some((entry) => entry.origin === rp)).toBe(false);
+    expect(h.rt.confirmFill.proofs).toEqual([]);
+    expect(h.signedIn).not.toHaveBeenCalled();
+    expect(h.rt.picked.get(7)).toBeUndefined();
+  });
+  it.each(["password", "invalid"] as const)(
+    "ends the flow when an instant return lands on the RP's sign-in again (%s)",
+    async (sign) => {
+      const h = harness({ ok: true, identity: "absent" }, false);
+      await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+      spent(h);
+      const base = delivered.getMockImplementation()!;
+      delivered.mockImplementation(async (id, message, ...rest) => {
+        const reply = (await base(id, message, ...rest)) as { signs?: object };
+        return message["type"] === "login.state"
+          ? { ...reply, signs: { ...reply.signs, [sign]: true } }
+          : reply;
+      });
+      expect(await ssoAdmit(h.rt, h.ctx)).toEqual({
+        ok: false,
+        reason: "sso-return-unconfirmed",
+      });
+      expect(h.work.ended).toBe(true);
+      expect(h.work.parent?.state).toBe("blocked");
+      expect(h.signedIn).not.toHaveBeenCalled();
+    },
+  );
+  it("ends the flow when an instant return shows another account", async () => {
+    const h = harness({ ok: true, identity: "different" }, true);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-return-unconfirmed" });
+    expect(h.work.ended).toBe(true);
+  });
+  it("lets the person's Log in now on the RP end a waiting flow", async () => {
+    const h = harness({ ok: true, identity: "absent" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const manual = { ...h.ctx, manual: { request: "manual-request" } } as unknown as AdmitContext;
+    expect(await ssoAdmit(h.rt, manual)).toBeUndefined();
+    expect(h.work.ended).toBe(true);
+    expect(h.rt.sso.flows.has(7)).toBe(false);
+    // Nor does the flow's interrupted hold keep the manual request waiting.
+    expect(h.rt.sso.interrupted.has(7)).toBe(false);
   });
   it("waits on an RP page without local evidence after a spent entry, asking no judge", async () => {
     const h = harness({ ok: true, identity: "absent" }, false);

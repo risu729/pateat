@@ -83,6 +83,28 @@ test("an IdP that sends the tab straight back with no page completes on the RP's
   });
 });
 
+test("an IdP that refuses at once and sends the tab back to the RP sign-in ends the flow", async () => {
+  await withVaultProfile(async (open) => {
+    const browser = await open();
+    const { options, evidence, idpEvents } = await configureSso(browser, "instant-refused");
+    const page = await browser.context.newPage();
+    await page.goto(origins.rp + "/login");
+    await chooseExample(await openSsoPopup(browser, options, page));
+    await expect(page).toHaveURL(origins.rp + "/login?error=access_denied", { timeout: 15_000 });
+    // The site's sign-in with its SSO entry again ends the flow; it does not wait for it.
+    await expect
+      .poll(
+        async () =>
+          (await ssoStatus(options)).attempts.find((attempt) => attempt.route === "sso")?.state,
+        { timeout: 15_000 },
+      )
+      .toBe("blocked");
+    expect(evidence).toEqual({ entries: 1, posts: 0, matched: true, returns: 0, unsafeClicks: 0 });
+    expect(idpEvents).toEqual([]);
+    await unchangedIdpDefault(options);
+  });
+});
+
 test("an authenticated native IdP page alone neither completes the RP nor grants confirmed-page fill on the IdP", async () => {
   await withVaultProfile(async (open) => {
     const browser = await open();
