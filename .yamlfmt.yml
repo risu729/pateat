@@ -1,4 +1,2 @@
+# yamlfmt defaults to CRLF on Windows, which this repository supports.
 line_ending: lf
-formatter:
-  type: basic
-  indent: 2

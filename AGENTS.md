@@ -95,6 +95,24 @@
 - Write every PR, issue, commit, workflow run and URL you mention in PR and issue text
   and in messages to the owner as a Markdown link, never a bare `#123`, SHA or URL.
 
+## Configuration defaults
+
+- Do not set a configuration option to the value its tool already uses. Leave it unset
+  unless the repository needs a different value. This covers every tool configuration
+  here, including `.github/renovate.json`, the `mise.toml` files, `hk.pkl`, the
+  `tsconfig.json` files, `release-please-config.json`, `aube-workspace.yaml` and the
+  linter and formatter configurations. Check the default in the tool's source at the
+  version in use, not in its documentation.
+- Keep a value equal to the default when it overrides a different value from
+  an extended preset or an earlier rule, such as a Renovate `packageRules`
+  entry that restores a default the
+  [shared preset](https://github.com/risu729/renovate-config) changes, and say
+  in a comment what it overrides.
+- The default must be the same in every tool version the repository allows,
+  such as each mise version from `min_version`, and on every platform it
+  supports. When it differs, raise the minimum in the same change or keep the
+  value with a comment that says why.
+
 ## Continuing the work
 
 - A merged PR is not a stopping point. Continue with the next slice of the current phase

@@ -3,7 +3,6 @@
   "compilerOptions": {
     "target": "ES2023",
     "module": "ESNext",
-    "moduleResolution": "Bundler",
     "lib": [
       "ES2023",
       "ES2024.Promise",
@@ -17,9 +16,6 @@
       "DOM"
     ],
     "jsx": "react-jsx",
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noEmit": true,
     "types": ["node", "react", "react-dom", "vite/client", "@vitest/browser-playwright"]
   },
   "include": ["*.ts", "*.tsx", "../../apps/extension/src/build.d.ts"]

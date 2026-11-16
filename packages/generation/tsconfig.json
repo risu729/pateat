@@ -11,12 +11,7 @@
       "ESNext.Temporal",
       "DOM",
       "DOM.Iterable"
-    ],
-    "types": [],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noEmit": true,
-    "skipLibCheck": true
+    ]
   },
   "include": ["src"]
 }

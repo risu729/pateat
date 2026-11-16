@@ -3,7 +3,6 @@
   "compilerOptions": {
     "target": "ES2023",
     "module": "ESNext",
-    "moduleResolution": "Bundler",
     "lib": [
       "ES2023",
       "ES2024.Promise",
@@ -16,9 +15,6 @@
       "ESNext.Temporal",
       "DOM"
     ],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noEmit": true,
     "types": ["node"]
   },
   "include": ["*.ts", "fixtures/*.ts"]
