@@ -26,6 +26,12 @@ pressed or sent while the site's automatic login is paused, also by an exclusion
 [ADR 0063](0063-switch-accounts-from-the-popup.md): an account switch presses an entry
 without the `no-return-target` and `site-record` checks.
 
+Amended on 2026-11-16 (owner: every setting and piece of user state syncs, and the
+service is the source of truth; approved for the remaining device-local state the same
+day): [the block is the owner's](#amendment-2026-11-16-the-block-is-the-owners),
+reported to the service and skipped by every device's recipe sync, instead of a block on
+one device.
+
 Implementation notes (2026-10-12), which leave the decision below as accepted:
 
 - The `login.entry` levels follow
@@ -164,6 +170,8 @@ recipe, or is generated, as any login page is today; on pixiv that is the
   show a sign-in input and show no sign-up form (a visible `new-password` field beside a
   confirmation field, or two password fields in one form). Otherwise the recipe is
   blocked on this device, a warning is logged, and that page is not sent for generation.
+  Since the [2026-11-16 amendment](#amendment-2026-11-16-the-block-is-the-owners) the
+  block is the owner's, for every device.
 
 ### Implementation choices
 
@@ -355,10 +363,12 @@ revision of the recipe or removes it:
 }
 ```
 
-`reason` is `left-site`, `no-sign-in` or `sign-up`. To recover, the owner revokes the
-recipe in the web UI; since [#269](https://github.com/risu729/pateat/pull/269) its start
-page is generated again on the next visit. While the blocked recipe stays cached, no
-page is generated on its path, because a recipe starts there.
+`reason` is `left-site`, `no-sign-in` or `sign-up`. Since the
+[2026-11-16 amendment](#amendment-2026-11-16-the-block-is-the-owners) this local copy is
+a cache, and the only copy without a pairing. To recover, the owner revokes the recipe
+in the web UI; since [#269](https://github.com/risu729/pateat/pull/269) its start page
+is generated again on the next visit. While the blocked recipe stays cached, no page is
+generated on its path, because a recipe starts there.
 
 The log event is `login.entry`, with the origin, recipe ID and revision and an outcome:
 `pressed` (info), `refused` with the failed check before the press (debug), or `blocked`
@@ -466,3 +476,51 @@ kept.
 
 Item and field names (slots) are still not sent with an entry page, a recorded
 difference: they do not help find the sign-in button, and an entry recipe fills nothing.
+
+## Amendment 2026-11-16: the block is the owner's
+
+The owner's standing rule is that every setting syncs and the service is the source of
+truth; on 2026-11-16 the owner asked for the remaining device-local user state to sync
+and approved it. A block kept only in one device's `chrome.storage.local` broke that:
+every other device, and the same device after a reinstall, pressed the same failed
+revision again, once per tab in 10 minutes, and the only recovery was revoking the
+recipe. A block says the recipe revision leads nowhere, which is a fact about the
+owner's recipe, not about the device.
+
+- **Reported.** When the check after a press fails, a paired device keeps the block and
+  sends `POST /v1/recipes/:recipeId/entry-block` with `{ version: 1, revision, reason }`
+  at once, as the device's login result codes are sent, and again after each recipe sync
+  until the service took it or refused it for good.
+- **Kept by the service.** `recipe_entry_blocks` holds one row per recipe for its active
+  head revision: the reason, the reporting device and the service's time. The first
+  report of a revision wins and later ones, from any device, change nothing (grow-only
+  per recipe and revision). A report of a revision below the head changes nothing, since
+  a newer revision supersedes it; revisions only grow, also for a recipe generated again
+  after a revocation. A newly kept block moves the head to the owner's next sequence.
+- **Synced.** The recipe sync change of that head carries `entryBlock: { reason,
+  blockedAt }`; every device's cache keeps it beside the revision, and no device presses
+  it. A device checks its own block under the current pairing and the synced one.
+- **Ended.** Every winning write of the recipe deletes the row in its batch: a newer
+  revision from a device, the service's generation or repair, and a revocation from a
+  device, the idle check or the owner web UI. The web UI's recipe list shows the block
+  and its reason with the entry, and revoking the recipe there ends it and has its start
+  page generated again.
+- **Without a pairing** ([ADR 0040](0040-running-without-the-service.md)), the block of
+  a recipe the device holds as its own is kept only on the device. When the device pairs
+  and uploads that recipe, which the service stores as revision 1, the block moves to
+  that revision and is sent. A disconnect keeps the synced blocks with the synced
+  recipes, as the device's own. A block made under another pairing never applies or is
+  sent.
+- **Not behind `serviceReports`.** The profile's `serviceReports.send` turns off what a
+  device sends about its logins for evaluation and diagnosis: login records (ADR 0055)
+  and problem lines (ADR 0066). A block is not a report of that kind. It is functional
+  state that decides what every device does, as a recipe write or a revocation from the
+  device is (ADR 0058 A), and it holds no page text, URL or value, only the recipe ID,
+  revision and reason code. Turning reports off must not make other devices press a link
+  one device found leads to a sign-up form, so it is always sent while a service is
+  paired, and the request log's delete-all keeps it, as it keeps recipes.
+
+Rejected: blocking by revoking the recipe. A revocation drops the recipe from every
+device, so its path no longer counts as a recipe start and the entry page is sent for
+generation again on the next visit, likely producing the same answer; a block keeps the
+revision cached and the page unsent until the owner acts.

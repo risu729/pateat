@@ -210,6 +210,39 @@ describe("recipe sync contract", () => {
     );
   });
 
+  it("carries an entry block on an active entry recipe only (ADR 0031)", () => {
+    const entry = {
+      version: 1,
+      id: "art-entry",
+      revision: 2,
+      origin: "https://www.art.example",
+      entry: { path: "/en/", target: { by: "text", value: "Login" } },
+    };
+    const entryBlock = { reason: "sign-up", blockedAt: 1 };
+    const blocked = { recipeId: "art-entry", revision: 2, state: "active", recipe: entry };
+    expect(accepts(syncRecipeChangeSchema, { ...blocked, entryBlock })).toBe(true);
+    expect(
+      accepts(syncRecipeChangeSchema, { ...blocked, entryBlock: { ...entryBlock, reason: "x" } }),
+    ).toBe(false);
+    expect(
+      accepts(syncRecipeChangeSchema, {
+        recipeId: "bank-login",
+        revision: 2,
+        state: "active",
+        recipe: recipe(2),
+        entryBlock,
+      }),
+    ).toBe(false);
+    expect(
+      accepts(syncRecipeChangeSchema, {
+        recipeId: "art-entry",
+        revision: 2,
+        state: "revoked",
+        entryBlock,
+      }),
+    ).toBe(false);
+  });
+
   it("requires each write to advance exactly one revision", () => {
     const write = { version: 1, expectedRevision: 1, state: "active", recipe: recipe(2) };
     expect(accepts(syncRecipeWriteSchema, write)).toBe(true);

@@ -671,6 +671,38 @@ export const recipeRepairs = sqliteTable(
 );
 
 /**
+ * The entry recipe revision a device found leads nowhere after its press (ADR 0031, amended
+ * 2026-11-16): an owner fact every device's recipe sync carries, so no device presses that
+ * revision again. One row per recipe, for its head revision: the first report of a revision
+ * is kept, and every winning write of the recipe, a newer revision or its revocation,
+ * deletes the row.
+ */
+export const recipeEntryBlocks = sqliteTable(
+  "recipe_entry_blocks",
+  {
+    ownerId: text("owner_id").notNull(),
+    recipeId: text("recipe_id").notNull(),
+    revision: integer("revision").notNull(),
+    /** An `entryBlockReasonSchema` code. */
+    reason: text("reason", { enum: ["left-site", "no-sign-in", "sign-up"] }).notNull(),
+    /** The device that reported it; its row may since be gone. */
+    deviceId: text("device_id").notNull(),
+    blockedAt: integer("blocked_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.recipeId] }),
+    foreignKey({
+      columns: [table.ownerId, table.recipeId],
+      foreignColumns: [recipeHeads.ownerId, recipeHeads.recipeId],
+    }),
+    check(
+      "recipe_entry_blocks_reason_check",
+      sql`${table.reason} IN ('left-site', 'no-sign-in', 'sign-up')`,
+    ),
+  ],
+);
+
+/**
  * Pages sent to the judge per recipe revision, origin and path (ADR 0027): each is judged
  * at most once across devices and Worker restarts, and a recipe at most 20 times a UTC day.
  */

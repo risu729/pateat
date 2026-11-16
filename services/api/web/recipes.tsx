@@ -225,6 +225,13 @@ function LayoutSteps({ variants }: { variants: ReturnType<typeof passwordVariant
   );
 }
 
+/** Why a device blocked an entry recipe revision after pressing it (ADR 0031). */
+const entryBlockReasons = {
+  "left-site": "The page after the click was on another site.",
+  "no-sign-in": "The page after the click showed no sign-in form.",
+  "sign-up": "The page after the click was a sign-up form.",
+} as const;
+
 /**
  * A recipe's revision and each of its layouts (ADR 0060): its language, when it was
  * created and last used, what it does and its steps, with `remove` for its control.
@@ -247,14 +254,24 @@ function RecipeDetails({
   return (
     <>
       {"entry" in recipe ? (
-        // A recipe with only a sign-in entry (ADR 0031), which devices do not press yet.
+        // A recipe with only a sign-in entry (ADR 0031). A revision a device found leads
+        // nowhere is blocked for every device; revoking the recipe, or a newer revision of
+        // it, ends the block.
         <KeyValues
           entries={[
             revisionFact,
             [
               "Sign-in entry",
-              `Click ${describeTarget(recipe.entry.target)} on ${recipe.entry.path} to open the site's login page. Devices do not click it yet.`,
+              `Click ${describeTarget(recipe.entry.target)} on ${recipe.entry.path} to open the site's login page.`,
             ],
+            ...(entry.change.entryBlock
+              ? [
+                  [
+                    "Blocked",
+                    `${entryBlockReasons[entry.change.entryBlock.reason]} Devices no longer click it; revoke the recipe to have its page generated again. Blocked ${formatTime(entry.change.entryBlock.blockedAt)}.`,
+                  ] satisfies [string, ReactNode],
+                ]
+              : []),
           ]}
         />
       ) : "logout" in recipe ? (

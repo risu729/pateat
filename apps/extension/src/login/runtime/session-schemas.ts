@@ -76,9 +76,6 @@ export const CONFIG_KEY = "pateat.login-probe-origin.v1";
 /** Sign-in entry presses per tab, until the tab closes (ADR 0031). */
 export const ENTRY_PRESSES_KEY = "session:pateat.login-entry-presses.v1";
 
-/** Entry recipe revisions blocked on this device after a press that led nowhere (ADR 0031). */
-export const ENTRY_BLOCKS_KEY = "pateat.login-entry-blocks.v1";
-
 export const tabIdSchema = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 export const revisionSchema = v.pipe(v.number(), v.integer(), v.minValue(1));
@@ -128,9 +125,9 @@ export const reloginSchema = v.strictObject({
 export type Relogins = v.InferOutput<typeof reloginSchema>;
 
 /**
- * An entry recipe revision blocked on this device, until the recipe sync brings a newer
- * revision or removes it (ADR 0031). Revisions only grow, also for a recipe generated
- * again after a revocation, so a block never applies to a later revision.
+ * An entry recipe revision this worker blocked but could not store (ADR 0031). Revisions
+ * only grow, also for a recipe generated again after a revocation, so a block never
+ * applies to a later revision.
  */
 export const entryBlockSchema = v.strictObject({
   recipeId: v.string(),

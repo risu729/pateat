@@ -122,9 +122,6 @@ export const ENTRY_PRESS_MS = 10 * 60_000;
 /** How soon after a press the next page must show: a new document or a URL change. */
 export const ENTRY_NEXT_PAGE_MS = 10_000;
 
-/** Blocks kept at most; the oldest go first. */
-export const MAX_ENTRY_BLOCKS = 100;
-
 /**
  * An account switch's waits (ADR 0063): how often the tab is looked at after a click, how
  * long a page that stays the same must be quiet before it counts as settled, as when a menu

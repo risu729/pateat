@@ -34,7 +34,6 @@ import {
   type RefusedDetail,
   STORAGE_KEY,
   CONFIG_KEY,
-  ENTRY_BLOCKS_KEY,
 } from "./session-schemas";
 
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
@@ -353,8 +352,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   const entryRefused = new Set<string>();
 
   /**
-   * Blocks this worker could not store, because the device's blocks could not be read or
-   * written; they hold until the worker stops (ADR 0031).
+   * Blocks this worker could not store, because the device's blocks or its pairing could
+   * not be read or written; they hold until the worker stops (ADR 0031).
    */
   const unsavedBlocks: EntryBlock[] = [];
 
@@ -383,12 +382,10 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   /** Counts account choices saved or attempted, so a new login sees a bump it missed. */
   let remembered = 0;
 
-  // Attempts, the probe configuration and entry blocks are trusted-only device records.
+  // Attempts and the probe configuration are trusted-only device records.
   const attemptRecords = trustedRecord<LoginAttemptMetadata[]>(STORAGE_KEY);
 
   const probeConfig = trustedRecord<object>(CONFIG_KEY);
-
-  const entryBlockRecords = trustedRecord<EntryBlock[]>(ENTRY_BLOCKS_KEY);
 
   let storageQueue: Promise<void> = Promise.resolve();
 
@@ -461,9 +458,6 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
    */
   const startTries = new Map<string, { count: number; at: number }>();
 
-  /** The blocks stored on this device; a read that fails is not kept, so it is read again. */
-  let entryBlocks: Promise<EntryBlock[] | undefined> | undefined = undefined;
-
   /**
    * The pausing settings last applied (ADR 0062): the exclusion rules and automatic login
    * in private windows, so a settings change can tell what moved.
@@ -535,7 +529,6 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     attemptRecords,
     confirmFill: createConfirmState(),
     probeConfig,
-    entryBlockRecords,
     incognitoTabs,
     hellos,
     signInSubmits,
@@ -561,7 +554,6 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       armTimer,
       releaseCheckpoint,
       counting,
-      entryBlocks,
       appliedPolicy,
       // Chrome may retain an alarm from the previous worker; first synchronize it.
       siteWaitAt: Number.NaN,
@@ -585,7 +577,6 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       armTimer: ReturnType<typeof setTimeout> | undefined;
       releaseCheckpoint: (() => void) | undefined;
       counting: Promise<unknown> | undefined;
-      entryBlocks: Promise<EntryBlock[] | undefined> | undefined;
       appliedPolicy: PausingSettings | undefined;
       /** When the site-wait alarm was last set for, as `armSiteWait` set it. */
       siteWaitAt: number | undefined;

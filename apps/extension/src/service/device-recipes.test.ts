@@ -177,6 +177,26 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
     expect(storage.value()).toBeUndefined();
   });
 
+  it("tells which recipe each write uploaded and its new revision, for its entry block (ADR 0031)", async () => {
+    const held = [recipe("a"), recipe("b")];
+    const uploaded = vi.fn(async () => {
+      throw new Error("blocks unavailable");
+    });
+    const writeRecipe = vi.fn<ServiceTransport["writeRecipe"]>(async (_origin, _credential, id) =>
+      id === "a"
+        ? { kind: "written", change: change(recipe("a")) }
+        : { kind: "conflict", current: change(recipe("b")) },
+    );
+    const recipes = createDeviceRecipes({
+      storage: memory({ version: 1, recipes: held }),
+      transport: { writeRecipe },
+      uploaded,
+    });
+    // A failure to move the block changes no upload.
+    expect(await recipes.upload(CONNECTION, () => false)).toBe("done");
+    expect(uploaded).toHaveBeenCalledExactlyOnceWith(held[0], 1, CONNECTION);
+  });
+
   it("keeps a recipe the service refuses for good, and never sends it again", async () => {
     const { recipes, writeRecipe } = setup({ version: 1, recipes: [recipe("a"), recipe("b")] }, [
       { kind: "refused" },

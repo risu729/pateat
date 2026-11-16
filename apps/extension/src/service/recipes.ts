@@ -30,6 +30,7 @@ import {
 import * as v from "valibot";
 import type { LoginRecipeStart, LoginRecipes } from "../login/runtime/deps";
 import type { DeviceRecipeUpload } from "./device-recipes";
+import { syncedBlocksAfter, syncedEntryBlockSchema, type SyncedEntryBlock } from "./entry-blocks";
 import { laterReadiness, loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
@@ -68,6 +69,8 @@ export { MAX_RECIPE_CACHE_BYTES } from "@pateat/contracts";
 // A change this build cannot read, as a recipe a newer service stored with a locator this
 // build does not know, is left out and the cursor moves past it (#959); `unreadableBy` names
 // the build that left one out, and any other build reads every head again from the start.
+// `entryBlocks` holds the blocks the service sent of entry recipe revisions held here (ADR
+// 0031, amended 2026-11-16).
 const cacheSchema = v.strictObject({
   version: v.literal(2),
   origin: serviceOriginSchema,
@@ -81,6 +84,7 @@ const cacheSchema = v.strictObject({
       "Duplicate cached recipes",
     ),
   ),
+  entryBlocks: v.optional(v.array(syncedEntryBlockSchema)),
 });
 type RecipeCache = v.InferOutput<typeof cacheSchema>;
 
@@ -444,7 +448,12 @@ export function createRecipeSync(options: {
         }
       }
       if (counts.removed > 0 || counts.updated > 0) {
-        const failure = await writeCache({ ...cache, recipes: [...remaining.values()] }, counts);
+        const blocks = syncedBlocksAfter(cache.entryBlocks, page.changes, remaining);
+        const { entryBlocks: _, ...rest } = cache;
+        const failure = await writeCache(
+          { ...rest, recipes: [...remaining.values()], ...(blocks ? { entryBlocks: blocks } : {}) },
+          counts,
+        );
         if (failure) return failure;
       }
       return undefined;
@@ -497,10 +506,14 @@ export function createRecipeSync(options: {
         if (kept && before.get(id) !== recipes.get(id)) counts[held ? "updated" : "added"] += 1;
         else if (held && !kept) counts.removed += 1;
       }
+      // A change of a revision held here may still bring its block.
+      const { entryBlocks: _, ...rest } = cache;
+      const blocks = syncedBlocksAfter(cache.entryBlocks, changes, recipes);
       const next: RecipeCache = {
-        ...cache,
+        ...rest,
         cursor,
         recipes: [...recipes.values()],
+        ...(blocks ? { entryBlocks: blocks } : {}),
         ...(result.unreadable ? { unreadableBy: options.build } : {}),
       };
       if (encoder.encode(JSON.stringify(next)).byteLength > MAX_RECIPE_CACHE_BYTES) {
@@ -688,6 +701,13 @@ export function createRecipeSync(options: {
     return memory.origin === connection.origin && memory.deviceId === connection.deviceId
       ? memory.recipes
       : [];
+  }
+  /** The synced blocks `synced` read with its recipes, which a disconnect keeps too. */
+  const syncedBlocks = (): readonly SyncedEntryBlock[] => memory?.entryBlocks ?? [];
+  /** The blocks the service sent of entry recipe revisions the paired cache holds (ADR 0031). */
+  async function entryBlocks(): Promise<readonly SyncedEntryBlock[]> {
+    const connection = await service.connection();
+    return (connection && (await load(connection))?.entryBlocks) ?? [];
   }
   const choosersOf = (cache: Held, origin: string) =>
     cache.recipes.filter(
@@ -966,5 +986,5 @@ export function createRecipeSync(options: {
     return (await current(false))?.recipes;
   }
 
-  return { sync, refreshIfStale, clear, synced, inUse, recipes };
+  return { sync, refreshIfStale, clear, synced, syncedBlocks, entryBlocks, inUse, recipes };
 }

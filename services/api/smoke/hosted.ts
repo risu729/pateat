@@ -27,6 +27,7 @@ export const SMOKE_OWNER_PREFIX = "smoke-";
 export const OWNER_TABLES = [
   "recipe_unit_sources",
   "recipe_layout_uses",
+  "recipe_entry_blocks",
   "recipe_revisions",
   "recipe_heads",
   "recipe_repairs",

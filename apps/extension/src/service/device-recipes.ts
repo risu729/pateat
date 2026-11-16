@@ -69,6 +69,15 @@ export function createDeviceRecipes(options: {
   transport: Pick<ServiceTransport, "writeRecipe">;
   /** The size limit of the kept recipes; tests pass a smaller one. */
   maxBytes?: number;
+  /**
+   * Told of each recipe an upload wrote and the revision the service gave it, so the
+   * recipe's entry block follows it (ADR 0031); a failure here changes no upload.
+   */
+  uploaded?: (
+    recipe: StoredLoginRecipe,
+    revision: number,
+    connection: ServiceConnection,
+  ) => Promise<void>;
 }) {
   const { storage, transport } = options;
   const maxBytes = options.maxBytes ?? MAX_DEVICE_RECIPE_BYTES;
@@ -285,7 +294,11 @@ export function createDeviceRecipes(options: {
           // at 1.
           { version: 1, expectedRevision: 0, state: "active", recipe: { ...recipe, revision: 1 } },
         );
-        if (result.kind === "written") continue;
+        if (result.kind === "written") {
+          // oxlint-disable-next-line no-await-in-loop -- before the next write, in order
+          await options.uploaded?.(recipe, result.change.revision, connection).catch(() => {});
+          continue;
+        }
         if (result.kind === "conflict") {
           if (result.current.state === "revoked") revoked.set(recipe.id, recipe);
         } else if (result.kind === "refused") newlyRefused.push(recipe);

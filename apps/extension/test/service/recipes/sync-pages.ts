@@ -393,4 +393,35 @@ export function registerSyncPageCases({
     expect(service.recordSync).toHaveBeenLastCalledWith(OTHER_DEVICE, { syncedAt: 5_000 });
     expect(cache()).toMatchObject({ deviceId: OTHER_DEVICE });
   });
+
+  it("keeps the block the service sent of an entry revision held, until a newer one (ADR 0031)", async () => {
+    const entry = (revision: number) => ({
+      version: 1 as const,
+      id: "art-entry",
+      revision,
+      origin: SITE,
+      entry: { path: "/en/", target: { by: "text" as const, value: "Login" } },
+    });
+    const block = { reason: "sign-up" as const, blockedAt: 9 };
+    const { sync, cache } = setup({
+      pages: [
+        page([active(entry(1))], 1),
+        // The service moved the head when a device blocked it: the same revision, blocked.
+        page([{ ...active(entry(1)), entryBlock: block } as never], 2),
+        page([active(entry(2))], 3),
+      ],
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(await sync.entryBlocks()).toEqual([]);
+    expect(await sync.sync()).toBe("synced");
+    expect(cache()).toMatchObject({
+      cursor: 2,
+      recipes: [entry(1)],
+      entryBlocks: [{ recipeId: "art-entry", revision: 1, ...block }],
+    });
+    expect(await sync.entryBlocks()).toEqual([{ recipeId: "art-entry", revision: 1, ...block }]);
+    expect(await sync.sync()).toBe("synced");
+    expect(cache()).not.toHaveProperty("entryBlocks");
+    expect(await sync.entryBlocks()).toEqual([]);
+  });
 }

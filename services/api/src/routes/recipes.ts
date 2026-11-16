@@ -6,6 +6,7 @@ import {
   logoutGenerationRequestSchema,
   parseRecipeBranch,
   completionRequestSchema,
+  entryBlockReportSchema,
   recipeUseReportSchema,
   recipePageSampleRequestSchema,
   syncRecipeIdSchema,
@@ -37,6 +38,7 @@ import {
   samplePage,
 } from "@pateat/generation";
 import { d1Backend } from "../recipes/backend";
+import { recordEntryBlock } from "../entry-blocks";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const recipeParam = validate("param", v.strictObject({ recipeId: syncRecipeIdSchema }));
@@ -46,6 +48,8 @@ const MAX_OUTCOME_BYTES = 1024;
 const MAX_LOGIN_RECORD_BYTES = 1024;
 /** A recipe use report is a version and a revision. */
 const MAX_USE_REPORT_BYTES = 256;
+/** An entry block is a version, a revision and a reason code. */
+const MAX_ENTRY_BLOCK_BYTES = 256;
 
 const changesQuerySchema = v.strictObject({
   after: v.optional(
@@ -330,6 +334,35 @@ export const recipeRoutes = new Hono<ApiEnv>()
       if (!used.length) return apiError(c, 404, { error: "not_found" });
       // The layout the login started on (ADR 0060), while the recipe still has it.
       await markLayoutUsed(db, ownerId, recipeId, report.layout, now);
+      return c.body(null, 204);
+    },
+  )
+  /**
+   * An entry recipe revision whose press led nowhere on a device (ADR 0031, amended
+   * 2026-11-16): the owner's recipe state, kept for the head revision so every device's
+   * sync skips it. The first reason of a revision is kept; a repeat, or a revision a newer
+   * one replaced, answers 204 and changes nothing. An unknown or revoked recipe, or a
+   * revision it never had, answers 404; a head that is no entry recipe, 400.
+   */
+  .post(
+    "/:recipeId/entry-block",
+    recipeParam,
+    bodyLimit({
+      maxSize: MAX_ENTRY_BLOCK_BYTES,
+      onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
+    }),
+    requireJsonBody,
+    jsonBody(entryBlockReportSchema),
+    async (c) => {
+      const { ownerId, deviceId } = c.get("scope");
+      const { recipeId } = c.req.valid("param");
+      const { revision, reason } = c.req.valid("json");
+      const result = await recordEntryBlock(c.env.DB, ownerId, recipeId, deviceId, {
+        revision,
+        reason,
+      });
+      if (result === "missing") return apiError(c, 404, { error: "not_found" });
+      if (result === "not-entry") return apiError(c, 400, { error: "bad_request" });
       return c.body(null, 204);
     },
   )

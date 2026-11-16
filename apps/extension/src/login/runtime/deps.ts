@@ -12,6 +12,7 @@ import {
   type LoginRoute,
   type LoginStep,
   type LoginTarget,
+  type EntryBlockReason,
   type EntryGenerationRequest,
   type LoginEntryRecipe,
   type LoginLogoutRecipe,
@@ -319,6 +320,16 @@ export type LoginRuntimeOptions = {
   pendingBrowserSite?: (origin: string) => boolean;
   /** A passkey request is reading, choosing or signing in this exact document. */
   passkeyActive?: (documentId: string) => boolean;
+  /**
+   * The owner's blocks of entry recipe revisions whose press led nowhere (ADR 0031, amended
+   * 2026-11-16): whether a revision is blocked, which rejects when that cannot be read, and
+   * blocking one, which resolves to whether it was stored and sends it to a paired service.
+   * Without them a block holds in this worker only.
+   */
+  entryBlocks?: {
+    blocked(recipe: { id: string; revision: number }): Promise<boolean>;
+    block(recipe: { id: string; revision: number }, reason: EntryBlockReason): Promise<boolean>;
+  };
   /** Receives each attempt state change, refusal and generation result. */
   report?: (report: LoginReport) => void;
   /**
