@@ -213,6 +213,8 @@ and no setting value:
 | `settings-import` | Settings merged from an exported file ([ADR 0040](0040-running-without-the-service.md#export-and-import)) |
 | `account-choice` | An account used on a site, from a login or a passkey request, saved for that site ([ADR 0021](0021-account-choice-outside-settings.md)) |
 | `detail-link` | A vault field linked to, or unlinked from, a personal detail on a site ([ADR 0061](0061-personal-details-during-a-login.md)) |
+| `detail-refused` | Links whose value a site refused, removed so no login fills them again ([ADR 0061](0061-personal-details-during-a-login.md#refused-values)) |
+| `passkey-browser-site` | A site whose passkey requests go to the browser, from the passkey chooser ([ADR 0007](0007-existing-passkey-assertions.md)) |
 
 The store writes the entry itself, so a background mutation cannot drop or rewrite it. A
 `revision-conflict` answer lists the distinct causes of the revisions after the expected
@@ -225,7 +227,8 @@ reads the newest revision, applies the draft's unsaved edits to it in order, and
 once more against that revision. The edits are the page's own changes, such as an added
 site or a vault's item selection, so they replay on top of what the background wrote.
 Every write still goes through the store's revision check. A login's saved account
-choice, a personal detail's link saved or removed after a login (`detail-link`) and a
+choice, a personal detail's link saved or removed after a login (`detail-link`, and
+`detail-refused` for a refused one) and a
 custom-field review count as background work too: the owner made them
 elsewhere, and the replayed edits change only what the page itself edited. Before
 replaying, the page checks the newest revision's own causes, so a save from another page

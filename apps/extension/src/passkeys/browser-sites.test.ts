@@ -3,7 +3,7 @@ import {
   type SettingsChangeCause,
   type SettingsSnapshot,
 } from "@pateat/contracts";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   addPasskeyBrowserSite,
   createPasskeyBrowserSites,
@@ -35,8 +35,6 @@ function store(passkeyBrowserSites: { hostname: string }[] = []) {
 }
 
 describe("adding a site whose passkey requests go to the browser", () => {
-  afterEach(() => vi.useRealTimers());
-
   it("adds the origin's exact hostname, without its scheme, port or subdomains", async () => {
     const { settings, current } = store([{ hostname: "other.example" }]);
     expect(
@@ -75,168 +73,78 @@ describe("adding a site whose passkey requests go to the browser", () => {
     ).toBe(false);
     expect(full.settings.update).not.toHaveBeenCalled();
   });
-
-  it("waits for a running login, which the write would stop, up to its limit", async () => {
-    vi.useFakeTimers();
-    const { settings, current } = store();
-    let active = true;
-    const added = addPasskeyBrowserSite({
-      settings,
-      origin: "https://bank.example",
-      loginActive: async () => active,
-      maxWaitMs: 60_000,
-    });
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(settings.update).not.toHaveBeenCalled();
-    active = false;
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(await added).toBe(true);
-    expect(current().settings.passkeyBrowserSites).toEqual([{ hostname: "bank.example" }]);
-
-    // A login left unfinished does not hold the choice back for longer.
-    const stuck = store();
-    const late = addPasskeyBrowserSite({
-      settings: stuck.settings,
-      origin: "https://bank.example",
-      loginActive: async () => true,
-      maxWaitMs: 60_000,
-    });
-    await vi.advanceTimersByTimeAsync(59_000);
-    expect(stuck.settings.update).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(await late).toBe(true);
-  });
 });
 
-function sessionValue(initial: unknown = null) {
-  let value = initial;
-  return {
-    getValue: vi.fn(async () => structuredClone(value)),
-    setValue: vi.fn(async (next: unknown) => {
-      value = structuredClone(next);
-    }),
-    current: () => value,
-  };
-}
-
 describe("the sites the passkey runtime hands on", () => {
-  afterEach(() => vi.useRealTimers());
-
-  it("holds a chosen hostname at once, while its write waits for a running login", async () => {
-    vi.useFakeTimers();
+  it("writes a chosen hostname at once and holds it while the write runs", async () => {
     const { settings, current } = store();
-    const pending = sessionValue();
     const added = vi.fn();
-    let active = true;
-    const sites = createPasskeyBrowserSites({
-      settings,
-      pending,
-      loginActive: async () => active,
-      maxWaitMs: 60_000,
-      added,
-    });
+    const sites = createPasskeyBrowserSites({ settings, added });
     expect(await sites.has("https://bank.example")).toBe(false);
-    const chosenAt = Date.now();
+    const { promise: landed, resolve: land } = Promise.withResolvers<void>();
+    const update = settings.update.getMockImplementation()!;
+    settings.update.mockImplementationOnce(async (...args) => {
+      await landed;
+      return update(...args);
+    });
     const adding = sites.add("https://bank.example:8443");
-    // Written to storage.session before the wait, so it holds across a worker restart.
-    await vi.waitFor(() =>
-      expect(pending.current()).toEqual([{ hostname: "bank.example", at: chosenAt }]),
+    await vi.waitFor(() => expect(settings.update).toHaveBeenCalledOnce());
+    // A running login need not end first: its revision is only this choice.
+    expect(settings.update).toHaveBeenCalledWith(
+      undefined,
+      "passkey-browser-site",
+      expect.any(Function),
     );
     expect(await sites.has("https://bank.example/login")).toBe(true);
     // A login sees it too, so it takes no passkey route there.
     expect(sites.pending("https://bank.example")).toBe(true);
     expect(sites.pending("https://other.example")).toBe(false);
     expect(await sites.has("https://other.example")).toBe(false);
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(settings.update).not.toHaveBeenCalled();
-    active = false;
-    await vi.advanceTimersByTimeAsync(1_000);
+    land();
     await adding;
     expect(current().settings.passkeyBrowserSites).toEqual([{ hostname: "bank.example" }]);
     expect(added).toHaveBeenCalledOnce();
-    // Forgotten once the synced write landed; the settings now list it.
-    expect(pending.current()).toBeNull();
+    // Forgotten once the write landed; the settings now list it.
     expect(sites.pending("https://bank.example")).toBe(false);
     expect(await sites.has("https://bank.example")).toBe(true);
   });
 
-  it("drops a pending hostname whose write was refused", async () => {
-    const { settings } = store();
-    settings.update.mockRejectedValueOnce(new Error("storage-unavailable"));
-    const pending = sessionValue();
-    const added = vi.fn();
-    const sites = createPasskeyBrowserSites({ settings, pending, added });
-    await expect(sites.add("https://bank.example")).rejects.toThrow("storage-unavailable");
-    expect(pending.current()).toBeNull();
-    expect(await sites.has("https://bank.example")).toBe(false);
-    expect(added).not.toHaveBeenCalled();
-  });
-
-  it("resumes the waits a worker restart stopped, within the wait limit", async () => {
+  it("holds a hostname whose write failed and writes it with the next settings write", async () => {
     const { settings, current } = store();
-    const { promise: ended, resolve: end } = Promise.withResolvers<void>();
-    const now = 1_000_000;
-    const pending = sessionValue([
-      { hostname: "bank.example", at: now - 30_000 },
-      { hostname: "Not A Host", at: now - 30_000 },
-    ]);
-    const sites = createPasskeyBrowserSites({
-      settings,
-      pending,
-      maxWaitMs: 120_000,
-      now: () => now,
-      loginActive: async () => {
-        await ended;
-        return false;
-      },
-    });
+    settings.update.mockRejectedValueOnce(new Error("storage-unavailable"));
+    const added = vi.fn();
+    const sites = createPasskeyBrowserSites({ settings, added });
+    await expect(sites.add("https://bank.example")).rejects.toThrow("storage-unavailable");
+    expect(added).not.toHaveBeenCalled();
+    // The choice still holds in memory.
+    expect(sites.pending("https://bank.example")).toBe(true);
     expect(await sites.has("https://bank.example")).toBe(true);
-    end();
+    // A write that fails again keeps it for the write after.
+    settings.update.mockRejectedValueOnce(new Error("storage-unavailable"));
+    sites.changed();
+    await vi.waitFor(() => expect(settings.update).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(sites.pending("https://bank.example")).toBe(true));
+    expect(current().settings.passkeyBrowserSites).toEqual([]);
+    sites.changed();
     await vi.waitFor(() =>
       expect(current().settings.passkeyBrowserSites).toEqual([{ hostname: "bank.example" }]),
     );
-    await vi.waitFor(() => expect(pending.current()).toBeNull());
-    expect(await sites.has("https://bank.example")).toBe(true);
-  });
-
-  it("never writes again after a restart once a write started or the wait limit passed", async () => {
-    // The write landed, then the site was removed on the settings page; the clear of the
-    // pending copy was lost with the worker.
-    const { settings } = store();
-    const now = 1_000_000;
-    const pending = sessionValue([
-      { hostname: "removed.example", at: now - 10_000, writing: true },
-      { hostname: "old.example", at: now - 120_000 },
-    ]);
-    const sites = createPasskeyBrowserSites({
-      settings,
-      pending,
-      maxWaitMs: 120_000,
-      now: () => now,
-    });
-    expect(await sites.has("https://removed.example")).toBe(false);
-    expect(await sites.has("https://old.example")).toBe(false);
-    await vi.waitFor(() => expect(pending.current()).toBeNull());
-    await new Promise((done) => setTimeout(done, 10));
-    expect(settings.update).not.toHaveBeenCalled();
-  });
-
-  it("marks a write as started before it writes", async () => {
-    const { settings } = store();
-    const pending = sessionValue();
-    const seen: unknown[] = [];
-    settings.update.mockImplementationOnce(async () => {
-      seen.push(structuredClone(pending.current()));
-      throw new Error("storage-unavailable");
-    });
-    const sites = createPasskeyBrowserSites({ settings, pending, now: () => 5 });
-    await expect(sites.add("https://bank.example")).rejects.toThrow("storage-unavailable");
-    expect(seen).toEqual([[{ hostname: "bank.example", at: 5, writing: true }]]);
+    expect(settings.update).toHaveBeenLastCalledWith(
+      undefined,
+      "passkey-browser-site",
+      expect.any(Function),
+    );
+    await vi.waitFor(() => expect(added).toHaveBeenCalledOnce());
+    expect(sites.pending("https://bank.example")).toBe(false);
+    // Written once: a later settings write writes nothing more.
+    sites.changed();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settings.update).toHaveBeenCalledTimes(3);
   });
 
   it("reads the settings once until they change", async () => {
     const { settings } = store([{ hostname: "bank.example" }]);
-    const sites = createPasskeyBrowserSites({ settings, pending: sessionValue() });
+    const sites = createPasskeyBrowserSites({ settings });
     // Read ahead of the first request.
     expect(settings.read).toHaveBeenCalledOnce();
     expect(await sites.has("https://bank.example")).toBe(true);
@@ -255,7 +163,7 @@ describe("the sites the passkey runtime hands on", () => {
 
   it("lends its copy of the settings to the request's other reads, read again once changed", async () => {
     const { settings } = store([{ hostname: "bank.example" }]);
-    const sites = createPasskeyBrowserSites({ settings, pending: sessionValue() });
+    const sites = createPasskeyBrowserSites({ settings });
     expect((await sites.settings()).passkeyBrowserSites).toEqual([{ hostname: "bank.example" }]);
     expect(settings.read).toHaveBeenCalledOnce();
     settings.read.mockResolvedValueOnce({
@@ -270,11 +178,9 @@ describe("the sites the passkey runtime hands on", () => {
 
   it("reads again after a failed read, which hands on", async () => {
     const { settings } = store();
-    // The read ahead of the first request fails, and so does the one it makes.
-    settings.read
-      .mockRejectedValueOnce(new Error("storage-unavailable"))
-      .mockRejectedValueOnce(new Error("storage-unavailable"));
-    const sites = createPasskeyBrowserSites({ settings, pending: sessionValue() });
+    // The read ahead of the first request fails, which that request hands on.
+    settings.read.mockRejectedValueOnce(new Error("storage-unavailable"));
+    const sites = createPasskeyBrowserSites({ settings });
     await expect(sites.has("https://bank.example")).rejects.toThrow("storage-unavailable");
     expect(await sites.has("https://bank.example")).toBe(false);
   });

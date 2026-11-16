@@ -4,6 +4,7 @@ import { ssoChild } from "./sso-state";
 import {
   getItemEligibility,
   isFieldExcluded,
+  onlyChoicesSince,
   sameLoginDocument,
   siteDefaultConnection,
   type LoginFieldTarget,
@@ -97,10 +98,17 @@ export async function remember(rt: Runtime, run: Execution): Promise<void> {
     }
     writing = true;
     const written = await rt.settings
-      .update(run.metadata.policyRevision, "account-choice", (snapshot) => ({
-        ...snapshot,
-        settings: withChoice(snapshot.settings, choice),
-      }))
+      // Checked in the settings queue: a choice written since the login's revision leaves
+      // it standing (`CHOICE_ONLY_CAUSES`), and the choice applies to what the queue holds.
+      .update(
+        undefined,
+        "account-choice",
+        (snapshot) => ({
+          ...snapshot,
+          settings: withChoice(snapshot.settings, choice),
+        }),
+        async (snapshot) => onlyChoicesSince(snapshot, run.metadata.policyRevision),
+      )
       .then(
         () => "saved" as const,
         () => "write-failed" as const,

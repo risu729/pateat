@@ -546,6 +546,29 @@ describe("RP completion persistence boundaries", () => {
       expect.objectContaining({ origin: rp, itemId: rpItem }),
     );
   });
+  it.each(["passkey-browser-site", "detail-refused"] as const)(
+    "saves the RP default after a revision whose only cause is %s",
+    async (cause) => {
+      const h = harness({ ok: true, identity: "absent" }, true);
+      await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+      h.update.mockImplementation(async (_revision, _cause, mutate, authorize) => {
+        const revision = h.saved.snapshot.revision + 1;
+        const snapshot = {
+          ...structuredClone(h.saved.snapshot),
+          revision,
+          changes: [{ revision, cause }],
+        };
+        if (!(await authorize?.(snapshot, async () => structuredClone(h.saved.catalog))))
+          throw new Error("update-not-authorized");
+        h.saved.snapshot = { ...mutate(snapshot), revision: revision + 1 };
+        return structuredClone(h.saved.snapshot);
+      });
+      expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+      expect(h.saved.snapshot.settings.siteDefaults).toContainEqual(
+        expect.objectContaining({ origin: rp, itemId: rpItem }),
+      );
+    },
+  );
   it.each(["revision", "catalog", "document"])(
     "does not save an RP default if %s changes inside the settings update authorization",
     async (changed) => {

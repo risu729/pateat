@@ -4,6 +4,7 @@ import {
   getItemEligibility,
   isSiteAllowed,
   isSiteExcluded,
+  onlyChoicesSince,
   type LoginAccount,
   type LoginDocument,
   type SettingsResponse,
@@ -100,10 +101,14 @@ export function createSsoChoiceController(options: {
     for (const [id, receipt] of receipts)
       if (receipt.offer.input.document.tabId === tabId) receipts.delete(id);
   }
+  /**
+   * Whether `saved` keeps the offer's settings and catalog. A newer revision of only
+   * choices (`onlyChoicesSince`) keeps it.
+   */
   function matching(saved: Saved, offer: Offer) {
     const { account, document } = offer.input;
     return (
-      saved.snapshot.revision === offer.saved.snapshot.revision &&
+      onlyChoicesSince(saved.snapshot, offer.saved.snapshot.revision) &&
       JSON.stringify(saved.catalog) === JSON.stringify(offer.saved.catalog) &&
       !saved.catalog.settingsSyncPending &&
       account.origin === document.origin &&

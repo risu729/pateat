@@ -1,7 +1,7 @@
 import { createVaultSsoSource } from "../src/login/sso-vault";
 import { ssoVaultNotices } from "../src/login/sso-notices";
 import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
-import { accountPolicy } from "@pateat/contracts";
+import { accountPolicy, type SettingsChangeCause } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
@@ -23,11 +23,7 @@ import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
-import {
-  createPasskeyBrowserSites,
-  PENDING_BROWSER_SITES_KEY,
-  watchSettingsWrites,
-} from "../src/passkeys/browser-sites";
+import { createPasskeyBrowserSites, watchSettingsWrites } from "../src/passkeys/browser-sites";
 import { createLoginReprompt, createVaultPasswordCheck } from "../src/login/reprompt";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
@@ -90,7 +86,7 @@ import { createEntryBlocks, ENTRY_BLOCKS_KEY } from "../src/service/entry-blocks
 import { createRecipeSync } from "../src/service/recipes";
 import { createTransfer } from "../src/service/transfer";
 import { createServiceRuntime } from "../src/service/runtime";
-import { createSettingsSync, MAX_SETTINGS_DEFER_MS } from "../src/service/settings-sync";
+import { createSettingsSync } from "../src/service/settings-sync";
 import {
   createBrowserGeneratedSlotStorage,
   createBrowserGenerationAttemptStorage,
@@ -666,17 +662,13 @@ export default defineBackground(() => {
   };
   // ADR 0007: the chooser's "Always for this site" hands every later passkey request of the
   // page's hostname to the browser, until the site is removed on the settings page.
-  // A chosen hostname holds at once, while its write waits for a running login.
+  // A chosen hostname is written at once and holds while its write runs; a running login
+  // and an open offer outlast its revision (`CHOICE_ONLY_CAUSES`).
   const browserSites = createPasskeyBrowserSites({
     // settingsSaved() below recounts and uploads, as loginSettings would.
     settings,
-    pending: sessionValue(PENDING_BROWSER_SITES_KEY),
-    // Waits for a running login, which the write would stop, as a settings sync does.
-    loginActive: () => login.active(),
-    maxWaitMs: MAX_SETTINGS_DEFER_MS,
-    keepAlive,
     // The person changed a setting, as a save on the settings page does.
-    added: () => settingsSaved(),
+    added: () => settingsSaved("passkey-browser-site"),
   });
   // Every write of the settings, from any path, is read again by the next request.
   watchSettingsWrites(browser.storage.local.onChanged, SETTINGS_STORAGE_KEY, () =>
@@ -872,14 +864,17 @@ export default defineBackground(() => {
         () => true,
       ),
     device: deviceRecipes,
-    imported: settingsSaved,
+    imported: () => settingsSaved(),
   });
-  /** Settings this device changed: running work follows them, and they are uploaded. */
-  function settingsSaved() {
+  /**
+   * Settings this device changed: running work follows them, and they are uploaded. A
+   * `cause` of only a choice leaves running logins and passkey requests as they are.
+   */
+  function settingsSaved(cause?: SettingsChangeCause) {
     browserSites.changed();
-    login.settingsChanged("saved");
+    login.settingsChanged("saved", cause);
     void siteCounter.refresh();
-    passkeys.settingsChanged();
+    passkeys.settingsChanged(cause);
     diagnosticsLog.settingsChanged("saved");
     void recipeSync.sync();
   }

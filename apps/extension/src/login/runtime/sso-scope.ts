@@ -4,6 +4,7 @@ import {
   getItemEligibility,
   isSiteAllowed,
   isSiteExcluded,
+  onlyChoicesSince,
   resolvePagePermission,
   type LoginDocument,
 } from "@pateat/contracts";
@@ -116,12 +117,20 @@ export async function ssoScope(
       return undefined;
   }
   const mapping = await rt.options.sso.validate(work.source, work.selected);
-  if (
-    !mapping.ok ||
-    mapping.data.policyRevision !== saved.snapshot.revision ||
-    !ssoCurrent(rt, work, live)
-  )
-    return undefined;
+  if (!mapping.ok || !ssoCurrent(rt, work, live)) return undefined;
+  // The selection was validated on these settings, or on later ones that only wrote
+  // choices (`onlyChoicesSince`).
+  if (mapping.data.policyRevision !== saved.snapshot.revision) {
+    const latest = await rt.settings.handle({ version: 1, type: "settings.get" });
+    if (
+      !latest.ok ||
+      !ssoCurrent(rt, work, live) ||
+      mapping.data.policyRevision < saved.snapshot.revision ||
+      mapping.data.policyRevision > latest.snapshot.revision ||
+      !onlyChoicesSince(latest.snapshot, saved.snapshot.revision)
+    )
+      return undefined;
+  }
   const selected =
     live.document.origin === work.selected.origin ? work.selected.account : work.source.account;
   const matched = await itemMatchesUrl(rt, saved, selected, live.url, saved.catalog);

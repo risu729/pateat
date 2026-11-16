@@ -46,7 +46,8 @@ describe("popup binding repair through the production runtime", () => {
     expect(h.settings.settings.bindings[1]).toEqual(unrelated);
     expect(h.settings.settings.siteDefaults).toHaveLength(1);
     expect(h.store.update).toHaveBeenCalledOnce();
-    expect(h.store.update.mock.calls[0]!.slice(0, 2)).toEqual([1, "account-choice"]);
+    // Checked against the review's revision inside the settings queue.
+    expect(h.store.update.mock.calls[0]!.slice(0, 2)).toEqual([undefined, "account-choice"]);
     expect(records()).toMatchObject([{ state: "authenticated" }]);
     expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual([
       `custom.${snapshotId}.0`,
@@ -122,6 +123,54 @@ describe("popup binding repair through the production runtime", () => {
       expect(await pick(h, review)).toEqual({ ok: false, reason: "stale-review" });
       expect(h.fields).not.toHaveBeenCalled();
       expect(h.store.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["passkey-browser-site", "detail-refused"] as const)(
+    "accepts a pick after a revision whose only cause is %s",
+    async (cause) => {
+      const h = start();
+      const review = await offer(h);
+      h.settings.revision += 1;
+      h.settings.changes = [
+        ...(h.settings.changes ?? []),
+        { revision: h.settings.revision, cause },
+      ];
+      fake.state.onReconnect = () => h.hello();
+      expect(await pick(h, review)).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(h.settings.settings.bindings[0]!.slots[0]!.field).toEqual({ custom: "New branch" }),
+      );
+    },
+  );
+
+  it.each([
+    ["passkey-browser-site", true],
+    ["settings-save", false],
+  ] as const)(
+    "checks the review's revision in the settings queue, after a %s write",
+    async (cause, saved) => {
+      const h = start();
+      const review = await offer(h);
+      fake.state.onReconnect = () => h.hello();
+      // Another write lands between the review's last read and its turn in the queue.
+      const write = h.store.update.getMockImplementation()!;
+      h.store.update.mockImplementationOnce(async (expected, ...rest) => {
+        h.settings.revision += 1;
+        h.settings.changes = [
+          ...(h.settings.changes ?? []),
+          { revision: h.settings.revision, cause },
+        ];
+        return write(expected, ...rest);
+      });
+      expect(await pick(h, review)).toEqual({ ok: true });
+      await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(records()).toMatchObject([{ state: "authenticated" }]));
+      await vi.waitFor(() =>
+        expect(h.settings.settings.bindings[0]!.slots[0]!.field).toEqual(
+          saved ? { custom: "New branch" } : stale.slots[0]!.field,
+        ),
+      );
     },
   );
 

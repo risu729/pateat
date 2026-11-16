@@ -324,6 +324,17 @@ describe("local SSO method chooser", () => {
       expect(await h.controller.consume(id)).toEqual({ ok: false, reason: "choice-gone" });
     },
   );
+  it.each(["passkey-browser-site", "detail-refused"] as const)(
+    "keeps a receipt after a revision whose only cause is %s",
+    async (cause) => {
+      const h = start();
+      const id = await result(h);
+      const revision = h.saved.snapshot.revision + 1;
+      h.saved.snapshot.revision = revision;
+      h.saved.snapshot.changes = [...(h.saved.snapshot.changes ?? []), { revision, cause }];
+      expect((await h.controller.consume(id)).ok).toBe(true);
+    },
+  );
   it("withdraws on expiry, explicit cancellation, replacement, and worker recreation", async () => {
     const h = start();
     const first = await h.request();

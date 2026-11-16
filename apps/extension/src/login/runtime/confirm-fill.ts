@@ -20,7 +20,13 @@ import {
 import { loginSecretKind, loginUsernameFieldId } from "../vault";
 import { send } from "./attempt";
 import { claimConfirm, hasConfirmClaim, type ConfirmWork } from "./confirm-state";
-import { confirmCurrent, confirmPlan, confirmAccount, confirmReprompt } from "./confirm-scope";
+import {
+  confirmCurrent,
+  confirmPlan,
+  confirmAccount,
+  confirmReprompt,
+  sameAuthority,
+} from "./confirm-scope";
 import { accountDestinationRefusal } from "./plan";
 import { CONFIRM_ATTEMPT_PREFIX } from "../sign-in-fill-page";
 import type { Runtime } from "./state";
@@ -185,12 +191,7 @@ export async function fillConfirmation(
         if (value) account = { username: value };
       }
       const latest = await confirmPlan(rt, work, recipe, slots);
-      if (
-        !latest ||
-        JSON.stringify(latest) !== JSON.stringify(plan) ||
-        !latest.fence() ||
-        !plan.fence()
-      )
+      if (!latest || !sameAuthority(plan, latest) || !latest.fence() || !plan.fence())
         return "stopped";
       work.operation = operation;
       const response = v.safeParse(

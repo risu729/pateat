@@ -371,16 +371,21 @@ export function filledDetails(
 }
 
 /**
- * Writes `mutate` to the settings unless another login is in progress, whose policy
- * revision the write would bump (`loginElsewhere`). Returns whether it wrote.
+ * Writes `mutate` to the settings. A link saved waits while another login is in progress,
+ * whose policy revision the write would bump (`loginElsewhere`), and is written over the
+ * revision it was read at. The removal of refused links does neither: a revision of only
+ * that cause leaves every login and offer standing (`CHOICE_ONLY_CAUSES`), and the
+ * removal applies to whatever links the settings hold when it is written, so a newer
+ * revision does not lose it. Returns whether it wrote.
  */
 export async function writeDetailLinks(
   rt: Runtime,
   run: Execution | undefined,
   mutate: (links: DetailLink[]) => DetailLink[],
+  cause: "detail-link" | "detail-refused" = "detail-link",
 ): Promise<"saved" | "unchanged" | "busy" | "failed"> {
   if (!rt.settings.update) return "failed";
-  if (loginElsewhere(rt, run)) return "busy";
+  if (cause === "detail-link" && loginElsewhere(rt, run)) return "busy";
   // A login another tab is admitting waits for this write from here, before any await,
   // as for an account choice (see `admit`).
   const { promise: saving, resolve: finish } = Promise.withResolvers<void>();
@@ -395,13 +400,17 @@ export async function writeDetailLinks(
     if (JSON.stringify(mutate(before)) === JSON.stringify(before)) return "unchanged";
     writing = true;
     return await rt.settings
-      .update(latest.snapshot.revision, "detail-link", (snapshot) => ({
-        ...snapshot,
-        settings: {
-          ...snapshot.settings,
-          detailLinks: mutate(snapshot.settings.detailLinks ?? []),
-        },
-      }))
+      .update(
+        cause === "detail-link" ? latest.snapshot.revision : undefined,
+        cause,
+        (snapshot) => ({
+          ...snapshot,
+          settings: {
+            ...snapshot.settings,
+            detailLinks: mutate(snapshot.settings.detailLinks ?? []),
+          },
+        }),
+      )
       .then(
         () => "saved" as const,
         () => "failed" as const,
@@ -460,15 +469,14 @@ export async function forgetDetail(
       reportDetail(rt, document, run.recipe, entry.handler, "detail-kept");
     return;
   }
-  // No login uses a refused link from here, even one the settings still hold.
-  await rt.vars.sessionLoaded;
+  // No login uses a refused link from here, even one the settings still hold while the
+  // removal is written, or after a write that failed.
   for (const entry of filled)
     rt.refusedDetails.set(refusalKey(rt, found.owner, entry.detail, entry.field), {
       ...found.owner,
       detail: entry.detail,
       ...(entry.field === undefined ? {} : { field: entry.field }),
     });
-  await quietly(rt, () => saveSession(rt));
   const written = await removeRefused(rt, run);
   for (const entry of filled)
     reportDetail(
@@ -480,20 +488,25 @@ export async function forgetDetail(
     );
 }
 
-/** Removes the refused links from the owner's settings, when no other login runs. */
+/**
+ * Removes the refused links from the owner's settings at once (ADR 0061). Ones whose write
+ * failed stay refused in memory and are written again when a login ends.
+ */
 export async function removeRefused(rt: Runtime, run?: Execution) {
   const refused = [...rt.refusedDetails.values()];
   if (!refused.length) return "unchanged" as const;
-  const written = await writeDetailLinks(rt, run, (links) =>
-    links.filter(
-      (link) => !refused.some((entry) => sameLink(rt, link, entry, entry.detail, entry.field)),
-    ),
+  const written = await writeDetailLinks(
+    rt,
+    run,
+    (links) =>
+      links.filter(
+        (link) => !refused.some((entry) => sameLink(rt, link, entry, entry.detail, entry.field)),
+      ),
+    "detail-refused",
   );
-  if (written === "saved" || written === "unchanged") {
+  if (written === "saved" || written === "unchanged")
     for (const entry of refused)
       rt.refusedDetails.delete(refusalKey(rt, entry, entry.detail, entry.field));
-    await quietly(rt, () => saveSession(rt));
-  }
   return written;
 }
 
@@ -537,14 +550,10 @@ export async function settleDetails(
     ...kept.map((entry) => entry.link),
   ]);
   // A link the owner chose again replaces one refused before, once it is written: until
-  // then the settings may still hold the refused one. The session keeps the refusals, so
-  // a restarted worker does not bring a lifted one back.
-  if (written === "saved" || written === "unchanged") {
-    const lifted = kept.filter(({ link }) =>
-      rt.refusedDetails.delete(refusalKey(rt, link, link.detail, link.source.field)),
-    );
-    if (lifted.length) await quietly(rt, () => saveSession(rt));
-  }
+  // then the settings may still hold the refused one.
+  if (written === "saved" || written === "unchanged")
+    for (const { link } of kept)
+      rt.refusedDetails.delete(refusalKey(rt, link, link.detail, link.source.field));
   for (const entry of kept)
     reportDetail(
       rt,

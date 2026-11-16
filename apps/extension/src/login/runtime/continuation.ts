@@ -1,4 +1,5 @@
 import {
+  onlyChoicesSince,
   attemptPlan,
   attemptRouteChoice,
   continuesRecipe,
@@ -232,7 +233,8 @@ export async function switchLayout(rt: Runtime, run: Execution): Promise<boolean
     // The account's binding and fields must fit the layout's route, as at a login's start.
     const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
     if (!current(rt, run)) return false;
-    if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) return false;
+    if (!snapshot.ok || !onlyChoicesSince(snapshot.snapshot, run.metadata.policyRevision))
+      return false;
     const plan = await planFor(rt, snapshot, run.live, sibling, {
       route: { route: "password", variant: 0 },
     });
@@ -595,7 +597,7 @@ export async function continueWith(
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!current(rt, run)) return refuse("left");
   if (!snapshot.ok) return refuse("settings-unavailable");
-  if (snapshot.snapshot.revision !== run.metadata.policyRevision)
+  if (!onlyChoicesSince(snapshot.snapshot, run.metadata.policyRevision))
     return refuse("settings-revision");
   const plan = await planFor(rt, snapshot, run.live, next, {
     route,

@@ -2,6 +2,7 @@ import { ssoChild } from "./sso-state";
 import { ssoScope } from "./sso-scope";
 import { sameLoginDocument } from "@pateat/contracts";
 import {
+  onlyChoicesSince,
   fillOnlyStep,
   routeSteps,
   bindingGaps,
@@ -258,7 +259,8 @@ export async function accountDestinationRefusal(
   const snapshot = await rt.settings
     .handle({ version: 1, type: "settings.get" })
     .catch(() => undefined);
-  if (!snapshot?.ok || snapshot.snapshot.revision !== context.policyRevision) return "unchecked";
+  if (!snapshot?.ok || !onlyChoicesSince(snapshot.snapshot, context.policyRevision))
+    return "unchecked";
   const matched = await itemMatchesUrl(
     rt,
     snapshot,

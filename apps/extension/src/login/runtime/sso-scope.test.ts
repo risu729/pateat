@@ -295,6 +295,24 @@ describe("SSO live scope", () => {
       expect(await ssoScope(h.rt, h.work)).toBeUndefined();
     },
   );
+  it.each([
+    ["keeps", "passkey-browser-site"],
+    ["keeps", "detail-refused"],
+    ["withdraws", "vault-sync"],
+  ] as const)("%s a selection validated after a revision of cause %s", async (name, cause) => {
+    const h = harness();
+    // Another tab writes a choice while this selection is validated (CHOICE_ONLY_CAUSES).
+    h.validate.mockImplementationOnce(async () => {
+      const next = structuredClone(h.current());
+      next.snapshot.revision = 4;
+      next.snapshot.changes = [{ revision: 4, cause }];
+      h.replace(next);
+      return { ok: true, data: { policyRevision: 4 } };
+    });
+    const scope = await ssoScope(h.rt, h.work);
+    if (name === "keeps") expect(scope?.()).toBe(true);
+    else expect(scope).toBeUndefined();
+  });
   it.each(["tab", "pause", "settings", "mapping", "uri", "final-settings"])(
     "withdraws a document replaced during the awaited %s check",
     async (stage) => {

@@ -286,6 +286,25 @@ describe("confirmed-session confirmation filling", () => {
     expect(stored()).toEqual(original);
   });
 
+  it.each(["passkey-browser-site", "detail-refused"] as const)(
+    "keeps a late vault read across a revision whose only cause is %s",
+    async (cause) => {
+      const { h } = await authenticated();
+      configure(h);
+      const held = Promise.withResolvers<string>();
+      h.fields.mockReturnValueOnce(held.promise);
+      await announce(h);
+      await vi.waitFor(() => expect(h.fields).toHaveBeenCalledTimes(1));
+      h.settings.revision += 1;
+      h.settings.changes = [
+        ...(h.settings.changes ?? []),
+        { revision: h.settings.revision, cause },
+      ];
+      held.resolve("synthetic-confirm-secret");
+      await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    },
+  );
+
   it("fences a recipe mutation in the last awaited scope check before delivery", async () => {
     let epoch = 0;
     let reads = 0;

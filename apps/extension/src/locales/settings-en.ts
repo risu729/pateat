@@ -30,6 +30,8 @@ export const settingsEn = {
     "an account used to log in on a site was saved for that site",
   "a vault field for a personal detail was linked or unlinked for a site":
     "a vault field for a personal detail was linked or unlinked for a site",
+  "a vault field a site refused for a personal detail was unlinked":
+    "a vault field a site refused for a personal detail was unlinked",
   "a site was set to hand its passkey requests to the browser":
     "a site was set to hand its passkey requests to the browser",
   "settings changed for a reason no longer recorded":

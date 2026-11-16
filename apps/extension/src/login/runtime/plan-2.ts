@@ -1,6 +1,6 @@
 import { ssoChild } from "./sso-state";
 import { ssoScope } from "./sso-scope";
-import { attemptRouteChoice, handlerSlots } from "@pateat/contracts";
+import { onlyChoicesSince, attemptRouteChoice, handlerSlots } from "@pateat/contracts";
 import { type Execution, type Authorized } from "./types";
 import { current, change } from "./attempt";
 import { planFor } from "./plan";
@@ -36,7 +36,12 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
     snapshot.snapshot.revision < run.metadata.policyRevision
   )
     return undefined;
-  if (!snapshot.ok || (snapshot.snapshot.revision !== run.metadata.policyRevision && !revised)) {
+  // A revision that only wrote a choice for one site leaves the login authorized, as it was
+  // already applied before the write landed (`CHOICE_ONLY_CAUSES`).
+  if (
+    !snapshot.ok ||
+    (!onlyChoicesSince(snapshot.snapshot, run.metadata.policyRevision) && !revised)
+  ) {
     await change(
       rt,
       run,

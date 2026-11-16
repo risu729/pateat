@@ -65,12 +65,6 @@ export const DETAIL_OFFERS_KEY = "session:pateat.login-detail-offers.v1";
 
 export const PENDING_DETAILS_KEY = "session:pateat.login-pending-details.v1";
 
-/**
- * Links whose value a site refused and that could not be removed from the settings yet;
- * no login uses them, and their removal is tried again after each login (ADR 0061).
- */
-export const REFUSED_DETAILS_KEY = "session:pateat.login-refused-details.v1";
-
 export const CONFIG_KEY = "pateat.login-probe-origin.v1";
 
 /** Sign-in entry presses per tab, until the tab closes (ADR 0031). */

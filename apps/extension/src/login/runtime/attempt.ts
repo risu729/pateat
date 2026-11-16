@@ -35,7 +35,6 @@ import {
   RELOGINS_KEY,
   DETAIL_OFFERS_KEY,
   PENDING_DETAILS_KEY,
-  REFUSED_DETAILS_KEY,
 } from "./session-schemas";
 import { scopes, quietly, keep, forget } from "./session-store";
 import { type LiveDocument, type StartTiming, type Execution } from "./types";
@@ -190,7 +189,6 @@ export async function saveSession(
     { key: RELOGINS_KEY, value: [...rt.relogins.values()] },
     { key: DETAIL_OFFERS_KEY, value: [...rt.detailOffers.values()] },
     { key: PENDING_DETAILS_KEY, value: [...rt.pendingDetails.values()].flat() },
-    { key: REFUSED_DETAILS_KEY, value: [...rt.refusedDetails.values()] },
   ]);
 }
 
@@ -613,11 +611,13 @@ export async function withdrawSwitch(rt: Runtime, run: Execution): Promise<void>
 /**
  * Whether a login other than `run` is in progress that a settings write would stop, as
  * it bumps the revision every attempt checks: an account choice or a detail link then
- * waits (ADR 0013, ADR 0061). A login between pages has no current run, as while its
- * next page is admitted or after a worker restart, so its stored record counts too, as
- * `active` counts it, but only while it changed within the settings sync's two-minute
- * cap: an older one is likely left over, and the write may stop it `policy-changed`
- * (owner, 2026-10-24 for choices and 2026-10-25 for detail links).
+ * waits (ADR 0013, ADR 0061). A write of only a choice (`CHOICE_ONLY_CAUSES`), as the
+ * removal of refused links, stops none and does not wait. A login between pages has no
+ * current run, as while its next page is admitted or after a worker restart, so its
+ * stored record counts too, as `active` counts it, but only while it changed within the
+ * settings sync's two-minute cap: an older one is likely left over, and the write may
+ * stop it `policy-changed` (owner, 2026-10-24 for choices and 2026-10-25 for detail
+ * links).
  */
 export function loginElsewhere(rt: Runtime, run: Execution | undefined): boolean {
   const now = Date.now();

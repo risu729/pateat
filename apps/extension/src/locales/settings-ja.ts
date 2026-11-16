@@ -31,6 +31,8 @@ export const settingsJa = {
     "サイトでのログインに使ったアカウントの保存",
   "a vault field for a personal detail was linked or unlinked for a site":
     "サイトの個人情報の割り当ての変更",
+  "a vault field a site refused for a personal detail was unlinked":
+    "サイトが受け付けなかった個人情報の割り当ての解除",
   "a site was set to hand its passkey requests to the browser":
     "サイトのパスキーのリクエストをブラウザーに任せる設定",
   "settings changed for a reason no longer recorded": "理由の記録が残っていない変更",

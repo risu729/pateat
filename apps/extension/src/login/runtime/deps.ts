@@ -315,7 +315,7 @@ export type LoginRuntimeOptions = {
   logout?: LogoutService;
   /**
    * Whether the origin's hostname was just chosen "Always for this site" and its settings
-   * write still waits (ADR 0007): the login treats it as listed already.
+   * write is still running (ADR 0007): the login treats it as listed already.
    */
   pendingBrowserSite?: (origin: string) => boolean;
   /** A passkey request is reading, choosing or signing in this exact document. */
