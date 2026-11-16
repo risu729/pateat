@@ -286,7 +286,7 @@ describe("confirmed-session confirmation filling", () => {
     expect(stored()).toEqual(original);
   });
 
-  it.each(["passkey-browser-site", "detail-refused"] as const)(
+  it.each(["passkey-browser-site", "detail-refused", "sso-mapping"] as const)(
     "keeps a late vault read across a revision whose only cause is %s",
     async (cause) => {
       const { h } = await authenticated();

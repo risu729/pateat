@@ -69,6 +69,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     createSsoChoiceController({
       source: options.sso,
       readSettings: () => settings.handle({ version: 1, type: "settings.get" }),
+      // Saved at once and uploaded like an account choice (ADR 0085).
+      ...(settings.update ? { updateSettings: settings.update } : {}),
       currentDocument: (document) => {
         const live = documents.get(frameKey(document));
         return live?.document.documentId === document.documentId &&

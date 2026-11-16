@@ -314,3 +314,66 @@ test("lists the vault settings of the chosen settings profile (ADR 0024)", async
     .toHaveAccessibleDescription(/The vault settings below belong to this profile\./);
   expect(client.settings).toHaveBeenLastCalledWith(OTHER);
 });
+
+test("lists SSO mappings, marks one of an account no device names, and removes it", async () => {
+  const personal = { provider: "bitwarden", server: "cloud-us", userId: USER };
+  const gone = { provider: "bitwarden", server: "cloud-eu", userId: REMOTE_USER };
+  const mapping = (account: typeof personal, itemId: string) => ({
+    ...account,
+    itemId,
+    method: 1,
+    idp: {
+      ...account,
+      itemId: "a0000000-0000-4000-8000-0000000000aa",
+      origin: "https://idp.example",
+    },
+  });
+  const kept = mapping(personal, "a0000000-0000-4000-8000-000000000001");
+  const orphan = mapping(gone, "a0000000-0000-4000-8000-000000000002");
+  let state: SyncSettingsState = {
+    version: 1,
+    profileId: PROFILE,
+    revision: 4,
+    settings: settingsOf({
+      accountPolicies: [
+        { ...personal, accountName: "Personal vault", enabled: true, selection: { mode: "all" } },
+      ],
+      ssoMappings: [kept, orphan],
+    }),
+  };
+  const client = {
+    ...mockClient(state),
+    settings: vi.fn<ManageClient["settings"]>(async () => structuredClone(state)),
+    saveSettings: vi.fn<ManageClient["saveSettings"]>(async (_revision, settings) => {
+      state = { ...state, revision: state.revision + 1, settings: structuredClone(settings) };
+      return structuredClone(state);
+    }),
+  } satisfies ManageClient;
+  await mount(client);
+  const panel = page.getByRole("region", { name: "SSO mappings" });
+  const rows = panel.getByRole("listitem");
+  await expect.element(rows.filter({ hasText: kept.itemId })).toMatchTextContent("Personal vault");
+  await expect
+    .element(rows.filter({ hasText: kept.itemId }))
+    .not.toMatchTextContent("No vault settings for this account");
+  await expect
+    .element(rows.filter({ hasText: orphan.itemId }))
+    .toMatchTextContent("No vault settings for this account");
+  await page
+    .getByRole("button", { name: `Remove mapping of method 1 of item ${orphan.itemId}` })
+    .click();
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("Mapping of method 1 to https://idp.example removed");
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    4,
+    settingsOf({
+      accountPolicies: [
+        { ...personal, accountName: "Personal vault", enabled: true, selection: { mode: "all" } },
+      ],
+      ssoMappings: [kept],
+    }),
+    PROFILE,
+  );
+  await expect.element(rows.filter({ hasText: orphan.itemId })).not.toBeInTheDocument();
+});

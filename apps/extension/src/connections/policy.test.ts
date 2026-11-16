@@ -768,3 +768,81 @@ describe("settings change causes (ADR 0025)", () => {
     ]);
   });
 });
+
+describe("SSO mappings across vault syncs (ADR 0085)", () => {
+  const mapping = (itemId: string, idpItem: string, owner: VaultAccount = account, method = 1) => ({
+    ...owner,
+    itemId,
+    method,
+    idp: { ...owner, itemId: idpItem, origin: "https://idp.example" },
+  });
+  const kept = "a0000000-0000-4000-8000-0000000000aa";
+  /** The next snapshot, which holds another item in the place of the fixture's item. */
+  function withoutItem(h: Awaited<ReturnType<typeof harness>>) {
+    const next = structuredClone(h.next);
+    next.accepted.prepared.ciphers[0]!.id = kept as never;
+    return next;
+  }
+
+  it("drops the mappings of a site or IdP item the vault deleted, and only those", async () => {
+    const h = await harness("unchanged");
+    const elsewhere = { ...account, userId: "another-user" };
+    const mappings = [
+      mapping(h.itemId.toUpperCase(), kept),
+      mapping(kept, h.itemId),
+      mapping(kept, kept, account, 2),
+      mapping(h.itemId, h.itemId, elsewhere),
+    ];
+    h.setSnapshot({ ...h.read(), settings: { ...h.read().settings, ssoMappings: mappings } });
+    // Before the next snapshot was accepted, the vault held the item.
+    h.replaceCurrent(withoutItem(h));
+    await h.adopt();
+    expect(h.read().settings.ssoMappings).toEqual([mappings[2], mappings[3]]);
+  });
+
+  it("keeps the mappings of an item this device can no longer read", async () => {
+    for (const reason of ["unknown-organization", "unsupported-item", "malformed-item"] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- each reason has its own vault
+      const h = await harness("unchanged");
+      const mappings = [mapping(h.itemId, kept), mapping(kept, h.itemId)];
+      h.setSnapshot({ ...h.read(), settings: { ...h.read().settings, ssoMappings: mappings } });
+      const next = withoutItem(h);
+      next.accepted.prepared.unavailableItems.push({ itemId: h.itemId.toUpperCase(), reason });
+      h.replaceCurrent(next);
+      // oxlint-disable-next-line no-await-in-loop -- one sync per vault
+      await h.adopt();
+      expect(h.read().settings.ssoMappings).toEqual(mappings);
+    }
+  });
+
+  it("drops the mapping of an unreadable item once the vault deletes it", async () => {
+    const h = await harness("unchanged");
+    const mappings = [mapping(kept, h.itemId)];
+    h.setSnapshot({ ...h.read(), settings: { ...h.read().settings, ssoMappings: mappings } });
+    const previous = structuredClone(h.previous);
+    previous.accepted.prepared.unavailableItems.push({
+      itemId: previous.accepted.prepared.ciphers[0]!.id as unknown as string,
+      reason: "unknown-organization",
+    });
+    previous.accepted.prepared.ciphers[0]!.id = kept as never;
+    h.replaceCurrent(withoutItem(h));
+    await h.adopt(undefined, previous);
+    expect(h.read().settings.ssoMappings).toEqual([]);
+  });
+
+  it("keeps every mapping after a first sync or a sync that deleted nothing", async () => {
+    const h = await harness("unchanged");
+    const mappings = [mapping(h.itemId, kept)];
+    h.setSnapshot({ ...h.read(), settings: { ...h.read().settings, ssoMappings: mappings } });
+    await h.adopt();
+    expect(h.read().settings.ssoMappings).toEqual(mappings);
+    h.replaceCurrent(withoutItem(h));
+    await h.adopt(undefined, null);
+    expect(h.read().settings.ssoMappings).toEqual(mappings);
+    // A previous snapshot of another user of the connection deletes nothing of this one.
+    const another = structuredClone(h.previous);
+    another.accepted.userId = "another-user";
+    await h.adopt(undefined, another);
+    expect(h.read().settings.ssoMappings).toEqual(mappings);
+  });
+});

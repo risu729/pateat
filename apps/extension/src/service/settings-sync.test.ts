@@ -17,6 +17,7 @@ import type { ServiceTransport, SettingsResult } from "./transport";
 import { registerAfterFirst } from "../../test/service/settings-sync/after-first";
 import { registerVaultPolicy } from "../../test/service/settings-sync/vault-policy";
 import { registerDetailLinks } from "../../test/service/settings-sync/detail-links";
+import { registerSsoMappings } from "../../test/service/settings-sync/sso-mappings";
 
 // Synthetic service, credential and vault references only.
 
@@ -765,6 +766,20 @@ describe("personal-detail links (ADR 0061)", () => {
     localConnection,
     birthDate,
     cardCode,
+    site,
+    OTHER_PROFILE,
+  });
+});
+
+describe("SSO mappings (ADR 0085)", () => {
+  registerSsoMappings({
+    setup,
+    settingsOf,
+    state,
+    baseOf,
+    CONNECTION,
+    never,
+    localConnection,
     site,
     OTHER_PROFILE,
   });

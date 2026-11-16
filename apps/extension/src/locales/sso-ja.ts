@@ -23,18 +23,18 @@ export const ssoJa = {
     "この方法に使える ID プロバイダーのアカウントとログイン先がありません。保管庫を確認して同期してください。",
   "Entry shown on this page": "このページのログインボタン",
   "Choose the provider entry": "ID プロバイダーのボタンを選択",
-  "Provider mappings stay on this device. This method choice applies only to this sign-in.":
-    "ID プロバイダーの対応付けはこのデバイスにだけ保存されます。選んだ方法は今回のログインにだけ使います。",
+  "Provider mappings sync with your settings. This method choice applies only to this sign-in.":
+    "ID プロバイダーの対応付けは設定として同期されます。選んだ方法は今回のログインにだけ使います。",
   "Two methods name the same provider account. Choose distinct accounts before continuing.":
     "2 つの方法が同じ ID プロバイダーのアカウントを指しています。続けるには、別々のアカウントを選んでください。",
   "Choose and save a provider account and sign-in origin for this method.":
     "この方法で使う ID プロバイダーのアカウントとログイン先を選んで保存してください。",
   "The saved provider account is no longer in an open vault. Choose another one, or unlock or sync the vault.":
     "保存した ID プロバイダーのアカウントが、開いている保管庫に見つかりません。別のアカウントを選ぶか、保管庫のロックを解除するか同期してください。",
-  "This device holds as many provider mappings as it can. Remove one first.":
-    "このデバイスに保存できる ID プロバイダーの対応付けが上限に達しています。先に 1 つ削除してください。",
-  "Pateat could not read or save the provider mappings on this device. Open the popup again.":
-    "このデバイスの ID プロバイダーの対応付けを読み込めないか、保存できませんでした。ポップアップを開き直してください。",
+  "Your settings hold as many provider mappings as they can. Remove one first.":
+    "設定に保存できる ID プロバイダーの対応付けが上限に達しています。先に 1 つ削除してください。",
+  "Pateat could not save the provider mapping to your settings. Try again.":
+    "ID プロバイダーの対応付けを設定に保存できませんでした。もう一度お試しください。",
   "Too many provider accounts match this method. Remove unused items, or allow fewer items in settings, and sync the vault.":
     "この方法に一致する ID プロバイダーのアカウントが多すぎます。使わないアイテムを削除するか、設定で使うアイテムを絞ってから、保管庫を同期してください。",
   "Choose the provider entry displayed on this page.":

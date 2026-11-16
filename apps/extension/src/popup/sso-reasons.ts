@@ -14,11 +14,9 @@ export function ssoReasonText(t: TFunction, reason: string): string {
         "The saved provider account is no longer in an open vault. Choose another one, or unlock or sync the vault.",
       );
     case "mapping-limit":
-      return t("This device holds as many provider mappings as it can. Remove one first.");
-    case "mapping-store-unavailable":
-      return t(
-        "Pateat could not read or save the provider mappings on this device. Open the popup again.",
-      );
+      return t("Your settings hold as many provider mappings as they can. Remove one first.");
+    case "mapping-save-failed":
+      return t("Pateat could not save the provider mapping to your settings. Try again.");
     case "candidate-limit":
       return t(
         "Too many provider accounts match this method. Remove unused items, or allow fewer items in settings, and sync the vault.",

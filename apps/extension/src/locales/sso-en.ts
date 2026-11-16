@@ -22,18 +22,18 @@ export const ssoEn = {
     "No eligible provider account and origin matches this method. Check the vault and sync it.",
   "Entry shown on this page": "Entry shown on this page",
   "Choose the provider entry": "Choose the provider entry",
-  "Provider mappings stay on this device. This method choice applies only to this sign-in.":
-    "Provider mappings stay on this device. This method choice applies only to this sign-in.",
+  "Provider mappings sync with your settings. This method choice applies only to this sign-in.":
+    "Provider mappings sync with your settings. This method choice applies only to this sign-in.",
   "Two methods name the same provider account. Choose distinct accounts before continuing.":
     "Two methods name the same provider account. Choose distinct accounts before continuing.",
   "Choose and save a provider account and sign-in origin for this method.":
     "Choose and save a provider account and sign-in origin for this method.",
   "The saved provider account is no longer in an open vault. Choose another one, or unlock or sync the vault.":
     "The saved provider account is no longer in an open vault. Choose another one, or unlock or sync the vault.",
-  "This device holds as many provider mappings as it can. Remove one first.":
-    "This device holds as many provider mappings as it can. Remove one first.",
-  "Pateat could not read or save the provider mappings on this device. Open the popup again.":
-    "Pateat could not read or save the provider mappings on this device. Open the popup again.",
+  "Your settings hold as many provider mappings as they can. Remove one first.":
+    "Your settings hold as many provider mappings as they can. Remove one first.",
+  "Pateat could not save the provider mapping to your settings. Try again.":
+    "Pateat could not save the provider mapping to your settings. Try again.",
   "Too many provider accounts match this method. Remove unused items, or allow fewer items in settings, and sync the vault.":
     "Too many provider accounts match this method. Remove unused items, or allow fewer items in settings, and sync the vault.",
   "Choose the provider entry displayed on this page.":

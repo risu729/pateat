@@ -11,7 +11,9 @@ the
 adds the popup boundary; the
 [coordinator integration](#implementation-2026-11-12-coordinator-integration) connects
 execution. Also amended by the
-[label-only generation implementation](#amendment-2026-11-12-label-only-declarative-route-generation).
+[label-only generation implementation](#amendment-2026-11-12-label-only-declarative-route-generation),
+and on 2026-11-16 by the owner's decision that
+[SSO mappings sync with the settings](#amendment-2026-11-16-sso-mappings-sync-with-the-settings).
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
 no separate provider and username fields or JSON. The selection and validation rules
@@ -122,8 +124,10 @@ A label is not permission to send credentials anywhere.
    credentials may go. Recipe navigation limits still hold, and the IdP's sign-in page
    must be on the permitted origin before any credential is released.
 4. Only the label and the page's candidate elements are sent to infer the route. The
-   IdP username, credential values and the mapping stay local. A learned button never
-   changes the chosen IdP account.
+   IdP username and credential values stay local. The mapping syncs with the settings,
+   as the owner decided on 2026-11-16
+   ([amendment](#amendment-2026-11-16-sso-mappings-sync-with-the-settings)), and never
+   goes to inference. A learned button never changes the chosen IdP account.
 5. Origin, account, tab, frame and document checks stay as they are; a redirect or a
    permission page grants nothing more.
 
@@ -324,37 +328,25 @@ SSO login: nothing calls it yet, so existing account cards and native admission 
 their behavior. A coordinator requests a choice, awaits an opaque, one-use choice ID,
 then consumes it with fresh validation just before its own document-scoped operation.
 
-- **Where mappings live.** A mapping is a trusted-only record on the device, not a
-  synced setting. ADR 0013 makes the service the source of truth for settings, but point
-  4 of
-  [From a label to an IdP account and origin](#from-a-label-to-an-idp-account-and-origin)
-  keeps the mapping local, as [#1380](https://github.com/risu729/pateat/issues/1380)
-  proposed and the owner accepted ("Keep the provider username, credential values and
-  private account mapping local"). A reinstall or another device therefore chooses each
-  mapping again; syncing them needs the owner's decision first.
-- **What a mapping holds.** The site account and method number, the encrypted-source
-  evidence, and the selected IdP account with its concrete origin. Both accounts are
-  named by provider, server, user and item ID, as synced settings name accounts
+- **Where mappings live.** In the synced settings, as the owner's `ssoMappings`, since
+  the
+  [amendment of 2026-11-16](#amendment-2026-11-16-sso-mappings-sync-with-the-settings).
+  This section first kept them in a record on each device, which made a reinstall or
+  another device choose each mapping again.
+- **What a mapping holds.** The site account and method number, and the selected IdP
+  account with its concrete origin. Both accounts are named by provider, server, user
+  and item ID, as synced settings name accounts
   ([ADR 0023](0023-synced-vault-policy.md)), never by a per-device connection ID, so a
-  reconnected connection resolves the same mapping through whichever open connection
-  holds the item; item IDs compare without letter case. A mapping holds no username,
-  comparison proof, field ID, decrypted label or vault snapshot. A vault sync that
-  brings a new snapshot keeps it: a changed source item changes its evidence, and reuse
-  always validates the IdP item again. Validation is never a stored credential-release
-  grant.
-- **The record.** `pateat.login.sso-mappings.v1` holds `{version: 1, entries}` with at
-  most 1,000 entries, one per site account and method. A record or an entry that does
-  not parse counts as none, as no older format is kept, and the next save overwrites
-  it. A full store refuses `mapping-limit`. Its entries already name accounts as synced
-  settings do, so syncing them later needs the owner's decision but no new identity.
-- **Pruning.** A save, and a vault notice after which the catalog's accounts changed,
-  drop the mappings whose site or IdP account the catalog shows is gone: its provider
-  account has no connection, or every open connection to it lacks the item. A locked
-  connection, or one whose user is unknown, never shows anything gone.
+  reconnected connection or another device resolves the same mapping through whichever
+  open connection holds the item; item IDs compare without letter case. A mapping holds
+  no username, comparison proof, field ID, decrypted label, item evidence or vault
+  snapshot. Every use validates both items again, as the amendment says, and
+  validation is never a stored credential-release grant.
 - **Choosing a mapping.** A saved mapping is validated directly, without discovery, so
   another item that refuses discovery cannot hold it back; the person can still ask to
   list other accounts. A method without one lists the person's saved IdP accounts and
-  origins, and needs an explicit choice; the popup also replaces or removes one. The
+  origins, and needs an explicit choice; the popup also replaces or removes one, even
+  one whose items this device cannot resolve. The
   site's own account or origin is never its own IdP, and an account the catalog cannot
   identify refuses `vault-unavailable`.
 - **Choosing a method.** Automatic selection takes a passkey, then the enabled `SSO`
@@ -381,7 +373,8 @@ then consumes it with fresh validation just before its own document-scoped opera
   target stays with the coordinator, and the entry is checked again when chosen and
   when consumed.
 - **Offers and receipts.** They hold no credentials and stay in worker memory for at
-  most ten minutes. Cancelling, a settings change, closing the tab, a vault notice after
+  most ten minutes. Cancelling, a settings change other than an SSO mapping saved or
+  removed, closing the tab, a vault notice after
   which the offer's accounts no longer match the catalog, and a new document or path in
   the offer's own frame or the top frame withdraw them. Paths are compared as observed,
   so a new query or fragment and a vault status read that changes nothing keep an
@@ -423,3 +416,92 @@ SSO hop, keep [ADR 0034](0034-answer-page-passkey-requests.md) rule 6. Either wa
 the login the native choice itself started counts: the choice names that login when it
 starts on the choice's own document, and a later login of the same account in the tab
 falls back as any native login does.
+
+## Amendment 2026-11-16: SSO mappings sync with the settings
+
+The owner decided on 2026-11-16 that SSO mappings sync in full, the IdP origin included,
+through the normal settings sync like every other setting, so that no device has to
+choose them again. The rest of this section is implementation detail chosen by an agent
+within that decision.
+
+- **Why it may sync.** The service already knows which vault item signs in where: an
+  account binding and a site default name a site's origin with its vault item by
+  provider, server, user and item ID, and every setting syncs
+  ([ADR 0013](0013-service-held-recipes-and-settings.md)). A mapping adds which of the
+  person's own saved items an SSO method of a site item uses, and that item's own
+  sign-in origin. It holds no username, credential, decrypted field value or proof, so
+  point 4 of
+  [From a label to an IdP account and origin](#from-a-label-to-an-idp-account-and-origin)
+  still keeps every value local. The service is the source of truth for mappings as for
+  the rest of the settings.
+- **The setting.** `ssoMappings` is an owner part shared by every profile, as `bindings`
+  and `detailLinks` are ([ADR 0024](0024-settings-profiles.md)). Each entry names the
+  site item, the method number, and the IdP item with its origin; the schema refuses
+  any other field. There are at most 200, one per site item and method, with item IDs
+  compared without letter case. One takes about 300 bytes, so a full list stays near
+  half of the 120 KiB settings document. Sync merges them per site item and method, as
+  bindings merge, and a profile switch keeps them; a settings export carries them and
+  counts them as other settings.
+- **Nothing stays on the device.** Offers and receipts are per-login runtime state, not
+  settings, and stay in worker memory as before. The connection that holds an item is
+  found at each use. The device record `pateat.login.sso-mappings.v1` is no longer read.
+- **No stored evidence.** A mapping keeps no hash of the site item: every use validates
+  it again before anything is clicked. The site item must still have that method,
+  ready and parsed now; the IdP item must be eligible, active, not quarantined, not
+  signing in through an IdP itself, with a username equal to the method's username now
+  and the mapped origin among its own URI origins now; and a URL-form method's address
+  must still be that origin, on an item whose password is still empty. A credential
+  therefore only ever goes to an origin of its own item, for a username the site item
+  names now. An edit that keeps all of that, such as a bracket label renamed on a site
+  item whose method still names the same username, keeps the mapping; the person
+  replaces or removes it in the popup. A hash of the encrypted item, as the device
+  record kept, changed on any edit of the item, so a moved folder or a favorite
+  withdrew the mapping on every device.
+- **A relabel to another IdP with the same username.** When `[GitHub] alice` becomes
+  `[GitLab] alice`, the mapping to the GitHub item still validates: the username and
+  the GitHub item's own origin still fit, and nothing records which IdP the label
+  named. The flow presses the site's GitLab entry, the tab reaches the GitLab origin,
+  which is not the mapped origin, and the flow stops there (`sso-forbidden-origin`)
+  without releasing anything: credentials only go to the mapped origin
+  (`ssoCurrent`, `ssoAdmit`). In automatic mode every later sign-in with that method
+  stops the same way until the person replaces the mapping in the popup, as nothing
+  marks the method as failing. A record of the stopped method would have to outlive a
+  worker restart to help, so this is left to the person for now.
+- **Saving.** A choice in the popup writes the mapping to the settings at once, with
+  the `sso-mapping` cause, and uploads it as an account choice is uploaded. A save
+  refuses before it writes when the list or the settings document would be full
+  (`mapping-limit`), and a write that fails says so (`mapping-save-failed`); the popup
+  never shows a mapping that was not saved. Removing one is never refused for size, and
+  saving one as it is, or removing one already gone, writes nothing.
+- **Running work keeps such a revision.** A login or SSO flow holds the IdP account
+  and origin it was given and never reads the mapping again, and an open method offer
+  holds its own copy of its site item's mappings, which it compares on every check.
+  `sso-mapping` is therefore one of the choice-only causes
+  ([choice-only revisions](../architecture.md#choice-only-revisions)): a settings
+  revision whose recorded causes since the one something was authorized with are all
+  choice-only (`onlyChoicesSince`) keeps running and resumed logins, open method
+  offers, SSO flows and their scope checks, passkey requests, confirmation fills,
+  binding reviews, detail fills and the account choice a login saves. Any other cause,
+  or a revision whose cause the 16-entry history no longer holds, stops them as
+  before. A sync that brings another device's mapping is a settings sync and stops
+  them as every sync does.
+- **Another tab's mapping.** An open offer whose site item's mappings another tab, or
+  another device through a sync, saved or removed since it was made is withdrawn on
+  its next check, and a write that finds them changed in the store refuses
+  (`scope-changed`), so no tab chooses with, or overwrites, a mapping it did not show.
+- **A running flow keeps its account when its mapping is removed.** The mapping only
+  chose the IdP account and origin of that one sign-in. A flow already running keeps
+  them; it validates that selection again at each step and releases credentials only
+  on the selected origin (`work.selected.origin`). The next sign-in reads the settings
+  again and finds no mapping.
+- **Deleted items.** A vault sync drops the mappings whose site or IdP item this
+  account's previous accepted snapshot held and the new one no longer lists. An item
+  this device cannot read, as one of an unknown organization, of an unsupported type
+  or malformed, is still listed and keeps its mappings. A first sync, or a previous
+  snapshot of another user, drops nothing, and nothing else prunes mappings: a device
+  without a connection or item keeps them for the devices that have one.
+- **Mappings no device can resolve.** The service cannot tell that an account is gone
+  from every device: devices do not report their vault connections, and one offline
+  for months may still hold one. So nothing prunes a mapping by account. The service's
+  Vaults page lists every mapping by item ID, says when no vault settings name its
+  account, and removes one, which needs no vault; the popup removes one on its site.

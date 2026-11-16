@@ -43,6 +43,15 @@ const item = (id: string, fields = true) => ({
     : [],
 });
 
+/** `saved()` one revision on, a revision that only saved an SSO mapping (ADR 0085). */
+const mapped = (): ReturnType<typeof saved> => {
+  const response = saved({ revision: 4 });
+  return {
+    ...response,
+    snapshot: { ...response.snapshot, changes: [{ revision: 4, cause: "sso-mapping" }] },
+  };
+};
+
 function saved(
   options: {
     state?: VaultCatalog["connections"][number]["state"];
@@ -768,6 +777,13 @@ describe("vault passkey source", () => {
     ).toMatchObject({ complete: true, candidates: [{ itemId: first, preferred: false }] });
   });
 
+  it("signs after revisions that only saved an SSO mapping (ADR 0085)", async () => {
+    const { source, manager } = runtime([saved(), mapped(), mapped()]);
+    const [candidate] = (await source.candidates(origin, rpId, signal))!.candidates;
+    expect(await source.sign(candidate!, data, hash, signal)).toBeInstanceOf(Uint8Array);
+    expect(manager.signPasskey).toHaveBeenCalledOnce();
+  });
+
   it("refuses to sign after the settings revision changes before or during signing", async () => {
     const before = runtime([saved(), saved({ revision: 4 })]);
     const [stale] = (await before.source.candidates(origin, rpId, signal))!.candidates;
@@ -917,6 +933,14 @@ describe("saving a chosen passkey as the site default", () => {
       await rememberVaultPasskey({ settings: paused.settings, origin, candidate: chosen() }),
     ).toBe(true);
     expect(paused.defaults()).toEqual([expect.objectContaining({ origin, itemId: second })]);
+  });
+
+  it("saves a default after a revision that only saved an SSO mapping (ADR 0085)", async () => {
+    const kept = store(mapped());
+    expect(
+      await rememberVaultPasskey({ settings: kept.settings, origin, candidate: chosen() }),
+    ).toBe(true);
+    expect(kept.defaults()).toEqual([expect.objectContaining({ origin, itemId: second })]);
   });
 
   it.each([

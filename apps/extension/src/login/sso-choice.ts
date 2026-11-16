@@ -4,20 +4,21 @@ import {
   getItemEligibility,
   isSiteAllowed,
   isSiteExcluded,
+  MAX_SETTINGS_DOCUMENT_BYTES,
+  MAX_SSO_MAPPINGS,
   onlyChoicesSince,
+  settingsDocumentBytes,
+  ssoMappingKey,
+  ssoMappingsSchema,
   type LoginAccount,
   type LoginDocument,
+  type SettingsChangeCause,
   type SettingsResponse,
-} from "@pateat/contracts";
-import type { VaultSsoSource } from "./sso-vault";
-import {
-  createSsoMappingStore,
-  goneFrom,
-  mappingKey,
-  SsoMappingLimitError,
+  type SettingsSnapshot,
   type SsoMapping,
-  type SsoMappingStore,
-} from "./sso-mapping-store";
+} from "@pateat/contracts";
+import { exportedSettings } from "../service/settings-sync";
+import type { VaultSsoSource } from "./sso-vault";
 import {
   ssoEntriesSchema,
   type SsoActionResponse,
@@ -37,6 +38,7 @@ import {
   type Saved,
   type SsoChoiceInput,
   type SsoChoiceOutcome,
+  type SsoPortableAccount,
   type SsoResolvedChoice,
 } from "./sso-choice-model";
 
@@ -55,25 +57,44 @@ const refusal = (found: { reason: string; field?: string }): Refusal => ({
   ...(found.field ? { field: found.field } : {}),
 });
 const OFFER_MS = 600_000;
+/** The saved mappings of the site item `site`, in a stable form to compare. */
+function siteMappings(
+  settings: SettingsSnapshot["settings"],
+  site: SsoPortableAccount | undefined,
+) {
+  if (!site) return "";
+  const own = ssoMappingKey({ ...site, method: 0 });
+  return JSON.stringify(
+    (settings.ssoMappings ?? [])
+      .filter((entry) => ssoMappingKey({ ...entry, method: 0 }) === own)
+      .toSorted((left, right) => left.method - right.method),
+  );
+}
+type UpdateSettings = (
+  expectedRevision: number | undefined,
+  cause: SettingsChangeCause,
+  mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+  authorize?: (snapshot: SettingsSnapshot) => Promise<boolean>,
+) => Promise<SettingsSnapshot>;
 
 /**
- * Local choice and mapping only. Neither a popup answer nor a consumed receipt authorizes
- * a click or credential release. The executor must keep its own document/origin fences.
- * Offers and receipts are memory-only: a worker restart withdraws them, never restores authority.
+ * Method choice, and the SSO mappings it saves in the synced settings (ADR 0085). Neither
+ * a popup answer nor a consumed receipt authorizes a click or credential release. The
+ * executor must keep its own document/origin fences. Offers and receipts are memory-only:
+ * a worker restart withdraws them, never restores authority.
  */
 export function createSsoChoiceController(options: {
   source: VaultSsoSource;
   readSettings: () => Promise<SettingsResponse>;
   /** The live path of the exact document, or undefined once it is gone. */
   currentDocument: (document: LoginDocument) => string | undefined;
-  store?: SsoMappingStore;
+  /** The trusted settings mutation; without it a mapping cannot be saved. */
+  updateSettings?: UpdateSettings;
 }) {
   const offers = new Map<number, Offer>();
   const receipts = new Map<string, Receipt>();
   /** Requests still reading settings, by tab; an invalidation marks them with its reason. */
   const pending = new Map<number, { frameId: number; reason?: string }>();
-  const store = options.store ?? createSsoMappingStore();
-  let pruned: string | undefined;
   function retained(offer: Offer) {
     return (
       offers.get(offer.input.document.tabId) === offer &&
@@ -103,12 +124,15 @@ export function createSsoChoiceController(options: {
   }
   /**
    * Whether `saved` keeps the offer's settings and catalog. A newer revision of only
-   * choices (`onlyChoicesSince`) keeps it.
+   * choices (`onlyChoicesSince`) keeps it while the site item's mappings are still the
+   * offer's own copy: a mapping another tab saved or removed for this item withdraws it.
    */
   function matching(saved: Saved, offer: Offer) {
     const { account, document } = offer.input;
     return (
       onlyChoicesSince(saved.snapshot, offer.saved.snapshot.revision) &&
+      (saved.snapshot.revision === offer.saved.snapshot.revision ||
+        siteMappings(saved.snapshot.settings, portable(offer.saved, account)) === offer.mappings) &&
       JSON.stringify(saved.catalog) === JSON.stringify(offer.saved.catalog) &&
       !saved.catalog.settingsSyncPending &&
       account.origin === document.origin &&
@@ -238,18 +262,13 @@ export function createSsoChoiceController(options: {
     const site = portable(offer.saved, offer.input.account);
     const idp = portable(offer.saved, chosen.selected.account);
     if (!site || !idp) return "vault-unavailable";
-    const record: SsoMapping = {
-      source: { ...site, method: method.method, sourceEvidence: method.source.sourceEvidence },
-      selected: { ...idp, origin: chosen.selected.origin },
-    };
-    let written: boolean;
-    try {
-      written = await store.save(record, () => retained(offer), goneFrom(offer.saved.catalog));
-    } catch (error) {
-      if (!retained(offer)) return "scope-changed";
-      return error instanceof SsoMappingLimitError ? "mapping-limit" : "mapping-store-unavailable";
-    }
-    if (!written || !(await current(offer))) return "scope-changed";
+    const refused = await write(offer, method, {
+      ...site,
+      method: method.method.number,
+      idp: { ...idp, origin: chosen.selected.origin },
+    });
+    if (refused) return refused;
+    method.stored = true;
     method.selectedId = chosen.id;
     delete method.reason;
     delete method.field;
@@ -258,24 +277,75 @@ export function createSsoChoiceController(options: {
     delete offer.field;
     return undefined;
   }
-  async function unmap(offer: Offer, method: Method) {
+  /**
+   * Saves a method's mapping, or removes it without `next`, in the synced settings at
+   * once, with the `sso-mapping` cause that running logins and offers keep (ADR 0085).
+   * Saving refuses a full list or settings document before it writes; removing never does.
+   */
+  async function write(
+    offer: Offer,
+    method: Method,
+    next?: SsoMapping,
+  ): Promise<string | undefined> {
     const site = portable(offer.saved, offer.input.account);
     if (!site) return "vault-unavailable";
-    const removed = await store
-      .remove(
-        { ...site, method: method.method, sourceEvidence: method.source.sourceEvidence },
-        () => retained(offer),
-        goneFrom(offer.saved.catalog),
-      )
-      .catch(() => false);
-    if (!removed || !(await current(offer))) return "scope-changed";
+    const key = ssoMappingKey({ ...site, method: method.method.number });
+    let refused: string | undefined;
+    const refuse = (reason: string) => {
+      refused = reason;
+      throw new Error(reason);
+    };
+    const same = (entry: SsoMapping) => ssoMappingKey(entry) === key;
+    let written: string | undefined;
+    try {
+      if (!options.updateSettings) refuse("mapping-save-failed");
+      await options.updateSettings!(
+        undefined,
+        "sso-mapping",
+        (snapshot) => {
+          // Another tab's mapping for this item since the offer was made withdraws it.
+          if (siteMappings(snapshot.settings, site) !== offer.mappings) refuse("scope-changed");
+          const stored = snapshot.settings.ssoMappings ?? [];
+          const found = stored.find(same);
+          // A mapping saved as it is already, or one already gone, writes nothing.
+          if (next ? JSON.stringify(found) === JSON.stringify(next) : !found) refuse("unchanged");
+          const rest = stored.filter((entry) => !same(entry));
+          const ssoMappings = next ? [...rest, next] : rest;
+          const settings = { ...snapshot.settings, ssoMappings };
+          const full = ssoMappings.length > MAX_SSO_MAPPINGS;
+          if (next && !v.is(ssoMappingsSchema, ssoMappings))
+            refuse(full ? "mapping-limit" : "mapping-invalid");
+          // The service document is what must fit; the vault connections stay here.
+          if (
+            next &&
+            settingsDocumentBytes(exportedSettings(settings)) > MAX_SETTINGS_DOCUMENT_BYTES
+          )
+            refuse("mapping-limit");
+          written = siteMappings(settings, site);
+          return { ...snapshot, settings };
+        },
+        async () => retained(offer),
+      );
+      // The offer's own copy follows its own write.
+      if (written !== undefined) offer.mappings = written;
+    } catch {
+      if (!retained(offer)) return "scope-changed";
+      if (refused !== "unchanged") return refused ?? "mapping-save-failed";
+    }
+    return (await current(offer)) ? undefined : "scope-changed";
+  }
+  /** Removes a method's saved mapping, even one whose items this device cannot resolve. */
+  async function unmap(offer: Offer, method: Method) {
+    const refused = await write(offer, method);
+    if (refused) return refused;
+    delete method.stored;
     method.candidates = method.candidates.filter((entry) => entry.id !== method.selectedId);
     delete method.selectedId;
     method.reason = "mapping-required";
     if (method.discovered) return undefined;
-    const refused = await discover(offer, method);
-    if (refused?.reason === "scope-changed") return "scope-changed";
-    if (refused) Object.assign(method, refused);
+    const listed = await discover(offer, method);
+    if (listed?.reason === "scope-changed") return "scope-changed";
+    if (listed) Object.assign(method, listed);
     return undefined;
   }
   async function chooseSso(
@@ -355,8 +425,8 @@ export function createSsoChoiceController(options: {
    */
   async function prepare(offer: Offer, method: Method, saved: SsoMapping | undefined) {
     if (saved) {
-      const account = resolveAccount(offer.saved, saved.selected);
-      const choice = account && { account, origin: saved.selected.origin };
+      const account = resolveAccount(offer.saved, saved.idp);
+      const choice = account && { account, origin: saved.idp.origin };
       const hop = choice ? hopRefusal(offer, choice) : "mapping-unresolved";
       const checked =
         choice && !hop
@@ -417,8 +487,7 @@ export function createSsoChoiceController(options: {
       offer.input = { ...input, native: { ...input.native, password: false } };
     const site = portable(offer.saved, input.account);
     if (!site) return { reason: "vault-unavailable" };
-    const mappings = await store.read().catch(() => undefined);
-    if (!retained(offer)) return { reason: "scope-changed" };
+    const mappings = offer.saved.snapshot.settings.ssoMappings ?? [];
     for (const method of input.asIdentityProvider ? [] : described.data.methods) {
       const entry: Method = {
         ...method,
@@ -430,16 +499,9 @@ export function createSsoChoiceController(options: {
         candidates: [],
       };
       offer.methods.push(entry);
-      if (!mappings) {
-        entry.reason = "mapping-store-unavailable";
-        continue;
-      }
-      const key = mappingKey({ ...site, method: method.method });
-      const saved = mappings.find(
-        (record) =>
-          mappingKey(record.source) === key &&
-          record.source.sourceEvidence === described.data.sourceEvidence,
-      );
+      const key = ssoMappingKey({ ...site, method: method.method.number });
+      const saved = mappings.find((record) => ssoMappingKey(record) === key);
+      if (saved) entry.stored = true;
       // oxlint-disable-next-line no-await-in-loop -- vault discovery shares a single native lane
       if (!(await prepare(offer, entry, saved))) return { reason: "scope-changed" };
     }
@@ -481,6 +543,7 @@ export function createSsoChoiceController(options: {
         id: newId(),
         input,
         saved,
+        mappings: siteMappings(saved.snapshot.settings, portable(saved, input.account)),
         path,
         methods: [],
         choosing: false,
@@ -539,25 +602,13 @@ export function createSsoChoiceController(options: {
     },
     /**
      * The vaults may have changed: withdraws only the offers whose catalog really changed,
-     * as a status read changes nothing, and drops the mappings of accounts that are gone.
+     * as a status read changes nothing. A vault sync drops the mappings of deleted items
+     * from the settings itself (ADR 0085).
      */
     async vaultStateMayChange() {
       const saved = await options.readSettings().catch(() => undefined);
       for (const [tabId, offer] of [...offers])
         if (!saved?.ok || !matching(saved, offer)) invalidateTab(tabId, "vault-changed");
-      if (!saved?.ok) return;
-      const accounts = JSON.stringify(
-        saved.catalog.connections.map((entry) => [
-          entry.provider,
-          entry.server,
-          entry.userId ?? entry.lockedUserId,
-          entry.snapshotId,
-          entry.items.map((item) => item.id),
-        ]),
-      );
-      if (accounts === pruned) return;
-      pruned = accounts;
-      await store.prune(goneFrom(saved.catalog)).catch(() => undefined);
     },
     /** Rechecks the route and the exact observed URL entry; one use, even on refusal. */
     async consume(

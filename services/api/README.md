@@ -95,13 +95,17 @@ Stored documents are revalidated on read and fail closed with a
 devices receive as revoked
 ([minimal service](../../docs/architecture.md#minimal-service)).
 
-Settings PUTs replace the selected profile's settings and the owner's shared bindings
-and personal-detail links at the expected owner revision. An omitted optional field is
-absent from the replacement too: omitting `detailLinks` removes the stored links, as an
-empty list does. Callers that change another setting must include the links they keep.
-The extension's device sync, extension profile editor and management editor send their
-full edited document. This replacement rule does not enforce the combined size of shared
-settings with every other profile; that remains a separate limit check.
+Settings PUTs replace the selected profile's settings and the owner's shared bindings,
+personal-detail links and SSO mappings at the expected owner revision. An SSO mapping
+names a site item's method, its identity provider's item and that provider's sign-in
+origin (ADR 0085); the management Vaults page lists them and removes one, as nothing
+prunes a mapping whose account no device has any more. An omitted optional field is
+absent from the replacement too: omitting `detailLinks` or `ssoMappings` removes the
+stored entries, as an empty list does. Callers that change another setting must
+include the entries they keep. The extension's device sync, extension profile editor
+and management editor send their full edited document. This replacement rule does not
+enforce the combined size of shared settings with every other profile; that remains a
+separate limit check.
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration`,

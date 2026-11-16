@@ -245,7 +245,7 @@ describe("passkey admission while page permission reads are pending", () => {
   });
 });
 describe("cancellation during answer-stage passkey permission checks", () => {
-  it.each(["passkey-browser-site", "detail-refused"] as const)(
+  it.each(["passkey-browser-site", "detail-refused", "sso-mapping"] as const)(
     "answers across a settings save whose only cause is %s",
     async (cause) => {
       let finish: ((value: undefined) => void) | undefined;

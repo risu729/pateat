@@ -49,6 +49,17 @@ test("encrypted RP SSO maps the exact saved IdP account, executes its native rec
       items.idp,
     );
     await unchangedIdpDefault(options);
+    // The mapping is a synced setting (ADR 0085), saved with its own cause, and the
+    // login ran through that revision.
+    const saved = await settingsRequest(options);
+    expect(saved.snapshot.settings.ssoMappings).toEqual([
+      expect.objectContaining({
+        itemId: items.rp,
+        method: 1,
+        idp: expect.objectContaining({ itemId: items.idp, origin: origins.idp }),
+      }),
+    ]);
+    expect(saved.snapshot.changes?.map((change) => change.cause)).toContain("sso-mapping");
     const proofs = (await confirmationProofs(browser))?.proofs ?? [];
     expect(proofs.some((proof) => proof.origin === origins.idp)).toBe(false);
     expect(proofs.some((proof) => proof.origin === origins.rp && proof.itemId === items.rp)).toBe(

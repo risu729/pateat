@@ -125,6 +125,48 @@ test("provider mappings can be explicitly saved, replaced, and removed", async (
   });
 });
 
+test("a saved mapping this device cannot resolve can still be removed", async () => {
+  const h = await mount(
+    offer({
+      methods: [
+        { ...offer().methods[0]!, candidates: [], mapped: true, reason: "mapping-unresolved" },
+      ],
+    }),
+  );
+  await expect
+    .element(
+      page.getByText(
+        "The saved provider account is no longer in an open vault. Choose another one, or unlock or sync the vault.",
+      ),
+    )
+    .toBeVisible();
+  await userEvent.click(
+    page.getByRole("button", { name: "Remove provider mapping for Synthetic Provider" }),
+  );
+  expect(h.client.choose).toHaveBeenLastCalledWith({
+    tabId: 7,
+    offerId: "offer-one",
+    selection: { kind: "unmap", method: { number: 1 } },
+  });
+});
+
+test("a mapping that could not be saved says so", async () => {
+  const h = await mount();
+  h.client.choose.mockResolvedValueOnce({ ok: false, reason: "mapping-save-failed" });
+  await account().selectOptions("candidate-one");
+  await userEvent.click(
+    page.getByRole("button", { name: "Save provider mapping for Synthetic Provider" }),
+  );
+  await expect
+    .element(
+      page.getByText("Pateat could not save the provider mapping to your settings. Try again."),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Remove provider mapping for Synthetic Provider" }))
+    .not.toBeInTheDocument();
+});
+
 test("URL methods require an explicitly selected observed page entry", async () => {
   const initial = offer({
     password: false,
@@ -154,10 +196,10 @@ test("URL methods require an explicitly selected observed page entry", async () 
 
 test.each([
   ["mapping-required", "Choose and save a provider account and sign-in origin for this method."],
-  ["mapping-limit", "This device holds as many provider mappings as it can. Remove one first."],
+  ["mapping-limit", "Your settings hold as many provider mappings as they can. Remove one first."],
   [
-    "mapping-store-unavailable",
-    "Pateat could not read or save the provider mappings on this device. Open the popup again.",
+    "mapping-save-failed",
+    "Pateat could not save the provider mapping to your settings. Try again.",
   ],
   [
     "candidate-limit",

@@ -46,13 +46,15 @@ export const profileDocument = (document: LocalSettings) => ({
 });
 
 /**
- * The owner's parts, shared by every profile (ADR 0076): account bindings and the links
- * to the items that hold a login's personal details (ADR 0061), which name vault items
- * and fields per site as bindings do.
+ * The owner's parts, shared by every profile (ADR 0076): account bindings, the links to
+ * the items that hold a login's personal details (ADR 0061), which name vault items and
+ * fields per site as bindings do, and the mappings from a site account's SSO method to its
+ * identity provider's item and sign-in origin (ADR 0085).
  */
 export const ownerDocument = (document: LocalSettings) => ({
   bindings: document.bindings,
   detailLinks: document.detailLinks,
+  ssoMappings: document.ssoMappings,
 });
 
 /** The exact document read back and uploaded, including schema defaults. */
@@ -71,6 +73,7 @@ function composeSettings(
     ...profile,
     bindings: shared.bindings,
     ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
+    ...(shared.ssoMappings ? { ssoMappings: shared.ssoMappings } : {}),
   });
 }
 

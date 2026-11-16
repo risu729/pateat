@@ -298,6 +298,7 @@ describe("SSO live scope", () => {
   it.each([
     ["keeps", "passkey-browser-site"],
     ["keeps", "detail-refused"],
+    ["keeps", "sso-mapping"],
     ["withdraws", "vault-sync"],
   ] as const)("%s a selection validated after a revision of cause %s", async (name, cause) => {
     const h = harness();

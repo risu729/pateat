@@ -546,7 +546,7 @@ describe("RP completion persistence boundaries", () => {
       expect.objectContaining({ origin: rp, itemId: rpItem }),
     );
   });
-  it.each(["passkey-browser-site", "detail-refused"] as const)(
+  it.each(["passkey-browser-site", "detail-refused", "sso-mapping"] as const)(
     "saves the RP default after a revision whose only cause is %s",
     async (cause) => {
       const h = harness({ ok: true, identity: "absent" }, true);

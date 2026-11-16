@@ -33,6 +33,8 @@ export const settingsJa = {
     "サイトの個人情報の割り当ての変更",
   "a vault field a site refused for a personal detail was unlinked":
     "サイトが受け付けなかった個人情報の割り当ての解除",
+  "a provider mapping for an SSO method was saved or removed":
+    "SSO のログイン方法の ID プロバイダーの対応付けの変更",
   "a site was set to hand its passkey requests to the browser":
     "サイトのパスキーのリクエストをブラウザーに任せる設定",
   "settings changed for a reason no longer recorded": "理由の記録が残っていない変更",
@@ -337,8 +339,8 @@ export const settingsJa = {
   "Tell sites that you were verified": "本人確認が済んだとサイトに伝える",
   "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.":
     "Pateat 自身は確認をしません。保管庫のロックが解除されていて、サイトのアカウントが選ばれていれば応じます。オフにすると、クリックなしのリクエストや本人確認が必須のリクエストはブラウザーか別の拡張機能に任せるので、そのサイトでは Pateat がパスキーで自動ログインできなくなります。すべてのデバイスに適用されます。",
-  "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.":
-    "共有のアカウント関連付けや個人情報のリンクと組み合わせると、設定プロファイルの容量を超えるため保存できませんでした。編集内容は残っています。該当するプロファイルの項目を減らしてから再試行してください。",
+  "These changes would make a settings profile too large when combined with shared account bindings, personal-detail links and SSO mappings. Your changes have not been saved. Remove some entries from the affected profiles and try again.":
+    "共有のアカウント関連付けや個人情報のリンク、ID プロバイダーの対応付けと組み合わせると、設定プロファイルの容量を超えるため保存できませんでした。編集内容は残っています。該当するプロファイルの項目を減らしてから再試行してください。",
 
   "Sign-in pages": "ログインページ",
   "Verification while signed in": "ログイン後の本人確認",

@@ -169,7 +169,7 @@ function SsoOffer({
                 {t("Show other provider accounts")}
               </Button>
             )}
-            {entry.selectedId && (
+            {(entry.selectedId || entry.mapped) && (
               <Button
                 disabled={busy}
                 aria-label={t("Remove provider mapping for {{method}}", { method: name })}
@@ -206,7 +206,7 @@ function SsoOffer({
       )}
       <p className="popup-muted">
         {t(
-          "Provider mappings stay on this device. This method choice applies only to this sign-in.",
+          "Provider mappings sync with your settings. This method choice applies only to this sign-in.",
         )}
       </p>
       <div className="popup-actions">

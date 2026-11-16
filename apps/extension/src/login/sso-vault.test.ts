@@ -430,6 +430,7 @@ describe("discovery policy, timeout and snapshot fences", () => {
   it.each([
     ["keeps", "passkey-browser-site", true],
     ["keeps", "detail-refused", true],
+    ["keeps", "sso-mapping", true],
     ["drops", "account-choice", false],
   ] as const)(
     "%s a validation across a revision whose only cause is %s",

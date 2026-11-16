@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CHOICE_ONLY_CAUSES, onlyChoicesSince, type SettingsChangeCause } from "./index";
 
-// Synthetic revisions only (ADR 0007, ADR 0061).
+// Synthetic revisions only (ADR 0007, ADR 0061, ADR 0085).
 
 const at = (revision: number, ...causes: SettingsChangeCause[]) => ({
   revision,
@@ -12,8 +12,12 @@ const at = (revision: number, ...causes: SettingsChangeCause[]) => ({
 });
 
 describe("revisions of only a choice", () => {
-  it("names the passkey browser sites and the removal of refused detail links", () => {
-    expect([...CHOICE_ONLY_CAUSES].toSorted()).toEqual(["detail-refused", "passkey-browser-site"]);
+  it("names the passkey browser sites, the removal of refused detail links and SSO mappings", () => {
+    expect([...CHOICE_ONLY_CAUSES].toSorted()).toEqual([
+      "detail-refused",
+      "passkey-browser-site",
+      "sso-mapping",
+    ]);
   });
 
   it("leaves a revision standing while every later one wrote only a choice", () => {

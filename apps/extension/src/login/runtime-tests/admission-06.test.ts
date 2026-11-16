@@ -90,6 +90,7 @@ describe("production login document admission", () => {
     it.each([
       ["passkey-browser-site", "saved"],
       ["detail-refused", "saved"],
+      ["sso-mapping", "saved"],
       ["settings-save", "write-failed"],
     ] as const)(
       "checks the login's revision in the settings queue, after a %s write",

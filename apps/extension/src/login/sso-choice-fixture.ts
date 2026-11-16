@@ -1,14 +1,17 @@
 import { vi } from "vitest";
 import {
   createDefaultSettings,
+  localSettingsSchema,
   type LoginAccount,
   type LoginDocument,
   type SettingsResponse,
+  type SettingsSnapshot,
+  type SsoMapping,
   type VaultConnectionMetadata,
 } from "@pateat/contracts";
+import * as v from "valibot";
 import { setAccountPolicy } from "../vault/__fixtures__/policy";
 import { createSsoChoiceController, type SsoChoiceInput } from "./sso-choice";
-import { createSsoMappingStore, type SsoMapping } from "./sso-mapping-store";
 import type { SafeSsoMethod, SsoCandidate, SsoSourceRef, VaultSsoSource } from "./sso-vault";
 export const origin = "https://site.example.test";
 export const idpOrigin = "https://idp.example.test";
@@ -109,22 +112,39 @@ export function ssoHarness(
       data: { sourceEvidence: evidence, policyRevision: saved.snapshot.revision, candidates: [] },
     })),
   };
-  let records: SsoMapping[] = [];
   let current = true;
   let path = "/ready";
-  const record = {
-    read: vi.fn(async (): Promise<unknown> => ({ version: 1, entries: structuredClone(records) })),
-    write: vi.fn(async (value: { version: 1; entries: SsoMapping[] }) => {
-      records = structuredClone(value.entries);
-    }),
-    clear: vi.fn(async () => {
-      records = [];
-    }),
-  };
-  const store = createSsoMappingStore(record);
   const readSettings = vi.fn(async (): Promise<SettingsResponse> => structuredClone(saved));
   const currentDocument = vi.fn((): string | undefined => (current ? path : undefined));
-  const controller = createSsoChoiceController({ source, store, readSettings, currentDocument });
+  /** The settings store's trusted update: one revision per write, with its cause. */
+  const updateSettings = vi.fn(
+    async (
+      expected: number | undefined,
+      cause: NonNullable<SettingsSnapshot["changes"]>[number]["cause"],
+      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+      authorize?: (snapshot: SettingsSnapshot) => Promise<boolean>,
+    ) => {
+      const before = structuredClone(saved.snapshot);
+      if (expected !== undefined && expected !== before.revision)
+        throw new Error("revision-conflict");
+      if (authorize && !(await authorize(structuredClone(before))))
+        throw new Error("update-not-authorized");
+      const next = mutate(structuredClone(before));
+      v.parse(localSettingsSchema, next.settings);
+      saved.snapshot = {
+        ...next,
+        revision: before.revision + 1,
+        changes: [...(before.changes ?? []), { revision: before.revision + 1, cause }],
+      };
+      return structuredClone(saved.snapshot);
+    },
+  );
+  const controller = createSsoChoiceController({
+    source,
+    readSettings,
+    currentDocument,
+    updateSettings,
+  });
   const input: SsoChoiceInput = { account, document, native: { passkey: true, password: true } };
   const request = (extra: Partial<SsoChoiceInput> = {}) =>
     controller.request({ ...input, ...extra });
@@ -149,8 +169,7 @@ export function ssoHarness(
   return {
     controller,
     source,
-    store,
-    record,
+    updateSettings,
     saved,
     readSettings,
     currentDocument,
@@ -160,16 +179,20 @@ export function ssoHarness(
     choose,
     methods,
     candidateLists,
-    records: () => records,
+    records: () => saved.snapshot.settings.ssoMappings ?? [],
     setCurrent: (value: boolean) => {
       current = value;
     },
     setPath: (value: string) => {
       path = value;
     },
+    /** Mappings the settings held before the offer, at the same revision. */
     setRecords: (value: SsoMapping[]) => {
-      records = structuredClone(value);
+      saved.snapshot.settings.ssoMappings = structuredClone(value);
     },
+    /** A settings write of another cause, as another setting saved meanwhile. */
+    revise: (cause: NonNullable<SettingsSnapshot["changes"]>[number]["cause"]) =>
+      updateSettings(undefined, cause, (snapshot) => snapshot),
   };
 }
 export type SsoHarness = ReturnType<typeof ssoHarness>;

@@ -100,6 +100,7 @@ export function registerAfterFirst({
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
       detailLinks: [],
+      ssoMappings: [],
       popupPageSection: true,
     });
   });

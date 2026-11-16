@@ -302,6 +302,25 @@ describe("export and import", () => {
     });
   });
 
+  it("carries SSO mappings and counts each one the file adds as another setting", async () => {
+    const mapping = (method: number) => ({
+      ...owner,
+      itemId: "site-item",
+      method,
+      idp: { ...owner, itemId: "idp-item", origin: "https://idp.example" },
+    });
+    const file = await exported(
+      setup({ settings: settingsOf({ ssoMappings: [mapping(1), mapping(2)] }) }),
+    );
+    expect(file.settings.ssoMappings).toEqual([mapping(1), mapping(2)]);
+    const device = setup({ settings: settingsOf({ ssoMappings: [mapping(1)] }) });
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({
+      sites: [],
+      policies: 0,
+      others: 1,
+    });
+  });
+
   it("counts an item limit the file drops as a change", async () => {
     const exclusion = {
       ...owner,

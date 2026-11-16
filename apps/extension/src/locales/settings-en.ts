@@ -32,6 +32,8 @@ export const settingsEn = {
     "a vault field for a personal detail was linked or unlinked for a site",
   "a vault field a site refused for a personal detail was unlinked":
     "a vault field a site refused for a personal detail was unlinked",
+  "a provider mapping for an SSO method was saved or removed":
+    "a provider mapping for an SSO method was saved or removed",
   "a site was set to hand its passkey requests to the browser":
     "a site was set to hand its passkey requests to the browser",
   "settings changed for a reason no longer recorded":
@@ -325,8 +327,8 @@ export const settingsEn = {
   "Tell sites that you were verified": "Tell sites that you were verified",
   "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.":
     "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.",
-  "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.":
-    "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.",
+  "These changes would make a settings profile too large when combined with shared account bindings, personal-detail links and SSO mappings. Your changes have not been saved. Remove some entries from the affected profiles and try again.":
+    "These changes would make a settings profile too large when combined with shared account bindings, personal-detail links and SSO mappings. Your changes have not been saved. Remove some entries from the affected profiles and try again.",
 
   "Sign-in pages": "Sign-in pages",
   "Verification while signed in": "Verification while signed in",

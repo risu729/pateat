@@ -314,6 +314,7 @@ export function SettingsApp({
     form.setFieldValue("sitePagePermissions", value.sitePagePermissions);
     form.setFieldValue("bindings", value.bindings);
     form.setFieldValue("detailLinks", value.detailLinks);
+    form.setFieldValue("ssoMappings", value.ssoMappings);
     form.setFieldValue("loginInPrivateWindows", value.loginInPrivateWindows);
     form.setFieldValue("serviceReports", value.serviceReports);
     form.setFieldValue("passkeyPolicy", value.passkeyPolicy);
@@ -406,6 +407,7 @@ export function SettingsApp({
     form.setFieldValue("sitePagePermissions", next.sitePagePermissions);
     form.setFieldValue("bindings", next.bindings);
     form.setFieldValue("detailLinks", next.detailLinks);
+    form.setFieldValue("ssoMappings", next.ssoMappings);
     form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
     form.setFieldValue("serviceReports", next.serviceReports);
     form.setFieldValue("passkeyPolicy", next.passkeyPolicy);

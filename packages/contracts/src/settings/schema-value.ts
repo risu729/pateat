@@ -16,6 +16,7 @@ import {
   itemKey,
 } from "./schema-primitives";
 import { pagePermissionDefaultsSchema, sitePagePermissionsSchema } from "./page-permissions";
+import { ssoMappingsSchema } from "./sso-mappings";
 
 export const localSettingsSchema = v.pipe(
   v.strictObject({
@@ -167,6 +168,11 @@ export const localSettingsSchema = v.pipe(
         }, "Duplicate detail questions"),
       ),
     ),
+    /**
+     * Synced mappings from a site account's SSO method to its identity provider's vault
+     * item and sign-in origin (ADR 0085).
+     */
+    ssoMappings: v.optional(ssoMappingsSchema),
     /** Synced account bindings (ADR 0013). */
     bindings: v.pipe(
       v.array(savedLoginBindingSchema),
