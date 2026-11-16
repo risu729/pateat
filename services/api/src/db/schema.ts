@@ -688,6 +688,8 @@ export const recipeEntryBlocks = sqliteTable(
     /** The device that reported it; its row may since be gone. */
     deviceId: text("device_id").notNull(),
     blockedAt: integer("blocked_at").notNull(),
+    /** The request that kept the row, so only that request moves the head's sequence. */
+    writeId: text("write_id").notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.ownerId, table.recipeId] }),

@@ -197,6 +197,20 @@ describe("recipes this device holds as its own (ADR 0040)", () => {
     expect(uploaded).toHaveBeenCalledExactlyOnceWith(held[0], 1, CONNECTION);
   });
 
+  it("tells which recipes it forgot once the synced cache held them, for their own blocks", async () => {
+    const held = [recipe("a"), recipe("b")];
+    const forgotten = vi.fn(async () => {});
+    const recipes = createDeviceRecipes({
+      storage: memory({ version: 1, recipes: held }),
+      transport: { writeRecipe: vi.fn() },
+      forgotten,
+    });
+    await recipes.forget(new Set(["other"]), () => false);
+    expect(forgotten).not.toHaveBeenCalled();
+    await recipes.forget(new Set(["a"]), () => false);
+    expect(forgotten).toHaveBeenCalledExactlyOnceWith([held[0]]);
+  });
+
   it("keeps a recipe the service refuses for good, and never sends it again", async () => {
     const { recipes, writeRecipe } = setup({ version: 1, recipes: [recipe("a"), recipe("b")] }, [
       { kind: "refused" },

@@ -103,7 +103,8 @@ export type EntryBlockReason = v.InferOutput<typeof entryBlockReasonSchema>;
  */
 export const syncEntryBlockSchema = v.strictObject({
   reason: entryBlockReasonSchema,
-  blockedAt: sequence,
+  /** Epoch milliseconds of the service's clock, within the range a `Date` holds. */
+  blockedAt: v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(8_640_000_000_000_000)),
 });
 export type SyncEntryBlock = v.InferOutput<typeof syncEntryBlockSchema>;
 

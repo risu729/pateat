@@ -1,6 +1,7 @@
 import type { EntryBlockReason } from "@pateat/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
+import { newId } from "@pateat/contracts/ids";
 import { recipeEntryBlocks, recipeHeads, recipeRevisions } from "./db/schema";
 
 /**
@@ -20,6 +21,7 @@ export async function recordEntryBlock(
 ): Promise<"kept" | "stale" | "not-entry" | "missing"> {
   const orm = drizzle(db);
   const now = Date.now();
+  const writeId = newId();
   const head = and(
     eq(recipeHeads.ownerId, ownerId),
     eq(recipeHeads.recipeId, recipeId),
@@ -40,6 +42,7 @@ export async function recordEntryBlock(
           reason: sql`${report.reason}`.as("reason"),
           deviceId: sql`${deviceId}`.as("device_id"),
           blockedAt: sql`${now}`.as("blocked_at"),
+          writeId: sql`${writeId}`.as("write_id"),
         })
         .from(recipeHeads)
         .innerJoin(
@@ -61,10 +64,12 @@ export async function recordEntryBlock(
         reason: sql`excluded.reason`,
         deviceId: sql`excluded.device_id`,
         blockedAt: sql`excluded.blocked_at`,
+        writeId: sql`excluded.write_id`,
       },
       setWhere: sql`excluded.revision > ${recipeEntryBlocks.revision}`,
     });
-  // The block this request kept, and nothing else, moves the head (checked in the batch).
+  // The block this request kept, and nothing else, moves the head: the row names this
+  // request's own write, so a repeat in the same millisecond moves nothing.
   const nextSequence = sql<number>`(SELECT COALESCE(MAX(${recipeHeads.sequence}), 0) + 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId})`;
   const moved = orm
     .update(recipeHeads)
@@ -72,7 +77,7 @@ export async function recordEntryBlock(
     .where(
       and(
         head,
-        sql`EXISTS (SELECT 1 FROM ${recipeEntryBlocks} WHERE ${recipeEntryBlocks.ownerId} = ${ownerId} AND ${recipeEntryBlocks.recipeId} = ${recipeId} AND ${recipeEntryBlocks.revision} = ${report.revision} AND ${recipeEntryBlocks.deviceId} = ${deviceId} AND ${recipeEntryBlocks.blockedAt} = ${now})`,
+        sql`EXISTS (SELECT 1 FROM ${recipeEntryBlocks} WHERE ${recipeEntryBlocks.ownerId} = ${ownerId} AND ${recipeEntryBlocks.recipeId} = ${recipeId} AND ${recipeEntryBlocks.writeId} = ${writeId})`,
       ),
     );
   const current = orm

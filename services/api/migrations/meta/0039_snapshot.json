@@ -1379,6 +1379,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "write_id": {
+          "name": "write_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {},

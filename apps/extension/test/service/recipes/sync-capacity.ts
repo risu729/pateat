@@ -53,6 +53,34 @@ export function registerSyncCapacityCases({
     expect(report).toHaveBeenCalledWith("cache-full", expect.objectContaining({ added: 0 }));
   });
 
+  it("keeps a later entry block without advancing past an overflowing page (ADR 0031)", async () => {
+    const entry = {
+      version: 1 as const,
+      id: "cached-two",
+      revision: 1,
+      origin: SITE,
+      entry: { path: "/en/", target: { by: "text" as const, value: "Login" } },
+    };
+    const stored = crowdedCache();
+    stored.recipes[1] = entry as never;
+    const block = { reason: "sign-up" as const, blockedAt: 9 };
+    const { sync, storage, cache } = setup({
+      stored,
+      pages: [
+        page(incoming(), 9, false),
+        page([{ ...active(entry as never), entryBlock: block } as never], 10),
+        page(incoming(), 9, false),
+      ],
+    });
+    expect(await sync.sync()).toBe("cache-full");
+    // Nothing but the block changed, and it is written, with the cursor where it was.
+    expect(storage.write).toHaveBeenCalledOnce();
+    expect(cache()).toEqual({
+      ...stored,
+      entryBlocks: [{ recipeId: "cached-two", revision: 1, ...block }],
+    });
+  });
+
   it("removes a later revocation without advancing past an overflowing page", async () => {
     const stored = crowdedCache();
     const { sync, transport, storage, cache, report } = setup({

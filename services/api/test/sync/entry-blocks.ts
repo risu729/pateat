@@ -1,6 +1,6 @@
 import { type LoginEntryRecipe, type SyncRecipeChanges } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { type Device, enrollOwner, addDevice, api, put, publish } from "./harness";
 
@@ -81,6 +81,27 @@ export function registerEntryBlockTests() {
         (await block(device, "art-entry", { version: 1, revision: 1, reason: "sign-up" })).status,
       ).toBe(204);
       expect((await changes(other, page.cursor)).changes).toEqual([]);
+    });
+
+    it("moves the head once for identical reports in the same millisecond", async () => {
+      const device = await enrollOwner();
+      const other = await addDevice(device.ownerId);
+      await publishEntry(device, "art-entry", 0);
+      const { cursor } = await changes(other);
+      const at = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+      try {
+        const report = { version: 1, revision: 1, reason: "sign-up" };
+        expect((await block(device, "art-entry", report)).status).toBe(204);
+        const page = await changes(other, cursor);
+        expect(page.changes).toEqual([
+          expect.objectContaining({ entryBlock: { reason: "sign-up", blockedAt: at } }),
+        ]);
+        expect((await block(device, "art-entry", report)).status).toBe(204);
+        expect((await changes(other, page.cursor)).changes).toEqual([]);
+      } finally {
+        clock.mockRestore();
+      }
     });
 
     it("ends with a newer revision, which a report of the older one no longer blocks", async () => {

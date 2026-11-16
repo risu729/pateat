@@ -239,22 +239,36 @@ export function createEntryBlocks(options: {
     },
     /**
      * A recipe this device held as its own was uploaded to the paired service as
-     * `revision` (ADR 0040): its block now names that revision under the pairing, and is
-     * sent with the next flush.
+     * `revision` (ADR 0040): its block is copied to that revision under the pairing and
+     * sent with the next flush. The device's own block stays while its own copy of the
+     * recipe does, so a disconnect before the synced cache holds the upload, which keeps
+     * that copy, keeps it blocked too (`forgotten` ends it).
      */
     uploaded(recipe: Recipe, revision: number, connection: ServiceConnection): Promise<void> {
       return enqueue(async () => {
         const stored = await load();
-        const holder = holderOf(connection);
-        if (!stored.some((block) => heldBy(block, undefined) && sameRevision(block, recipe)))
-          return;
-        await save(
-          stored.map((block) =>
-            heldBy(block, undefined) && sameRevision(block, recipe)
-              ? { ...block, revision, service: holder! }
-              : block,
-          ),
+        const holder = holderOf(connection)!;
+        const own = stored.find((block) => heldBy(block, undefined) && sameRevision(block, recipe));
+        if (!own) return;
+        const { sent: _sent, ...copy } = own;
+        await save([
+          ...stored.filter((block) => !(heldBy(block, holder) && block.recipeId === recipe.id)),
+          { ...copy, revision, service: holder },
+        ]);
+      });
+    },
+    /**
+     * The device forgot its own copies of `recipes` once the synced cache held them
+     * (ADR 0040): their own blocks end, as the synced recipe and its block replace them.
+     */
+    forgotten(recipes: readonly Recipe[]): Promise<void> {
+      return enqueue(async () => {
+        const stored = await load();
+        const left = stored.filter(
+          (block) =>
+            !(heldBy(block, undefined) && recipes.some((recipe) => sameRevision(block, recipe))),
         );
+        if (left.length !== stored.length) await save(left);
       });
     },
   };

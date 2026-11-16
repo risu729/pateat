@@ -119,9 +119,29 @@ describe("entry blocks", () => {
       "art-entry",
       { version: 1, revision: 1, reason: "sign-up" },
     );
+    // The device's own block stays with its own copy of the recipe until that is forgotten.
     expect(stored()).toEqual([
+      {
+        recipeId: "art-entry",
+        revision: 3,
+        reason: "sign-up",
+        blockedAt: "2026-11-16T09:00:00.000Z",
+      },
       expect.objectContaining({ revision: 1, service: expect.any(Object), sent: true }),
     ]);
+    await blocks.forgotten([entry("art-entry", 3)]);
+    expect(stored()).toEqual([expect.objectContaining({ revision: 1, sent: true })]);
+  });
+
+  it("keeps the own copy blocked when the device disconnects before the upload is synced", async () => {
+    const { blocks, state } = setup({ connection: undefined });
+    await blocks.block({ id: "art-entry", revision: 3 }, "sign-up");
+    state.connection = CONNECTION;
+    await blocks.uploaded(entry("art-entry", 3), 1, CONNECTION);
+    // The synced cache never held the upload, so the disconnect keeps the own copy.
+    await blocks.keep([]);
+    state.connection = undefined;
+    expect(await blocks.blocked({ id: "art-entry", revision: 3 })).toBe(true);
   });
 
   it("never applies or sends a block made under another pairing", async () => {

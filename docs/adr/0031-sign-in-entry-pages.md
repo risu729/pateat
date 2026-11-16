@@ -496,7 +496,10 @@ owner's recipe, not about the device.
   report of a revision wins and later ones, from any device, change nothing (grow-only
   per recipe and revision). A report of a revision below the head changes nothing, since
   a newer revision supersedes it; revisions only grow, also for a recipe generated again
-  after a revocation. A newly kept block moves the head to the owner's next sequence.
+  after a revocation. A newly kept block moves the head to the owner's next sequence;
+  the row names the request that kept it, so a repeat, even in the same millisecond,
+  moves nothing. The owner web UI lists recipes by their last write, so a block does not
+  move one up the list.
 - **Synced.** The recipe sync change of that head carries `entryBlock: { reason,
   blockedAt }`; every device's cache keeps it beside the revision, and no device presses
   it. A device checks its own block under the current pairing and the synced one.
@@ -507,10 +510,13 @@ owner's recipe, not about the device.
   page generated again.
 - **Without a pairing** ([ADR 0040](0040-running-without-the-service.md)), the block of
   a recipe the device holds as its own is kept only on the device. When the device pairs
-  and uploads that recipe, which the service stores as revision 1, the block moves to
-  that revision and is sent. A disconnect keeps the synced blocks with the synced
-  recipes, as the device's own. A block made under another pairing never applies or is
-  sent.
+  and uploads that recipe, which the service stores as revision 1, the block is copied
+  to that revision under the pairing and sent. The device's own block stays while its
+  own copy of the recipe does, and ends once the synced cache holds the upload and that
+  copy is forgotten, so a disconnect in between keeps the own copy blocked. A disconnect
+  keeps the synced blocks of the paired cache with the synced recipes, as the device's
+  own; for each recipe the newest revision's block is kept, as the device keeps the
+  newest copy. A block made under another pairing never applies or is sent.
 - **Not behind `serviceReports`.** The profile's `serviceReports.send` turns off what a
   device sends about its logins for evaluation and diagnosis: login records (ADR 0055)
   and problem lines (ADR 0066). A block is not a report of that kind. It is functional

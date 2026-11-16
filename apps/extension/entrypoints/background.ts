@@ -276,6 +276,7 @@ export default defineBackground(() => {
     transport: serviceTransport,
     // Called only during a recipe sync, after the entry blocks below exist.
     uploaded: (recipe, revision, connection) => entryBlocks.uploaded(recipe, revision, connection),
+    forgotten: (recipes) => entryBlocks.forgotten(recipes),
   });
   const service = createServiceRuntime({
     storage: createBrowserServiceStorage(),
@@ -293,7 +294,10 @@ export default defineBackground(() => {
         const synced = await recipeSync.synced();
         if (synced?.length) await deviceRecipes.keep(synced);
         // ADR 0031: their entry blocks stay with them.
-        await entryBlocks.keep(recipeSync.syncedBlocks()).catch(() => undefined);
+        await recipeSync
+          .syncedBlocks()
+          .then((blocks) => entryBlocks.keep(blocks))
+          .catch(() => undefined);
         await deviceGenerationBackend.forget();
       },
       clear: async () => {

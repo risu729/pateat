@@ -78,6 +78,8 @@ export function createDeviceRecipes(options: {
     revision: number,
     connection: ServiceConnection,
   ) => Promise<void>;
+  /** Told of the recipes `forget` dropped, so their own entry blocks end (ADR 0031). */
+  forgotten?: (recipes: readonly StoredLoginRecipe[]) => Promise<void>;
 }) {
   const { storage, transport } = options;
   const maxBytes = options.maxBytes ?? MAX_DEVICE_RECIPE_BYTES;
@@ -338,7 +340,11 @@ export function createDeviceRecipes(options: {
         if (stale()) return;
         const store = await load();
         const left = store.recipes.filter((recipe) => !held.has(recipe.id));
-        if (left.length !== store.recipes.length) await save({ ...store, recipes: left });
+        if (left.length === store.recipes.length) return;
+        await save({ ...store, recipes: left });
+        await options
+          .forgotten?.(store.recipes.filter((recipe) => held.has(recipe.id)))
+          .catch(() => {});
       });
     },
   };

@@ -424,4 +424,34 @@ export function registerSyncPageCases({
     expect(cache()).not.toHaveProperty("entryBlocks");
     expect(await sync.entryBlocks()).toEqual([]);
   });
+
+  it("keeps no synced blocks of another pairing's cache for a disconnect (ADR 0031)", async () => {
+    const block = { recipeId: "art-entry", revision: 1, reason: "sign-up" as const, blockedAt: 9 };
+    const stored = {
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 1,
+      recipes: [
+        {
+          version: 1,
+          id: "art-entry",
+          revision: 1,
+          origin: SITE,
+          entry: { path: "/en/", target: { by: "text", value: "Login" } },
+        },
+      ],
+      entryBlocks: [block],
+    };
+    const { sync, service } = setup({ stored, pages: [] });
+    expect(await sync.synced()).toHaveLength(1);
+    expect(await sync.syncedBlocks()).toEqual([block]);
+    service.connection.mockResolvedValue({
+      origin: SERVICE,
+      deviceId: OTHER_DEVICE,
+      credential: `pateat_device_${"N".repeat(43)}`,
+      rejected: false,
+    });
+    expect(await sync.syncedBlocks()).toEqual([]);
+  });
 }

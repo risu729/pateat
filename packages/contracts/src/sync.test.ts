@@ -224,6 +224,17 @@ describe("recipe sync contract", () => {
     expect(
       accepts(syncRecipeChangeSchema, { ...blocked, entryBlock: { ...entryBlock, reason: "x" } }),
     ).toBe(false);
+    // A time the service stored, never one beyond what a `Date` holds or a fraction.
+    for (const blockedAt of [-1, 0.5, 8_640_000_000_000_001])
+      expect(
+        accepts(syncRecipeChangeSchema, { ...blocked, entryBlock: { ...entryBlock, blockedAt } }),
+      ).toBe(false);
+    expect(
+      accepts(syncRecipeChangeSchema, {
+        ...blocked,
+        entryBlock: { ...entryBlock, blockedAt: Date.UTC(2026, 10, 16) },
+      }),
+    ).toBe(true);
     expect(
       accepts(syncRecipeChangeSchema, {
         recipeId: "bank-login",
