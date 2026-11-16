@@ -73,7 +73,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@bitwarden/sdk-internal": "0.2.0-main.1241",
-        "cbor2": "2.4.1",
+        "cbor2": "2.4.2",
         "otpauth": "9.6.0",
         "tldts": "7.5.2",
         "valibot": "1.5.0",
@@ -206,7 +206,7 @@
 
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
 
-    "@cto.af/wtf8": ["@cto.af/wtf8@1.0.0", "", {}, "sha512-qI0XnZxcj/FmASB8XXWqG49bSIzu0I/02deAjhnTni9IZ7KMRVlh8EFLE+mmJlMA169lET6rTCFhEsZSjOwlhA=="],
+    "@cto.af/wtf8": ["@cto.af/wtf8@1.0.1", "", {}, "sha512-kl6pH/D6SOCqArCVBcx7E45urbzBAPNr4xkMMaRAjrFSeI3y/s2+x78x5H0/UNr6F4GCgdxooTutPCNRymVzMg=="],
 
     "@docsearch/css": ["@docsearch/css@4.7.1", "", {}, "sha512-AsMPnbNmVLDNjhtgfq4ZRskNvWR8vuK6riEegHp3kjBFtxbmTWPzZ5s1FJ04SGr2D0ZXglueUNISsV2sDgV6Jw=="],
 
@@ -684,7 +684,7 @@
 
     "cac": ["cac@7.1.0", "", {}, "sha512-LMDU/U2yA4IPIY8KT0NsNPWEYZvAMkbgyspxJ6btJaYV+WMDOHAZCmB0lsTObiHaRS1V/ztKAl7+TSkTqXyeoA=="],
 
-    "cbor2": ["cbor2@2.4.1", "", { "dependencies": { "@cto.af/wtf8": "1.0.0" } }, "sha512-h4OqPnSvIEUNCxTNb9pwMZPKjhNKO9bkPwQJOR7d5oBIrZR/CO098atrLl4AkQmB1p3opCvo2UFt4fhRSWC/vQ=="],
+    "cbor2": ["cbor2@2.4.2", "", { "dependencies": { "@cto.af/wtf8": "1.0.1" } }, "sha512-fuz4FXnURAEvtFA8rS+3R85eSZAKZRL4vI9AU6eokOE1TghPsp7WZSh+VvB/3ltKaWZreWtjR/kahn/ogmsgsQ=="],
 
     "ccount": ["ccount@2.0.1", "", {}, "sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg=="],
 
