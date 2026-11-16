@@ -11,6 +11,7 @@ export function registerSyncCapacityCases({
   setup,
   page,
   crowdedCache,
+  exactCache,
   incoming,
   revoked,
   CREDENTIAL,
@@ -24,6 +25,7 @@ export function registerSyncCapacityCases({
   | "setup"
   | "page"
   | "crowdedCache"
+  | "exactCache"
   | "incoming"
   | "revoked"
   | "CREDENTIAL"
@@ -78,6 +80,50 @@ export function registerSyncCapacityCases({
     expect(cache()).toEqual({
       ...stored,
       entryBlocks: [{ recipeId: "cached-two", revision: 1, ...block }],
+    });
+  });
+
+  it("keeps a block that does not fit the full cache for the next sync, with no checkpoint past it", async () => {
+    const stored = exactCache();
+    const held = stored.recipes[0]!;
+    const block = { reason: "sign-up" as const, blockedAt: 9 };
+    const blocking = { ...active(held), entryBlock: block } as never;
+    const { sync, storage, cache, recovery, service } = setup({
+      stored,
+      pages: [
+        page(incoming(), 9, false),
+        page([blocking], 10, false),
+        page([revoked("cached-two", 2)], 11),
+        page(incoming(), 9, false),
+      ],
+    });
+    expect(await sync.sync()).toBe("cache-full");
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { cacheFull: true });
+    // The block is not written over the cap; the later revocation is.
+    expect(storage.write).toHaveBeenCalledOnce();
+    expect(cache()).toEqual({
+      ...stored,
+      recipes: stored.recipes.filter((r) => r !== stored.recipes[1]),
+    });
+    expect(new TextEncoder().encode(JSON.stringify(cache())).byteLength).toBeLessThanOrEqual(
+      MAX_RECIPE_CACHE_BYTES,
+    );
+    // The lookahead stays before the page that brings the block, which the next sync
+    // reads again; with the room the revocation made, the block now fits.
+    expect(recovery()).toMatchObject({ cursor: 7, after: 9 });
+    const next = setup({
+      stored: cache() as never,
+      recovery: recovery(),
+      pages: [
+        page(incoming(), 9, false),
+        page([blocking], 10, false),
+        page([], 11),
+        page(incoming(), 9, false),
+      ],
+    });
+    expect(await next.sync.sync()).toBe("cache-full");
+    expect(next.cache()).toMatchObject({
+      entryBlocks: [{ recipeId: held.id, revision: held.revision, ...block }],
     });
   });
 

@@ -502,7 +502,12 @@ owner's recipe, not about the device.
   move one up the list.
 - **Synced.** The recipe sync change of that head carries `entryBlock: { reason,
   blockedAt }`; every device's cache keeps it beside the revision, and no device presses
-  it. A device checks its own block under the current pairing and the synced one.
+  it. A device checks its own block under the current pairing and the synced one. A
+  block counts against the cache's size cap like a recipe. When a full cache cannot hold
+  a new block, the cache keeps the blocks it had, the sync ends `cache-full`, and it
+  reads that page again on the next sync, once revocations have made room. The cache
+  does not evict a recipe to make room: its page would be generated again, and that
+  upload would end the block.
 - **Ended.** Every winning write of the recipe deletes the row in its batch: a newer
   revision from a device, the service's generation or repair, and a revocation from a
   device, the idle check or the owner web UI. The web UI's recipe list shows the block
