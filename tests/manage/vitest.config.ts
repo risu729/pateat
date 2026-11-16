@@ -12,7 +12,6 @@ export default defineConfig({
   test: {
     include: ["tests/manage/*.test.tsx"],
     fileParallelism: false,
-    retry: 0,
     // Set by CI's `Orders and components` job; `mise run coverage:summary` reports the result.
     coverage: {
       enabled: Boolean(process.env["PATEAT_COVERAGE"]),
