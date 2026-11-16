@@ -374,8 +374,6 @@ export function createRecipeSync(options: {
       return undefined;
     }
 
-    /** A recovered page brought a block the full cache could not hold (`recoverPage`). */
-    let blocksDeferred = false;
     /** Apply only changes that cannot grow the last-known-good cache. */
     async function recoverPage(page: SyncRecipeChanges): Promise<RecipeSyncOutcome | undefined> {
       const remaining = new Map(cache.recipes.map((recipe) => [recipe.id, recipe]));
@@ -400,16 +398,27 @@ export function createRecipeSync(options: {
         recipes: [...remaining.values()],
         ...(blocks ? { entryBlocks: blocks } : {}),
       });
-      let blocks = syncedBlocksAfter(cache.entryBlocks, page.changes, remaining);
-      if (encoder.encode(JSON.stringify(withBlocks(blocks))).byteLength > MAX_RECIPE_CACHE_BYTES) {
-        // A new block does not fit the full cache. The cache keeps the blocks it held
-        // that still apply, which never grows it, and no checkpoint passes this page
-        // (`blocksDeferred`), so the next sync reads it again once revocations made room;
-        // the sync ends `cache-full` meanwhile. Evicting a recipe instead would have its
-        // page generated again, and that upload would end the block (ADR 0031).
-        blocks = syncedBlocksAfter(cache.entryBlocks, [], remaining);
-        blocksDeferred = true;
+      // The full cache takes the page's new blocks one at a time while they fit. One that
+      // does not is left to the normal walk, which brings it with the page at the cursor
+      // once revocations made room; the sync ends `cache-full` meanwhile. Evicting a
+      // recipe instead would have its page generated again, and that upload would end
+      // the block (ADR 0031).
+      const standing = syncedBlocksAfter(cache.entryBlocks, [], remaining) ?? [];
+      let blocks: SyncedEntryBlock[] | undefined = [...standing];
+      let bytes = encoder.encode(
+        JSON.stringify(withBlocks(standing.length ? standing : undefined)),
+      ).byteLength;
+      for (const block of syncedBlocksAfter(cache.entryBlocks, page.changes, remaining) ?? []) {
+        if (standing.some((entry) => entry.recipeId === block.recipeId)) continue;
+        // `,"entryBlocks":[block]` for the first block, else `,block`.
+        const added = blocks.length
+          ? encoder.encode(JSON.stringify(block)).byteLength + 1
+          : encoder.encode(JSON.stringify({ entryBlocks: [block] })).byteLength - 1;
+        if (bytes + added > MAX_RECIPE_CACHE_BYTES) continue;
+        blocks.push(block);
+        bytes += added;
       }
+      if (!blocks.length) blocks = undefined;
       // A page that only blocks a revision the cache holds is written too (ADR 0031).
       if (
         counts.removed > 0 ||
@@ -424,8 +433,6 @@ export function createRecipeSync(options: {
 
     async function checkpoint(after: number): Promise<RecipeSyncOutcome | undefined> {
       if (generation !== started) return "not-connected";
-      // The lookahead stays before the page whose block waits for room.
-      if (blocksDeferred) return undefined;
       const next: RecipeRecovery = {
         version: 2,
         origin: cache.origin,
