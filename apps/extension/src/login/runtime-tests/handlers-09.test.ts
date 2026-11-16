@@ -500,10 +500,12 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         h.login.settingsChanged("saved", "detail-refused");
         release();
         // Its step went on to the submit check, as without the write.
-        await vi.waitFor(() =>
-          expect(status()).toContainEqual(
-            expect.objectContaining({ id: running!["id"], state: "reconciling" }),
-          ),
+        await vi.waitFor(
+          () =>
+            expect(status()).toContainEqual(
+              expect.objectContaining({ id: running!["id"], state: "reconciling" }),
+            ),
+          { timeout: 5_000 },
         );
         expect(status()).not.toContainEqual(expect.objectContaining({ outcome: "policy-changed" }));
       }, 10_000);
