@@ -146,6 +146,16 @@ export const manageRequestLogSchema = v.strictObject({
   oldestAt: v.nullable(timestamp),
 });
 /**
+ * The owner web UI's own preferences, the same on every browser the owner signs in with:
+ * only its theme, `system` following the browser. The owner's, not a profile's, since the
+ * pages belong to no device; the extension's pages follow the profile setting `theme`.
+ */
+export const managePreferencesSchema = v.strictObject({
+  version: v.literal(1),
+  theme: v.picklist(["system", "light", "dark"]),
+});
+
+/**
  * Deleting the whole request log: how many requests, login result codes, login records and
  * problem lines it removed.
  */
@@ -556,3 +566,4 @@ export type ManageClaudeWrite = v.InferOutput<typeof manageClaudeWriteSchema>;
 export type ManageClaudeTest = v.InferOutput<typeof manageClaudeTestSchema>;
 export type ManageErrorCode = v.InferOutput<typeof manageErrorCodeSchema>;
 export type ManageError = v.InferOutput<typeof manageErrorSchema>;
+export type ManagePreferences = v.InferOutput<typeof managePreferencesSchema>;

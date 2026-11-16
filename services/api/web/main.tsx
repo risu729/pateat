@@ -7,7 +7,8 @@ import { followThemePreference } from "./theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Bundle the web UI stylesheet.
 import "./styles.css";
 
-// The theme is set before the first render, and follows changes made on another page.
+// The theme copy this browser keeps is set before the first render, and follows changes
+// made on another page; the owner's synced choice replaces it once read (ThemeSelect).
 followThemePreference();
 
 // Data changes only through this page or a device sync; refetch on focus picks up the latter.

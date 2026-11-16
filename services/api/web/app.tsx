@@ -154,7 +154,7 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
           Third-party notices
         </a>
         <span className="ml-auto">
-          <ThemeSelect />
+          <ThemeSelect client={client} />
         </span>
       </footer>
     </div>

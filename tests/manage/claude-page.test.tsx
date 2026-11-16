@@ -79,6 +79,11 @@ function mockClient(initial: ManageClaude = stateOf(null)) {
       catalog: "models-api",
       models: [],
     })),
+    preferences: vi.fn<ManageClient["preferences"]>(async () => ({
+      version: 1 as const,
+      theme: "system" as const,
+    })),
+    savePreferences: vi.fn<ManageClient["savePreferences"]>(async (preferences) => preferences),
     saveModels: vi.fn<ManageClient["saveModels"]>(),
     claude: vi.fn<ManageClient["claude"]>(async () => structuredClone(state)),
     saveClaude: vi.fn<ManageClient["saveClaude"]>(async (identifiers) => {

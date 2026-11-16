@@ -1,15 +1,19 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
+import { ManageApiError, type ManageClient } from "../../services/api/web/api";
 import { ThemeSelect } from "../../services/api/web/theme-select";
 import {
   followThemePreference,
   readThemePreference,
   saveThemePreference,
   THEME_STORAGE_KEY,
+  type ThemePreference,
 } from "../../services/api/web/theme";
 
-// The /manage theme choice: a localStorage value and the root's data-theme.
+// The /manage theme choice: the owner's synced choice, a localStorage copy and the root's
+// data-theme. Synthetic service answers only.
 
 const root = document.documentElement;
 
@@ -94,9 +98,39 @@ test("follows a choice another page makes", () => {
   expect(root.hasAttribute("data-theme")).toBe(false);
 });
 
+/** A synthetic service holding the owner's choice; none answers `not_paired`. */
+function preferencesClient(theme: ThemePreference | undefined) {
+  const state = { theme };
+  return {
+    state,
+    preferences: vi.fn<ManageClient["preferences"]>(async () => {
+      if (state.theme === undefined) throw new ManageApiError("not_paired");
+      return { version: 1, theme: state.theme };
+    }),
+    savePreferences: vi.fn<ManageClient["savePreferences"]>(async (preferences) => {
+      state.theme = preferences.theme;
+      return preferences;
+    }),
+  };
+}
+
+function renderSelect(client: ReturnType<typeof preferencesClient>) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return {
+    queryClient,
+    rendered: render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeSelect client={client} />
+      </QueryClientProvider>,
+    ),
+  };
+}
+
 test("the Theme select shows the stored choice and changes the theme", async () => {
   localStorage.setItem(THEME_STORAGE_KEY, "light");
-  await render(<ThemeSelect />);
+  // No paired device: the choice stays in this browser.
+  const client = preferencesClient(undefined);
+  await renderSelect(client).rendered;
   const select = page.getByRole("combobox", { name: "Theme", exact: true });
   await expect.element(select).toHaveValue("light");
 
@@ -108,4 +142,76 @@ test("the Theme select shows the stored choice and changes the theme", async () 
   window.dispatchEvent(new StorageEvent("storage", { key: THEME_STORAGE_KEY }));
   await expect.element(select).toHaveValue("system");
   expect(root.hasAttribute("data-theme")).toBe(false);
+});
+
+test("paints the copy first, then takes the owner's synced choice and saves a new one", async () => {
+  localStorage.setItem(THEME_STORAGE_KEY, "light");
+  const stop = followThemePreference();
+  expect(root.getAttribute("data-theme")).toBe("light");
+  // Another browser of the owner chose dark.
+  const client = preferencesClient("dark");
+  const { queryClient, rendered } = renderSelect(client);
+  await rendered;
+  const select = page.getByRole("combobox", { name: "Theme", exact: true });
+  await expect.element(select).toHaveValue("dark");
+  expect(root.getAttribute("data-theme")).toBe("dark");
+  expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+
+  await select.selectOptions("system");
+  await vi.waitFor(() =>
+    expect(client.savePreferences).toHaveBeenCalledWith({ version: 1, theme: "system" }),
+  );
+  expect(client.state.theme).toBe("system");
+  expect(root.hasAttribute("data-theme")).toBe(false);
+
+  // Another browser's later choice arrives with the next read, as on focus.
+  client.state.theme = "light";
+  await queryClient.invalidateQueries();
+  await expect.element(select).toHaveValue("light");
+  expect(root.getAttribute("data-theme")).toBe("light");
+  stop();
+});
+
+test("keeps a choice the service could not save until its next answer", async () => {
+  const client = preferencesClient("light");
+  client.savePreferences.mockRejectedValueOnce(new ManageApiError("network"));
+  const { queryClient, rendered } = renderSelect(client);
+  await rendered;
+  const select = page.getByRole("combobox", { name: "Theme", exact: true });
+  await expect.element(select).toHaveValue("light");
+  await select.selectOptions("dark");
+  await vi.waitFor(() => expect(client.savePreferences).toHaveBeenCalledOnce());
+  await expect.element(select).toHaveValue("dark");
+  expect(root.getAttribute("data-theme")).toBe("dark");
+  // The service still holds light, which its next answer brings back.
+  await queryClient.invalidateQueries();
+  await expect.element(select).toHaveValue("light");
+});
+
+test("ignores a read that was running when a choice was made", async () => {
+  const client = preferencesClient("light");
+  const { queryClient, rendered } = renderSelect(client);
+  await rendered;
+  const select = page.getByRole("combobox", { name: "Theme", exact: true });
+  await expect.element(select).toHaveValue("light");
+  // A read starts, as on focus, and answers only after the choice was saved.
+  let answer = () => {};
+  const held = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  client.preferences.mockImplementationOnce(async () => {
+    await held;
+    return { version: 1, theme: "light" };
+  });
+  void queryClient.refetchQueries();
+  await vi.waitFor(() => expect(client.preferences).toHaveBeenCalledTimes(2));
+  await select.selectOptions("dark");
+  await vi.waitFor(() =>
+    expect(client.savePreferences).toHaveBeenCalledWith({ version: 1, theme: "dark" }),
+  );
+  answer();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await expect.element(select).toHaveValue("dark");
+  expect(root.getAttribute("data-theme")).toBe("dark");
+  expect(queryClient.getQueryData(["preferences"])).toEqual({ version: 1, theme: "dark" });
 });

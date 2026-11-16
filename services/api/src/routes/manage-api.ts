@@ -4,6 +4,7 @@ import {
   deviceIdSchema,
   manageDashboardRangeSchema,
   manageModelsWriteSchema,
+  managePreferencesSchema,
   profileIdSchema,
   profileCreateSchema,
   profileRenameSchema,
@@ -38,7 +39,7 @@ import {
 } from "../db/schema";
 import { apiError } from "../http";
 import { readLoginHistory } from "../login-history";
-import { findOwner } from "../owners";
+import { findOwner, readPreferences, savePreferences } from "../owners";
 import {
   readChange,
   readFirstPageSources,
@@ -135,6 +136,19 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       return c.body(null, 204);
     },
   )
+  // The web UI's own theme, the same in every browser the owner signs in with.
+  .get("/preferences", async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    return c.json(await readPreferences(c.env.DB, ownerId));
+  })
+  .put("/preferences", requireJsonBody, jsonBody(managePreferencesSchema), async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    const preferences = c.req.valid("json");
+    await savePreferences(c.env.DB, ownerId, preferences);
+    return c.json(preferences);
+  })
   .get("/devices", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     const rows = ownerId
