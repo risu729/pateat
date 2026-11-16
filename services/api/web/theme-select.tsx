@@ -28,6 +28,8 @@ export function ThemeSelect({
   const saved = useQuery({ queryKey: PREFERENCES_QUERY_KEY, queryFn: () => client.preferences() });
   const save = useMutation({
     mutationFn: (theme: ThemePreference) => client.savePreferences({ version: 1, theme }),
+    // A read already running, as on focus, may answer with the choice before this one.
+    onMutate: () => queryClient.cancelQueries({ queryKey: PREFERENCES_QUERY_KEY }),
     onSuccess: (written) => queryClient.setQueryData(PREFERENCES_QUERY_KEY, written),
   });
   const synced = saved.data?.theme;

@@ -187,3 +187,31 @@ test("keeps a choice the service could not save until its next answer", async ()
   await queryClient.invalidateQueries();
   await expect.element(select).toHaveValue("light");
 });
+
+test("ignores a read that was running when a choice was made", async () => {
+  const client = preferencesClient("light");
+  const { queryClient, rendered } = renderSelect(client);
+  await rendered;
+  const select = page.getByRole("combobox", { name: "Theme", exact: true });
+  await expect.element(select).toHaveValue("light");
+  // A read starts, as on focus, and answers only after the choice was saved.
+  let answer = () => {};
+  const held = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  client.preferences.mockImplementationOnce(async () => {
+    await held;
+    return { version: 1, theme: "light" };
+  });
+  void queryClient.refetchQueries();
+  await vi.waitFor(() => expect(client.preferences).toHaveBeenCalledTimes(2));
+  await select.selectOptions("dark");
+  await vi.waitFor(() =>
+    expect(client.savePreferences).toHaveBeenCalledWith({ version: 1, theme: "dark" }),
+  );
+  answer();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await expect.element(select).toHaveValue("dark");
+  expect(root.getAttribute("data-theme")).toBe("dark");
+  expect(queryClient.getQueryData(["preferences"])).toEqual({ version: 1, theme: "dark" });
+});

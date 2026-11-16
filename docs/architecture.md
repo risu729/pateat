@@ -949,7 +949,8 @@ a cache:
 | The demo vaults' policies | `accountPolicies`, `itemPolicies` and `customFieldReviews` entries of the `dummy` provider | The demo vaults exist on this device only |
 | The spend counted against this device's own Anthropic key ([ADR 0040](adr/0040-running-without-the-service.md)) | `storage.local` `pateat.device-model-spend.v1` | It counts calls made with a key only this device holds; the limits it is held to sync |
 | Generated slot maps: the vault field each custom slot of a recipe generated here names ([ADR 0027](adr/0027-per-account-login-routes.md#custom-fields-in-generation)) | `storage.local` `pateat.generated-slots.v1` | It names this device's vault fields for the recipe until a login saves a binding, which syncs; ADR 0027 accepts that other devices cannot fill those slots before that |
-| Copies of synced state: recipes, the settings base, entry blocks this device made before the service took them, and the owner web UI's theme | `storage.local`, and the web UI's `localStorage` `pateat.theme` | Caches only, for a page to render or a login to start before the service answers; the service's copy replaces them |
+| Blocks of entry recipes this device holds as its own without a pairing ([ADR 0040](adr/0040-running-without-the-service.md), [ADR 0031](adr/0031-sign-in-entry-pages.md#amendment-2026-11-16-the-block-is-the-owners)) | `storage.local` `pateat.login-entry-blocks.v1` | Not a cache: without a pairing they are the only copy, as the recipes they block are. Once the device pairs and uploads a recipe, its block is copied to the service's revision and syncs |
+| Copies of synced state: recipes, the settings base, the blocks of synced entry recipes and the owner web UI's theme | `storage.local`, and the web UI's `localStorage` `pateat.theme` | Caches only, for a page to render or a login to start before the service answers; the service's copy replaces them |
 
 ### Hostnames Pateat does not run on
 
@@ -2332,9 +2333,14 @@ page's section list and in the owner web UI's footer (owner, 2026-10-12 20:54 UT
 Worker's script-free pages always follow the browser. Browser setting, the default,
 follows the browser's `prefers-color-scheme`. The choice is presentation only. The owner
 web UI's choice is the owner's, kept by the service (`owners.web_theme`, null for
-Browser setting) and read and saved through `GET` and `PUT /manage/api/preferences`, so
-every browser the owner signs in with shows it (2026-11-16, under the owner's rule that
-all settings sync). It is the owner's rather than a profile's: the web pages belong to
+Browser setting; the API writes only `light` or `dark`, and the column has no CHECK:
+Drizzle's `check()` is a table constraint, which SQLite adds only by rebuilding the
+table, so drizzle-kit would rebuild `owners`, which every owner table references, and a
+hand-written column CHECK in the migration would differ from the Drizzle schema, which
+`check:migrations` rejects) and read and saved through `GET` and
+`PUT /manage/api/preferences`, so every browser the owner signs in with shows it
+(2026-11-16, under the owner's rule that all settings sync). It is the owner's rather
+than a profile's: the web pages belong to
 no device and so to no profile, and following one profile's `theme` would change the
 pages when another profile is edited. Each browser keeps a copy in `localStorage` under
 `pateat.theme` only to paint the page before the service answers; the service's answer,
