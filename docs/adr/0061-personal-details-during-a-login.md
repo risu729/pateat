@@ -26,6 +26,13 @@ Amended on 2026-10-25 by the owner (08:41 UTC, on
 waits for another login between pages only while its stored record changed in the last
 two minutes, as an account choice does (see [Refused values](#refused-values)).
 
+Amended on 2026-11-16 by the owner's rule that all settings sync and the service is the
+source of truth (agent's design, local tests only): the removal of a refused link is
+written at once with the cause `detail-refused`, also while another login runs, which a
+revision of only that cause leaves running
+([choice-only revisions](../architecture.md#choice-only-revisions)). The
+`storage.session` copy of refused links is gone (see [Refused values](#refused-values)).
+
 Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
 13:06 UTC; delivery 3): a page beside the sign-in form is sent to the judge from a login
 in a frame of the tab's page too, on the recipe's own origin.
@@ -644,17 +651,20 @@ a worker restart the window asks again.
 
 A link whose fill the site refuses (the login ends `rejected`, or the handler's page
 shows again after its fill) is removed from the owner's settings, so the next login asks
-again instead of submitting the same value on a site that may lock the account. Like
-saving an account choice, the write waits for no other login in progress: one this
-worker runs, or another unfinished stored record (a login between pages, as after a
-worker restart) that changed less than two minutes ago; an older one is likely left over
-and the write goes ahead, even though it can stop that login `policy-changed` (owner,
-2026-10-25 08:41 UTC). While one is, the link stays in the settings and the log says so
-(`detail-kept`), but the device uses it no more: it is kept in session storage as
-refused, and its removal is tried again each time a login ends. Choosing the same
-detail's field again in the popup lifts it. Saving a link filled from the popup and the
-popup's **Remove** wait the same way; for **Remove**, the tab's own unfinished login
-counts too.
+again instead of submitting the same value on a site that may lock the account. The
+removal is written at once with the cause `detail-refused`, also while another login is
+in progress: a revision of only that cause leaves every running login and open offer
+authorized (amended 2026-11-16;
+[choice-only revisions](../architecture.md#choice-only-revisions)). When the settings
+cannot be read or written, the link stays in the settings and the log says so
+(`detail-kept`), but the device uses it no more: the worker keeps it refused in memory
+and writes the removal again each time a login ends. Choosing the same detail's field
+again in the popup lifts it. Saving a link filled from the popup and the popup's
+**Remove** still wait for no other login in progress: one this worker runs, or another
+unfinished stored record (a login between pages, as after a worker restart) that changed
+less than two minutes ago; an older one is likely left over and the write goes ahead,
+even though it can stop that login `policy-changed` (owner, 2026-10-25 08:41 UTC). For
+**Remove**, the tab's own unfinished login counts too.
 
 ### Logs
 

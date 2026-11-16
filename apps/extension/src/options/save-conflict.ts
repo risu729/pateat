@@ -13,6 +13,7 @@ const reasons = {
   "settings-import": "settings were imported from a file",
   "account-choice": "an account used to log in on a site was saved for that site",
   "detail-link": "a vault field for a personal detail was linked or unlinked for a site",
+  "detail-refused": "a vault field a site refused for a personal detail was unlinked",
   "passkey-browser-site": "a site was set to hand its passkey requests to the browser",
   unknown: "settings changed for a reason no longer recorded",
 } as const satisfies Record<SettingsConflictCause, string>;

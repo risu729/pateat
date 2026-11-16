@@ -214,8 +214,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     const reads = (h: ReturnType<typeof harness>) =>
       h.fields.mock.calls.map(([request]) => [request.account.itemId, request.fieldId]);
     const savedLinks = (h: ReturnType<typeof harness>) => h.settings.settings.detailLinks;
-    const refusedKey = "pateat.login-refused-details.v1";
-    const { source: _source, ...birthRefusal } = birthLink;
     function start(
       links: DetailLink[],
       read: Record<string, string> = birthValue,
@@ -367,21 +365,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ]);
       });
 
-      it("restores a refusal for another server without blocking this server's linked detail", async () => {
-        vi.useFakeTimers();
-        const otherServer = { ...birthLink, server: "cloud-eu" };
-        fake.state.session[refusedKey] = [{ ...birthRefusal, server: "cloud-eu" }];
-        onClick({ login: toConfirm, confirm: toHome });
-        const { h } = start([birthLink, otherServer]);
-        expect(await h.hello()).toEqual({ ok: true });
-        await until(settled("authenticated"), 10_000);
-        await until(() => savedLinks(h)?.length === 1, 10_000);
-        expect(savedLinks(h)).toEqual([birthLink]);
-        expect(detailFills()).toHaveLength(1);
-        expect(reads(h)).toContainEqual([identityId, birthField]);
-        expect(fake.state.session[refusedKey]).toEqual([]);
-      });
-
       it("removes the filled link when the login is rejected, keeping the others", async () => {
         onClick({ login: toConfirm, confirm: toRejected });
         const { h, report } = start([birthLink, phoneLink], birthValue, rejecting);
@@ -394,7 +377,12 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           [0, "detail", "entered", 2],
           [0, "detail", "detail-forgotten", 2],
         ]);
-        expect(fake.state.session[refusedKey]).toEqual([]);
+        // Written as a choice alone, which no login or offer needs to outlast.
+        expect(h.store.update).toHaveBeenCalledWith(
+          expect.any(Number),
+          "detail-refused",
+          expect.any(Function),
+        );
       }, 10_000);
       it("keeps the link when its page is drawn again on the way to the signed-in page", async () => {
         // As on VRChat's code page (2026-11-08): the click's own check reads the button
@@ -448,7 +436,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           [0, "detail", "shown-again", 2],
         ]);
       });
-      it("keeps the link refused while another tab's login is in progress, and removes it once that login ends", async () => {
+      it("removes the refused link at once while another tab's login is in progress, which goes on", async () => {
         const second = "https://second.example";
         onClick({ login: toConfirm, confirm: toRejected });
         const report = vi.fn<(report: LoginReport) => void>();
@@ -478,29 +466,31 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         };
         expect(await h.hello({ tab: { id: 2 }, url: `${second}/signin` })).toEqual({ ok: true });
         await vi.waitFor(() => expect(held).toBe(true));
+        const [running] = status() ?? [];
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
           expect(handlerReports(report)).toEqual([
             [0, "detail", "entered", 2],
-            [0, "detail", "detail-kept", 2],
+            [0, "detail", "detail-forgotten", 2],
           ]),
         );
-        expect(status()).toContainEqual(
-          expect.objectContaining({ state: "blocked", outcome: "credential-rejected" }),
+        expect(savedLinks(h)).toEqual([]);
+        // The other tab's login was authorized under the revision before; one of only this
+        // cause leaves it running.
+        expect(h.store.update).toHaveBeenCalledWith(
+          expect.any(Number),
+          "detail-refused",
+          expect.any(Function),
         );
-        expect(savedLinks(h)).toEqual([birthLink]);
-        expect(h.store.update).not.toHaveBeenCalled();
-        // No login uses the link meanwhile.
-        expect(fake.state.session[refusedKey]).toEqual([birthRefusal]);
-        // The other tab's login ends, refused by its page.
-        fake.state.executeReply = {
-          ok: false,
-          reason: "structural-mismatch",
-          detail: "target-missing",
-        };
+        h.login.settingsChanged("saved", "detail-refused");
         release();
-        await vi.waitFor(() => expect(savedLinks(h)).toEqual([]));
-        await vi.waitFor(() => expect(fake.state.session[refusedKey]).toEqual([]));
+        // Its step went on to the submit check, as without the write.
+        await vi.waitFor(() =>
+          expect(status()).toContainEqual(
+            expect.objectContaining({ id: running!["id"], state: "reconciling" }),
+          ),
+        );
+        expect(status()).not.toContainEqual(expect.objectContaining({ outcome: "policy-changed" }));
       }, 10_000);
       it("is not used by the next login while it could not be removed", async () => {
         vi.useFakeTimers();
@@ -518,7 +508,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           [0, "detail", "shown-again", 2],
         ]);
         expect(savedLinks(h)).toEqual([birthLink]);
-        expect(fake.state.session[refusedKey]).toEqual([birthRefusal]);
         // The person signs out and the page asks again: the link is not used.
         for (const listener of fake.state.removed.splice(0)) listener(1);
         await vi.advanceTimersByTimeAsync(1_000);
@@ -798,7 +787,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         await until(() => clicks("confirm") === 1);
         await h.hello({ documentId: "again" }, false);
         await until(settled("watching", "challenge"), 5_000);
-        expect(fake.state.session[refusedKey]).toEqual([birthRefusal]);
         // The person signs out and the page asks again; the refused link is not used.
         for (const listener of fake.state.removed.splice(0)) listener(1);
         await vi.advanceTimersByTimeAsync(1_000);
@@ -814,9 +802,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect(handlerReports(report).at(-1)).toEqual([0, "detail", "detail-saved", 2]),
         );
         expect(savedLinks(h)).toEqual([birthLink]);
-        // The session no longer keeps the refusal, so a restarted worker does not bring it
-        // back.
-        expect(fake.state.session[refusedKey]).toEqual([]);
       });
       it("has nothing to show for a tab without a web page or a login", async () => {
         const { h } = start([birthLink]);

@@ -7,11 +7,13 @@ import { ssoPopupMessage } from "./sso-choices";
 import { authorizeConfirmation } from "./confirm-fill";
 import { cancelConfirm, confirmBusy, forgetConfirmTab } from "./confirm-state";
 import {
+  CHOICE_ONLY_CAUSES,
   keypadStep,
   sameLoginDocument,
   validateLoginOperation,
   type LoginAttemptMetadata,
   type LoginDocument,
+  type SettingsChangeCause,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import {
@@ -485,9 +487,16 @@ export async function operationRun(
 /**
  * Settings were synced from the service or saved locally: stops every running login but
  * a watched one, which only reads, so it is checked against the new settings instead and
- * stops only when they no longer plan its account (ADR 0027).
+ * stops only when they no longer plan its account (ADR 0027). A save of only a choice
+ * (`CHOICE_ONLY_CAUSES`) changes nothing running logins or open offers were authorized
+ * under, so it stops none of them.
  */
-export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
+export function settingsChanged(
+  rt: Runtime,
+  source: "synced" | "saved",
+  cause?: SettingsChangeCause,
+): void {
+  if (cause !== undefined && CHOICE_ONLY_CAUSES.has(cause)) return;
   rt.ssoChoices?.invalidateAll("settings-changed");
   // An SSO flow ends only when what it depends on changed; its effects check meanwhile.
   void ssoVaultChanged(rt, "sso-settings-changed").catch(() => undefined);

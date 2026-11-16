@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, vi } from "vitest";
 import {
   parseLoginRecipe,
+  SETTINGS_CHANGE_HISTORY,
   type ExcludedField,
   type LocalSettings,
   type SavedLoginBinding,
@@ -253,7 +254,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       update: vi.fn(
         async (
           expected: number | undefined,
-          _cause: SettingsChangeCause,
+          cause: SettingsChangeCause,
           mutate: (value: SettingsSnapshot) => SettingsSnapshot,
           authorize?: Parameters<
             NonNullable<Parameters<typeof createLoginRuntime>[0]["update"]>
@@ -271,7 +272,13 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
           )
             throw new Error("settings-authorization-failed");
           const next = mutate(structuredClone(snapshot));
-          Object.assign(snapshot, next, { revision: snapshot.revision + 1 });
+          const revision = snapshot.revision + 1;
+          Object.assign(snapshot, next, {
+            revision,
+            changes: [...(snapshot.changes ?? []), { revision, cause }].slice(
+              -SETTINGS_CHANGE_HISTORY,
+            ),
+          });
           return structuredClone(snapshot);
         },
       ),

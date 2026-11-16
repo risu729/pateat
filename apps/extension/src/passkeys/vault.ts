@@ -2,6 +2,7 @@ import {
   connectionUse,
   getItemEligibility,
   isSupportedSite,
+  onlyChoicesSince,
   itemAsksForMasterPassword,
   siteDefaultConnection,
   type SettingsResponse,
@@ -288,7 +289,7 @@ export function createVaultPasskeySource(
     );
     return (
       saved !== undefined &&
-      saved.snapshot.revision === candidate.settingsRevision &&
+      onlyChoicesSince(saved.snapshot, candidate.settingsRevision) &&
       connection?.snapshotId === candidate.snapshotId &&
       !connection.quarantinedItemIds?.includes(candidate.itemId) &&
       passkeyEligible(
@@ -385,7 +386,7 @@ export async function rememberVaultPasskey(input: {
 }): Promise<boolean> {
   const { origin, candidate } = input;
   const saved = await input.settings.handle({ version: 1, type: "settings.get" });
-  if (!saved.ok || saved.snapshot.revision !== candidate.settingsRevision) return false;
+  if (!saved.ok || !onlyChoicesSince(saved.snapshot, candidate.settingsRevision)) return false;
   const { settings } = saved.snapshot;
   const connection = saved.catalog.connections.find((entry) => entry.id === candidate.connectionId);
   if (

@@ -1,4 +1,5 @@
 import {
+  onlyChoicesSince,
   getItemEligibility,
   itemAsksForMasterPassword,
   runsLogin,
@@ -70,7 +71,10 @@ async function snapshotFor(rt: Runtime, work: ConfirmWork) {
   if (!snapshot.ok || !confirmCurrent(rt, work)) return;
   const permission = pagePermission(snapshot.snapshot.settings, live.url, "confirm");
   if (!work.generation && permission.permission !== "fill") return;
-  if (work.policyRevision !== undefined && snapshot.snapshot.revision !== work.policyRevision)
+  if (
+    work.policyRevision !== undefined &&
+    !onlyChoicesSince(snapshot.snapshot, work.policyRevision)
+  )
     return;
   return snapshot;
 }

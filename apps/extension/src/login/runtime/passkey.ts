@@ -1,4 +1,5 @@
 import {
+  onlyChoicesSince,
   nextLoginOperation,
   passkeyAnswersRequest,
   routeSteps,
@@ -202,7 +203,7 @@ export async function signedInAfterFrame(
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!stillLive()) return false;
   const matched =
-    snapshot.ok && snapshot.snapshot.revision === record.policyRevision
+    snapshot.ok && onlyChoicesSince(snapshot.snapshot, record.policyRevision)
       ? await itemMatchesUrl(rt, snapshot, record.account, live.url, snapshot.catalog)
       : { reason: "settings-revision" };
   if (!stillLive()) return false;

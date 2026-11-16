@@ -5,6 +5,7 @@ import {
   getItemEligibility,
   isFieldExcluded,
   sameLoginDocument,
+  standingRevision,
   siteDefaultConnection,
   type LoginFieldTarget,
   type LoginDocument,
@@ -97,10 +98,15 @@ export async function remember(rt: Runtime, run: Execution): Promise<void> {
     }
     writing = true;
     const written = await rt.settings
-      .update(run.metadata.policyRevision, "account-choice", (snapshot) => ({
-        ...snapshot,
-        settings: withChoice(snapshot.settings, choice),
-      }))
+      // A choice written since the login's revision leaves it standing (`CHOICE_ONLY_CAUSES`).
+      .update(
+        standingRevision(latest.snapshot, run.metadata.policyRevision),
+        "account-choice",
+        (snapshot) => ({
+          ...snapshot,
+          settings: withChoice(snapshot.settings, choice),
+        }),
+      )
       .then(
         () => "saved" as const,
         () => "write-failed" as const,

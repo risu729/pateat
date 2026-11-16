@@ -63,6 +63,13 @@ request naming an RP ID of another site is admitted when that RP's
 `/.well-known/webauthn` lists the page's origin (WebAuthn related origin requests), as
 the official Bitwarden extension does; otherwise it is handed on as before
 (implemented).
+Amended on 2026-11-16 by the owner's rule that all settings sync and the service is the
+source of truth (agent's design, local tests only): "Always for this site" writes the
+hostname to the settings at once, and a revision of only that cause stops no running
+login and ends no open offer
+([choice-only revisions](../architecture.md#choice-only-revisions)). It replaces the
+`storage.session` buffer that held the choice while its write waited up to two minutes
+for a running login, and its resume after a worker restart.
 Amended on 2026-10-23 to match the code since
 [ADR 0021](0021-account-choice-outside-settings.md): [Bridge topology](#bridge-topology)
 said navigation does not cancel a request, but leaving a document cancels its pending
@@ -472,15 +479,12 @@ settings page only needs to remove it, not add it.
 - The extension's settings page lists the hostnames under "Sites whose passkey requests
   go to the browser", each with only a Remove button. A removal is a settings save, so
   the next request on that host is answered again without a reload.
-- The chosen hostname holds at once, for passkey requests and for logins. It is kept in
-  `storage.session`, so it also holds after a worker restart, which resumes its write
-  while it was still waiting and within the wait limit. A write that had started is
-  never repeated, so a removal on the settings page wins. The write waits up to two
-  minutes for a running login, which a settings write would stop, as a settings sync
-  does (the agent's addition, not confirmed by the owner). It is then written with the
-  cause `passkey-browser-site`, which a save conflict on the settings page treats as
-  background work (ADR 0025), and uploaded. The hostname leaves `storage.session` once
-  the write lands or is refused. A full list of 1,000 keeps its entries.
+- The chosen hostname holds at once, for passkey requests and for logins, and is
+  written to the settings at once with the cause `passkey-browser-site`, which a save
+  conflict on the settings page treats as background work (ADR 0025), and uploaded.
+  While the write runs, the worker holds the hostname in memory. A running login and an
+  open offer outlast a revision of only this cause (amended 2026-11-16, below). A full
+  list of 1,000 keeps its entries.
 - The refusal of an item without a password on a listed hostname names the list in the
   popup, not a missing passkey, since its passkeys are not read there
   (`password-empty:passkey-browser-site`).

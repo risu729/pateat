@@ -5,6 +5,8 @@ import {
   resolveBindingFields,
   sameLoginDocument,
   loginFieldSource,
+  onlyChoicesSince,
+  standingRevision,
   totpFieldMismatch,
   type LoginRecipe,
   type SettingsResponse,
@@ -125,7 +127,7 @@ export async function offerBindingReview(
   if (
     previous &&
     sameLoginDocument(previous.document, live.document) &&
-    previous.policyRevision === snapshot.snapshot.revision &&
+    onlyChoicesSince(snapshot.snapshot, previous.policyRevision) &&
     previous.snapshotId === connection.snapshotId &&
     previous.recipeMark === JSON.stringify(recipe) &&
     same(previous.binding, issue.binding) &&
@@ -155,7 +157,7 @@ export async function offerBindingReview(
 /** Freshness common to offers, execution overrides and the final settings write. */
 async function currentReview(rt: Runtime, review: BindingReviewState, snapshot: Snapshot) {
   if (
-    snapshot.snapshot.revision !== review.policyRevision ||
+    !onlyChoicesSince(snapshot.snapshot, review.policyRevision) ||
     (await scopeOf(rt, snapshot.snapshot).catch(() => undefined)) !== review.scope
   )
     return undefined;
@@ -195,7 +197,7 @@ async function currentReview(rt: Runtime, review: BindingReviewState, snapshot: 
     latest?.ok && latest.catalog.connections.find((entry) => entry.id === review.connectionId);
   if (
     !latest?.ok ||
-    latest.snapshot.revision !== review.policyRevision ||
+    !onlyChoicesSince(latest.snapshot, review.policyRevision) ||
     !current ||
     current.snapshotId !== review.snapshotId ||
     !same(current, connection) ||
@@ -560,7 +562,7 @@ export async function settleBindingReview(rt: Runtime, run: Execution) {
     )
       return;
     await rt.settings.update(
-      review.policyRevision,
+      standingRevision(snapshot.snapshot, review.policyRevision),
       "account-choice",
       (value) => {
         const original = findLoginBinding(

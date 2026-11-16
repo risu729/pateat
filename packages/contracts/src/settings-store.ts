@@ -38,6 +38,52 @@ function recordChange(
 }
 
 /**
+ * Causes of a revision that only writes a choice for one site at once, which leaves
+ * everything a running login, an open offer or a pending write was authorized under as it
+ * was: a site whose passkey requests go to the browser (ADR 0007) and the removal of
+ * personal-detail links a site refused (ADR 0061). Both held at once in memory before the
+ * write landed, so a revision of only these changes nothing a login has not seen already.
+ */
+export const CHOICE_ONLY_CAUSES: ReadonlySet<SettingsChangeCause> = new Set([
+  "passkey-browser-site",
+  "detail-refused",
+]);
+
+/**
+ * Whether `snapshot` still holds what revision `since` was authorized under: it is that
+ * revision, or every later one is recorded with a cause in `causes`. A revision older than
+ * the kept history, or a store behind `since`, does not.
+ */
+export function onlyChoicesSince(
+  snapshot: Pick<SettingsSnapshot, "revision" | "changes">,
+  since: number,
+  causes: ReadonlySet<SettingsChangeCause> = CHOICE_ONLY_CAUSES,
+): boolean {
+  if (snapshot.revision === since) return true;
+  if (snapshot.revision < since) return false;
+  const recorded = new Map((snapshot.changes ?? []).map((entry) => [entry.revision, entry.cause]));
+  for (let revision = since + 1; revision <= snapshot.revision; revision += 1) {
+    const cause = recorded.get(revision);
+    if (cause === undefined || !causes.has(cause)) return false;
+  }
+  return true;
+}
+
+/**
+ * The revision a write authorized under revision `since` expects of the store: `snapshot`'s
+ * own when only choices were written since (`onlyChoicesSince`), so the write goes ahead
+ * on top of them, and otherwise `since`, which the store refuses as a conflict. The store
+ * itself stays exact, as a write merged from an older read, such as a settings sync's,
+ * would undo a choice written meanwhile.
+ */
+export function standingRevision(
+  snapshot: Pick<SettingsSnapshot, "revision" | "changes">,
+  since: number,
+): number {
+  return onlyChoicesSince(snapshot, since) ? snapshot.revision : since;
+}
+
+/**
  * Why `current` is no longer the revision a save expected, oldest cause first. The
  * settings page also reads it from a newer snapshot before retrying a save (ADR 0025).
  */

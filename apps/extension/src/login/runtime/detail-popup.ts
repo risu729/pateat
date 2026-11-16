@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  onlyChoicesSince,
   detailSourceFieldKey,
   getItemEligibility,
   isSiteAllowed,
@@ -87,7 +88,7 @@ export async function detailFillCurrent(
   const snapshot = await rt.settings
     .handle({ version: 1, type: "settings.get" })
     .catch(() => undefined);
-  if (!snapshot?.ok || !current() || snapshot.snapshot.revision !== grant.policyRevision)
+  if (!snapshot?.ok || !current() || !onlyChoicesSince(snapshot.snapshot, grant.policyRevision))
     return false;
   const { account } = grant.offer;
   return (
@@ -311,7 +312,7 @@ export async function guessCard<T extends { itemId: string }>(
       : undefined;
     if (
       !after?.ok ||
-      after.snapshot.revision !== snapshot.revision ||
+      !onlyChoicesSince(after.snapshot, snapshot.revision) ||
       !now ||
       now.state !== connection.state ||
       now.snapshotId !== connection.snapshotId

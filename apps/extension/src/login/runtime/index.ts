@@ -1,7 +1,12 @@
 import { ssoScope } from "./sso-scope";
 import { installSsoLifecycle, ssoVaultChanged } from "./sso/flow";
 import * as v from "valibot";
-import { parseAttemptMetadata, recoverLoginAttempt, type LocalSettings } from "@pateat/contracts";
+import {
+  parseAttemptMetadata,
+  recoverLoginAttempt,
+  type LocalSettings,
+  type SettingsChangeCause,
+} from "@pateat/contracts";
 import { browser, type Browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 import { configureSchema } from "../wire";
@@ -20,7 +25,6 @@ import {
   RELOGINS_KEY,
   DETAIL_OFFERS_KEY,
   PENDING_DETAILS_KEY,
-  REFUSED_DETAILS_KEY,
   pickedAccountSchema,
   pendingChoiceSchema,
   askSchema,
@@ -28,11 +32,9 @@ import {
   entryPressSchema,
   detailOfferSchema,
   pendingDetailSchema,
-  refusedDetailSchema,
 } from "./session-schemas";
 import { choiceBadge, recordKey, reloginKey } from "./steps";
 import { armEntryTimer, asksEveryTime } from "./entry-press";
-import { refusalKey } from "./detail-fill";
 import { probeMode } from "./constants";
 import { pausingSettings, showTabPause, pauseOf } from "./pause";
 import { frameLeftInPlace } from "./moves";
@@ -148,7 +150,8 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
       await ssoVaultChanged(rt);
       await rt.ssoChoices?.vaultStateMayChange();
     },
-    settingsChanged: (source: "synced" | "saved") => settingsChanged(rt, source),
+    settingsChanged: (source: "synced" | "saved", cause?: SettingsChangeCause) =>
+      settingsChanged(rt, source, cause),
     siteCount,
     /** A site default was saved outside the settings page, as by the passkey chooser. */
     siteDefaultSaved: () => void choiceDefaults(rt),
@@ -255,7 +258,6 @@ function startRuntime(rt: Runtime) {
       RELOGINS_KEY,
       DETAIL_OFFERS_KEY,
       PENDING_DETAILS_KEY,
-      REFUSED_DETAILS_KEY,
     ]);
     const stored = Object.fromEntries(items.map(({ key, value }) => [key, value]));
     const repairs = v.safeParse(
@@ -325,13 +327,6 @@ function startRuntime(rt: Runtime) {
     if (kept.success)
       for (const entry of kept.output)
         rt.pendingDetails.set(entry.tabId, [...(rt.pendingDetails.get(entry.tabId) ?? []), entry]);
-    const refused = v.safeParse(
-      v.pipe(v.array(refusedDetailSchema), v.maxLength(1000)),
-      stored[REFUSED_DETAILS_KEY] ?? [],
-    );
-    if (refused.success)
-      for (const entry of refused.output)
-        rt.refusedDetails.set(refusalKey(rt, entry, entry.detail, entry.field), entry);
   });
 
   // An account switch whose worker stopped while it logged out ended with it: its pick is

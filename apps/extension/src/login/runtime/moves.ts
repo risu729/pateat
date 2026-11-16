@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  onlyChoicesSince,
   loginObservationSchema,
   recoverLoginAttempt,
   transitionLoginAttempt,
@@ -644,7 +645,7 @@ export async function moveUsername(
   record: LoginAttemptMetadata,
 ): Promise<string | undefined> {
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
-  if (!snapshot.ok || snapshot.snapshot.revision !== record.policyRevision) return undefined;
+  if (!snapshot.ok || !onlyChoicesSince(snapshot.snapshot, record.policyRevision)) return undefined;
   const { connectionId, itemId } = record.account;
   const connection = snapshot.catalog.connections.find((entry) => entry.id === connectionId);
   const fieldId = connection && loginUsernameFieldId(connection, itemId);

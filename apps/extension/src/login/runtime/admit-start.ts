@@ -2,6 +2,7 @@ import { ssoChildOn } from "./sso-scope";
 import { registerSsoChild } from "./sso-state";
 import { bindNativeChoice } from "./sso/passkey-refused";
 import {
+  onlyChoicesSince,
   attemptRouteChoice,
   createAttemptMetadata,
   isGeneratedRecipeId,
@@ -630,7 +631,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         type: "REVISED",
         recipeRevision: ctx.recipe.revision,
       });
-    if (metadata.policyRevision !== snapshot.snapshot.revision && !terminal(metadata)) {
+    if (!onlyChoicesSince(snapshot.snapshot, metadata.policyRevision) && !terminal(metadata)) {
       // A watched login keeps watching while the newer settings still plan its account
       // (ADR 0027).
       const kept =

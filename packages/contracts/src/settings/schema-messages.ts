@@ -35,6 +35,8 @@ export const SETTINGS_CHANGE_CAUSES = [
   "account-choice",
   /** A vault field linked to a personal detail on a site, or that link removed (ADR 0061). */
   "detail-link",
+  /** Links whose value a site refused, removed so no login fills them again (ADR 0061). */
+  "detail-refused",
   /** A site whose passkey requests go to the browser, from the chooser (ADR 0007). */
   "passkey-browser-site",
 ] as const;
