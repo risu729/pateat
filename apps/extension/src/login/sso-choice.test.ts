@@ -331,7 +331,7 @@ describe("local SSO method chooser", () => {
       const id = await result(h);
       const revision = h.saved.snapshot.revision + 1;
       h.saved.snapshot.revision = revision;
-      h.saved.snapshot.changes = [{ revision, cause }];
+      h.saved.snapshot.changes = [...(h.saved.snapshot.changes ?? []), { revision, cause }];
       expect((await h.controller.consume(id)).ok).toBe(true);
     },
   );
