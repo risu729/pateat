@@ -1,7 +1,8 @@
 import type { LocalSettings } from "@pateat/contracts";
 import { Vault } from "lucide-react";
 import { describeError, type ManageClient } from "./api";
-import { useSettings } from "./settings";
+import { serverLabel, useSettings } from "./settings";
+import { SsoMappings } from "./sso-mappings";
 import {
   Badge,
   ErrorNotice,
@@ -18,13 +19,6 @@ type ExcludedField = ItemPolicy["excludedFields"][number];
 type Account = Pick<AccountPolicy, "provider" | "server" | "userId">;
 
 const accountKey = (entry: Account) => JSON.stringify([entry.provider, entry.server, entry.userId]);
-
-/** Where an account lives, as the owner set it up on a device. */
-export function serverLabel(server: string): string {
-  if (server === "cloud-us") return "Bitwarden cloud (US)";
-  if (server === "cloud-eu") return "Bitwarden cloud (EU)";
-  return server;
-}
 
 /** One excluded field as a device names it: a built-in ID, or a custom field by name. */
 export function describeExcludedField(field: ExcludedField): string {
@@ -44,7 +38,8 @@ function itemSummary(item: ItemPolicy): string {
 
 /**
  * Which vault items Pateat uses, per provider account (ADR 0023). Devices edit these,
- * since only they have the item and field lists; this page only lists them.
+ * since only they have the item and field lists; this page only lists them. The SSO
+ * mappings below it need no vault to remove, so they can be removed here (ADR 0085).
  */
 export function VaultsPage({ client }: { client: ManageClient }) {
   const settings = useSettings(client);
@@ -63,7 +58,10 @@ export function VaultsPage({ client }: { client: ManageClient }) {
       ) : settings.isError ? (
         <ErrorNotice id="vaults-status">{describeError(settings.error)}</ErrorNotice>
       ) : (
-        <VaultList settings={settings.data.settings} />
+        <>
+          <VaultList settings={settings.data.settings} />
+          <SsoMappings client={client} settings={settings.data.settings} />
+        </>
       )}
     </section>
   );

@@ -726,8 +726,10 @@ this repair. Recipe and pairing mutation epochs and the vault's current open sna
 are checked synchronously at the final settings mutation, after its asynchronous
 authorization reads. The service keeps
 excluded sites, allowed sites, site defaults and the synced vault policy per settings
-profile, and bindings and personal-detail links (`detailLinks`,
-[ADR 0061](adr/0061-personal-details-during-a-login.md)) per owner, under one owner
+profile, and bindings, personal-detail links (`detailLinks`,
+[ADR 0061](adr/0061-personal-details-during-a-login.md)) and SSO mappings
+(`ssoMappings`, [ADR 0085](adr/0085-one-item-for-native-and-sso-login.md)) per owner,
+under one owner
 revision ([ADR 0024](adr/0024-settings-profiles.md),
 [ADR 0076](adr/0076-settings-profiles-delivered.md)). Each device uses one profile,
 chosen when it pairs or on the management page's Devices page; `/manage/profiles`
@@ -740,7 +742,8 @@ access and origin middleware. An identity that has not paired a device sees an e
 profile list; settings requests answer `404 not_paired` in management and
 `404 not_found` in the extension editor. When a device's profile changes, the extension
 replaces its exclusions, saved accounts and vault policy with the new profile's and
-drops its merge base for them, while bindings and personal-detail links keep merging.
+drops its merge base for them, while bindings, personal-detail links and SSO mappings
+keep merging.
 Chrome use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
@@ -903,18 +906,22 @@ vocabulary contains login operations only.
 
 ### Choice-only revisions
 
-Every settings revision records its cause. Two causes write only a choice the person
-made for one site, which the device already applies in memory before the write lands: a
-hostname chosen "Always for this site" in the passkey chooser (`passkey-browser-site`,
+Every settings revision records its cause. Three causes write only a choice the person
+made, which nothing already authorized depends on: a hostname chosen "Always for this
+site" in the passkey chooser (`passkey-browser-site`,
 [ADR 0007](adr/0007-existing-passkey-assertions.md)) and the removal of personal-detail
 links a site refused (`detail-refused`,
-[ADR 0061](adr/0061-personal-details-during-a-login.md#refused-values)). Both are
-written at once, with no session buffer and no wait for a running login. A login, an
-open offer (a login's account choice being saved, a binding review, a confirmation, a
-detail fill from the popup or a vault passkey picked in the chooser) or a write
-authorized under an older revision stays authorized while every later revision in the
-kept history has one of these causes (`CHOICE_ONLY_CAUSES`, `onlyChoicesSince`). So do
-an SSO flow, its offer, its validate fence and its saved choices, and two reads a
+[ADR 0061](adr/0061-personal-details-during-a-login.md#refused-values)), which the
+device already applies in memory before the write lands, and an SSO method's provider
+mapping saved or removed (`sso-mapping`,
+[ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-16-sso-mappings-sync-with-the-settings)),
+which a running login or flow never reads again and an open offer compares itself. All
+three are written at once, with no session buffer and no wait for a running login. A
+login, an open offer (a login's account choice being saved, a binding review, a
+confirmation, a detail fill from the popup or a vault passkey picked in the chooser) or
+a write authorized under an older revision stays authorized while every later revision
+in the kept history has one of these causes (`CHOICE_ONLY_CAUSES`, `onlyChoicesSince`).
+So do an SSO flow, its offer, its validate fence and its saved choices, and two reads a
 confirmation compares, which then agree apart from their settings. A later write that
 such work makes, as an account choice or a binding review, checks this inside the
 settings queue and applies to what the queue holds; the removal of refused links and a
@@ -3516,8 +3523,8 @@ uses give way to it. A dedicated `kind: "sso"` generation request sends only sel
 account/method labels and a value-free page description; no IdP origin, account,
 username or mapping is sent. New labels join the newest SSO layout, each family is
 repaired once a UTC day apart, and the retry window follows the stored SSO entries
-rather than the requested labels or the recipe's revision. The method chooser, local
-mappings ([local SSO choice](#local-sso-choice-boundary)), the same-tab coordinator and
+rather than the requested labels or the recipe's revision. The method chooser, synced
+mappings ([SSO choice](#local-sso-choice-boundary)), the same-tab coordinator and
 IdP behavior now integrate those contracts; packaged and independent checks remain
 distinct from real-account proof.
 
@@ -4068,7 +4075,9 @@ people.
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
 - Settings. Every live profile's document, composed with the owner's shared account
-  bindings and personal-detail links, is at most 120 KiB of UTF-8 JSON. A settings
+  bindings, personal-detail links and SSO mappings, is at most 120 KiB of UTF-8 JSON.
+  At most 200 SSO mappings of about 300 bytes each leave half of it to the rest. A
+  settings
   replacement checks the proposed shared parts with every live profile, including
   profiles that no device uses, and may not grow any composition past the limit. A
   profile already over it, as stored before this check, does not block writes that leave
@@ -4081,8 +4090,8 @@ people.
   parts. A refused composition answers 413 `settings_limit` without changing settings,
   the revision or the writing device's acknowledgement. Device sync and both profile
   editors retain pending edits and report the size failure; device sync retries after
-  entries are reduced. Writes replace the shared parts too: omitting `detailLinks`
-  clears them rather than retaining earlier links.
+  entries are reduced. Writes replace the shared parts too: omitting `detailLinks` or
+  `ssoMappings` clears them rather than retaining earlier entries.
 - The inference request log, login result codes and login records are kept one year
   (owner, 2026-10-18). The log's calls are bounded by the $5 daily spend limit; requests
   answered without a call are logged too (owner, 08:04 UTC) within the request limit
@@ -4677,26 +4686,37 @@ submission or success of the action guarded by the verification page.
 
 ## Local SSO choice boundary
 
-The local SSO discovery wrapper, mapping store and method-choice controller implement
-the metadata and popup boundary of
-[ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-mapping-and-method-choice).
+The local SSO discovery wrapper and method-choice controller implement the metadata and
+popup boundary of
+[ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-mapping-and-method-choice),
+with the mappings in the synced settings since its
+[amendment of 2026-11-16](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-16-sso-mappings-sync-with-the-settings).
 The coordinator consumes them to start a scoped SSO login. The account is chosen first.
 The coordinator requests a method choice for that account and consumes a one-use opaque
 receipt that is validated again; it still owns same-tab navigation, exact document and
 origin checks and credential release. SSO preflight runs before ordinary native
 admission and keeps its separate effect boundary.
 
-The trusted device-local mapping record (`pateat.login.sso-mappings.v1`, never synced,
-as ADR 0085 keeps the mapping local) is `{version: 1, entries}`, at most 1,000 entries.
-Each names its site and IdP accounts by provider, server, user and item ID, as synced
-settings do, with the method number, encrypted-source evidence and selected origin, so a
-vault sync or a reconnected connection keeps it. A record or an entry that does not
-parse counts as none and is overwritten. A save and a vault notice whose accounts
-changed drop the mappings of accounts the catalog shows are gone. A saved mapping is
-validated directly; discovery runs only for an unmapped method or when the person asks.
-Popup choices are memory-only, bounded to ten minutes and withdrawn on cancellation, a
-settings change, a catalog change behind the offer's accounts, and a new document or
-path in the offer's own frame or the top frame. An SSO route validates its own method
+The owner part `ssoMappings` holds at most 200 mappings, one per site item and method.
+Each names its site and IdP items by provider, server, user and item ID, as other
+synced settings do, with the method number and the IdP origin, and nothing else, so a
+vault sync, a reconnected connection or another device resolves it. The popup's choice
+writes it at once with the `sso-mapping` cause, refusing `mapping-limit` before a write
+that would fill the list or the settings document, and `mapping-save-failed` when the
+write fails. A revision of only that cause keeps running logins, open offers and the
+other work fenced on a settings revision ([choice-only
+revisions](#choice-only-revisions)), but an offer whose own site item's mappings
+changed since it was made, in another tab or through a sync, is withdrawn, and its
+write refuses `scope-changed`. A
+vault sync drops the mappings of an item that account's previous snapshot held and the
+next one no longer lists, counting unreadable items as listed (`connections/policy.ts`).
+A saved mapping is validated directly at every use; discovery runs only for an unmapped
+method or when the person asks, and a mapping this device cannot resolve can still be
+removed, here in the popup or from any browser on the service's Vaults page, which
+lists every mapping by item ID. Popup choices are memory-only, bounded to ten minutes
+and withdrawn on cancellation, a settings change other than a choice-only revision, a
+catalog change behind the offer's accounts, and a new document or path in the offer's
+own frame or the top frame. An SSO route validates its own method
 and refuses another mapped method on the same IdP account, even through different
 connections; a native route needs no SSO method. A URL-form choice names one of at most
 100 observed entries by opaque ID and checks it again locally; no mapping or exact

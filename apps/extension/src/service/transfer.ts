@@ -4,6 +4,7 @@ import {
   MAX_ACTIVE_RECIPES,
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
+  ssoMappingKey,
   TRANSFER_FORMAT,
   transferFileSchema,
   transferRequestSchema,
@@ -105,7 +106,10 @@ function changes(before: LocalSettings, after: LocalSettings) {
       (was.language === now.language ? 0 : 1) +
       (was.theme === now.theme ? 0 : 1) +
       (same(was.modelSpendLimits, now.modelSpendLimits) ? 0 : 1) +
-      (was.popupPageSection === now.popupPageSection ? 0 : 1),
+      (was.popupPageSection === now.popupPageSection ? 0 : 1) +
+      // An SSO mapping names its site by the item, not an origin, so it counts as another
+      // setting (ADR 0085).
+      new Set(changed(was.ssoMappings, now.ssoMappings).map(ssoMappingKey)).size,
   };
 }
 

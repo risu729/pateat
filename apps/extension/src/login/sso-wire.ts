@@ -89,6 +89,8 @@ export const ssoResponseSchema = v.variant("ok", [
               label: v.optional(v.pipe(v.string(), v.maxLength(128))),
               candidates: v.pipe(v.array(candidateSchema), v.maxLength(2000)),
               selectedId: v.optional(id),
+              /** The settings hold a mapping of the method, which it can remove. */
+              mapped: v.optional(v.literal(true)),
               /** Why this method cannot run now, and the canonical field a refusal names. */
               reason: v.optional(id),
               field: v.optional(id),

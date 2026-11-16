@@ -126,7 +126,7 @@ describe("popup binding repair through the production runtime", () => {
     },
   );
 
-  it.each(["passkey-browser-site", "detail-refused"] as const)(
+  it.each(["passkey-browser-site", "detail-refused", "sso-mapping"] as const)(
     "accepts a pick after a revision whose only cause is %s",
     async (cause) => {
       const h = start();

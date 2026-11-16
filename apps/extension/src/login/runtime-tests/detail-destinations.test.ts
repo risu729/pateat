@@ -313,6 +313,23 @@ describe("personal-detail popup fills (ADR 0061)", () => {
         );
       });
 
+      it("keeps a pending authorization through a revision that only saved an SSO mapping", async () => {
+        const { h } = await stoppedAtQuestion([pairing]);
+        await duringFill(
+          h,
+          async (check) => {
+            expect(await check()).toBe(true);
+            h.settings.revision += 1;
+            h.settings.changes = [
+              ...(h.settings.changes ?? []),
+              { revision: h.settings.revision, cause: "sso-mapping" },
+            ];
+            expect(await check()).toBe(true);
+          },
+          true,
+        );
+      });
+
       it("withdraws a pending authorization when its vault snapshot changes", async () => {
         const { h } = await stoppedAtQuestion([pairing]);
         await duringFill(

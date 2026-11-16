@@ -13,12 +13,14 @@ import {
   settingsDocumentBytes,
   siteDefaultConnection,
   siteDefaultSchema,
+  ssoMappingKey,
   type LocalSettings,
   type PagePermissionDefaults,
   type PagePermissionKind,
   type SettingsChangeCause,
   type SettingsSnapshot,
   type SitePagePermission,
+  type SsoMapping,
   type SyncSettingsState,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -47,10 +49,11 @@ type DetailLink = NonNullable<LocalSettings["detailLinks"]>[number];
 /**
  * The part of the settings that means the same on every device (ADR 0013): site
  * exclusions, defaults and bindings, each provider account's vault policy and
- * custom-field reviews (ADR 0023), and the links to the vault fields that hold a login's
- * personal details (ADR 0061). Bindings and detail links belong to the owner; the rest to
- * a profile (ADR 0076). Vault connections stay on this device, and so does the policy of
- * the unsynced demo provider.
+ * custom-field reviews (ADR 0023), the links to the vault fields that hold a login's
+ * personal details (ADR 0061), and the identity provider account and origin each SSO
+ * method uses (ADR 0085). Bindings, detail links and SSO mappings belong to the owner; the
+ * rest to a profile (ADR 0076). Vault connections stay on this device, and so does the
+ * policy of the unsynced demo provider.
  */
 export type SyncedSettings = {
   accountPolicies: AccountPolicy[];
@@ -84,6 +87,8 @@ export type SyncedSettings = {
   modelSpendLimits?: NonNullable<LocalSettings["modelSpendLimits"]>;
   bindings: Binding[];
   detailLinks: DetailLink[];
+  /** Owner's mappings from a site's SSO method to its IdP item and origin (ADR 0085). */
+  ssoMappings: SsoMapping[];
   popupPageSection: boolean;
 };
 
@@ -114,6 +119,7 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     ...(settings.modelSpendLimits ? { modelSpendLimits: settings.modelSpendLimits } : {}),
     bindings: settings.bindings,
     detailLinks: settings.detailLinks ?? [],
+    ssoMappings: settings.ssoMappings ?? [],
     popupPageSection: popupPageSectionShown(settings),
   };
 }
@@ -130,6 +136,7 @@ const emptySynced: SyncedSettings = {
   siteDefaults: [],
   bindings: [],
   detailLinks: [],
+  ssoMappings: [],
   popupPageSection: true,
 };
 
@@ -449,6 +456,12 @@ export function mergeSyncedSettings(
     ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
     detailLinks: mergeDetailLinks(part("detailLinks"), local.detailLinks, service.detailLinks),
+    ssoMappings: mergeEntries(
+      part("ssoMappings"),
+      local.ssoMappings,
+      service.ssoMappings,
+      ssoMappingKey,
+    ),
     popupPageSection: mergeValue(
       part("popupPageSection"),
       local.popupPageSection,
@@ -527,6 +540,7 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     same(left.modelSpendLimits, right.modelSpendLimits) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
     same(sorted(left.detailLinks, detailLinkKey), sorted(right.detailLinks, detailLinkKey)) &&
+    same(sorted(left.ssoMappings, ssoMappingKey), sorted(right.ssoMappings, ssoMappingKey)) &&
     left.popupPageSection === right.popupPageSection
   );
 }
@@ -537,9 +551,10 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
  * a setting turned off is the absent field, so the local copy's field goes as well.
  */
 function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSettings {
-  const { popupPageSection, ...lists } = merged;
+  const { popupPageSection, ssoMappings, ...lists } = merged;
   const {
     popupPageSection: _replaced,
+    ssoMappings: _mappings,
     pagePermissionDefaults: _pageDefaults,
     sitePagePermissions: _pageSites,
     loginInPrivateWindows: _off,
@@ -557,14 +572,21 @@ function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSett
     accountPolicies: [...merged.accountPolicies, ...localOnly(settings.accountPolicies)],
     itemPolicies: [...merged.itemPolicies, ...localOnly(settings.itemPolicies)],
     customFieldReviews: [...merged.customFieldReviews, ...localOnly(settings.customFieldReviews)],
+    ...(ssoMappings.length ? { ssoMappings } : {}),
     ...(popupPageSection ? {} : { popupPageSection: false }),
   };
 }
 
 /** The service holds only the synced part; it never stores device-local connections. */
-const serviceDocument = ({ popupPageSection, ...lists }: SyncedSettings): LocalSettings => ({
+const serviceDocument = ({
+  popupPageSection,
+  ssoMappings,
+  ...lists
+}: SyncedSettings): LocalSettings => ({
   connections: [],
   ...lists,
+  // Left out while empty: an optional list that is absent holds none.
+  ...(ssoMappings.length ? { ssoMappings } : {}),
   ...(popupPageSection ? {} : { popupPageSection: false }),
 });
 
@@ -668,8 +690,8 @@ export function createSettingsSync(options: {
     // A matching profile base preserves local edits. A new pairing or a profile switch
     // adopts the profile's own parts below (ADR 0076); only a profile no device has
     // written yet (`newProfile`, or the owner's first settings) starts from local policy.
-    // Bindings and detail links belong to the owner, not a profile, so they keep merging
-    // either way.
+    // Bindings, detail links and SSO mappings belong to the owner, not a profile, so they keep
+    // merging either way.
     const base0: SyncBase = { service: emptySynced, local: emptySynced };
     let base = base0;
     let ownerBase = base;
@@ -760,6 +782,7 @@ export function createSettingsSync(options: {
           : mergeSyncedSettings(base, localSynced, serviceSynced)),
         bindings: ownerParts.bindings,
         detailLinks: ownerParts.detailLinks,
+        ssoMappings: ownerParts.ssoMappings,
       };
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);

@@ -1,10 +1,19 @@
 import { newId } from "@pateat/contracts/ids";
 import type { LoginAccount, LoginDocument, SettingsResponse } from "@pateat/contracts";
-import type { SsoPortableAccount } from "./sso-mapping-store";
 import type { SafeSsoMethod, SsoCandidate, SsoIdpChoice, SsoSourceRef } from "./sso-vault";
 import type { SsoResponse } from "./sso-wire";
 
 export type Saved = Extract<SettingsResponse, { ok: true }>;
+/**
+ * One vault item by its provider account, as synced settings name it (ADR 0023): the
+ * same on every device, unlike the random per-device connection ID.
+ */
+export type SsoPortableAccount = {
+  provider: string;
+  server: string;
+  userId: string;
+  itemId: string;
+};
 type AccountRef = SsoIdpChoice["account"];
 export type SsoChoiceInput = {
   /** The account is already chosen by the account chooser; methods never select an account. */
@@ -41,11 +50,15 @@ export type Method = SafeSsoMethod & {
   field?: string;
   /** Whether the person's choices were listed, not only the saved mapping. */
   discovered?: boolean;
+  /** Whether the settings hold a mapping of this method, usable here or not. */
+  stored?: true;
 };
 export type Offer = {
   id: string;
   input: SsoChoiceInput;
   saved: Saved;
+  /** The site item's saved mappings the offer holds, as its own writes leave them. */
+  mappings: string;
   /** The document's path when the offer was made; another path withdraws it. */
   path: string;
   field?: string;
@@ -140,9 +153,10 @@ export function shown(offer: Offer): ShownOffer {
       "-",
     ...offer.input.native,
     methods: offer.methods.map(
-      ({ source: _source, discovered: _discovered, candidates: list, ...method }) => ({
+      ({ source: _source, discovered: _discovered, stored, candidates: list, ...method }) => ({
         ...method,
         candidates: list.map(({ selected, ...entry }) => ({ ...entry, origin: selected.origin })),
+        ...(stored ? { mapped: true as const } : {}),
       }),
     ),
     entries: offer.input.entries ?? [],

@@ -37,6 +37,13 @@ export function vaultAccountLabel(
   return entry.accountName || `${entry.provider} account ${entry.userId}`;
 }
 
+/** Where an account lives, as the owner set it up on a device. */
+export function serverLabel(server: string): string {
+  if (server === "cloud-us") return "Bitwarden cloud (US)";
+  if (server === "cloud-eu") return "Bitwarden cloud (EU)";
+  return server;
+}
+
 /** A default account as "<item> in <vault account>"; the service holds no usernames. */
 export function defaultAccountLabel(entry: LocalSettings["siteDefaults"][number]): string {
   return `${entry.itemName || entry.itemId} in ${vaultAccountLabel(entry)}`;

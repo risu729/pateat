@@ -187,7 +187,7 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
   describe("after a settings revision while the frame signs in", () => {
     const revise = (
       h: ReturnType<typeof harness>,
-      cause: "passkey-browser-site" | "detail-refused" | "account-choice",
+      cause: "passkey-browser-site" | "detail-refused" | "sso-mapping" | "account-choice",
     ) => {
       h.settings.revision += 1;
       h.settings.changes = [
@@ -197,7 +197,7 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
     };
 
     // The new page's URL is checked against the item with the login's settings.
-    it.each(["passkey-browser-site", "detail-refused"] as const)(
+    it.each(["passkey-browser-site", "detail-refused", "sso-mapping"] as const)(
       "matches the new page's URL across a revision whose only cause is %s",
       async (cause) => {
         holdClicks();
@@ -210,7 +210,7 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
     );
 
     // Past the password's 30 seconds, the new page is read for the account's username.
-    it.each(["passkey-browser-site", "detail-refused"] as const)(
+    it.each(["passkey-browser-site", "detail-refused", "sso-mapping"] as const)(
       "reads the account's username across a revision whose only cause is %s",
       async (cause) => {
         answerUnproven();

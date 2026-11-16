@@ -694,6 +694,24 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
           expect.objectContaining({ branch: "1000", layoutFrom: "2000", stepIndex: 2 }),
         ]);
       });
+      it("switches layout after a revision that only saved an SSO mapping (ADR 0085)", async () => {
+        const { h, reports } = onEmail([original, otherForm("2000")], ["password", "login"]);
+        const run = fake.state.onExecute!;
+        fake.state.onExecute = async (message, tabId) => {
+          const { step } = message["operation"] as { step: LoginStep };
+          if (step.kind === "click" && step.purpose === "advance") {
+            h.settings.revision += 1;
+            h.settings.changes = [
+              ...(h.settings.changes ?? []),
+              { revision: h.settings.revision, cause: "sso-mapping" },
+            ];
+          }
+          return run(message, tabId);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+        expect(switches(reports)).toHaveLength(1);
+      });
       it("never goes on with a list's branch that shares the email page (#1248)", async () => {
         // The recipe holds a list beside its form (ADR 0028): the list's branch comes with
         // the form's layouts for its markers, but is no layout of the form.

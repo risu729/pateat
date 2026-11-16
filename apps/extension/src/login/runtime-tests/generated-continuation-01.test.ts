@@ -199,6 +199,21 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         ).operation;
         return `${step.kind}:${step.target?.value ?? ""}`;
       });
+  it("continues after a settings revision that only saved an SSO mapping (ADR 0085)", async () => {
+    let h!: ReturnType<typeof harness>;
+    inPlace(() => {
+      h.settings.revision += 1;
+      h.settings.changes = [
+        ...(h.settings.changes ?? []),
+        { revision: h.settings.revision, cause: "sso-mapping" },
+      ];
+    });
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+  });
   it("continues in the same document on the same path and saves both slots", async () => {
     inPlace();
     const reports: LoginReport[] = [];

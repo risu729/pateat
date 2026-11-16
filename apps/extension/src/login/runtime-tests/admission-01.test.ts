@@ -860,6 +860,17 @@ describe("production login document admission", () => {
         }),
       ).toEqual([{ ok: false, reason: "not-authorized" }]);
     });
+    it("checks a destination after a revision that only saved an SSO mapping (ADR 0085)", async () => {
+      expect(
+        await check(["https://auth.login.example/session"], { allowedOrigins: [], uris }, (h) => {
+          h.settings.revision += 1;
+          h.settings.changes = [
+            ...(h.settings.changes ?? []),
+            { revision: h.settings.revision, cause: "sso-mapping" },
+          ];
+        }),
+      ).toEqual([{ ok: true }]);
+    });
     it("refuses a check for another operation", async () => {
       expect(
         await check(

@@ -1,9 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-vi.mock("../storage", () => ({
-  trustedRecord: () => {
-    throw new Error("Use synthetic storage");
-  },
-}));
 import { ssoResponseSchema } from "./sso-wire";
 import * as v from "valibot";
 import {
@@ -13,6 +8,7 @@ import {
   idpOrigin,
   selected,
   snapshotId,
+  sourceItem,
   targetItem,
   sourceRef,
   connection,
@@ -61,11 +57,30 @@ describe("local SSO method chooser", () => {
       selection: { kind: "sso", source: sourceRef(), selected, label: "Synthetic provider" },
     });
     expect(await h.controller.consume(id)).toEqual({ ok: false, reason: "choice-gone" });
-    expect(h.saved).toEqual(before);
+    // The mapping is the only change, saved as its own revision (ADR 0085).
+    const { ssoMappings: stored, ...rest } = h.saved.snapshot.settings;
+    expect(rest).toEqual(before.snapshot.settings);
+    expect(h.saved.snapshot).toMatchObject({
+      revision: before.snapshot.revision + 1,
+      changes: [{ revision: before.snapshot.revision + 1, cause: "sso-mapping" }],
+    });
     expect(h.source.validate).toHaveBeenCalledWith(sourceRef(), selected, undefined);
-    const stored = h.records();
-    expect(stored).toHaveLength(1);
-    expect(JSON.stringify(stored)).not.toMatch(/Synthetic provider|username|proof|fieldId/u);
+    expect(stored).toEqual([
+      {
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId: sourceItem,
+        itemId: sourceItem,
+        method: 1,
+        idp: {
+          provider: "bitwarden",
+          server: "cloud-us",
+          userId: targetItem,
+          itemId: targetItem,
+          origin: idpOrigin,
+        },
+      },
+    ]);
   });
   it("passes the coordinator's signal to every vault discovery and validation", async () => {
     const h = start();
@@ -240,8 +255,8 @@ describe("local SSO method chooser", () => {
       h.records()[0]!,
       {
         ...h.records()[0]!,
-        source: { ...h.records()[0]!.source, method: { number: 2 } },
-        selected: { ...h.records()[0]!.selected, origin: "https://another-idp.example.test" },
+        method: 2,
+        idp: { ...h.records()[0]!.idp, origin: "https://another-idp.example.test" },
       },
     ]);
     h.candidateLists.set(2, []);
@@ -264,7 +279,7 @@ describe("local SSO method chooser", () => {
     const before = structuredClone(h.saved);
     let shown = await h.offer();
     await h.choose();
-    expect(h.records()[0]!.selected.origin).toBe(idpOrigin);
+    expect(h.records()[0]!.idp.origin).toBe(idpOrigin);
     shown = await h.offer();
     const alternate = shown.methods[0]!.candidates[1]!;
     expect(
@@ -275,7 +290,7 @@ describe("local SSO method chooser", () => {
       }),
     ).toEqual({ ok: true });
     expect(h.records()).toHaveLength(1);
-    expect(h.records()[0]!.selected.origin).toBe(alternate.origin);
+    expect(h.records()[0]!.idp.origin).toBe(alternate.origin);
     expect(
       await h.controller.choose({
         tabId: 7,
@@ -285,7 +300,14 @@ describe("local SSO method chooser", () => {
     ).toEqual({ ok: true });
     expect(h.records()).toEqual([]);
     expect((await h.offer()).methods[0]!.selectedId).toBeUndefined();
-    expect(h.saved).toEqual(before);
+    // Each write saved only the mappings, with their own cause.
+    const { ssoMappings: _mappings, ...rest } = h.saved.snapshot.settings;
+    expect(rest).toEqual(before.snapshot.settings);
+    expect(h.saved.snapshot.changes?.map((change) => change.cause)).toEqual([
+      "sso-mapping",
+      "sso-mapping",
+      "sso-mapping",
+    ]);
   });
   it("reuses a saved mapping after a vault sync, but not for another provider account", async () => {
     const h = start();
@@ -331,6 +353,7 @@ describe("local SSO method chooser", () => {
       const id = await result(h);
       const revision = h.saved.snapshot.revision + 1;
       h.saved.snapshot.revision = revision;
+      // After the mapping revision the choice itself wrote (ADR 0085).
       h.saved.snapshot.changes = [...(h.saved.snapshot.changes ?? []), { revision, cause }];
       expect((await h.controller.consume(id)).ok).toBe(true);
     },
@@ -512,7 +535,7 @@ it("stale offer and candidate IDs cannot select a method in another tab or repla
       selection: { kind: "mapping", method: { number: 1 }, candidateId },
     }),
   ).toEqual({ ok: false, reason: "not-a-candidate" });
-  expect(h.record.write).not.toHaveBeenCalled();
+  expect(h.updateSettings).not.toHaveBeenCalled();
 });
 
 it("a URL entry that changed before explicit choice produces no executable receipt", async () => {
@@ -602,7 +625,7 @@ describe("automatic URL method entries use only fresh exact-origin evidence", ()
       await Promise.resolve();
       expect(answer).toBeUndefined();
       expect(await h.offer()).toMatchObject({ reason: "entry-required", password: false });
-      expect(h.record.write).toHaveBeenCalledTimes(1);
+      expect(h.updateSettings).toHaveBeenCalledTimes(1);
     },
   );
   it.each(["document", "catalog", "validation"])(

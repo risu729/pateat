@@ -46,7 +46,8 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
   const current = PAGES.find((page) => page.path === (site ? "/manage/sites" : path));
   const title = site ?? current?.title;
   const editsSites = Boolean(site) || current?.path === "/manage/sites";
-  // Sites and Vaults show one profile's settings; Vaults only lists them.
+  // Sites and Vaults show one profile's settings; Vaults lists them, and removes only SSO
+  // mappings, which every profile shares.
   const usesProfile = editsSites || current?.path === "/manage/vaults";
   const profiles = useQuery({
     queryKey: PROFILES_QUERY_KEY,

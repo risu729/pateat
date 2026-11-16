@@ -803,7 +803,7 @@ describe("production login document admission", () => {
           }),
         );
       });
-      it.each(["passkey-browser-site", "detail-refused"] as const)(
+      it.each(["passkey-browser-site", "detail-refused", "sso-mapping"] as const)(
         "completes after a settings revision whose only cause is %s",
         async (cause) => {
           const h = await submitted();
@@ -866,7 +866,7 @@ describe("production login document admission", () => {
           expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
           expect(executes()).toHaveLength(2);
         });
-        it.each(["passkey-browser-site", "detail-refused"] as const)(
+        it.each(["passkey-browser-site", "detail-refused", "sso-mapping"] as const)(
           "reads the username after a revision whose only cause is %s",
           async (cause) => {
             holdClicks(origin);

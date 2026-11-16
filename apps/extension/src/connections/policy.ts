@@ -53,6 +53,24 @@ function cipherEvidence(
   };
 }
 
+/**
+ * The items of the previous accepted snapshot that the next one no longer lists: deleted
+ * from the vault, or no longer shared with the account. An item this device cannot read,
+ * as one of an organization it does not know, of an unsupported type or malformed, is
+ * still listed, so it is never taken for deleted. Lowercase IDs.
+ */
+function deletedItems(previous: VaultEntry, next: VaultEntry): Set<string> {
+  const ids = (entry: VaultEntry) =>
+    new Set(
+      [
+        ...(entry.accepted?.prepared.ciphers ?? []).map((cipher) => String(cipher.id)),
+        ...(entry.accepted?.prepared.unavailableItems ?? []).map((item) => item.itemId),
+      ].map((id) => id.toLowerCase()),
+    );
+  const kept = ids(next);
+  return new Set([...ids(previous)].filter((id) => !kept.has(id)));
+}
+
 export type ItemEvidence = { evidence: string; revisionDate?: string };
 const evidenceCache = new Map<string, Promise<Map<string, ItemEvidence>>>();
 
@@ -280,6 +298,19 @@ export function createConnectionPolicy(options: {
             : []),
         ];
         if (!snapshot.olderAfterSync.length) delete snapshot.olderAfterSync;
+        // An SSO mapping to a site or IdP item this account's vault deleted goes with it, on
+        // every device (ADR 0085). Only two snapshots of the same account show a deletion.
+        const deleted =
+          captured.previous?.accepted?.userId === accepted.userId
+            ? deletedItems(captured.previous, captured.next)
+            : new Set<string>();
+        const gone = (item: VaultAccount & { itemId: string }) =>
+          sameAccount(item, account) && deleted.has(item.itemId.toLowerCase());
+        const mappings = settings.ssoMappings?.filter(
+          (mapping) => !gone(mapping) && !gone(mapping.idp),
+        );
+        if (mappings && mappings.length !== settings.ssoMappings?.length)
+          settings.ssoMappings = mappings;
         review = reviewBlockedItems(snapshot, catalog).blocked;
         return snapshot;
       });

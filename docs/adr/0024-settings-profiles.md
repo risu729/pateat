@@ -66,11 +66,14 @@ are assigned now so that profiles can be added without moving data again:
 | `modelSpendLimits` (ADR 0040, 2026-11-02)                  | profile           |
 | `bindings`                                                 | owner (shared)    |
 | `detailLinks` (ADR 0061, 2026-10-23)                       | owner (shared)    |
+| `ssoMappings` (ADR 0085, 2026-11-16)                       | owner (shared)    |
 | Recipes, Claude credentials, spending and generation state | owner (unchanged) |
 
 - A binding states which vault field fills a recipe slot for one item; that does not
   depend on how a browser is used. A detail link (ADR 0061) states which vault field
   gives one login item's personal detail on one site, and is shared for the same reason.
+  So is an SSO mapping (ADR 0085), which states which saved IdP item and origin one SSO
+  method of a site item uses.
 - A custom-field review approves an item's current fields under one profile's
   exclusions. If reviews were shared, a field reviewed and excluded in one profile would
   become usable without review in another that does not exclude it. Each profile

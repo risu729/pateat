@@ -37,6 +37,8 @@ export const SETTINGS_CHANGE_CAUSES = [
   "detail-link",
   /** Links whose value a site refused, removed so no login fills them again (ADR 0061). */
   "detail-refused",
+  /** An SSO method mapped to its identity provider's item, or that mapping removed (ADR 0085). */
+  "sso-mapping",
   /** A site whose passkey requests go to the browser, from the chooser (ADR 0007). */
   "passkey-browser-site",
 ] as const;

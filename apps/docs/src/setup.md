@@ -309,11 +309,11 @@ passkeys. Add a Text or Hidden custom field for each SSO method:
 | `SSO` | `[Example ID] member@example.test` |
 | `SSO 2` | `[Another ID] another-member` |
 
-The brackets contain the provider label shown on the site's sign-in button. The rest
-is the full username in that provider's own saved item, even when it equals the site's
+The brackets contain the provider label shown on the site's sign-in button. The rest is
+the full username in that provider's own saved item, even when it equals the site's
 username. The label can be sent with the sanitized page description to write an SSO
-recipe; the username and saved mapping stay local. Further methods use `SSO 3` and so
-on. Excluding a field from automatic filling disables that method.
+recipe; the username stays local. Further methods use `SSO 3` and so on. Excluding a
+field from automatic filling disables that method.
 
 For an SSO-only account with one provider, the URL form also works: leave Password
 empty, put the provider account's username in Username, and set the sole `SSO` field
@@ -323,9 +323,11 @@ bracket forms on one item. These examples describe the format, not verified real
 The method is chosen only after the site account. **Sign-in method** in the popup then
 lets you choose a method and, when needed, its saved provider account and sign-in
 origin. Select an origin from that provider item's own saved websites; Pateat does not
-guess it from the label. Mappings are not synced: they stay on this device, where the
-popup replaces or removes them. A URL-form method whose page entry is not unambiguous
-asks you to choose the entry shown on the page.
+guess it from the label. The mapping syncs with your settings, so your other devices
+use it too, and the popup replaces or removes it. The service's **Vaults** page lists
+every mapping and removes one, such as one for a vault account you no longer connect
+anywhere. A URL-form method whose page entry is not unambiguous asks you to choose the
+entry shown on the page.
 
 The automatic preference is passkey, then the unsuffixed `SSO` method, then the site's
 password, which is used automatically only for an item without an unsuffixed `SSO`

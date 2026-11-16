@@ -7,7 +7,6 @@ import {
 } from "@pateat/contracts";
 import { setAccountPolicy } from "../../vault/__fixtures__/policy";
 import type { AdmitContext } from "../runtime/admit-context";
-import type { SsoMapping } from "../sso-mapping-store";
 import type { ManualStart } from "../runtime/manual-scope";
 import type { PickedAccount } from "../runtime/session-schemas";
 import type { LiveDocument } from "../runtime/types";
@@ -27,7 +26,6 @@ const { authorizeSso } = await import("../runtime/sso-effects");
 const { pauseFor } = await import("../runtime/pause");
 const { createLoginPauses } = await import("../pause");
 const { createSsoChoiceController } = await import("../sso-choice");
-const { createSsoMappingStore } = await import("../sso-mapping-store");
 const { createLoginSites } = await import("../sites");
 const { createLoginBadge, memoryBadgeStorage } = await import("../badge");
 const rp = "https://rp.example.test";
@@ -134,7 +132,7 @@ async function harness(pauses: ReturnType<typeof createLoginPauses>) {
           ok: true as const,
           data: {
             sourceEvidence: source.sourceEvidence,
-            policyRevision: 3,
+            policyRevision: saved.snapshot.revision,
             methods: [
               {
                 method: { number: 2 },
@@ -149,13 +147,17 @@ async function harness(pauses: ReturnType<typeof createLoginPauses>) {
           ok: true as const,
           data: {
             sourceEvidence: source.sourceEvidence,
-            policyRevision: 3,
+            policyRevision: saved.snapshot.revision,
             candidates: [{ account: selected.account, snapshotId, origins: [idp] }],
           },
         })),
         validate: vi.fn(async () => ({
           ok: true as const,
-          data: { sourceEvidence: source.sourceEvidence, policyRevision: 3, candidates: [] },
+          data: {
+            sourceEvidence: source.sourceEvidence,
+            policyRevision: saved.snapshot.revision,
+            candidates: [],
+          },
         })),
       },
       bindingSnapshotCurrent: () => true,
@@ -211,19 +213,18 @@ async function harness(pauses: ReturnType<typeof createLoginPauses>) {
     manual: { request, pick },
     refuse: vi.fn(async (reason: string) => ({ ok: false as const, reason })),
   } as unknown as AdmitContext;
-  let mappings: SsoMapping[] = [];
-  const store = createSsoMappingStore({
-    read: async () => ({ version: 1, entries: mappings }),
-    write: async (value) => {
-      mappings = value.entries;
-    },
-    clear: async () => {
-      mappings = [];
-    },
-  });
   rt.ssoChoices = createSsoChoiceController({
     source: rt.options.sso!,
-    store,
+    // The mapping is saved as its own revision, which the SSO flow that follows keeps.
+    updateSettings: async (_expected, cause, mutate) => {
+      const revision = saved.snapshot.revision + 1;
+      saved.snapshot = {
+        ...mutate(structuredClone(saved.snapshot)),
+        revision,
+        changes: [...(saved.snapshot.changes ?? []), { revision, cause }],
+      };
+      return structuredClone(saved.snapshot);
+    },
     readSettings: async () => structuredClone(saved),
     currentDocument: (value) => {
       const current = rt.documents.get("7:0");

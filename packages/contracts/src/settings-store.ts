@@ -40,13 +40,18 @@ function recordChange(
 /**
  * Causes of a revision that only writes a choice for one site at once, which leaves
  * everything a running login, an open offer or a pending write was authorized under as it
- * was: a site whose passkey requests go to the browser (ADR 0007) and the removal of
- * personal-detail links a site refused (ADR 0061). Both held at once in memory before the
- * write landed, so a revision of only these changes nothing a login has not seen already.
+ * was: a site whose passkey requests go to the browser (ADR 0007), the removal of
+ * personal-detail links a site refused (ADR 0061), and an SSO method's provider mapping
+ * saved or removed (ADR 0085). The first two held at once in memory before the write
+ * landed. A login or SSO flow holds the IdP account and origin a mapping gave it and
+ * never reads the mapping again, and an open method offer compares its own copy of its
+ * site item's mappings itself. A revision of only these changes nothing a login has not
+ * seen already.
  */
 export const CHOICE_ONLY_CAUSES: ReadonlySet<SettingsChangeCause> = new Set([
   "passkey-browser-site",
   "detail-refused",
+  "sso-mapping",
 ]);
 
 /**

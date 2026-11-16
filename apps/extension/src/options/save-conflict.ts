@@ -15,6 +15,7 @@ const reasons = {
   "detail-link": "a vault field for a personal detail was linked or unlinked for a site",
   "detail-refused": "a vault field a site refused for a personal detail was unlinked",
   "passkey-browser-site": "a site was set to hand its passkey requests to the browser",
+  "sso-mapping": "a provider mapping for an SSO method was saved or removed",
   unknown: "settings changed for a reason no longer recorded",
 } as const satisfies Record<SettingsConflictCause, string>;
 
