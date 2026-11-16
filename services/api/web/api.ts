@@ -9,6 +9,7 @@ import {
   profileSchema,
   manageErrorSchema,
   manageModelsSchema,
+  managePreferencesSchema,
   manageProfileInUseSchema,
   manageProblemsSchema,
   manageRecipeConflictSchema,
@@ -21,6 +22,7 @@ import {
   type LocalSettings,
   type ManageDashboardRange,
   type ManageErrorCode,
+  type ManagePreferences,
   type ModelConfig,
   type SyncSettingsState,
   type WifIdentifiers,
@@ -206,6 +208,18 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
         body: JSON.stringify({ version: 1, config }),
       });
       return read(response, manageModelsSchema);
+    },
+    /** The web UI's own preferences, the same in every browser of the owner. */
+    async preferences() {
+      return read(await call(fetcher, "/preferences"), managePreferencesSchema);
+    },
+    async savePreferences(preferences: ManagePreferences) {
+      const response = await call(fetcher, "/preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(preferences),
+      });
+      return read(response, managePreferencesSchema);
     },
     async requestLog() {
       return read(await call(fetcher, "/request-log"), manageRequestLogSchema);

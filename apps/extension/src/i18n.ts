@@ -7,7 +7,6 @@ import { profileSettingStore } from "./profile-setting";
 export const LANGUAGE_PREFERENCES = ["system", "en", "ja"] as const;
 export type LanguagePreference = (typeof LANGUAGE_PREFERENCES)[number];
 export type Language = Exclude<LanguagePreference, "system">;
-export const LANGUAGE_STORAGE_KEY = "pateat.language";
 const preferenceSchema = v.picklist(LANGUAGE_PREFERENCES);
 
 /** A separate instance keeps the extension's resources independent of other programs. */

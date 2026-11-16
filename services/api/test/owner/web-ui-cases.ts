@@ -179,4 +179,56 @@ export function registerOwnerWebUiCases({ manageApi, pairDevice }: OwnerTestHelp
     expect(await responses[0]!.json()).toEqual({ error: "forbidden" });
     expect((await deviceApi(target.credential)).status).toBe(200);
   });
+
+  it("keeps the web UI's theme per owner, for every browser it signs in with", async () => {
+    const first = await owner();
+    const second = await owner();
+    await Promise.all([pairDevice(first), pairDevice(second)]);
+    const put = (by: { token: string }, body: unknown, origin: string | null = ORIGIN) =>
+      request("/manage/api/preferences", {
+        method: "PUT",
+        access: by.token,
+        headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
+        body: JSON.stringify(body),
+      });
+    const read = async (by: { token: string }) => {
+      const response = await manageApi("/manage/api/preferences", by.token, "GET");
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    expect(await read(first)).toEqual({ version: 1, theme: "system" });
+    const saved = await put(first, { version: 1, theme: "dark" });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({ version: 1, theme: "dark" });
+    expect(await read(first)).toEqual({ version: 1, theme: "dark" });
+    expect(await read(second)).toEqual({ version: 1, theme: "system" });
+    // Browser setting is no stored choice.
+    expect((await put(first, { version: 1, theme: "system" })).status).toBe(200);
+    const row = await env.DB.prepare("SELECT web_theme FROM owners WHERE id = ?")
+      .bind(await ownerIdFor(first.subject))
+      .first<{ web_theme: string | null }>();
+    expect(row).toEqual({ web_theme: null });
+    // Only the three choices, from the page's own origin.
+    expect((await put(first, { version: 1, theme: "sepia" })).status).toBe(400);
+    expect((await put(first, { version: 1, theme: "dark", extra: 1 })).status).toBe(400);
+    expect((await put(first, { version: 1, theme: "dark" }, "https://evil.example")).status).toBe(
+      403,
+    );
+    expect((await manageApi("/manage/api/preferences", first.token, "DELETE")).status).toBe(405);
+    expect(await read(first)).toEqual({ version: 1, theme: "system" });
+  });
+
+  it("keeps no theme for an identity that never paired a device", async () => {
+    const { subject, token } = await owner();
+    expect((await manageApi("/manage/api/preferences", token, "GET")).status).toBe(404);
+    const response = await request("/manage/api/preferences", {
+      method: "PUT",
+      access: token,
+      headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify({ version: 1, theme: "dark" }),
+    });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_paired" });
+    expect(await ownerIdFor(subject)).toBeNull();
+  });
 }

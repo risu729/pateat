@@ -366,9 +366,10 @@ than in this repository.
   - Done: light and dark themes with a Theme select (Browser setting, Light, Dark) in
     the extension's settings page and the `/manage` footer; Browser setting, the
     default, follows the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC).
-    The choice is presentation only. The `/manage` choice is kept in its `localStorage`
-    (`pateat.theme`); the extension's is the synced profile setting `theme` since
-    2026-11-02 (ADR 0024), with a `localStorage` copy for each page's start.
+    The choice is presentation only. The `/manage` choice is the owner's, kept by the
+    service since 2026-11-16 with a `localStorage` copy (`pateat.theme`) for each page's
+    start; the extension's is the synced profile setting `theme` since 2026-11-02
+    (ADR 0024), with a `localStorage` copy too.
   - Done: the extension's settings page has the approved layout: a section list with the
     Theme select at its foot, panels, icon-led status lines and no intro paragraphs.
     Each Bitwarden connection is a row with its vault, sync sign-in and automatic-unlock

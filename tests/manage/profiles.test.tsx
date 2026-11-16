@@ -62,6 +62,8 @@ test("selecting another profile clears the old policy view and writes only to th
     })),
     dashboard: vi.fn(),
     models: vi.fn(),
+    preferences: vi.fn(async () => ({ version: 1 as const, theme: "system" as const })),
+    savePreferences: vi.fn(),
     saveModels: vi.fn(),
     requestLog: vi.fn(),
     deleteRequestLog: vi.fn(),

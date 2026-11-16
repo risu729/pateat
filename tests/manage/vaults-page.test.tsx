@@ -63,6 +63,11 @@ function mockClient(state: SyncSettingsState) {
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
     models: vi.fn<ManageClient["models"]>(),
+    preferences: vi.fn<ManageClient["preferences"]>(async () => ({
+      version: 1 as const,
+      theme: "system" as const,
+    })),
+    savePreferences: vi.fn<ManageClient["savePreferences"]>(async (preferences) => preferences),
     saveModels: vi.fn<ManageClient["saveModels"]>(),
     claude: vi.fn<ManageClient["claude"]>(),
     saveClaude: vi.fn<ManageClient["saveClaude"]>(),

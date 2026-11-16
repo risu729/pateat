@@ -22,6 +22,13 @@ import {
 export const owners = sqliteTable("owners", {
   id: text("id").primaryKey(),
   createdAt: integer("created_at").notNull(),
+  /**
+   * The owner web UI's theme, chosen on any of its pages; null follows the browser. The
+   * owner's, not a profile's: the pages belong to no device (architecture.md, Page
+   * styles and theme). The API writes only `light` or `dark`; a check would rebuild the
+   * table every row names.
+   */
+  webTheme: text("web_theme", { enum: ["light", "dark"] }),
 });
 
 /**

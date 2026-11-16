@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { AccessIdentity } from "./auth";
 import { ownerIdentities, owners } from "./db/schema";
+import type { ManagePreferences } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
 
 /** Selects the identity's mapping row; its `ownerId` is the identity's owner. */
@@ -36,7 +37,7 @@ export function ownerCreationStatements(orm: DrizzleD1Database, identity: Access
     orm
       .insert(owners)
       .select(
-        sql`SELECT ${ownerId}, ${now} WHERE NOT EXISTS (SELECT 1 FROM ${ownerIdentities} WHERE ${ownerIdentities.issuer} = ${identity.issuer} AND ${ownerIdentities.subject} = ${identity.subject})`,
+        sql`SELECT ${ownerId}, ${now}, NULL WHERE NOT EXISTS (SELECT 1 FROM ${ownerIdentities} WHERE ${ownerIdentities.issuer} = ${identity.issuer} AND ${ownerIdentities.subject} = ${identity.subject})`,
       ),
     orm
       .insert(ownerIdentities)
@@ -44,4 +45,30 @@ export function ownerCreationStatements(orm: DrizzleD1Database, identity: Access
         sql`SELECT ${identity.issuer}, ${identity.subject}, ${ownerId}, ${now} WHERE EXISTS (SELECT 1 FROM ${owners} WHERE ${owners.id} = ${ownerId})`,
       ),
   ] as const;
+}
+
+/**
+ * The owner web UI's preferences (`managePreferencesSchema`): its theme, null in the row
+ * for `system`. A value the API never writes reads as `system`.
+ */
+export async function readPreferences(db: D1Database, ownerId: string): Promise<ManagePreferences> {
+  const [row] = await drizzle(db)
+    .select({ webTheme: owners.webTheme })
+    .from(owners)
+    .where(eq(owners.id, ownerId))
+    .limit(1);
+  const theme = row?.webTheme;
+  return { version: 1, theme: theme === "light" || theme === "dark" ? theme : "system" };
+}
+
+/** Saves the owner web UI's preferences; the last write wins, as they are presentation only. */
+export async function savePreferences(
+  db: D1Database,
+  ownerId: string,
+  preferences: ManagePreferences,
+): Promise<void> {
+  await drizzle(db)
+    .update(owners)
+    .set({ webTheme: preferences.theme === "system" ? null : preferences.theme })
+    .where(eq(owners.id, ownerId));
 }

@@ -931,8 +931,14 @@ written again with the next settings write.
 Settings are synced by default (owner, 2026-11-02 09:48 UTC;
 [ADR 0024](adr/0024-settings-profiles.md)): a new setting is part of the profile, or of
 the owner's shared parts, unless the owner agrees that it stays on the device. The vault
-timeout, language, theme and spend limits are synced since 2026-11-02. The owner agreed
-that these stay on the device:
+timeout, language, theme and spend limits are synced since 2026-11-02; since 2026-11-16
+the owner's rule is that all settings sync and the service is the source of truth, so a
+choice is written to the synced settings at once rather than held in a session buffer
+([choice-only revisions](#choice-only-revisions)), the blocks of sign-in entry recipes
+are the owner's ([ADR 0031](adr/0031-sign-in-entry-pages.md)), and the owner web UI's
+theme is kept by the service ([page styles and theme](#page-styles-and-theme)). What
+stays on the device is not a setting but a secret, a sign-in, this device's own data or
+a cache:
 
 | Setting | Where it is stored | Why it stays |
 | --- | --- | --- |
@@ -941,6 +947,9 @@ that these stay on the device:
 | Debug logging until a time or until turned off ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)) | the diagnostics log's IndexedDB | The log itself never leaves the device |
 | Vault connections: server, account and sign-in ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)) | `connections` in `pateat.local-settings.v1` | Each device signs in to Bitwarden itself |
 | The demo vaults' policies | `accountPolicies`, `itemPolicies` and `customFieldReviews` entries of the `dummy` provider | The demo vaults exist on this device only |
+| The spend counted against this device's own Anthropic key ([ADR 0040](adr/0040-running-without-the-service.md)) | `storage.local` `pateat.device-model-spend.v1` | It counts calls made with a key only this device holds; the limits it is held to sync |
+| Generated slot maps: the vault field each custom slot of a recipe generated here names ([ADR 0027](adr/0027-per-account-login-routes.md#custom-fields-in-generation)) | `storage.local` `pateat.generated-slots.v1` | It names this device's vault fields for the recipe until a login saves a binding, which syncs; ADR 0027 accepts that other devices cannot fill those slots before that |
+| Copies of synced state: recipes, the settings base, entry blocks this device made before the service took them, and the owner web UI's theme | `storage.local`, and the web UI's `localStorage` `pateat.theme` | Caches only, for a page to render or a login to start before the service answers; the service's copy replaces them |
 
 ### Hostnames Pateat does not run on
 
@@ -2322,18 +2331,26 @@ Theme select (Browser setting, Light, Dark): at the foot of the extension settin
 page's section list and in the owner web UI's footer (owner, 2026-10-12 20:54 UTC); the
 Worker's script-free pages always follow the browser. Browser setting, the default,
 follows the browser's `prefers-color-scheme`. The choice is presentation only. The owner
-web UI keeps it in its own `localStorage` under `pateat.theme`, per browser profile. The
-extension's choice is the synced profile setting `theme` (`light` or `dark`, absent for
-Browser setting; owner, 2026-11-02, [ADR 0024](adr/0024-settings-profiles.md)), saved by
-the settings page like its other settings; each extension page keeps a copy in its
-`localStorage` under `pateat.theme` (`src/theme-profile.ts`). A page applies the stored
-copy before it renders, as a `data-theme` attribute on the root element, then the synced
-value once read, and an open page follows a change made on another page of the same
-program through the `storage` event and a sync through `chrome.storage`. Because neither
-program's pages allow inline script (the MV3 policy, and the owner web UI's
-`script-src 'self'`), the choice is applied from the page's module, so a page whose
-stored choice differs from the browser's scheme may paint one frame in the browser's
-scheme first.
+web UI's choice is the owner's, kept by the service (`owners.web_theme`, null for
+Browser setting) and read and saved through `GET` and `PUT /manage/api/preferences`, so
+every browser the owner signs in with shows it (2026-11-16, under the owner's rule that
+all settings sync). It is the owner's rather than a profile's: the web pages belong to
+no device and so to no profile, and following one profile's `theme` would change the
+pages when another profile is edited. Each browser keeps a copy in `localStorage` under
+`pateat.theme` only to paint the page before the service answers; the service's answer,
+read again when the page regains focus, replaces it, and a choice made on the page is
+saved to both. An identity without a paired device has no owner, so its choice stays in
+that browser. The extension's choice is the synced profile setting `theme` (`light` or
+`dark`, absent for Browser setting; owner, 2026-11-02,
+[ADR 0024](adr/0024-settings-profiles.md)), saved by the settings page like its other
+settings; each extension page keeps a copy in its `localStorage` under `pateat.theme`
+(`src/theme-profile.ts`). A page applies the stored copy before it renders, as a
+`data-theme` attribute on the root element, then the synced value once read, and an open
+page follows a change made on another page of the same program through the `storage`
+event and a sync through `chrome.storage`. Because neither program's pages allow inline
+script (the MV3 policy, and the owner web UI's `script-src 'self'`), the choice is
+applied from the page's module, so a page whose stored choice differs from the browser's
+scheme may paint one frame in the browser's scheme first.
 
 Forced colors, such as Windows contrast themes, replace the popup's accent colors and
 drop its shadows, so the popup gives its selected account card and its switch system

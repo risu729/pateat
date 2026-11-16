@@ -85,6 +85,11 @@ function mockClient(saveError?: ManageApiError) {
     saveClaude: vi.fn<ManageClient["saveClaude"]>(),
     testClaude: vi.fn<ManageClient["testClaude"]>(),
     models: vi.fn<ManageClient["models"]>(async () => structuredClone(view)),
+    preferences: vi.fn<ManageClient["preferences"]>(async () => ({
+      version: 1 as const,
+      theme: "system" as const,
+    })),
+    savePreferences: vi.fn<ManageClient["savePreferences"]>(async (preferences) => preferences),
     saveModels: vi.fn<ManageClient["saveModels"]>(async (config: ModelConfig) => {
       if (saveError) throw saveError;
       view = { ...view, config: structuredClone(config), saved: true };
