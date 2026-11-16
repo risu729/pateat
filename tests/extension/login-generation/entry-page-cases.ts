@@ -111,6 +111,65 @@ export function registerEntryPages({
       }
     });
 
+  test("an entry whose Login link leads to a sign-up form is blocked for the owner (ADR 0031, amended 2026-11-16)", async () => {
+    test.setTimeout(90_000);
+    const fixture = await startLoginFixture(0, { password, accountName: username });
+    const claude = syntheticClaude();
+    const service = await startSyncService({ claude: claude.answer });
+    // The top page's only link opens a sign-up form on the same host: two password inputs.
+    const top = "https://www.synthetic.example.test";
+    try {
+      await withVaultProfile(
+        async (open) => {
+          const browser = await open();
+          await serveSite(browser.context, fixture);
+          await browser.context.route(`${top}/**`, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              body:
+                new URL(route.request().url()).pathname === "/join"
+                  ? `<!doctype html><html lang="en"><head><title>Join</title></head><body>
+              <main><h1>Create your account</h1><form>
+                <input id="email" type="email" autocomplete="email">
+                <input id="new" type="password" autocomplete="new-password">
+                <input id="confirm" type="password" autocomplete="new-password">
+                <button type="button">Join</button></form></main></body></html>`
+                  : `<!doctype html><html lang="en"><head><title>Synthetic art</title></head><body>
+              <header><a href="${top}/join">Login</a></header>
+              <main><h1>Synthetic art</h1><p>Sign in to see your bookmarks.</p></main>
+            </body></html>`,
+            }),
+          );
+          await connect(browser, service);
+
+          const page = await browser.context.newPage();
+          await page.goto(`${top}/en/?return_to=%2Fbookmarks`);
+          await expect(page).toHaveURL(`${top}/join`, { timeout: 30_000 });
+          // The device reports the block, and the service hands it to every device's sync.
+          await expect
+            .poll(
+              async () =>
+                ((await (await service.request("/v1/recipes")).json()) as RecipeChanges).changes,
+              { timeout: SETTLE_MS },
+            )
+            .toEqual([
+              expect.objectContaining({
+                state: "active",
+                recipe: expect.objectContaining({ origin: top }),
+                entryBlock: { reason: "sign-up", blockedAt: expect.any(Number) },
+              }),
+            ]);
+          // The sign-up page is never sent for generation.
+          expect(claude.prompts.map((prompt) => prompt.task)).toEqual(["entry"]);
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });
+
   for (const changing of [false, true])
     test(`a page without a sign-in input is sent ${changing ? "at its five-second limit while its DOM keeps changing" : "once its DOM is quiet for a second"} (ADR 0057)`, async () => {
       const fixture = await startLoginFixture(0, { password, accountName: username });

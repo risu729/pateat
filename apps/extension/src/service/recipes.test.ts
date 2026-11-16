@@ -336,6 +336,7 @@ describe("recipe sync", () => {
     setup,
     page,
     crowdedCache,
+    exactCache,
     incoming,
     revoked,
     CREDENTIAL,

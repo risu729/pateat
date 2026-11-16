@@ -215,8 +215,12 @@ export const manageApiRoutes = new Hono<ApiEnv>()
         console.error("Unused recipe revocation failed");
       }
     const rows = ownerId
-      ? // Each head write takes the owner's next sequence number.
-        await selectHeads(c.env.DB, ownerId).orderBy(desc(recipeHeads.sequence))
+      ? // Most recently written first. The sequence also moves for an entry block, which
+        // is no write, so it only orders writes of the same millisecond.
+        await selectHeads(c.env.DB, ownerId).orderBy(
+          desc(recipeHeads.updatedAt),
+          desc(recipeHeads.sequence),
+        )
       : [];
     const read = rows.map((row) => ({ ...readChange(row), updatedAt: row.updatedAt }));
     const [uses, sources] = ownerId

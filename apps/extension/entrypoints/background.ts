@@ -86,6 +86,7 @@ import { createLoginOutcomes } from "../src/service/outcomes";
 import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
 import { createDeviceRecipes } from "../src/service/device-recipes";
+import { createEntryBlocks, ENTRY_BLOCKS_KEY } from "../src/service/entry-blocks";
 import { createRecipeSync } from "../src/service/recipes";
 import { createTransfer } from "../src/service/transfer";
 import { createServiceRuntime } from "../src/service/runtime";
@@ -273,6 +274,9 @@ export default defineBackground(() => {
   const deviceRecipes = createDeviceRecipes({
     storage: createBrowserDeviceRecipeStorage(),
     transport: serviceTransport,
+    // Called only during a recipe sync, after the entry blocks below exist.
+    uploaded: (recipe, revision, connection) => entryBlocks.uploaded(recipe, revision, connection),
+    forgotten: (recipes) => entryBlocks.forgotten(recipes),
   });
   const service = createServiceRuntime({
     storage: createBrowserServiceStorage(),
@@ -289,6 +293,11 @@ export default defineBackground(() => {
       keepSynced: async () => {
         const synced = await recipeSync.synced();
         if (synced?.length) await deviceRecipes.keep(synced);
+        // ADR 0031: their entry blocks stay with them.
+        await recipeSync
+          .syncedBlocks()
+          .then((blocks) => entryBlocks.keep(blocks))
+          .catch(() => undefined);
         await deviceGenerationBackend.forget();
       },
       clear: async () => {
@@ -415,9 +424,19 @@ export default defineBackground(() => {
       diagnosticsLog.recipeSync(outcome, changes);
       if (outcome === "synced") {
         void loginOutcomes.flush();
+        void entryBlocks.flush();
         void problemReports?.flush();
       }
     },
+  });
+  // ADR 0031, amended 2026-11-16: entry recipe revisions whose press led nowhere are the
+  // owner's, sent to the service and brought to every device by its recipe sync. Not a
+  // login record, so `serviceReports` does not turn it off.
+  const entryBlocks = createEntryBlocks({
+    storage: trustedRecord(ENTRY_BLOCKS_KEY),
+    service,
+    transport: serviceTransport,
+    synced: () => recipeSync.entryBlocks(),
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
   recipeSync.refreshIfStale();
@@ -558,6 +577,7 @@ export default defineBackground(() => {
     passkeyItems: (origin) => originPasskeyItems(vaultPasskeys, origin),
     // ADR 0007: a hostname chosen "Always" counts as listed while its write waits.
     pendingBrowserSite: (origin) => browserSites.pending(origin),
+    entryBlocks,
     report: (report) => {
       diagnosticsLog.login(report);
       loginBadge.observe(report);

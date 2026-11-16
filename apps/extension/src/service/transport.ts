@@ -21,6 +21,7 @@ import {
   type DevicePairResult,
   type EntryGenerationRequest,
   type EntryGenerationResult,
+  type EntryBlockReport,
   type LoginOutcomeReport,
   type LoginRecord,
   type LogoutGenerationRequest,
@@ -290,6 +291,16 @@ export interface ServiceTransport {
     credential: string,
     recipeId: string,
     report: LoginOutcomeReport,
+  ): Promise<OutcomeResult>;
+  /**
+   * `POST /v1/recipes/:recipeId/entry-block`: an entry recipe revision whose press led
+   * nowhere on this device, for every device of the owner (ADR 0031, amended 2026-11-16).
+   */
+  reportEntryBlock(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    report: EntryBlockReport,
   ): Promise<OutcomeResult>;
   /**
    * `POST /v1/recipes/:recipeId/logins`: one ended login's result code and times, without
@@ -578,6 +589,14 @@ export function createServiceTransport(
         origin,
         credential,
         `/v1/recipes/${encodeURIComponent(recipeId)}/outcome`,
+        report,
+      );
+    },
+    reportEntryBlock(origin, credential, recipeId, report) {
+      return post(
+        origin,
+        credential,
+        `/v1/recipes/${encodeURIComponent(recipeId)}/entry-block`,
         report,
       );
     },

@@ -24,6 +24,8 @@ import { type LogoutService } from "../switch";
 import type { PasskeyItem } from "../../passkeys/runtime";
 import type { createBrowserFake } from "./browser-fake";
 const { createLoginRuntime } = await import("../runtime");
+const { createEntryBlocks, ENTRY_BLOCKS_KEY } = await import("../../service/entry-blocks");
+const { trustedRecord } = await import("../../storage");
 const { createLoginSites } = await import("../sites");
 const { observedPath } = await import("../../observation/path");
 export { createLoginRuntime, createLoginSites, observedPath };
@@ -418,6 +420,13 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
       ...(live.passkeyActive ? { passkeyActive: live.passkeyActive } : {}),
       ...(live.pendingBrowserSite ? { pendingBrowserSite: live.pendingBrowserSite } : {}),
+      // The device's own entry blocks, without a pairing (ADR 0031).
+      entryBlocks: createEntryBlocks({
+        storage: trustedRecord(ENTRY_BLOCKS_KEY),
+        service: { connection: async () => undefined },
+        transport: { reportEntryBlock: async () => ({ kind: "kept" }) },
+        synced: async () => [],
+      }),
       ...(live.vault ? { vault: live.vault } : {}),
       ...(live.bindingScope ? { bindingScope: live.bindingScope } : {}),
       bindingSnapshotCurrent:

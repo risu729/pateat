@@ -34,9 +34,9 @@ import {
 } from "./steps";
 import { switchingElsewhere } from "./hold";
 import { siteHeldElsewhere as recordsSiteHeldElsewhere } from "./hold-policy";
-import { type EntryBlock, entryBlockSchema, type EntryPress } from "./session-schemas";
+import { type EntryPress } from "./session-schemas";
 import { type EntryBlockReason, type LiveDocument, type VaultMatch } from "./types";
-import { MAX_ENTRY_BLOCKS, ENTRY_NEXT_PAGE_MS, ENTRY_PRESS_MS } from "./constants";
+import { ENTRY_NEXT_PAGE_MS, ENTRY_PRESS_MS } from "./constants";
 import { report, saveSession, send, spinning, spendBefore } from "./attempt";
 import { quietly } from "./session-store";
 import { startsFor, usernameReads, pausedMeanwhile } from "./generation-scope";
@@ -74,55 +74,26 @@ export function siteHeldElsewhere(rt: Runtime, tabId: number, site: string): boo
   );
 }
 
-export function readEntryBlocks(rt: Runtime): Promise<EntryBlock[] | undefined> {
-  const read: Promise<EntryBlock[] | undefined> = rt.entryBlockRecords.read().then(
-    (stored) => {
-      const parsed = v.safeParse(v.array(entryBlockSchema), stored ?? []);
-      return parsed.success ? parsed.output : [];
-    },
-    () => {
-      if (rt.vars.entryBlocks === read) rt.vars.entryBlocks = undefined;
-      return undefined;
-    },
-  );
-  rt.vars.entryBlocks ??= read;
-  return rt.vars.entryBlocks;
-}
-
 /**
- * Blocks an entry recipe revision on this device, and whether the block was stored. A
- * read of the stored blocks that failed writes nothing, so other recipes' blocks are
- * never lost; that block, like one whose write failed, holds in this worker only.
+ * Blocks an entry recipe revision for the owner (ADR 0031, amended 2026-11-16), and whether
+ * the block was stored; one that could not be, as when the device's blocks could not be
+ * read, holds in this worker only.
  */
 export async function blockEntry(
   rt: Runtime,
   press: EntryPress,
   reason: EntryBlockReason,
 ): Promise<boolean> {
-  const block: EntryBlock = {
-    recipeId: press.recipeId,
-    revision: press.revision,
-    reason,
-    blockedAt: isoTime(Date.now()),
-  };
-  const stored = await readEntryBlocks(rt);
-  if (!stored) {
-    rt.unsavedBlocks.push(block);
-    return false;
-  }
-  const next = [
-    // A block of an older revision of the same recipe no longer applies.
-    ...stored.filter((entry) => entry.recipeId !== press.recipeId),
-    block,
-  ].slice(-MAX_ENTRY_BLOCKS);
-  rt.vars.entryBlocks = Promise.resolve(next);
-  try {
-    await rt.entryBlockRecords.write(next);
-    return true;
-  } catch {
-    rt.unsavedBlocks.push(block);
-    return false;
-  }
+  const recipe = { id: press.recipeId, revision: press.revision };
+  const stored = (await rt.options.entryBlocks?.block(recipe, reason).catch(() => false)) ?? false;
+  if (!stored)
+    rt.unsavedBlocks.push({
+      recipeId: press.recipeId,
+      revision: press.revision,
+      reason,
+      blockedAt: isoTime(Date.now()),
+    });
+  return stored;
 }
 
 /** Logs one sign-in entry decision (ADR 0031). */
@@ -540,10 +511,13 @@ export async function entryPressRefusal(
 ): Promise<string | undefined> {
   const { tabId, frameId, origin: pageOrigin } = live.document;
   if (frameId !== 0 || live.topUrl !== undefined) return "frame";
-  const blocks = await readEntryBlocks(rt);
-  if (!blocks) return "storage-unavailable";
+  const blocked = await (rt.options.entryBlocks?.blocked(recipe) ?? Promise.resolve(false)).catch(
+    () => undefined,
+  );
+  if (blocked === undefined) return "storage-unavailable";
   if (
-    [...blocks, ...rt.unsavedBlocks].some(
+    blocked ||
+    rt.unsavedBlocks.some(
       (entry) => entry.recipeId === recipe.id && entry.revision === recipe.revision,
     )
   )

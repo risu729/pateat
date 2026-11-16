@@ -38,6 +38,7 @@ and `generation.ts`.
 | `POST /v1/recipes/:recipeId/outcome` | Keep how the first login of a revision ended, as result codes only; 204 |
 | `POST /v1/recipes/:recipeId/logins` | Keep one record of a login that ended: its result codes, extension build and times, with the recipe's origin; 204 |
 | `POST /v1/recipes/:recipeId/use` | Mark an active recipe used because a login started on one of its revisions; 204, or 404 |
+| `POST /v1/recipes/:recipeId/entry-block` | Block an entry recipe's head revision whose press led nowhere, for every device of the owner; 204, 400 for a recipe that is no entry, or 404 |
 | `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
@@ -59,7 +60,7 @@ and `generation.ts`.
 | `POST /manage/api/devices/:deviceId/profile` | Assign an owned profile to an owned active device; advances the settings revision |
 | `GET /manage/api/profiles/:profileId/settings` | Selected owned profile with shared bindings and owner revision; 404 for a foreign profile |
 | `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; a document with `connections` or over 120 KiB is 400 `bad_request` (a body over 128 KiB is 413 `payload_too_large`), and one that would grow any live profile's composition with the proposed shared data past 120 KiB is 413 `settings_limit` |
-| `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use and first page's source (`firstPage`: origin, model, time; ADR 0060), most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
+| `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use and first page's source (`firstPage`: origin, model, time; ADR 0060), most recently written first (an entry block, ADR 0031, does not move a recipe); active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `POST /manage/api/recipes/:recipeId/layouts/:layout/revoke` | Remove one layout as the next revision if `expectedRevision` is the head, revoking the recipe when it was the last; 404 for a layout the head lacks, otherwise 409 with the current head |
 | `GET /manage/api/models` | The owner's model choices per role (`config`, the defaults while `saved` is false) and the models they may name (`models`): from the Models API with the owner's credential (`catalog: "models-api"`), else the pricing page (`"pricing"`), each with its efforts, rates and fast mode state (`none`, `available`, `failing`) |
@@ -707,6 +708,25 @@ head's `last_used_at` to the service's time when the head is active and the revi
 at most its head, and answers 204, and marks the layout used when the head's document
 has it; a recipe the owner does not hold, a revision above its head or a revoked recipe
 answers 404. Nothing else is stored.
+
+`POST /v1/recipes/:recipeId/entry-block` takes `{ version: 1, revision, reason }`, with
+`reason` `left-site`, `no-sign-in` or `sign-up`: a device pressed that revision of an
+entry recipe and the page after it blocked the revision
+([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md#amendment-2026-11-16-the-block-is-the-owners)).
+Any other field answers 400, a body over 256 bytes 413. For the active head revision of
+an entry recipe it keeps one `recipe_entry_blocks` row per recipe, with the reason, the
+device and the service's time, and moves the head to the owner's next sequence, so every
+device's next `GET /v1/recipes` brings the head again with
+`entryBlock: { reason, blockedAt }`. The first report of a revision wins: a repeat, from
+any device, changes nothing. A revision below the head, which a newer one replaced,
+answers 204 and keeps nothing; a recipe the owner does not hold, a revoked one or a
+revision above its head answers 404, and a head that is no entry recipe 400. Every
+winning write of the recipe, a newer revision or its revocation from a device or
+`/manage`, deletes the row in the same batch, so revoking the recipe in the owner web UI
+ends the block and its page is generated again. The `/manage` recipe list shows the
+block with the entry. It is the owner's recipe state rather than a login record, so the
+profile's `serviceReports` does not turn it off and the request log's delete-all keeps
+it.
 
 `POST /v1/device/problems` takes `{ version: 1, extensionBuild, logId, entries }` with 1
 to 100 entries `{ seq, time, level, event, fields }`: the calling device's `warn` and

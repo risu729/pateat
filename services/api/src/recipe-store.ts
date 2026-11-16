@@ -1,4 +1,5 @@
 import {
+  entryBlockReasonSchema,
   MAX_ACTIVE_RECIPE_BYTES,
   runsLogin,
   storedLayouts,
@@ -27,6 +28,7 @@ import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as v from "valibot";
 import {
   owners,
+  recipeEntryBlocks,
   recipeHeads,
   recipeLayoutUses,
   recipeRevisions,
@@ -56,30 +58,46 @@ type HeadRow = {
   sequence: number;
   updatedAt: number;
   document: unknown;
+  /** The head revision's entry block (ADR 0031), when a device reported one. */
+  blockReason?: string | null;
+  blockedAt?: number | null;
 };
 
 /** Every head read is owner-scoped here; callers can only narrow it further. */
 export function selectHeads(db: D1Database, ownerId: string, ...conditions: SQL[]) {
-  return drizzle(db)
-    .select({
-      recipeId: recipeHeads.recipeId,
-      revision: recipeHeads.revision,
-      state: recipeHeads.state,
-      sequence: recipeHeads.sequence,
-      updatedAt: recipeHeads.updatedAt,
-      document: recipeRevisions.document,
-    })
-    .from(recipeHeads)
-    .innerJoin(
-      recipeRevisions,
-      and(
-        eq(recipeRevisions.ownerId, recipeHeads.ownerId),
-        eq(recipeRevisions.recipeId, recipeHeads.recipeId),
-        eq(recipeRevisions.revision, recipeHeads.revision),
-      ),
-    )
-    .where(and(eq(recipeHeads.ownerId, ownerId), ...conditions))
-    .$dynamic();
+  return (
+    drizzle(db)
+      .select({
+        recipeId: recipeHeads.recipeId,
+        revision: recipeHeads.revision,
+        state: recipeHeads.state,
+        sequence: recipeHeads.sequence,
+        updatedAt: recipeHeads.updatedAt,
+        document: recipeRevisions.document,
+        blockReason: recipeEntryBlocks.reason,
+        blockedAt: recipeEntryBlocks.blockedAt,
+      })
+      .from(recipeHeads)
+      .innerJoin(
+        recipeRevisions,
+        and(
+          eq(recipeRevisions.ownerId, recipeHeads.ownerId),
+          eq(recipeRevisions.recipeId, recipeHeads.recipeId),
+          eq(recipeRevisions.revision, recipeHeads.revision),
+        ),
+      )
+      // Only a block of the head revision counts; a newer revision supersedes it.
+      .leftJoin(
+        recipeEntryBlocks,
+        and(
+          eq(recipeEntryBlocks.ownerId, recipeHeads.ownerId),
+          eq(recipeEntryBlocks.recipeId, recipeHeads.recipeId),
+          eq(recipeEntryBlocks.revision, recipeHeads.revision),
+        ),
+      )
+      .where(and(eq(recipeHeads.ownerId, ownerId), ...conditions))
+      .$dynamic()
+  );
 }
 
 /**
@@ -94,10 +112,15 @@ export function readChange(row: Omit<HeadRow, "sequence" | "updatedAt">): {
 } {
   const tombstone = { recipeId: row.recipeId, revision: row.revision, state: "revoked" as const };
   if (row.state === "active") {
+    // A stored reason this build does not know reads as no block, never as an unreadable head.
+    const reason = v.safeParse(entryBlockReasonSchema, row.blockReason);
     const active = v.safeParse(syncRecipeChangeSchema, {
       ...tombstone,
       state: row.state,
       recipe: row.document,
+      ...(reason.success && typeof row.blockedAt === "number"
+        ? { entryBlock: { reason: reason.output, blockedAt: row.blockedAt } }
+        : {}),
     });
     if (active.success) return { change: active.output, unreadable: false };
   }
@@ -511,10 +534,22 @@ export async function writeRecipe(
           ),
         ]
       : [];
+  // Runs only after this request's claim won: a newer revision or a revocation ends the
+  // block of the revision it replaces (ADR 0031).
+  const endedBlock = orm
+    .delete(recipeEntryBlocks)
+    .where(
+      and(
+        eq(recipeEntryBlocks.ownerId, ownerId),
+        eq(recipeEntryBlocks.recipeId, recipeId),
+        sql`EXISTS (SELECT 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`,
+      ),
+    );
   const [claimed, recorded] = await orm.batch([
     claim,
     history,
     pruned,
+    endedBlock,
     unusedLayouts,
     ...copiedSources,
     staleSources,

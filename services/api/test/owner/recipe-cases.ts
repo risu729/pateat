@@ -1,7 +1,7 @@
 import { manageRecipesSchema, type LoginRecipeDocument, type PageKind } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { deviceApi, ORIGIN, owner, ownerIdFor, request, type Owner } from "../access-helpers";
 import { writeRecipe } from "../../src/recipe-store";
 import type { OwnerTestHelpers } from "../owner.test";
@@ -533,5 +533,48 @@ export function registerOwnerRecipeCases({ manageApi, pairDevice }: OwnerTestHel
   it("refuses other methods on the recipes API", async () => {
     const { token } = await owner();
     expect((await manageApi("/manage/api/recipes", token, "PUT")).status).toBe(405);
+  });
+
+  it("keeps a blocked entry recipe where its last write puts it", async () => {
+    const by = await owner();
+    const { credential } = await pairDevice(by);
+    const entry = (id: string) =>
+      deviceApi(credential, `/v1/recipes/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          expectedRevision: 0,
+          state: "active",
+          recipe: {
+            version: 1,
+            id,
+            revision: 1,
+            origin: "https://www.art.example",
+            entry: { path: "/en/", target: { by: "text", value: "Login" } },
+          },
+        }),
+      });
+    const at = Date.now();
+    const clock = vi.spyOn(Date, "now");
+    try {
+      clock.mockReturnValue(at);
+      expect((await entry("old-entry")).status).toBe(200);
+      clock.mockReturnValue(at + 1000);
+      expect((await entry("new-entry")).status).toBe(200);
+      clock.mockReturnValue(at + 2000);
+      // ADR 0031: a device blocks the older one, which moves its sync sequence only.
+      const blocked = await deviceApi(credential, "/v1/recipes/old-entry/entry-block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, revision: 1, reason: "sign-up" }),
+      });
+      expect(blocked.status).toBe(204);
+    } finally {
+      clock.mockRestore();
+    }
+    const response = await manageApi("/manage/api/recipes", by.token, "GET");
+    const listed = v.parse(manageRecipesSchema, await response.json());
+    expect(listed.recipes.map(({ change }) => change.recipeId)).toEqual(["new-entry", "old-entry"]);
   });
 }

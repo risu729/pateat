@@ -11,6 +11,7 @@ export function registerSyncCapacityCases({
   setup,
   page,
   crowdedCache,
+  exactCache,
   incoming,
   revoked,
   CREDENTIAL,
@@ -24,6 +25,7 @@ export function registerSyncCapacityCases({
   | "setup"
   | "page"
   | "crowdedCache"
+  | "exactCache"
   | "incoming"
   | "revoked"
   | "CREDENTIAL"
@@ -51,6 +53,81 @@ export function registerSyncCapacityCases({
     expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { cacheFull: true });
     // A page that was not written changed nothing.
     expect(report).toHaveBeenCalledWith("cache-full", expect.objectContaining({ added: 0 }));
+  });
+
+  it("keeps a later entry block without advancing past an overflowing page (ADR 0031)", async () => {
+    const entry = {
+      version: 1 as const,
+      id: "cached-two",
+      revision: 1,
+      origin: SITE,
+      entry: { path: "/en/", target: { by: "text" as const, value: "Login" } },
+    };
+    const stored = crowdedCache();
+    stored.recipes[1] = entry as never;
+    const block = { reason: "sign-up" as const, blockedAt: 9 };
+    const { sync, storage, cache } = setup({
+      stored,
+      pages: [
+        page(incoming(), 9, false),
+        page([{ ...active(entry as never), entryBlock: block } as never], 10),
+        page(incoming(), 9, false),
+      ],
+    });
+    expect(await sync.sync()).toBe("cache-full");
+    // Nothing but the block changed, and it is written, with the cursor where it was.
+    expect(storage.write).toHaveBeenCalledOnce();
+    expect(cache()).toEqual({
+      ...stored,
+      entryBlocks: [{ recipeId: "cached-two", revision: 1, ...block }],
+    });
+  });
+
+  it("caches a recovered page's blocks one at a time while they fit, and still checkpoints", async () => {
+    const stored = exactCache();
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    const freed = stored.recipes.find((entry) => entry.id === "site-00000")!;
+    const targets = stored.recipes.filter((entry) => entry !== freed).slice(0, 20);
+    const block = { reason: "sign-up" as const, blockedAt: 9 };
+    const synced = targets.map((entry) => ({
+      recipeId: entry.id,
+      revision: entry.revision,
+      ...block,
+    }));
+    // Revoking one recipe frees its bytes and a comma; count the blocks that fit there.
+    let room = bytes(freed) + 1 - (bytes({ entryBlocks: [synced[0]] }) - 1);
+    let fit = 1;
+    while (fit < synced.length && room >= bytes(synced[fit]) + 1) room -= bytes(synced[fit++]) + 1;
+    expect(fit).toBeLessThan(synced.length);
+    const count = fit + 1;
+    const { sync, cache, recovery, service } = setup({
+      stored,
+      pages: [
+        page(incoming(), 9, false),
+        page(
+          [
+            revoked(freed.id, 2),
+            ...targets.slice(0, count).map((entry) => ({ ...active(entry), entryBlock: block })),
+          ],
+          10,
+        ),
+        page(incoming(), 9, false),
+      ],
+    });
+    expect(await sync.sync()).toBe("cache-full");
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { cacheFull: true });
+    // N - 1 of the page's N blocks fit; the last waits for the normal walk.
+    expect(cache()).toEqual({
+      ...stored,
+      recipes: stored.recipes.filter((entry) => entry !== freed),
+      entryBlocks: synced.slice(0, count - 1),
+    });
+    expect(bytes(cache())).toBeLessThanOrEqual(MAX_RECIPE_CACHE_BYTES);
+    expect(bytes({ ...cache(), entryBlocks: synced.slice(0, count) })).toBeGreaterThan(
+      MAX_RECIPE_CACHE_BYTES,
+    );
+    // The lookahead goes on past the page, so later revocations are still scanned.
+    expect(recovery()).toMatchObject({ cursor: 7, after: 10 });
   });
 
   it("removes a later revocation without advancing past an overflowing page", async () => {

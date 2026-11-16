@@ -91,9 +91,28 @@ export const syncSettingsWriteSchema = v.pipe(
 );
 
 /**
+ * Why a sign-in entry press led nowhere (ADR 0031): the next page was on another site, showed
+ * no sign-in input, or was a sign-up form.
+ */
+export const entryBlockReasonSchema = v.picklist(["left-site", "no-sign-in", "sign-up"]);
+export type EntryBlockReason = v.InferOutput<typeof entryBlockReasonSchema>;
+/**
+ * The block of an entry recipe revision the owner holds (ADR 0031, amended 2026-11-16): the
+ * first reason a device reported for that revision, and when the service stored it. No
+ * device presses that revision again; a newer revision or a revocation ends it.
+ */
+export const syncEntryBlockSchema = v.strictObject({
+  reason: entryBlockReasonSchema,
+  /** Epoch milliseconds of the service's clock, within the range a `Date` holds. */
+  blockedAt: v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(8_640_000_000_000_000)),
+});
+export type SyncEntryBlock = v.InferOutput<typeof syncEntryBlockSchema>;
+
+/**
  * The stored recipe carries the sync identity, so a cached copy cannot drift from it. It is
  * a login recipe with its layouts (ADR 0060), an entry recipe (ADR 0031) or a chooser
- * recipe (ADR 0028) with its layouts.
+ * recipe (ADR 0028) with its layouts. An active entry recipe carries `entryBlock` once a
+ * device reported that its revision led nowhere.
  */
 export const syncRecipeChangeSchema = v.pipe(
   v.variant("state", [
@@ -102,6 +121,7 @@ export const syncRecipeChangeSchema = v.pipe(
       revision: writtenRevision,
       state: v.literal("active"),
       recipe: storedLoginRecipeSchema,
+      entryBlock: v.optional(syncEntryBlockSchema),
     }),
     v.strictObject({
       recipeId: syncRecipeIdSchema,
@@ -114,6 +134,10 @@ export const syncRecipeChangeSchema = v.pipe(
       change.state === "revoked" ||
       (change.recipe.id === change.recipeId && change.recipe.revision === change.revision),
     "Recipe identity does not match its sync revision",
+  ),
+  v.check(
+    (change) => change.state === "revoked" || !change.entryBlock || "entry" in change.recipe,
+    "Only an entry recipe is blocked",
   ),
 );
 export const syncRecipeChangesSchema = v.strictObject({
@@ -391,6 +415,18 @@ export const recipeUseReportSchema = v.strictObject({
   revision: writtenRevision,
   layout: recipeLayoutKeySchema,
 });
+/**
+ * `POST /v1/recipes/:recipeId/entry-block`: an entry recipe revision whose press led nowhere
+ * on a device (ADR 0031, amended 2026-11-16). The service keeps the first reason of each
+ * revision; it is the owner's recipe state, not a login record, so `serviceReports` does
+ * not turn it off.
+ */
+export const entryBlockReportSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+  reason: entryBlockReasonSchema,
+});
+export type EntryBlockReport = v.InferOutput<typeof entryBlockReportSchema>;
 export type LoginOutcomeCause = v.InferOutput<typeof loginOutcomeCauseSchema>;
 export type LoginOutcomeReport = v.InferOutput<typeof loginOutcomeReportSchema>;
 export type LoginRecord = v.InferOutput<typeof loginRecordSchema>;

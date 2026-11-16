@@ -388,7 +388,7 @@ test("shows a passkey-only recipe and its one click (ADR 0053)", async () => {
   expect(details.element().textContent).not.toContain("Slots");
 });
 
-test("shows an entry recipe's sign-in entry, which devices do not click yet (ADR 0031)", async () => {
+test("shows an entry recipe's sign-in entry and the block of its revision (ADR 0031)", async () => {
   const client = mockClient({
     version: 1,
     recipes: [
@@ -404,6 +404,7 @@ test("shows an entry recipe's sign-in entry, which devices do not click yet (ADR
             origin: "https://bank.example",
             entry: { path: "/", target: { by: "text", value: "Login" } },
           },
+          entryBlock: { reason: "sign-up", blockedAt: UPDATED },
         },
         updatedAt: UPDATED,
         layouts: [],
@@ -417,7 +418,8 @@ test("shows an entry recipe's sign-in entry, which devices do not click yet (ADR
   await page.getByText("JSON of bank-entry").click();
   const details = recipeItem("bank-entry");
   for (const text of [
-    'Sign-in entryClick text "Login" on / to open the site\'s login page. Devices do not click it yet.',
+    'Sign-in entryClick text "Login" on / to open the site\'s login page.',
+    "BlockedThe page after the click was a sign-up form. Devices no longer click it; revoke the recipe to have its page generated again.",
     '"entry": {',
   ])
     // oxlint-disable-next-line no-await-in-loop -- one element, checked in order

@@ -210,6 +210,50 @@ describe("recipe sync contract", () => {
     );
   });
 
+  it("carries an entry block on an active entry recipe only (ADR 0031)", () => {
+    const entry = {
+      version: 1,
+      id: "art-entry",
+      revision: 2,
+      origin: "https://www.art.example",
+      entry: { path: "/en/", target: { by: "text", value: "Login" } },
+    };
+    const entryBlock = { reason: "sign-up", blockedAt: 1 };
+    const blocked = { recipeId: "art-entry", revision: 2, state: "active", recipe: entry };
+    expect(accepts(syncRecipeChangeSchema, { ...blocked, entryBlock })).toBe(true);
+    expect(
+      accepts(syncRecipeChangeSchema, { ...blocked, entryBlock: { ...entryBlock, reason: "x" } }),
+    ).toBe(false);
+    // A time the service stored, never one beyond what a `Date` holds or a fraction.
+    for (const blockedAt of [-1, 0.5, 8_640_000_000_000_001])
+      expect(
+        accepts(syncRecipeChangeSchema, { ...blocked, entryBlock: { ...entryBlock, blockedAt } }),
+      ).toBe(false);
+    expect(
+      accepts(syncRecipeChangeSchema, {
+        ...blocked,
+        entryBlock: { ...entryBlock, blockedAt: Date.UTC(2026, 10, 16) },
+      }),
+    ).toBe(true);
+    expect(
+      accepts(syncRecipeChangeSchema, {
+        recipeId: "bank-login",
+        revision: 2,
+        state: "active",
+        recipe: recipe(2),
+        entryBlock,
+      }),
+    ).toBe(false);
+    expect(
+      accepts(syncRecipeChangeSchema, {
+        recipeId: "art-entry",
+        revision: 2,
+        state: "revoked",
+        entryBlock,
+      }),
+    ).toBe(false);
+  });
+
   it("requires each write to advance exactly one revision", () => {
     const write = { version: 1, expectedRevision: 1, state: "active", recipe: recipe(2) };
     expect(accepts(syncRecipeWriteSchema, write)).toBe(true);

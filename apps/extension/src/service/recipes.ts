@@ -1,7 +1,6 @@
 import {
   chooserLayouts,
   isSsoDocument,
-  deviceIdSchema,
   findChooserLayout,
   findLayoutRecipe,
   isChooserDocument,
@@ -15,8 +14,6 @@ import {
   recipeStartSteps,
   runsLogin,
   selectLoginRecipe,
-  serviceOriginSchema,
-  storedLoginRecipeSchema,
   type LayoutCandidate,
   type LoginChooserDocument,
   type LoginChooserRecipe,
@@ -30,6 +27,16 @@ import {
 import * as v from "valibot";
 import type { LoginRecipeStart, LoginRecipes } from "../login/runtime/deps";
 import type { DeviceRecipeUpload } from "./device-recipes";
+import { syncedBlocksAfter, type SyncedEntryBlock } from "./entry-blocks";
+import {
+  cacheSchema,
+  recoverySchema,
+  scheduleSchema,
+  type RecipeCache,
+  type RecipeCacheStorage,
+  type RecipeRecovery,
+  type RecipeScheduleStorage,
+} from "./recipe-cache";
 import { laterReadiness, loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
@@ -57,65 +64,7 @@ export const MAX_RECIPE_PAGES_PER_SYNC = 50;
  */
 export { MAX_RECIPE_CACHE_BYTES } from "@pateat/contracts";
 
-// The last-known-good copy of the owner's active recipes (ADR 0013). The cursor and
-// recipes are written together, so a failed write leaves the previous consistent copy.
-// An overflow walk writes removals and non-growing newer heads with the old cursor;
-// skipped active changes remain pending until their entire page fits.
-// Entry and chooser recipes (ADR 0031, ADR 0028) are cached with the rest; only a
-// chooser is looked up and starts a login, on its list's path, and `entries` lists an
-// origin's entry recipes. Version 2 holds recipes with layouts (ADR 0060): a version 1
-// cache is ignored, so the device pulls every recipe again from the start.
-// A change this build cannot read, as a recipe a newer service stored with a locator this
-// build does not know, is left out and the cursor moves past it (#959); `unreadableBy` names
-// the build that left one out, and any other build reads every head again from the start.
-const cacheSchema = v.strictObject({
-  version: v.literal(2),
-  origin: serviceOriginSchema,
-  deviceId: deviceIdSchema,
-  cursor: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
-  unreadableBy: v.optional(v.pipe(v.string(), v.minLength(1))),
-  recipes: v.pipe(
-    v.array(storedLoginRecipeSchema),
-    v.check(
-      (recipes) => new Set(recipes.map((recipe) => recipe.id)).size === recipes.length,
-      "Duplicate cached recipes",
-    ),
-  ),
-});
-type RecipeCache = v.InferOutput<typeof cacheSchema>;
-
-// Kept separately so even an exactly full recipe cache can checkpoint its lookahead.
-// This is not an applied cursor: normal sync still reads every pending current head.
-const recoverySchema = v.strictObject({
-  version: v.literal(2),
-  origin: serviceOriginSchema,
-  deviceId: deviceIdSchema,
-  cursor: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
-  after: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
-});
-type RecipeRecovery = v.InferOutput<typeof recoverySchema>;
-
-// When the next background sync is due; it survives service worker restarts.
-const scheduleSchema = v.strictObject({
-  version: v.literal(1),
-  startedAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  retryAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
-});
-type RecipeSyncSchedule = v.InferOutput<typeof scheduleSchema>;
-
-export interface RecipeCacheStorage {
-  read(): Promise<unknown>;
-  write(cache: RecipeCache): Promise<void>;
-  readRecovery(): Promise<unknown>;
-  writeRecovery(recovery: RecipeRecovery): Promise<void>;
-  /** Clears both the cache and its recovery checkpoint. */
-  clear(): Promise<void>;
-}
-
-export interface RecipeScheduleStorage {
-  read(): Promise<unknown>;
-  write(schedule: RecipeSyncSchedule): Promise<void>;
-}
+export type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipe-cache";
 
 const encoder = new TextEncoder();
 
@@ -443,8 +392,40 @@ export function createRecipeSync(options: {
           counts.updated += 1;
         }
       }
-      if (counts.removed > 0 || counts.updated > 0) {
-        const failure = await writeCache({ ...cache, recipes: [...remaining.values()] }, counts);
+      const { entryBlocks: _, ...rest } = cache;
+      const withBlocks = (blocks: SyncedEntryBlock[] | undefined): RecipeCache => ({
+        ...rest,
+        recipes: [...remaining.values()],
+        ...(blocks ? { entryBlocks: blocks } : {}),
+      });
+      // The full cache takes the page's new blocks one at a time while they fit. One that
+      // does not is left to the normal walk, which brings it with the page at the cursor
+      // once revocations made room; the sync ends `cache-full` meanwhile. Evicting a
+      // recipe instead would have its page generated again, and that upload would end
+      // the block (ADR 0031).
+      const standing = syncedBlocksAfter(cache.entryBlocks, [], remaining) ?? [];
+      let blocks: SyncedEntryBlock[] | undefined = [...standing];
+      let bytes = encoder.encode(
+        JSON.stringify(withBlocks(standing.length ? standing : undefined)),
+      ).byteLength;
+      for (const block of syncedBlocksAfter(cache.entryBlocks, page.changes, remaining) ?? []) {
+        if (standing.some((entry) => entry.recipeId === block.recipeId)) continue;
+        // `,"entryBlocks":[block]` for the first block, else `,block`.
+        const added = blocks.length
+          ? encoder.encode(JSON.stringify(block)).byteLength + 1
+          : encoder.encode(JSON.stringify({ entryBlocks: [block] })).byteLength - 1;
+        if (bytes + added > MAX_RECIPE_CACHE_BYTES) continue;
+        blocks.push(block);
+        bytes += added;
+      }
+      if (!blocks.length) blocks = undefined;
+      // A page that only blocks a revision the cache holds is written too (ADR 0031).
+      if (
+        counts.removed > 0 ||
+        counts.updated > 0 ||
+        JSON.stringify(blocks ?? []) !== JSON.stringify(cache.entryBlocks ?? [])
+      ) {
+        const failure = await writeCache(withBlocks(blocks), counts);
         if (failure) return failure;
       }
       return undefined;
@@ -497,10 +478,14 @@ export function createRecipeSync(options: {
         if (kept && before.get(id) !== recipes.get(id)) counts[held ? "updated" : "added"] += 1;
         else if (held && !kept) counts.removed += 1;
       }
+      // A change of a revision held here may still bring its block.
+      const { entryBlocks: _, ...rest } = cache;
+      const blocks = syncedBlocksAfter(cache.entryBlocks, changes, recipes);
       const next: RecipeCache = {
-        ...cache,
+        ...rest,
         cursor,
         recipes: [...recipes.values()],
+        ...(blocks ? { entryBlocks: blocks } : {}),
         ...(result.unreadable ? { unreadableBy: options.build } : {}),
       };
       if (encoder.encode(JSON.stringify(next)).byteLength > MAX_RECIPE_CACHE_BYTES) {
@@ -688,6 +673,23 @@ export function createRecipeSync(options: {
     return memory.origin === connection.origin && memory.deviceId === connection.deviceId
       ? memory.recipes
       : [];
+  }
+  /**
+   * The synced blocks `synced` read with its recipes, which a disconnect keeps too: none
+   * when the cache is another pairing's, as for `synced`.
+   */
+  async function syncedBlocks(): Promise<readonly SyncedEntryBlock[]> {
+    const connection = await service.connection();
+    return connection &&
+      memory?.origin === connection.origin &&
+      memory.deviceId === connection.deviceId
+      ? (memory.entryBlocks ?? [])
+      : [];
+  }
+  /** The blocks the service sent of entry recipe revisions the paired cache holds (ADR 0031). */
+  async function entryBlocks(): Promise<readonly SyncedEntryBlock[]> {
+    const connection = await service.connection();
+    return (connection && (await load(connection))?.entryBlocks) ?? [];
   }
   const choosersOf = (cache: Held, origin: string) =>
     cache.recipes.filter(
@@ -966,5 +968,5 @@ export function createRecipeSync(options: {
     return (await current(false))?.recipes;
   }
 
-  return { sync, refreshIfStale, clear, synced, inUse, recipes };
+  return { sync, refreshIfStale, clear, synced, syncedBlocks, entryBlocks, inUse, recipes };
 }
