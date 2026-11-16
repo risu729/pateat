@@ -1,6 +1,7 @@
 import {
   connectionUse,
   getItemEligibility,
+  onlyChoicesSince,
   type SettingsResponse,
   type VaultConnectionMetadata,
 } from "@pateat/contracts";
@@ -100,9 +101,10 @@ export function createVaultSsoSource(
     const same = (connection: VaultConnectionMetadata) =>
       JSON.stringify(latest?.catalog.connections.find((entry) => entry.id === connection.id)) ===
       JSON.stringify(connection);
+    // A choice written meanwhile changes nothing this reads.
     return (
       latest !== undefined &&
-      latest.snapshot.revision === saved.snapshot.revision &&
+      onlyChoicesSince(latest.snapshot, saved.snapshot.revision) &&
       touched.every(
         (connection) =>
           connection.snapshotId !== undefined &&

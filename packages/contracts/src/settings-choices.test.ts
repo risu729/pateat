@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  CHOICE_ONLY_CAUSES,
-  onlyChoicesSince,
-  standingRevision,
-  type SettingsChangeCause,
-} from "./index";
+import { CHOICE_ONLY_CAUSES, onlyChoicesSince, type SettingsChangeCause } from "./index";
 
 // Synthetic revisions only (ADR 0007, ADR 0061).
 
@@ -24,7 +19,6 @@ describe("revisions of only a choice", () => {
   it("leaves a revision standing while every later one wrote only a choice", () => {
     expect(onlyChoicesSince(at(4), 4)).toBe(true);
     expect(onlyChoicesSince(at(6, "passkey-browser-site", "detail-refused"), 4)).toBe(true);
-    expect(standingRevision(at(6, "passkey-browser-site", "detail-refused"), 4)).toBe(6);
   });
 
   it("ends it with any other cause, a revision the history no longer holds or a store behind", () => {
@@ -34,8 +28,6 @@ describe("revisions of only a choice", () => {
     expect(onlyChoicesSince(at(6, "passkey-browser-site"), 4)).toBe(false);
     expect(onlyChoicesSince({ revision: 6 }, 5)).toBe(false);
     expect(onlyChoicesSince(at(3), 4)).toBe(false);
-    // The write then expects the older revision, which the store refuses.
-    expect(standingRevision(at(6, "detail-link", "passkey-browser-site"), 4)).toBe(4);
   });
 
   it("takes another set of causes", () => {

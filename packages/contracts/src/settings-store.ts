@@ -70,20 +70,6 @@ export function onlyChoicesSince(
 }
 
 /**
- * The revision a write authorized under revision `since` expects of the store: `snapshot`'s
- * own when only choices were written since (`onlyChoicesSince`), so the write goes ahead
- * on top of them, and otherwise `since`, which the store refuses as a conflict. The store
- * itself stays exact, as a write merged from an older read, such as a settings sync's,
- * would undo a choice written meanwhile.
- */
-export function standingRevision(
-  snapshot: Pick<SettingsSnapshot, "revision" | "changes">,
-  since: number,
-): number {
-  return onlyChoicesSince(snapshot, since) ? snapshot.revision : since;
-}
-
-/**
  * Why `current` is no longer the revision a save expected, oldest cause first. The
  * settings page also reads it from a newer snapshot before retrying a save (ADR 0025).
  */

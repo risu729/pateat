@@ -612,11 +612,12 @@ export async function withdrawSwitch(rt: Runtime, run: Execution): Promise<void>
  * Whether a login other than `run` is in progress that a settings write would stop, as
  * it bumps the revision every attempt checks: an account choice or a detail link then
  * waits (ADR 0013, ADR 0061). A write of only a choice (`CHOICE_ONLY_CAUSES`), as the
- * removal of refused links, stops none and does not wait. A login between pages has no current run, as while its
- * next page is admitted or after a worker restart, so its stored record counts too, as
- * `active` counts it, but only while it changed within the settings sync's two-minute
- * cap: an older one is likely left over, and the write may stop it `policy-changed`
- * (owner, 2026-10-24 for choices and 2026-10-25 for detail links).
+ * removal of refused links, stops none and does not wait. A login between pages has no
+ * current run, as while its next page is admitted or after a worker restart, so its
+ * stored record counts too, as `active` counts it, but only while it changed within the
+ * settings sync's two-minute cap: an older one is likely left over, and the write may
+ * stop it `policy-changed` (owner, 2026-10-24 for choices and 2026-10-25 for detail
+ * links).
  */
 export function loginElsewhere(rt: Runtime, run: Execution | undefined): boolean {
   const now = Date.now();

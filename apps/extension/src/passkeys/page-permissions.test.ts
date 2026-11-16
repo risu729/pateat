@@ -245,6 +245,25 @@ describe("passkey admission while page permission reads are pending", () => {
   });
 });
 describe("cancellation during answer-stage passkey permission checks", () => {
+  it.each(["passkey-browser-site", "detail-refused"] as const)(
+    "answers across a settings save whose only cause is %s",
+    async (cause) => {
+      let finish: ((value: undefined) => void) | undefined;
+      const gate = new Promise<undefined>((resolve) => {
+        finish = resolve;
+      });
+      let checks = 0;
+      const pagePermission = vi.fn<Permission>(async () => (++checks === 2 ? gate : undefined));
+      const backing = source();
+      const runtime = createPasskeyRuntime(backing, { extensionId, pagePermission });
+      const pending = runtime.handle(request(), sender);
+      await vi.waitFor(() => expect(pagePermission).toHaveBeenCalledTimes(2));
+      runtime.settingsChanged(cause);
+      finish!(undefined);
+      expect(await pending).toMatchObject({ kind: "assertion" });
+    },
+  );
+
   it.each([
     { gateAt: 2, cause: "page-cancelled" },
     { gateAt: 2, cause: "settings-changed" },

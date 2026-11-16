@@ -4,6 +4,7 @@ import {
   itemAsksForMasterPassword,
   runsLogin,
   type LoginRecipe,
+  type SettingsSnapshot,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { recordFor, tabAttempt, switchingElsewhere } from "./hold";
@@ -20,6 +21,24 @@ import { openPasswordWindow } from "./master-password";
 import { settleConfirmFill } from "./not-started";
 import { LOGIN_STEP_WAIT_MS } from "../wire";
 import type { Runtime } from "./state";
+
+/**
+ * Whether two reads of a confirmation's authority agree: the same values, or the same
+ * apart from settings that only gained choice-only revisions since (`onlyChoicesSince`).
+ */
+export function sameAuthority<T extends { snapshot: { snapshot: SettingsSnapshot } }>(
+  earlier: T,
+  later: T,
+): boolean {
+  if (later.snapshot.snapshot.revision === earlier.snapshot.snapshot.revision)
+    return JSON.stringify(later) === JSON.stringify(earlier);
+  const rest = (value: T) =>
+    JSON.stringify({ ...value, snapshot: { ...value.snapshot, snapshot: 0 } });
+  return (
+    onlyChoicesSince(later.snapshot.snapshot, earlier.snapshot.snapshot.revision) &&
+    rest(earlier) === rest(later)
+  );
+}
 
 export function confirmCurrent(rt: Runtime, work: ConfirmWork): boolean {
   const { live, parent } = work;
@@ -111,7 +130,7 @@ export async function confirmAccount(rt: Runtime, work: ConfirmWork) {
   if (rt.options.bindingScope && scope === undefined) return;
   if (work.scopeMark !== undefined && scope !== work.scopeMark) return;
   const latest = await snapshotFor(rt, work);
-  if (!latest || JSON.stringify(latest) !== JSON.stringify(snapshot) || !confirmCurrent(rt, work))
+  if (!latest || !sameAuthority({ snapshot }, { snapshot: latest }) || !confirmCurrent(rt, work))
     return;
   return { snapshot, catalog: scoped.catalog, connection, item, eligible, scope };
 }
@@ -158,7 +177,7 @@ export async function confirmPlan(
   const latest = await confirmAccount(rt, work);
   if (
     !latest ||
-    JSON.stringify(latest) !== JSON.stringify(found) ||
+    !sameAuthority(found, latest) ||
     !confirmCurrent(rt, work) ||
     !recipeCurrent() ||
     !snapshotCurrent()

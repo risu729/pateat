@@ -1,3 +1,4 @@
+import { CHOICE_ONLY_CAUSES, type SettingsChangeCause } from "@pateat/contracts";
 import * as v from "valibot";
 
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
@@ -57,7 +58,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
    * cancel that arrives meanwhile is kept here, so it is not lost.
    */
   const reading = new Map<string, { documentId: string; cancelled: boolean; related?: true }>();
-  const settingsChanged = () => {
+  /**
+   * The settings changed: requests not yet before the person stop. A save of only a choice
+   * (`CHOICE_ONLY_CAUSES`), as the chooser's own "Always for this site", stops none.
+   */
+  const settingsChanged = (cause?: SettingsChangeCause) => {
+    if (cause !== undefined && CHOICE_ONLY_CAUSES.has(cause)) return;
     for (const [id, operation] of operations) {
       // A person deciding is not interrupted; their choice is checked against the new settings.
       // A conditional request waiting for a login is not either: the login follows the

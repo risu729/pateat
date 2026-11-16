@@ -109,15 +109,37 @@ describe("the sites the passkey runtime hands on", () => {
     expect(await sites.has("https://bank.example")).toBe(true);
   });
 
-  it("drops a pending hostname whose write was refused", async () => {
-    const { settings } = store();
+  it("holds a hostname whose write failed and writes it with the next settings write", async () => {
+    const { settings, current } = store();
     settings.update.mockRejectedValueOnce(new Error("storage-unavailable"));
     const added = vi.fn();
     const sites = createPasskeyBrowserSites({ settings, added });
     await expect(sites.add("https://bank.example")).rejects.toThrow("storage-unavailable");
-    expect(sites.pending("https://bank.example")).toBe(false);
-    expect(await sites.has("https://bank.example")).toBe(false);
     expect(added).not.toHaveBeenCalled();
+    // The choice still holds in memory.
+    expect(sites.pending("https://bank.example")).toBe(true);
+    expect(await sites.has("https://bank.example")).toBe(true);
+    // A write that fails again keeps it for the write after.
+    settings.update.mockRejectedValueOnce(new Error("storage-unavailable"));
+    sites.changed();
+    await vi.waitFor(() => expect(settings.update).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(sites.pending("https://bank.example")).toBe(true));
+    expect(current().settings.passkeyBrowserSites).toEqual([]);
+    sites.changed();
+    await vi.waitFor(() =>
+      expect(current().settings.passkeyBrowserSites).toEqual([{ hostname: "bank.example" }]),
+    );
+    expect(settings.update).toHaveBeenLastCalledWith(
+      undefined,
+      "passkey-browser-site",
+      expect.any(Function),
+    );
+    await vi.waitFor(() => expect(added).toHaveBeenCalledOnce());
+    expect(sites.pending("https://bank.example")).toBe(false);
+    // Written once: a later settings write writes nothing more.
+    sites.changed();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settings.update).toHaveBeenCalledTimes(3);
   });
 
   it("reads the settings once until they change", async () => {

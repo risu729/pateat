@@ -16,6 +16,7 @@ import {
   type LoginObservation,
   type LoginTarget,
   type SettingsResponse,
+  onlyChoicesSince,
 } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
 import type { SsoResolvedChoice } from "../../sso-choice";
@@ -253,7 +254,7 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
     const choice = work.choice;
     await rt.settings
       .update(
-        work.saved.snapshot.revision,
+        undefined,
         "account-choice",
         (snapshot) => {
           if (!fence()) return snapshot;
@@ -263,7 +264,7 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
           // This callback runs inside the settings queue: never re-enter settings.handle.
           const latestCatalog = await catalog();
           return (
-            snapshot.revision === work.saved.snapshot.revision &&
+            onlyChoicesSince(snapshot, work.saved.snapshot.revision) &&
             JSON.stringify(latestCatalog) === JSON.stringify(work.saved.catalog) &&
             !!fence()
           );

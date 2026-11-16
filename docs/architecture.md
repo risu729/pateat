@@ -913,14 +913,18 @@ written at once, with no session buffer and no wait for a running login. A login
 open offer (a login's account choice being saved, a binding review, a confirmation, a
 detail fill from the popup or a vault passkey picked in the chooser) or a write
 authorized under an older revision stays authorized while every later revision in the
-kept history has one of these causes (`CHOICE_ONLY_CAUSES`, `onlyChoicesSince`); a later
-write then expects the newer revision (`standingRevision`). The settings store itself
-stays exact, since a settings sync merges from an older read and would undo such a
-choice; a sync conflict merges again. A revision older than the history, without a
-recorded cause, ends what it authorized as any other change does. Saving such a choice
-stops no running login, but it is uploaded, counted and logged (`settings.changed`) as
-any other save. The SSO flows' own revision checks still take any newer revision as a
-change.
+kept history has one of these causes (`CHOICE_ONLY_CAUSES`, `onlyChoicesSince`). So do
+an SSO flow, its offer, its validate fence and its saved choices, and two reads a
+confirmation compares, which then agree apart from their settings. A later write that
+such work makes, as an account choice or a binding review, checks this inside the
+settings queue and applies to what the queue holds; the removal of refused links and a
+chosen browser site expect no revision at all. The settings store itself stays exact,
+since a settings sync merges from an older read and would undo such a choice; a sync
+conflict merges again. A revision older than the history, without a recorded cause,
+ends what it authorized as any other change does. Saving such a choice stops no running
+login or passkey request, but it is uploaded, counted and logged (`settings.changed`) as
+any other save. A chosen browser site whose write failed stays chosen in memory and is
+written again with the next settings write.
 
 ### Settings that stay on the device
 

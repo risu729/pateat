@@ -868,13 +868,13 @@ export default defineBackground(() => {
   });
   /**
    * Settings this device changed: running work follows them, and they are uploaded. A
-   * `cause` of only a choice leaves running logins as they are.
+   * `cause` of only a choice leaves running logins and passkey requests as they are.
    */
   function settingsSaved(cause?: SettingsChangeCause) {
     browserSites.changed();
     login.settingsChanged("saved", cause);
     void siteCounter.refresh();
-    passkeys.settingsChanged();
+    passkeys.settingsChanged(cause);
     diagnosticsLog.settingsChanged("saved");
     void recipeSync.sync();
   }

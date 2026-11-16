@@ -379,10 +379,25 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ]);
         // Written as a choice alone, which no login or offer needs to outlast.
         expect(h.store.update).toHaveBeenCalledWith(
-          expect.any(Number),
+          undefined,
           "detail-refused",
           expect.any(Function),
         );
+      }, 10_000);
+      it("removes the refused link over a revision written after it was read", async () => {
+        onClick({ login: toConfirm, confirm: toRejected });
+        const { h } = start([birthLink, phoneLink], birthValue, rejecting);
+        // Another device's choice lands between the removal's read and its write.
+        const write = h.store.update.getMockImplementation()!;
+        h.store.update.mockImplementation(async (expected, cause, mutate, authorize) => {
+          if (cause === "detail-refused") h.settings.revision += 1;
+          return write(expected, cause, mutate, authorize);
+        });
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "blocked", outcome: "credential-rejected" }]),
+        );
+        await vi.waitFor(() => expect(savedLinks(h)).toEqual([phoneLink]));
       }, 10_000);
       it("keeps the link when its page is drawn again on the way to the signed-in page", async () => {
         // As on VRChat's code page (2026-11-08): the click's own check reads the button
@@ -478,7 +493,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         // The other tab's login was authorized under the revision before; one of only this
         // cause leaves it running.
         expect(h.store.update).toHaveBeenCalledWith(
-          expect.any(Number),
+          undefined,
           "detail-refused",
           expect.any(Function),
         );

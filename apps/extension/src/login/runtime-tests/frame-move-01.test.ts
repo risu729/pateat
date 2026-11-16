@@ -184,6 +184,66 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
     expect(record()).toMatchObject({ state: "blocked", outcome: "unknown-submit" });
   }, 15_000);
 
+  describe("after a settings revision while the frame signs in", () => {
+    const revise = (
+      h: ReturnType<typeof harness>,
+      cause: "passkey-browser-site" | "detail-refused" | "account-choice",
+    ) => {
+      h.settings.revision += 1;
+      h.settings.changes = [
+        ...(h.settings.changes ?? []),
+        { revision: h.settings.revision, cause },
+      ];
+    };
+
+    // The new page's URL is checked against the item with the login's settings.
+    it.each(["passkey-browser-site", "detail-refused"] as const)(
+      "matches the new page's URL across a revision whose only cause is %s",
+      async (cause) => {
+        holdClicks();
+        const h = await framed();
+        fake.state.signs = signedIn;
+        revise(h, cause);
+        await replaced(h);
+        expect(record()).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+      },
+    );
+
+    // Past the password's 30 seconds, the new page is read for the account's username.
+    it.each(["passkey-browser-site", "detail-refused"] as const)(
+      "reads the account's username across a revision whose only cause is %s",
+      async (cause) => {
+        answerUnproven();
+        fake.state.signs = { ...quiet, code: true };
+        const h = await framed();
+        await vi.waitFor(() => expect(record()).toMatchObject({ watch: {} }), { timeout: 8_000 });
+        fake.state.signs = signedIn;
+        const now = Date.now.bind(Date);
+        const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 60_000);
+        onTestFinished(() => clock.mockRestore());
+        revise(h, cause);
+        await replaced(h);
+        expect(record()).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+        expect(reads().at(-1)).toHaveProperty("account");
+      },
+      15_000,
+    );
+
+    it("never reads the new page after any other revision", async () => {
+      holdClicks();
+      const reports: LoginReport[] = [];
+      const h = await framed(reports);
+      fake.state.signs = signedIn;
+      revise(h, "account-choice");
+      await replaced(h);
+      expect(record()).toMatchObject({ state: "blocked", outcome: "cancelled" });
+      expect(reads()).toEqual([]);
+      expect(reports).toContainEqual(
+        expect.objectContaining({ type: "move", reason: "no-vault-match" }),
+      );
+    });
+  });
+
   describe("when the page changes its URL in place, as a single-page site does", () => {
     it("reads the page once the frame is gone", async () => {
       holdClicks();

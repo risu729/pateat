@@ -372,9 +372,11 @@ export function filledDetails(
 
 /**
  * Writes `mutate` to the settings. A link saved waits while another login is in progress,
- * whose policy revision the write would bump (`loginElsewhere`); the removal of refused
- * links does not, as a revision of only that cause leaves every login and offer standing
- * (`CHOICE_ONLY_CAUSES`). Returns whether it wrote.
+ * whose policy revision the write would bump (`loginElsewhere`), and is written over the
+ * revision it was read at. The removal of refused links does neither: a revision of only
+ * that cause leaves every login and offer standing (`CHOICE_ONLY_CAUSES`), and the
+ * removal applies to whatever links the settings hold when it is written, so a newer
+ * revision does not lose it. Returns whether it wrote.
  */
 export async function writeDetailLinks(
   rt: Runtime,
@@ -398,13 +400,17 @@ export async function writeDetailLinks(
     if (JSON.stringify(mutate(before)) === JSON.stringify(before)) return "unchanged";
     writing = true;
     return await rt.settings
-      .update(latest.snapshot.revision, cause, (snapshot) => ({
-        ...snapshot,
-        settings: {
-          ...snapshot.settings,
-          detailLinks: mutate(snapshot.settings.detailLinks ?? []),
-        },
-      }))
+      .update(
+        cause === "detail-link" ? latest.snapshot.revision : undefined,
+        cause,
+        (snapshot) => ({
+          ...snapshot,
+          settings: {
+            ...snapshot.settings,
+            detailLinks: mutate(snapshot.settings.detailLinks ?? []),
+          },
+        }),
+      )
       .then(
         () => "saved" as const,
         () => "failed" as const,

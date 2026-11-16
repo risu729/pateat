@@ -87,6 +87,33 @@ describe("production login document admission", () => {
         { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
       ],
     });
+    it.each([
+      ["passkey-browser-site", "saved"],
+      ["detail-refused", "saved"],
+      ["settings-save", "write-failed"],
+    ] as const)(
+      "checks the login's revision in the settings queue, after a %s write",
+      async (cause, outcome) => {
+        const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, { allowedOrigins: [], uris, report });
+        // Another write lands between the choice's read and its turn in the queue.
+        const write = h.store.update.getMockImplementation()!;
+        h.store.update.mockImplementationOnce(async (expected, ...rest) => {
+          h.settings.revision += 1;
+          h.settings.changes = [
+            ...(h.settings.changes ?? []),
+            { revision: h.settings.revision, cause },
+          ];
+          return write(expected, ...rest);
+        });
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(report).toHaveBeenCalledWith({ type: "choice", tabId: 1, origin, outcome }),
+        );
+        expect(h.settings.settings.siteDefaults).toHaveLength(outcome === "saved" ? 1 : 0);
+      },
+    );
     it("logs in with the only URI-matched item and saves the choice after authenticated", async () => {
       const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
       const report = vi.fn<(report: LoginReport) => void>();
@@ -118,8 +145,10 @@ describe("production login document admission", () => {
         account: { origin, connectionId, itemId },
         fieldId: "login.password",
       });
-      expect(h.store.update.mock.calls[0]![0]).toBe(1);
+      // Checked against the login's revision inside the settings queue.
+      expect(h.store.update.mock.calls[0]![0]).toBeUndefined();
       expect(h.store.update.mock.calls[0]![1]).toBe("account-choice");
+      expect(h.store.update.mock.calls[0]![3]).toBeTypeOf("function");
       // The saved default names the provider account, not this device's connection, and
       // keeps the connection's label for display.
       expect(h.settings.settings.siteDefaults).toEqual([

@@ -427,6 +427,26 @@ describe("discovery policy, timeout and snapshot fences", () => {
     expect(h.readSettings).toHaveBeenCalledTimes(2);
     expectNoUse(h);
   });
+  it.each([
+    ["keeps", "passkey-browser-site", true],
+    ["keeps", "detail-refused", true],
+    ["drops", "account-choice", false],
+  ] as const)(
+    "%s a validation across a revision whose only cause is %s",
+    async (_name, cause, kept) => {
+      const h = harness();
+      h.targetManager.ssoCandidates.mockImplementationOnce(async () => {
+        const { snapshot } = h.saved();
+        snapshot.revision += 1;
+        snapshot.changes = [{ revision: snapshot.revision, cause }];
+        return {
+          ok: true,
+          data: { snapshotId, candidates: [{ itemId: targetId, origins: [selected.origin] }] },
+        };
+      });
+      expect((await h.api.validate(source, selected)).ok).toBe(kept);
+    },
+  );
   it.each(["revision", "catalog", "snapshot", "timeout", "pending"])(
     "drops candidate results after final %s change",
     async (kind) => {

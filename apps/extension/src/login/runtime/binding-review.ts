@@ -6,7 +6,6 @@ import {
   sameLoginDocument,
   loginFieldSource,
   onlyChoicesSince,
-  standingRevision,
   totpFieldMismatch,
   type LoginRecipe,
   type SettingsResponse,
@@ -561,8 +560,10 @@ export async function settleBindingReview(rt: Runtime, run: Execution) {
       run.recipe.revision !== review.recipeRevision
     )
       return;
+    // Checked in the settings queue: a choice written since the review's revision leaves
+    // it standing (`CHOICE_ONLY_CAUSES`), and the replacement applies to what it holds.
     await rt.settings.update(
-      standingRevision(snapshot.snapshot, review.policyRevision),
+      undefined,
       "account-choice",
       (value) => {
         const original = findLoginBinding(
@@ -588,6 +589,7 @@ export async function settleBindingReview(rt: Runtime, run: Execution) {
         };
       },
       async (value, catalog) => {
+        if (!onlyChoicesSince(value, review.policyRevision)) return false;
         // The source takes its epochs before any awaited recipe lookup. The closure
         // remains checkable synchronously after the remaining reads and in the mutator.
         recipeCurrent = await rt.recipes.fence?.(run.recipe).catch(() => undefined);

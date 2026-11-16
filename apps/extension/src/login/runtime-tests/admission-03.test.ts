@@ -803,6 +803,19 @@ describe("production login document admission", () => {
           }),
         );
       });
+      it.each(["passkey-browser-site", "detail-refused"] as const)(
+        "completes after a settings revision whose only cause is %s",
+        async (cause) => {
+          const h = await submitted();
+          h.settings.revision += 1;
+          h.settings.changes = [
+            ...(h.settings.changes ?? []),
+            { revision: h.settings.revision, cause },
+          ];
+          await navigate(h, "https://www.login.example/home", "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+        },
+      );
       it("completes on a host outside the passkey's RP ID (owner, 2026-11-08)", async () => {
         const h = await submitted("www.login.example");
         await navigate(h, "https://account.login.example/home", "home-document", false);
@@ -853,6 +866,24 @@ describe("production login document admission", () => {
           expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
           expect(executes()).toHaveLength(2);
         });
+        it.each(["passkey-browser-site", "detail-refused"] as const)(
+          "reads the username after a revision whose only cause is %s",
+          async (cause) => {
+            holdClicks(origin);
+            const h = twoSites({ username: true });
+            expect(await h.hello()).toEqual({ ok: true });
+            await vi.waitFor(() => expect(executes()).toHaveLength(2));
+            h.login.passkeyAnswered(1, origin, "login.example");
+            fake.state.signs = { ...quiet, username: true };
+            h.settings.revision += 1;
+            h.settings.changes = [
+              ...(h.settings.changes ?? []),
+              { revision: h.settings.revision, cause },
+            ];
+            await navigate(h, console, "console-document", false);
+            expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+          },
+        );
         it("checks the tab's next page when the first one went away before it was read", async () => {
           // Shaped like Oracle Cloud's sign-in (2026-10-13): a redirect through another
           // page that leaves before Pateat reads it, then the console.
