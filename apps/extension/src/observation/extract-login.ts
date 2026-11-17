@@ -1,6 +1,13 @@
 import type { LoginTarget, ObservedCandidate } from "@pateat/contracts";
 import { autocompleteTokens, findTargets } from "../page/targets";
-import { closestAcross, composedParent, containsAcross, formOf, readingPage } from "../page/shadow";
+import {
+  closestAcross,
+  composedOrder,
+  composedParent,
+  containsAcross,
+  formOf,
+  readingPage,
+} from "../page/shadow";
 import { redactsPath } from "./path";
 import { buttonText, fieldName, isButton, isScriptButton } from "../page/text";
 import type { ObservationGap, ObservationResult, Draft, Found } from "./extract-types";
@@ -56,13 +63,14 @@ const submits = (element: Element) =>
   (element instanceof HTMLInputElement && (element.type === "submit" || element.type === "image"));
 
 /**
- * A `type="button"` button with text inside a form, which never submits that form on its
- * own: a script may make it the form's submit, such as an `<input type="button"
- * value="Login">`, so it counts unless the form has a native submit button that is
- * located, as Kuroneko Members' 新規登録（無料） beside its located ログイン, whose text a
- * second sign-up button outside the form repeats (2026-11-17, #1491).
+ * A `type="button"` button with text inside a login form, which never submits that form
+ * on its own. A script may still make it the form's submit, such as an `<input
+ * type="button" value="Login">`, so one without a locator counts unless a located native
+ * submit button of the form sits between the form's last fillable field and it
+ * (`locatedSubmitBefore`), as Kuroneko Members' ログイン does before its 新規登録（無料）,
+ * whose text a second sign-up button outside the form repeats (seen 2026-11-12, #1491).
  */
-const formButton = (element: Element, form: HTMLFormElement | null) =>
+const plainFormButton = (element: Element, form: HTMLFormElement | null) =>
   form !== null && isButton(element) && element.type === "button";
 
 /**
@@ -137,7 +145,7 @@ function loginFormsOf(
  * for each such form when they can be located and never make the observation
  * incomplete. A field or button that cannot be located (other than a script button, an
  * icon button that never submits in a form with another button, a `type="button"` button
- * with text in a form whose native submit button is located (`formButton`), a textless
+ * with text in a login form after a located native submit (`plainFormButton`), a textless
  * button away from the fields outside every form when another button outside every form
  * is located, or a checkbox the page does not require, which is left out) or a control
  * the executor cannot act on marks the observation incomplete when it is in a login form
@@ -241,8 +249,8 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   // Icon buttons follow the same rule, but only in a form that has another button to
   // submit with: an icon-only button may itself be the form's script submit.
   const icons: typeof required = [];
-  // A form's `type="button"` buttons with text count only in a form without a located
-  // native submit button (`formButton`).
+  // A login form's `type="button"` buttons with text count only without a located native
+  // submit button after the form's fields and before them (`plainFormButton`).
   const plainButtons: typeof required = [];
   const links: typeof required = [];
   // A checkbox is context only, never checked by a recipe, so one the page does not
@@ -339,7 +347,8 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
       checks.push(entry);
     else if (isScriptButton(entry.draft.element)) scripted.push(entry);
     else if (iconButton(entry.draft.element, nearFields)) icons.push(entry);
-    else if (formButton(entry.draft.element, entry.form)) plainButtons.push(entry);
+    else if (loginForms.has(entry.form) && plainFormButton(entry.draft.element, entry.form))
+      plainButtons.push(entry);
     else required.push(entry);
   }
 
@@ -377,12 +386,29 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
     keep(located(entries, options));
   const requiredFound = located(required, { names: true });
   const plainButtonsFound = located(plainButtons, { optional: true, names: true });
-  const submitted = new Set(
-    requiredFound.filter((entry) => submits(entry.draft.element)).map((entry) => entry.form),
-  );
+  const locatedSubmits = requiredFound.filter((entry) => submits(entry.draft.element));
+  // The last fillable field of each form, in the order the page shows them.
+  const lastFields = new Map<HTMLFormElement | null, Element>();
+  for (const entry of found)
+    if (entry.kind === "candidate" && fillTypes[entry.draft.role]) {
+      const last = lastFields.get(entry.form);
+      if (!last || composedOrder(last, entry.draft.element) < 0)
+        lastFields.set(entry.form, entry.draft.element);
+    }
+  // A located native submit of the button's form after that form's fields and before the
+  // button, so a search box's submit above the sign-in fields never stands in for it.
+  const locatedSubmitBefore = (entry: (typeof required)[number]) => {
+    const last = lastFields.get(entry.form);
+    return locatedSubmits.some(
+      ({ form, draft: { element } }) =>
+        form === entry.form &&
+        (!last || composedOrder(last, element) < 0) &&
+        composedOrder(element, entry.draft.element) < 0,
+    );
+  };
   for (const entry of plainButtons)
     if (
-      !submitted.has(entry.form) &&
+      !locatedSubmitBefore(entry) &&
       !plainButtonsFound.some((button) => button.draft === entry.draft)
     )
       flaw(entry.form, "unlocated-button");
