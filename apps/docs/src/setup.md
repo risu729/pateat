@@ -326,6 +326,14 @@ its passkey window with the login's account first. Otherwise, if that page's for
 heading shows another of your accounts, the window opens with that account first, then
 the login's.
 
+Some sites ask for the passkey of the account you typed after you enter your email, on a
+page Pateat has no login steps for, without a passkey button. When exactly one item in
+your vault has a passkey the site asks for there, and no Pateat login is running in the
+tab, Pateat signs in with that item, even one with no password. When the site names
+passkeys of several items, when automatic login is paused or set to ask every time on
+that site, and when Pateat already signed you in there in that tab, the request goes to
+the browser instead.
+
 With **Auto**, when you log out of a site yourself, Pateat logs in again on the next
 login page, with the account it would use for an automatic login. To stay logged out,
 pause the site first. If Pateat logged in to a site twice in the last 10 minutes, it

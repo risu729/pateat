@@ -3854,7 +3854,13 @@ wrappers that other providers, including the official Bitwarden extension, insta
 assigning `get` or `create`, so it answers claimed requests first. A top document's
 conditional request goes to the login runtime, which answers it only through a login of
 that document and otherwise hands it on, or withholds it after that login signed in
-([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A login that stops before its
+([ADR 0034](adr/0034-answer-page-passkey-requests.md)). The one exception is a
+conditional request that names its credentials on a path where no recipe starts: once
+no login of its tab runs to answer it, it is answered with the one vault item holding a
+passkey it names, and handed on when several items or none do, on a paused site, one
+that asks every time or the relogin guard holds, and on a re-verification after
+Pateat's login in the tab (ADR 0034 amendment of 2026-11-17, the owner's decision; its
+details are the agent's). A login that stops before its
 item's missing password answers its document's waiting request at its stop, also one
 made after its first submission
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Real-extension coexistence

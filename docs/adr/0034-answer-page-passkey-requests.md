@@ -72,6 +72,12 @@ origin, with its item. Option A (13:51 UTC,
 a click's discoverable request on a page that shows another matching account than the
 site default opens the chooser with that account first.
 
+Amended on 2026-11-17 by the owner's decision at 18:22 UTC
+([the amendment below](#amendment-a-request-that-names-its-credentials-2026-11-17)):
+rule 2 gets an exception. A `conditional` request that names its credentials, on a path
+where no recipe starts and with no login of the tab to answer it, is answered with the
+one vault item that holds one of the named passkeys.
+
 Date: 2026-10-12
 
 ## Context
@@ -106,7 +112,10 @@ password when the item has one. The proposal reviewed with the owner is
    starts no login, such as a home, registration or payment page, are handed on as
    before; Pateat never signs in just because a page was visited.
 2. **Pages without a recipe keep delegating** (`no-recipe`). Pateat does not answer a
-   site it has no recipe for, even with one matching item or a site default.
+   site it has no recipe for, even with one matching item or a site default. (Since the
+   [amendment of 2026-11-17](#amendment-a-request-that-names-its-credentials-2026-11-17),
+   a request that names its credentials is answered when exactly one vault item holds
+   them.)
 3. **The passkey goes first.** When the page has asked and the login's item holds a
    discoverable passkey, a login on a recipe without a passkey button takes the
    `passkey` route. That route's one step answers the waiting request with the login's
@@ -384,3 +393,73 @@ An agent change, as a general rule (ADR 0033), not confirmed by the owner:
   also hands its request on, for the same reason: Pateat cannot tell such a rewrite from
   a move to another step. Its passkey then goes to the browser or another provider, as
   on a site Pateat has no recipe for.
+
+## Amendment: a request that names its credentials (2026-11-17)
+
+[#1673](https://github.com/risu729/pateat/issues/1673): Money Forward ID's sign-in
+(`id.moneyforward.com`) asks for the email on `/sign_in` and moves to
+`/sign_in/password` for any address. That page shows no passkey button, but its script
+makes a `conditional` request whose `allowCredentials` names the typed address's
+passkeys. No recipe starts on `/sign_in/password`, so rule 2 handed the request to the
+browser, which held no passkey for the site. An item with only a passkey and no password
+could not sign in there.
+
+The owner's decision of 2026-11-17 at 18:22 UTC, on a decision card: "Money Forward:
+メール入力後にサイトが特定のパスキーを求めたら、Pateat が答えますか" ("When the site
+asks for a specific passkey after the email is entered, does Pateat answer?"), choosing
+"答える(おすすめ)" ("Answer (recommended)"): "求められたパスキーを持つ項目が1つなら、
+Pateatのログイン中でなくてもその項目で答えます。打ったメールのアカウントで入ります。"
+("If one item holds the requested passkey, Pateat answers with that item even when no
+Pateat login runs. It signs in to the account whose email was typed.")
+
+Rule 2 gets one exception: a `conditional` request whose `allowCredentials` is not empty
+is answered with the one vault item that holds a passkey it names, even without a login.
+
+The details are the agent's choices, not confirmed by the owner:
+
+- **Only where no recipe starts.** The exception covers a request on a path where no
+  login recipe or chooser starts, no later step a login may start at (ADR 0049), no
+  sign-in entry (ADR 0031) and no first page of a recipe generated as `confirm` or
+  `unclear` (ADR 0035). A path that cannot be read, or recipes that cannot be read,
+  count as a recipe's. Everywhere else rules 1 to 7 decide as before.
+- **A login comes first.** The request waits as a request without a login does (rule
+  5, three seconds), and is answered only if no login of its document ever took it and
+  no login of its tab runs then. Otherwise it is handed on as `no-login`, as before.
+- **Exactly one passkey.** The vault, read in full, must hold exactly one passkey the
+  request names, with a zero counter and no Bitwarden re-prompt. Several named passkeys
+  are handed on as `ambiguous-credential`, even when the site default is one of them:
+  the page names the typed account, so the default never breaks the tie. None is
+  `no-credential`, and an unread item is `vault-incomplete`. A re-prompt item is
+  `master-password-reprompt`, since an autofill request never opens the chooser window.
+- **Every guard stays.** A paused site (a timed pause, an exclusion rule, or a private
+  window while automatic login is off there) hands the request on as `paused`. A site
+  that asks every time after a one-time pick (ADR 0063) hands it on as `one-time-pick`.
+  A request on a page set to fill only is handed on as `sign-in-fill`, and one of a
+  hostname chosen "Always for this site" as `browser-site`. The relogin guard (two
+  automatic sign-ins of the site in 10 minutes, ADR 0062) hands it on as
+  `default-unset`, as a site that asks every time does where the request itself gets
+  past the first check. None of these signs without a person, so none opens a chooser.
+- **Re-verification.** After Pateat's login in the tab signed in and no logout was seen
+  (ADR 0035), the request is a re-verification on a `confirm` page. It is handed on as
+  `confirm-fill`, as a click's request that names its credentials is. This extends
+  that check to `conditional` requests, for this path only.
+- **The page's path.** The checks of the amendment above apply: the tab's path is read
+  again right before the assertion leaves, and a page that moved hands the request on
+  as `page-moved`. Pateat's page script drops an assertion whose page's path changed.
+- **A sign-in Pateat made.** The answer counts toward the relogin guard, and the tab's
+  next page is the page after a sign-in (ADR 0028), as for any answer without a login
+  or a choice.
+- **Logs.** `passkey.request` carries the flag `namedCredential` on each request this
+  path decided, answered or handed on. It records no credential ID, address or
+  username.
+
+Consequences:
+
+- On Money Forward ID, an address the person types and submits signs in with that
+  account's passkey on the password page, also for an item without a password.
+- A site whose page after the identifier names one passkey of the vault in an autofill
+  request now signs in without a press, where before the browser or another provider
+  showed its suggestion. A site that names passkeys of several vault items still gets
+  the browser's suggestion.
+- Verified with unit tests of the passkey runtime and the login runtime only; the real
+  site is still to be checked in the owner's Chrome.

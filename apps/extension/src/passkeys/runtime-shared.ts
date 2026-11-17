@@ -167,6 +167,12 @@ export interface PasskeyRequestReport {
    */
   readonly pageAccount?: "other";
   /**
+   * A conditional request that named its credentials, with no login of its page and no
+   * recipe on its path, was answered with the one vault item holding one of them, or handed
+   * on with why (ADR 0034 amendment of 2026-11-17). Never a credential ID or a username.
+   */
+  readonly namedCredential?: boolean;
+  /**
    * Automatic login of the page's site was paused (ADR 0062), so the request was answered only
    * through the chooser window, or handed on when it could not open.
    */
@@ -229,6 +235,16 @@ export type ConditionalDecision =
        * assertion is signed, right before it leaves; one that moved is handed on as
        * `page-moved` (ADR 0034 amendment of 2026-11-17).
        */
+      readonly stillOnPath?: () => Promise<boolean>;
+    }
+  | {
+      /**
+       * No login of its page answers it and no recipe starts on its path, but it names its
+       * credentials: it is answered with the one vault item holding one of them, if exactly
+       * one does (ADR 0034 amendment of 2026-11-17, the exception to rule 2).
+       */
+      readonly kind: "named";
+      /** As for `answer`: whether the page still shows the path it came on. */
       readonly stillOnPath?: () => Promise<boolean>;
     }
   | { readonly kind: "delegate"; readonly reason: string }
@@ -364,8 +380,10 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
    * and none preselected, also for one passkey (ADR 0063: a site that asks every time after
    * a pick that did not make its account the default). `paused` does the same for a site
    * whose automatic login is paused (ADR 0062): the window says so, and where it cannot open
-   * the request is handed on as `paused`. A conditional request never gets here without a
-   * login, so it is handed on as before. A value that cannot be read counts as false.
+   * the request is handed on as `paused`. A conditional request gets here without a login
+   * only when it names its credentials, and is then handed on instead of asking, as
+   * `paused` or `default-unset` (ADR 0034 amendment of 2026-11-17); this covers the relogin
+   * guard too. A value that cannot be read counts as false.
    */
   defaultUnset?: (
     origin: string,
@@ -374,7 +392,9 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
   /**
    * Whether the tab's Pateat login of the origin signed in and no logout was detected
    * since. A request there that names its credentials is a re-verification while signed
-   * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035). Not
+   * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035), a
+   * conditional one answered by its named credentials too (ADR 0034 amendment of
+   * 2026-11-17). Not
    * one of the document the login just completed in, which asks for its second factor
    * (ADR 0029, amended 2026-11-17).
    */
@@ -392,6 +412,8 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
     incognito: boolean;
     /** The page's own path as it made the request, unchecked (ADR 0034). */
     path?: string;
+    /** The request names its credentials (`allowCredentials`). */
+    namesCredentials?: boolean;
   }) => Promise<ConditionalDecision>;
   /**
    * Reads whether an RP lists the page's origin, for a request whose RP ID belongs to

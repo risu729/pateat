@@ -555,6 +555,7 @@ export const LOG_EVENTS = {
       uiMode: "code",
       duringLogin: "flag",
       movedLogin: "flag",
+      namedCredential: "flag",
       pageAccount: "code",
       paused: "flag",
       answerFailed: "code",

@@ -419,6 +419,12 @@ type ParkedRequest = {
    * which a login of the document may still take `REQUEST_START_WAIT_MS` to start.
    */
   restarted?: number;
+  /**
+   * It names its credentials and no recipe starts on its path: once no login of its tab
+   * runs to answer it, it is answered by the passkey it names instead of being handed on
+   * (ADR 0034 amendment of 2026-11-17).
+   */
+  named?: true;
   settle(decision: ConditionalDecision): boolean;
 };
 

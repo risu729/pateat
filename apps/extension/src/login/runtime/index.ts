@@ -187,6 +187,8 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
       incognito?: boolean;
       /** The page's own path as it asked, unchecked (ADR 0034). */
       path?: string;
+      /** The request names its credentials (ADR 0034 amendment of 2026-11-17). */
+      namesCredentials?: boolean;
     }) => conditionalRequest(rt, input),
     /**
      * Whether a passkey request of the origin treats the saved default as unset (ADR 0063):

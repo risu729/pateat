@@ -61,6 +61,12 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     signal: AbortSignal,
     /** `login` moved to the page from another origin (ADR 0036 amendment of 2026-11-17). */
     moved = false,
+    /**
+     * A conditional request that names its credentials, with no login of its page (ADR
+     * 0034 amendment of 2026-11-17): only the one passkey of the vault the request names
+     * signs, without a choice; anything else hands it on.
+     */
+    named = false,
   ): Promise<RuntimeResult> => {
     setStep("passkey-lookup");
     // Whether the site treats its default as unset (ADR 0062, ADR 0063), read alongside the
@@ -223,7 +229,32 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
       !pageOther &&
       selection.kind === "credential" &&
       selection.credential.reprompt === true;
-    if (selection.kind === "credential" && !reprompt && !pageOther) {
+    if (named) {
+      // The site default never breaks a tie here: the page names the account the person
+      // typed, so several named passkeys, or an item not searched, hand the request on.
+      const only = accepted.length === 1 ? accepted[0]! : undefined;
+      const handOn = !candidates.complete
+        ? "vault-incomplete"
+        : !only
+          ? accepted.length === 0
+            ? "no-credential"
+            : "ambiguous-credential"
+          : only.counter !== 0
+            ? "unsupported-counter"
+            : only.reprompt === true
+              ? "master-password-reprompt"
+              : undefined;
+      if (handOn) return { kind: "delegate", reason: handOn };
+      // A paused site, one that asks every time and one the relogin guard holds sign in
+      // only through a person's choice, which an autofill request never opens.
+      const unsetNamed = await abortable(unsetRead, signal);
+      if (unsetNamed === "paused") detail.paused = true;
+      if (unsetNamed)
+        return { kind: "delegate", reason: unsetNamed === "paused" ? "paused" : "default-unset" };
+      credential = only!;
+      // Pateat signed in by itself, as for any answer without a login or a choice.
+      if (!message.userActivation) after.silent = true;
+    } else if (selection.kind === "credential" && !reprompt && !pageOther) {
       credential = selection.credential;
       // Signed with no login of the tab, no choice and no click of the person: a sign-in
       // the page started and Pateat made by itself, as a login page that asks on load

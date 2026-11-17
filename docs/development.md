@@ -1440,6 +1440,12 @@ holds:
 - `movedLogin` when the request was answered, or handed on as `login-item-*`, for a
   running login whose tab moved to the page from another origin
   ([ADR 0036 amendment of 2026-11-17](adr/0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17));
+- `namedCredential` when a conditional request that named its credentials, on a path
+  where no recipe starts and with no login of the tab, was answered with the one vault
+  passkey it named, or handed on with why (`no-credential`, `ambiguous-credential`,
+  `vault-incomplete`, `paused`, `default-unset`, `confirm-fill`, `page-moved` and the
+  like)
+  ([ADR 0034 amendment of 2026-11-17](adr/0034-answer-page-passkey-requests.md#amendment-a-request-that-names-its-credentials-2026-11-17));
 - `pageAccount` `other` when the page showed another matching account than the site
   default, so the chooser asked with that account first; where the window could not
   open, the reason is `page-account`
