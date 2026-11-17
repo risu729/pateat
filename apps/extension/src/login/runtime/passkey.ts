@@ -503,7 +503,8 @@ export async function conditionalRequest(
     const stepped =
       named &&
       personStepFor(rt, { ...input, ...(path === undefined ? {} : { path }), since: Date.now() });
-    if (!starts.length && !stepped) return { kind: "delegate", reason: "no-recipe" };
+    if (!starts.length && !stepped)
+      return { kind: "delegate", reason: "no-recipe", ...(named ? { named: true } : {}) };
   }
   if (input.signal.aborted) return { kind: "delegate", reason: "cancelled" };
   return new Promise<ConditionalDecision>((resolve) => {
@@ -519,11 +520,14 @@ export async function conditionalRequest(
       settle(decision) {
         if (!rt.parkedRequests.delete(parked)) return false;
         input.signal.removeEventListener("abort", onAbort);
-        // An answer is checked once more right before its assertion leaves.
+        // An answer is checked once more right before its assertion leaves. A named one a
+        // pause hands on while it waits is flagged as one this path decided.
         resolve(
           decision.kind === "answer" || decision.kind === "named"
             ? { ...decision, stillOnPath: async () => cameOn(parked, await tabPath(parked)) }
-            : decision,
+            : decision.kind === "delegate" && decision.reason === "paused" && named
+              ? { ...decision, named: true }
+              : decision,
         );
         return true;
       },

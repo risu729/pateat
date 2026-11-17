@@ -180,6 +180,14 @@ describe("a conditional request that names its credentials (ADR 0034, 2026-11-17
     expect(await decide(ask(h, { documentId: "late" }))).toEqual(handedOn);
   });
 
+  it("follows no step of a tab that closed", async () => {
+    const h = harness();
+    await arrive(h);
+    for (const listener of fake.state.removed) listener(1);
+    await show(h, "password-page", "/signin/password");
+    expect(await decide(ask(h))).toEqual(handedOn);
+  });
+
   it("is handed on at once on an origin without a recipe, unless the person stepped", async () => {
     const h = harness();
     h.recipes.starts.mockResolvedValue([]);
@@ -187,6 +195,7 @@ describe("a conditional request that names its credentials (ADR 0034, 2026-11-17
     expect(await decide(ask(h, { documentId: "no-step" }))).toEqual({
       kind: "delegate",
       reason: "no-recipe",
+      named: true,
     });
     await arrive(h, "after-step", "/login");
     expect(await decide(ask(h, { documentId: "after-step" }))).toMatchObject({ kind: "named" });
@@ -279,7 +288,8 @@ describe("a conditional request that names its credentials (ADR 0034, 2026-11-17
     });
     const request = ask(h, { documentId: "unannounced" });
     await vi.advanceTimersByTimeAsync(500);
-    expect(request.decided()).toEqual({ kind: "delegate", reason: "paused" });
+    // Flagged, as its path was read; one paused before it is not.
+    expect(request.decided()).toEqual({ kind: "delegate", reason: "paused", named: true });
   });
 
   it("is checked against the path its page shows before the answer leaves", async () => {

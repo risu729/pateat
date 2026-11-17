@@ -414,9 +414,10 @@ Pateatのログイン中でなくてもその項目で答えます。打った�
 Pateat login runs. It signs in to the account whose email was typed.")
 
 Rule 2 gets one exception: a `conditional` request whose `allowCredentials` is not
-empty, made right after the person's own sign-in step in the tab, is answered with the
-one vault passkey it names, even without a login. Rule 1 still holds: Pateat never signs
-in just because a page was visited, and a page's own script never makes the step.
+empty, made right after the person's own sign-in step, on that page or the page right
+after it, is answered with the one vault passkey it names, even without a login. Rule 1
+still holds: Pateat never signs in just because a page was visited, and a page's script
+alone never makes the step, within the limit named below.
 
 The details are the agent's choices, not confirmed by the owner:
 
@@ -426,25 +427,35 @@ The details are the agent's choices, not confirmed by the owner:
   `unclear` (ADR 0035). A path that cannot be read, or recipes that cannot be read,
   count as a recipe's. Everywhere else rules 1 to 7 decide as before.
 - **Only right after the person's own sign-in step.** The card's "after the email is
-  entered" is one signal of its own, the person's sign-in step. The content script of
-  the tab's top document reports it when a form that holds an identifier input (an
-  email, a username or a phone number, by its `type` or its `autocomplete`) or a
-  password input is sent by a trusted `submit` event, or by a trusted Enter in one of
-  its inputs or click on its submit button, as a single-page site may handle those
-  without a `submit`, each while `navigator.userActivation.isActive`. A script's event,
-  a `requestSubmit` without the person's activation, and a frame's form, as a payment
-  provider's, are none. The report carries the page's path and nothing about the form or
-  its values. The worker keeps, in memory, the latest step per tab and origin: its
-  document, path and time. A named request qualifies only when the tab's step on its
-  origin was less than `AFTER_SIGN_IN_MS` (60 seconds) before the request, and the
-  request comes either from the step's document on another path, or from the next top
+  entered" is one signal of its own, the person's sign-in step: the person's own input
+  that sends a form of the tab's top document holding a shown identifier input (an
+  email, a username or a phone number, by its `type` or its `autocomplete`) or password
+  input that holds a value. That input is a trusted `keydown` of Enter whose target is
+  one of the form's inputs, outside an input method's composition (`isComposing`), or a
+  trusted `click` whose composed path holds the form's submit button. The content script
+  reports it. A `submit` event is never read: a page's own `requestSubmit`, or a
+  script's `click()` on a submit button, fires a trusted `submit` in Chromium, also
+  while an earlier click of the person still lends the page its activation. So a
+  script's submit or click, any other key, an Enter that ends a composition, a form
+  whose identifier and password inputs are empty or hidden, and a frame's form, as a
+  payment provider's, are none. Whether the input is empty is read in the page; the
+  report carries the page's path and nothing about the form or its values. Any form with
+  such an input counts, also a newsletter or subscribe form with an email field, as the
+  card's "after the email is entered" reads. The signal has a limit no page check can
+  remove: a page can place its own form's submit button under the person's click, as an
+  invisible one over a cookie banner, and that click then counts. The worker keeps, in
+  memory, the latest step per tab and origin: its document, path and time. A named
+  request qualifies only when the tab's step on its origin was less than
+  `PERSON_STEP_MS` (60 seconds) before the request, and the request comes from that page
+  or the page right after it: the step's document on another path, or the next top
   document of that origin in the tab after the step (the first that announced, or asked,
-  after it). One answer uses the step up. With no qualifying step the request is handed
-  on as before: as `no-recipe` at once on an origin without any recipe, and as
-  `no-login` where a recipe exists. The page that loaded with the request, a page seen
-  without any action, a step made hours before and a submit of anyone else (the
-  `login.document.submitted` report, which keeps its own use for the page after a
-  sign-in, ADR 0028) all qualify for nothing.
+  after it). One answer uses the step up. A step is forgotten when its tab closes, and
+  when read once no request that came within its minute can still wait for it. With no
+  qualifying step the request is handed on as before: as `no-recipe` at once on an
+  origin without any recipe, and as `no-login` where a recipe exists. The page that
+  loaded with the request, a page seen without any action, a step made hours before and
+  a submit of anyone else (the `login.document.submitted` report, which keeps its own
+  use for the page after a sign-in, ADR 0028) all qualify for nothing.
 - **A login comes first, without a set wait.** The request is decided as soon as its
   page announced on the path it came on with no sign-in to start a login from, its
   admission over, and no login of its tab runs. The three seconds of rule 5 are only the
@@ -489,8 +500,10 @@ The details are the agent's choices, not confirmed by the owner:
   or a choice.
 - **Logs.** `passkey.request` carries the flag `namedCredential` on each request this
   path decided, answered or handed on, including one handed on as `no-login` because a
-  login of the tab ran or it followed no step of the person. It records no credential
-  ID, address or username.
+  login of the tab ran or it followed no step of the person, as `no-recipe` on an origin
+  without a recipe, and as `paused` when a pause starts while it waits. A request handed
+  on before its path is read, as `paused` or `one-time-pick` at its first check, or
+  cancelled, carries no flag. It records no credential ID, address or username.
 
 Consequences:
 

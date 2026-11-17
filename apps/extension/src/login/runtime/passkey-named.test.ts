@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConditionalDecision } from "../../passkeys/runtime";
+import { PERSON_STEP_MS, REQUEST_PARK_MS } from "./constants";
 import type { ParkedRequest } from "./types";
 import type { Runtime } from "./state";
 
@@ -229,6 +230,22 @@ describe("the person's own sign-in step a request follows", () => {
     stepped(rt);
     expect(personStepFor(rt, { ...request("password-page"), origin: other })).toBeUndefined();
     expect(personStepFor(rt, { ...request("password-page"), tabId: 2 })).toBeUndefined();
+  });
+
+  it("is forgotten when read once no waiting request can follow it", () => {
+    const rt = runtime();
+    stepped(rt);
+    // A request that came just within the step's minute may wait as long as any.
+    const late = { ...request("password-page"), since: Date.now() + PERSON_STEP_MS - 1 };
+    vi.setSystemTime(Date.now() + PERSON_STEP_MS + REQUEST_PARK_MS - 1);
+    expect(personStepFor(rt, late)).toBeDefined();
+    vi.setSystemTime(Date.now() + 1);
+    expect(personStepFor(rt, late)).toBeUndefined();
+    expect(rt.personSteps.size).toBe(0);
+    // A document announced is a read too.
+    stepped(rt, PERSON_STEP_MS + REQUEST_PARK_MS);
+    personStepNext(rt, doc("password-page"));
+    expect(rt.personSteps.size).toBe(0);
   });
 
   it("is followed by the next top document of its origin only", () => {

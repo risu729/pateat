@@ -1,6 +1,6 @@
 import type { LoginDocument } from "@pateat/contracts";
 import { terminal } from "./attempt-state";
-import { AFTER_SIGN_IN_MS } from "./constants";
+import { PERSON_STEP_MS, REQUEST_PARK_MS } from "./constants";
 import { routesOf } from "./generation-scope";
 import { frameKey } from "./steps";
 import type { ParkedRequest, PersonStep } from "./types";
@@ -59,17 +59,30 @@ export function personStepped(rt: Runtime, document: LoginDocument, path: string
   });
 }
 
+/**
+ * The tab's step on an origin, forgotten once no request can follow it any more: one that
+ * came within `PERSON_STEP_MS` of it waits at most `REQUEST_PARK_MS`.
+ */
+function stepOf(rt: Runtime, key: string): PersonStep | undefined {
+  const step = rt.personSteps.get(key);
+  if (step && Date.now() - step.at >= PERSON_STEP_MS + REQUEST_PARK_MS) {
+    rt.personSteps.delete(key);
+    return undefined;
+  }
+  return step;
+}
+
 /** A top document of the tab announced: the first of its origin after a step is its next. */
 export function personStepNext(rt: Runtime, document: LoginDocument): void {
   if (document.frameId !== 0) return;
-  const step = rt.personSteps.get(`${document.tabId} ${document.origin}`);
+  const step = stepOf(rt, `${document.tabId} ${document.origin}`);
   if (step && step.next === undefined && step.documentId !== document.documentId)
     step.next = document.documentId;
 }
 
 /**
  * The person's own sign-in step a named request follows, if one does: the tab's step on the
- * request's origin less than `AFTER_SIGN_IN_MS` before the request, made in the request's
+ * request's origin less than `PERSON_STEP_MS` before the request, made in the request's
  * document on another path, or in the document before it, the request's being the tab's
  * next top document of the origin after the step. A request of a document after a step
  * that no other document followed yet is that next document.
@@ -78,11 +91,11 @@ export function personStepFor(
   rt: Runtime,
   request: { tabId: number; origin: string; documentId: string; path?: string; since: number },
 ): PersonStep | undefined {
-  const step = rt.personSteps.get(`${request.tabId} ${request.origin}`);
+  const step = stepOf(rt, `${request.tabId} ${request.origin}`);
   if (!step) return undefined;
   // A clock set back counts nothing.
   const age = request.since - step.at;
-  if (age < 0 || age >= AFTER_SIGN_IN_MS) return undefined;
+  if (age < 0 || age >= PERSON_STEP_MS) return undefined;
   if (step.documentId === request.documentId)
     return request.path !== undefined && comparable(request.path) !== comparable(step.path)
       ? step
