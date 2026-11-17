@@ -501,6 +501,34 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect(status()![0]).toMatchObject({ route: "passkey" });
       expect(executed()).toEqual([]);
     });
+    it("takes a request's path as its tab's while that tab shows one more trailing /", async () => {
+      const { h } = start();
+      const request = ask(h, { path: "/signin" });
+      await flush();
+      // The router adds a trailing `/` once the login is under way, before it answers.
+      const original = h.store.handle.getMockImplementation()!;
+      h.store.handle.mockImplementation(async () => {
+        if (status()?.[0]?.["state"] === "submit-intent")
+          fake.state.tabUrls[1] = `${origin}/signin/`;
+        return original();
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      const answer = answerOf(await request.decision);
+      expect(status()![0]).toMatchObject({ route: "passkey" });
+      expect(await answer.stillOnPath!()).toBe(true);
+    });
+    it.each(["//elsewhere.example/x", "/a/../b", "relative", "/a\\b"])(
+      "reads the tab's path instead of %j, which is not a path as a page's location gives it",
+      async (path) => {
+        const { h } = start();
+        // The tab shows the sign-in page, where the login starts and answers.
+        const request = ask(h, { path });
+        await flush();
+        expect(await h.hello()).toEqual({ ok: true });
+        answerOf(await request.decision);
+        expect(status()![0]).toMatchObject({ route: "passkey" });
+      },
+    );
     it("takes the page's own path when the tab's URL has not caught up with its move", async () => {
       const { h } = startThere();
       // The site moves with history.pushState and asks at once, before the tab's

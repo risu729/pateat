@@ -354,11 +354,14 @@ An agent change, as a general rule (ADR 0033), not confirmed by the owner:
 - The vault is read and the assertion signed after that check, so the background reads
   the tab's path once more right before the assertion leaves, as it reads the page's
   permission again then: a request whose page moved meanwhile is handed on as
-  `page-moved`, and its login is told it was not answered and falls back as
-  `answer-failed`. What remains after that, the trip to the page, the page itself
-  closes: Pateat's page script drops an assertion for a conditional request that comes
-  back after `location.pathname` changed, handing the request to the browser instead.
-  The background does not learn of that drop.
+  `page-moved`, and its login is told it was not answered: on the `passkey` route it
+  falls back as `answer-failed`, and at a stop of ADR 0036, whose answer was already
+  recorded, it ends `challenge` with the cause `answer-failed`. What remains after
+  that, the trip to the page, the page itself closes: Pateat's page script drops an
+  assertion for a conditional request that comes back after its path changed, compared
+  redacted as observations carry it (a rewrite of a token segment alone is no move) and
+  one trailing `/` aside, handing the request to the browser instead. The background
+  does not learn of that drop.
 - A site whose route after the email keeps the email page's request and offers it in a
   field of its own is not answered there any more; the browser or another provider gets
   the request. Rule 7's case for answering, a request a person could pick from an

@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
-import { snapshotGetOptions } from "../../src/passkeys/page";
+import { REDACTED_PATH_SEGMENT } from "@pateat/contracts";
+import { PAGE_REDACTED_SEGMENT, snapshotGetOptions } from "../../src/passkeys/page";
 import { PAGE_CHANNEL, PAGE_MAX_WAIT_MS, PAGE_TIMEOUT_MS } from "../../src/passkeys/wire";
 import type { PageFixtures } from "../../src/passkeys/page.test";
 
@@ -276,6 +277,18 @@ export function registerPageGetCases({
     });
     await expect(result).resolves.toBe("native");
     expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+  });
+
+  it("uses an assertion across a rewrite of a token segment alone, as the background compares (ADR 0034)", async () => {
+    const page = fakePage(answer({ kind: "assertion", assertion: syntheticAssertion }));
+    page.location.pathname = "/signin/3f2c9a1e-8b4d-4c6a-9e1f-2a7b5c8d0e13";
+    const result = page.container.get({ publicKey, mediation: "conditional" });
+    // The router swaps one token for another with history.replaceState.
+    page.location.pathname = "/signin/9d8e7f6a-5b4c-4d3e-8f2a-1b0c9d8e7f6a/";
+    await expect(result).resolves.toMatchObject({ id: "AQID" });
+    expect(page.nativeGet).not.toHaveBeenCalled();
+    // The page redacts as observations do.
+    expect(PAGE_REDACTED_SEGMENT).toBe(REDACTED_PATH_SEGMENT);
   });
 }
 

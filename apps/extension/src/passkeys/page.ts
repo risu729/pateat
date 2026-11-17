@@ -13,6 +13,13 @@ import type { BridgedCreateRequest } from "./create";
 import type { BridgedGetRequest } from "./request";
 import type { PasskeyAssertion } from "./assertion";
 import { newId } from "@pateat/contracts/ids";
+import { redactPath } from "../observation/token-segment";
+
+/**
+ * `REDACTED_PATH_SEGMENT`, which `observedPath` puts in place of a token segment; the
+ * page-world script cannot import the contracts package without bundling all of it.
+ */
+export const PAGE_REDACTED_SEGMENT = "[id]";
 
 type PageScope = Window & typeof globalThis;
 const MAX_ALLOW_CREDENTIALS = 64;
@@ -183,9 +190,16 @@ function decodeBuffer(value: string): ArrayBuffer {
   return decoded.buffer as ArrayBuffer;
 }
 
-/** Whether two paths are the same page's, one trailing `/` aside. */
+/**
+ * Whether two paths are the same page's as the background compares them: redacted as
+ * observations carry a path (`observedPath`), one trailing `/` aside. A rewrite of a token
+ * segment alone is no move, so the page never drops an answer the background let go.
+ */
 function samePath(a: string, b: string): boolean {
-  const bare = (path: string) => (path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path);
+  const bare = (path: string) => {
+    const observed = redactPath(path, PAGE_REDACTED_SEGMENT);
+    return observed.length > 1 && observed.endsWith("/") ? observed.slice(0, -1) : observed;
+  };
   return bare(a) === bare(b);
 }
 
