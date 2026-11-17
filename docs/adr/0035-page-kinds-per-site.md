@@ -49,6 +49,10 @@ Amended on 2026-11-17 by the owner (13:15 UTC,
 verification page stays limited to the tab's own confirmed login, and the popup gains
 **Fill**, which fills such a page once with an account the person picks and presses
 nothing. Implemented on a branch, synthetic tests only.
+Amended on 2026-11-17 by the agent
+([below](#amendment-2026-11-17-fill-after-a-worker-restart)): the popup's offer asks a
+verification page that a restarted worker does not know to announce again, so **Fill**
+shows there.
 
 Date: 2026-10-12
 
@@ -639,3 +643,24 @@ agent's choices, not confirmed by the owner:
 Amends
 [ADR 0088](0088-popup-manual-login.md#amendment-2026-11-17-fill-on-verification-pages)
 for the popup's offer.
+
+## Amendment 2026-11-17: Fill after a worker restart
+
+On a real Chrome, the popup on a verification page whose path had a `confirm` recipe
+showed **Log in now** with "No sign-in form was found on this page." about 17 minutes
+after the page logged `confirm-unsupported`. The worker keeps the documents it admitted
+in memory only, and Chrome stops an idle worker. A restarted worker asks only the tabs
+of sites with a saved default or a login record to announce again
+(`apps/extension/src/login/runtime/index.ts`), and the popup's offer did not wait for
+any of them, so it found no document of the tab and offered nothing.
+
+The agent's fix, not confirmed by the owner: when the worker knows no top document of
+the tab, the tab's path has a `confirm` or `unclear` recipe and `confirm` is `fill`
+there, the offer asks the tab's top document to announce again, or waits for the
+announcement the restarted worker already asked for, before it lists the tab's
+documents (`announceConfirmPage` in
+`apps/extension/src/login/runtime/confirm-pick.ts`). That announcement is admitted as
+the page's own was, as a restarted worker's reconnect of a site with a saved default
+is, and the popup then offers **Fill** there. Other pages, including a secret-answer
+page without a recipe and a sign-in page, are not asked; the popup still says no
+sign-in form was found on them until their page announces again.

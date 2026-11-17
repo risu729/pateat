@@ -4823,7 +4823,10 @@ The popup's **Fill**
 is the person's own one-time choice of account for such a page, in any tab. The popup
 offers it instead of **Log in now** on a document whose path has a `confirm` or
 `unclear` recipe, or that asks for a secret answer without a recipe, while `confirm` is
-`fill` there. The worker checks the offer's fingerprint and the picked account against
+`fill` there. A restarted worker knows no document until the page announces again, so
+when it knows no top document of the tab and the tab's path has such a recipe, the offer
+first asks that page to announce, or waits for the announcement the restarted worker
+asked for. The worker checks the offer's fingerprint and the picked account against
 the page's current candidates (for a frame, also its top page's), then keeps a per-tab
 press in memory for that exact document, URL, path and top page for at most five minutes
 (`apps/extension/src/login/runtime/confirm-pick.ts`). It asks the document to announce
