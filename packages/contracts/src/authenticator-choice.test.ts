@@ -154,6 +154,7 @@ describe("where a code comes from, by the words around its field (ADR 0027 amend
     // Nouns and button names are no sent code: a 「送信」 button, an address's label, an
     // email service's name, a link to another way, or a word of another language.
     [["ワンタイムパスワードを入力し、「送信」ボタンを押してください"]],
+    [["ワンタイムパスワードを入力し、送信してください"]],
     [["送信"]],
     [["Email", "[email]"]],
     [["ログイン中のメールアドレス"]],

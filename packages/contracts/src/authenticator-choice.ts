@@ -83,10 +83,10 @@ const appOrCodeAnywhere = /\b(?:apps?|codes?)\b|アプリ|コード/iu;
  *   `message`, `verification`, `OTP`, `PIN` or `one-time`, as "Resend code in 58s" and
  *   "We'll send you a code" are. A bare "Send" or "Resend", as a button or the email
  *   service "Resend" ("Log in to Resend"), says nothing.
- * - Japanese, anywhere: 送信, 送付 followed by し, さ or 済 (送信しました, 送信された,
- *   送信済み), 送り, 送ら or 送っ unless after 見 (お送りしました, 送られた, 見送り
- *   excluded), 再送, 届い, 届き, 届く and ショートメッセージ. A bare 送信, as a
- *   「送信」 button, says nothing.
+ * - Japanese, anywhere: 送信, 送付 followed by しま, した, され, させ, される or 済
+ *   (送信しました, 送信された, 送信済み), 送り, 送ら or 送っ unless after 見 (お送り
+ *   しました, 送られた, 見送り excluded), 再送, 届い, 届き, 届く and ショートメッセージ.
+ *   A bare 送信, as a 「送信」 button, and the request 「送信してください」 say nothing.
  *
  * "Email", "e-mail", "mail", "inbox", "SMS", メール, "phone", "mobile", "device", "code",
  * "app", "message" and a bare "text" stay neutral, as a page's label for the account's
@@ -97,7 +97,7 @@ const appOrCodeAnywhere = /\b(?:apps?|codes?)\b|アプリ|コード/iu;
  * language is added here, never a site.
  */
 const sentWords =
-  /(?<![\p{L}\p{N}])(?:sent|resent|delivered|e\s*mailed|mailed|texted|text\s+messages?|(?:re)?send(?:ing)?\s+(?:(?:a|an|the|new|another|me|you|us|it|your|one|this)\s+){0,3}(?:codes?|again|in|links?|e\s*mails?|sms|text|messages?|verification|otp|pin|one\s*time))(?![\p{L}\p{N}])|(?:送信|送付)[しさ済]|(?<!見)送[りらっ]|再送|届[いきく]|ショートメッセージ/iu;
+  /(?<![\p{L}\p{N}])(?:sent|resent|delivered|e\s*mailed|mailed|texted|text\s+messages?|(?:re)?send(?:ing)?\s+(?:(?:a|an|the|new|another|me|you|us|it|your|one|this)\s+){0,3}(?:codes?|again|in|links?|e\s*mails?|sms|text|messages?|verification|otp|pin|one\s*time))(?![\p{L}\p{N}])|(?:送信|送付)(?:しま|した|され|さ[せれ]|済)|(?<!見)送[りらっ]|再送|届[いきく]|ショートメッセージ/iu;
 
 /**
  * Where the code a code field takes comes from, as the texts its page shows around the

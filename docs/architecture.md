@@ -1777,32 +1777,31 @@ of its part of the page (its nearest parent with a heading and no other field to
 in, inside an open modal dialog at most the dialog itself), and gives only the class,
 never the text. A verb says it was sent: English "sent", "delivered", "emailed",
 "texted", "text message" or "send", "sending" or "resend" with a code, "again" or a way
-after it, and Japanese 送信しました, お送りしました, 再送, 届いた or
-ショートメッセージ; a bare "Send", 送信, "email", "SMS" or メール does not.
-"Authenticator app", "TOTP", 認証アプリ or 認証システム name an authenticator app; a
-page that says both or neither reads as neither, and is entered as before. So Luma's
-emailed code, on the same path and in the same input as its authenticator app's code
-([#1655](https://github.com/risu729/pateat/issues/1655)), never takes the TOTP. The
-page is then a handler miss logged `code-sent` and the login goes on as on a page with
-no handler. Route steps that fill the `totp` slot are not checked this way. A handler
-that already ran counts as shown again when its elements are present at all, hidden or
-disabled; the one whose click the document still holds, shown again
-there before the login settled, holds the page as its button does instead, so a code
-page drawn again on the way to the signed-in page ends nothing (ADR 0027 amendment of
-2026-11-08). The `passkey` handler clicks a button such as "Use security
-key" only for an item with a usable passkey. The `totp` handler fills a code from the
-item's built-in TOTP field into its code field under the TOTP fill rule and clicks its
-button once; it needs the TOTP fact and that field allowed for the account. When the
-item's `totp` field is a custom field, the code is made from that field's key instead,
-in the crypto Worker, and the field's value is never typed. That field is the one a
-saved binding names for `totp`, or, when no saved entry names one and the built-in
-field holds no value, the item's one Text or Hidden custom field the catalog flags as
-holding a TOTP key (`totpSeed`). A binding that names any other field for the code
-ends `challenge`, and a route's binding that puts a flagged field in another slot, or an
-unflagged custom field in the `totp` slot, is refused before any step
-(`totp-field-mismatch`). Every fill of the `totp` slot, a route step's too, asks the
-Worker for a code. A flagged field is never offered to generation and never filled as
-text
+after it, and Japanese 送信しました, お送りしました, 再送, 届いた or ショートメッセージ;
+a bare "Send", 送信, 送信してください, "email", "SMS" or メール does not. "Authenticator
+app", "TOTP", 認証アプリ or 認証システム name an authenticator app; a page that says
+both or neither reads as neither, and is entered as before. So Luma's emailed code, on
+the same path and in the same input as its authenticator app's code
+([#1655](https://github.com/risu729/pateat/issues/1655)), never takes the TOTP. The page
+is then a handler miss logged `code-sent` and the login goes on as on a page with no
+handler. Route steps that fill the `totp` slot are not checked this way. A handler that
+already ran counts as shown again when its elements are present at all, hidden or
+disabled; the one whose click the document still holds, shown again there before the
+login settled, holds the page as its button does instead, so a code page drawn again on
+the way to the signed-in page ends nothing (ADR 0027 amendment of 2026-11-08). The
+`passkey` handler clicks a button such as "Use security key" only for an item with a
+usable passkey. The `totp` handler fills a code from the item's built-in TOTP field into
+its code field under the TOTP fill rule and clicks its button once; it needs the TOTP
+fact and that field allowed for the account. When the item's `totp` field is a custom
+field, the code is made from that field's key instead, in the crypto Worker, and the
+field's value is never typed. That field is the one a saved binding names for `totp`,
+or, when no saved entry names one and the built-in field holds no value, the item's one
+Text or Hidden custom field the catalog flags as holding a TOTP key (`totpSeed`). A
+binding that names any other field for the code ends `challenge`, and a route's binding
+that puts a flagged field in another slot, or an unflagged custom field in the `totp`
+slot, is refused before any step (`totp-field-mismatch`). Every fill of the `totp` slot,
+a route step's too, asks the Worker for a code. A flagged field is never offered to
+generation and never filled as text
 ([ADR 0027 amendment](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field),
 owner 2026-10-23). A `totp` handler without a button, learned for a code
 page whose form shows none, as one that submits the code once its last digit is in, is
