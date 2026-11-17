@@ -18,7 +18,11 @@ may use in rule 1 includes one of another site whose `/.well-known/webauthn` lis
 origin, as `openai.com` lists `https://chatgpt.com`. Amended on 2026-11-04 by the
 owner's choice 「成功と記録する」 on a decision card at 11:20 UTC: a page of another
 site that asks for a passkey keeps such a login too (below,
-[ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
+[ADR 0022](0022-login-attempts-per-tab-and-origin.md)). Amended on 2026-11-17 by
+[ADR 0034](0034-answer-page-passkey-requests.md#amendment-a-request-its-page-moved-away-from-2026-11-17)
+(agent fix, not yet confirmed by the owner): the stop answers only a request whose tab
+still shows the path the request came on; one whose page moved in place to another path
+is handed on as `page-moved`.
 
 Date: 2026-10-13
 

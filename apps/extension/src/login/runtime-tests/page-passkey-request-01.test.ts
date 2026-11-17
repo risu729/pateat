@@ -222,6 +222,29 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect.objectContaining({ type: "attempt", route: "passkey", routeChange: "page-request" }),
     );
   });
+  it("hands on, never answering, a request whose page then moved in place to another path", async () => {
+    const { h, report } = start();
+    let request: ReturnType<typeof ask> | undefined;
+    // The page asks while its form is being filled, then moves to another route of the same
+    // document without cancelling the request (#1670).
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === "login")
+        fake.state.present = new Set(["authenticated"]);
+      if (step.kind !== "fill" || request) return;
+      request = ask(h);
+      await flush();
+      fake.state.tabUrls[1] = `${origin}/challenge`;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(request?.decided()).toBeDefined());
+    expect(request!.decided()).toEqual({ kind: "delegate", reason: "page-moved" });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+    );
+    expect(clicks("login")).toBe(1);
+    expect(routeChanges(report)).toEqual([]);
+  });
   it("falls back to the password when the request went away before the answer", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();

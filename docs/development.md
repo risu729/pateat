@@ -1379,7 +1379,8 @@ holds:
   `no-login` (no login of its page started), `login-ended` (the login did not sign in)
   or `no-pick` (the popup offered its page an ordinary choice of accounts, outside an
   ask, with an item that holds a passkey, and nothing was picked within four minutes),
-  and at once as `paused` while automatic login of its site is paused
+  as `page-moved` when its page moved in place to another path before a login answered
+  it, and at once as `paused` while automatic login of its site is paused
   ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
   ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
   mediation that names its credentials, in a tab whose Pateat login of the origin signed

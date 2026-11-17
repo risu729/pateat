@@ -43,6 +43,7 @@ import { reconcileBounded } from "./sign-in";
 import { type RouteChange } from "./report";
 import { planFor, itemMatchesUrl } from "./plan";
 import { ssoAfterPasskey } from "./sso/passkey-refused";
+import { observedPath } from "../../observation/path";
 import type { Runtime } from "./state";
 
 /**
@@ -336,6 +337,46 @@ export function parkedFor(
 }
 
 /**
+ * The path a tab's top page shows, as observations carry it, while the page is on
+ * `origin`: the tab's committed URL follows a same-document move (history.pushState),
+ * which a sender's URL does not.
+ */
+function shownPath(url: string | undefined, origin: string): string | undefined {
+  const parsed = url === undefined ? null : URL.parse(url);
+  return parsed?.origin === origin ? observedPath(parsed.pathname) : undefined;
+}
+
+/**
+ * Whether a waiting request is still its page's own: its tab still shows the path it came
+ * on. A single-page site that moves in place to another route can leave the request of
+ * the page it left waiting, for an autofill field that is gone, so no browser would
+ * answer it; answered, the page acts on it where it is now, as OpenAI's sign-in submitted
+ * its method selection page, which has no action (#1670). Such a request is handed on
+ * (`page-moved`) and never answered (ADR 0034 amendment of 2026-11-17).
+ */
+export async function onItsPath(parked: ParkedRequest): Promise<boolean> {
+  const tab = await browser.tabs.get(parked.tabId).catch(() => undefined);
+  const shown = shownPath(tab?.url, parked.origin);
+  if (parked.path !== undefined && shown === parked.path) return true;
+  parked.settle({ kind: "delegate", reason: "page-moved" });
+  return false;
+}
+
+/**
+ * The newest conditional request of a top document still waiting on the path its tab
+ * shows (`onItsPath`); a newer one that its page moved away from is handed on first.
+ */
+export async function pageRequest(
+  rt: Runtime,
+  document: { tabId: number; documentId: string },
+): Promise<ParkedRequest | undefined> {
+  for (let parked = parkedFor(rt, document); parked; parked = parkedFor(rt, document))
+    // eslint-disable-next-line no-await-in-loop
+    if ((await onItsPath(parked)) && rt.parkedRequests.has(parked)) return parked;
+  return undefined;
+}
+
+/**
  * A top document's own `conditional` passkey request (ADR 0034). It waits for the login
  * of its document: that login's `passkey` route answers it; once the login ends, it is
  * withheld if the login signed in and handed on otherwise. While the tab asks for an
@@ -355,11 +396,13 @@ export async function conditionalRequest(
     incognito?: boolean;
   },
 ): Promise<ConditionalDecision> {
+  // The page the request came from, read first (ADR 0034 amendment of 2026-11-17).
+  const tab = await browser.tabs.get(input.tabId).catch(() => undefined);
+  const path = shownPath(tab?.url, input.origin);
   await rt.vars.loaded;
   await rt.vars.sessionLoaded;
   // A paused site's own request goes to the browser at once (ADR 0062).
-  const incognito =
-    input.incognito ?? (await browser.tabs.get(input.tabId).catch(() => undefined))?.incognito;
+  const incognito = input.incognito ?? tab?.incognito;
   const pausedPage = async () =>
     (await pauseOf(rt, { url: input.origin, incognito })) !== undefined;
   if (await pausedPage()) return { kind: "delegate", reason: "paused" };
@@ -384,6 +427,7 @@ export async function conditionalRequest(
       documentId: input.documentId,
       ...(incognito === undefined ? {} : { incognito }),
       since: Date.now(),
+      ...(path === undefined ? {} : { path }),
       settle(decision) {
         if (!rt.parkedRequests.delete(parked)) return false;
         input.signal.removeEventListener("abort", onAbort);
@@ -522,21 +566,24 @@ export function reviewRequests(rt: Runtime): void {
  * they are.
  */
 export async function switchToPasskey(rt: Runtime, run: Execution): Promise<boolean> {
-  const { metadata } = run;
-  if (
-    metadata.route !== "password" ||
-    !passkeyAnswersRequest(run.recipe) ||
-    run.passkeyFailed ||
-    // Back on the password route, a login never takes the passkey route again.
-    metadata.passkeyLeft ||
-    metadata.fillOnly ||
-    !metadata.facts.discoverablePasskey ||
-    metadata.submissions > 0 ||
-    metadata.handlers.length > 0 ||
-    metadata.operationId !== undefined ||
-    !parkedFor(rt, run.live.document)
-  )
-    return false;
+  const fits = () => {
+    const { metadata } = run;
+    return !(
+      metadata.route !== "password" ||
+      !passkeyAnswersRequest(run.recipe) ||
+      run.passkeyFailed ||
+      // Back on the password route, a login never takes the passkey route again.
+      metadata.passkeyLeft ||
+      metadata.fillOnly ||
+      !metadata.facts.discoverablePasskey ||
+      metadata.submissions > 0 ||
+      metadata.handlers.length > 0 ||
+      metadata.operationId !== undefined
+    );
+  };
+  if (!fits() || !parkedFor(rt, run.live.document)) return false;
+  // A request its page moved away from in place is handed on instead.
+  if (!(await pageRequest(rt, run.live.document)) || !current(rt, run) || !fits()) return false;
   await change(
     rt,
     run,
@@ -560,14 +607,17 @@ export async function switchToPasskey(rt: Runtime, run: Execution): Promise<bool
  */
 export async function answerRequest(rt: Runtime, run: Execution): Promise<void> {
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  let parked = parkedFor(rt, run.live.document);
+  const ready = () => current(rt, run) && run.metadata.state === "ready";
+  let parked = await pageRequest(rt, run.live.document);
   // A page may cancel its request and ask again, as when its form renders once more.
   for (const until = Date.now() + REQUEST_WAIT_MS; !parked && Date.now() < until;) {
     // eslint-disable-next-line no-await-in-loop
     await sleep(100);
-    if (!current(rt, run) || run.metadata.state !== "ready") return;
-    parked = parkedFor(rt, run.live.document);
+    if (!ready()) return;
+    // eslint-disable-next-line no-await-in-loop
+    parked = await pageRequest(rt, run.live.document);
   }
+  if (!ready()) return;
   if (!parked) {
     await fallBack(rt, run, "request-missing");
     return;
@@ -619,13 +669,15 @@ export async function answerRequest(rt: Runtime, run: Execution): Promise<void> 
     itemId: run.metadata.account.itemId,
   };
   const target = parked;
-  // The bridge says whether the assertion went back; a request that went away meanwhile
-  // was never answered.
-  let gone = false;
-  const signed = await new Promise<boolean>((resolve) => {
-    gone = !target.settle({ kind: "answer", item, answered: resolve });
-    if (gone) resolve(false);
-  });
+  // The bridge says whether the assertion went back; a request that went away meanwhile,
+  // or whose page moved in place since it was found, was never answered.
+  let gone = !(await onItsPath(target));
+  const signed =
+    !gone &&
+    (await new Promise<boolean>((resolve) => {
+      gone = !target.settle({ kind: "answer", item, answered: resolve });
+      if (gone) resolve(false);
+    }));
   delete run.operation;
   if (!current(rt, run) || run.metadata.state !== "submit-intent") return;
   if (signed) {

@@ -390,6 +390,13 @@ type ParkedRequest = {
   /** Whether its tab is incognito, as its sender or the tab says; absent when not known. */
   incognito?: boolean;
   since: number;
+  /**
+   * The path its tab showed when it came (`observedPath` of the tab's committed URL, which
+   * follows a same-document move); absent when the tab showed another origin or could not
+   * be read. It is answered only while the tab still shows that path (ADR 0034 amendment
+   * of 2026-11-17).
+   */
+  path?: string;
   /** The login of its document was seen running, so its end decides the request. */
   during?: true;
   /**

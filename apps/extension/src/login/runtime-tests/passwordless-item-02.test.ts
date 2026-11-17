@@ -824,6 +824,23 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       answered(decided());
       expect(status()![0]).toMatchObject({ stepIndex: 2, submissions: 2 });
     });
+    it("hands on a request whose page moved in place to another path before the stop", async () => {
+      vi.useFakeTimers();
+      // As OpenAI's sign-in (#1670): Continue moves the page in place to one that asks how
+      // to go on, while the email page's own request still waits. Answered there, the
+      // page submitted that page's form, which has no action.
+      const { h } = begin("/challenge", () => {
+        fake.state.tabUrls[1] = `${origin}/challenge`;
+      });
+      const decided = ask(h);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => decided() !== undefined);
+      expect(decided()).toEqual({ kind: "delegate", reason: "page-moved" });
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, submissions: 1 });
+      expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+    });
     it("holds the answered page while it stays on the path the answer was given on", async () => {
       vi.useFakeTimers();
       let decided: (() => ConditionalDecision | undefined) | undefined;
