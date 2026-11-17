@@ -147,10 +147,12 @@ Amended on 2026-11-08 (agent, for the owner's issue #1413; implemented): a usern
 password never goes into an input marked `one-time-code`
 ([No account in a code input](#amendment-2026-11-08-no-account-in-a-code-input)).
 
-Amended on 2026-11-17 (owner, decision card answered option 1 at 08:49 UTC; first part
+Amended on 2026-11-17 (owner, decision card answered option 1 at 08:49 UTC;
 implemented): a code field's page is read as an authenticator app's code, a sent code or
-neither by its words, and a `totp` handler is never entered on a page that says its code
-was sent ([Where a code comes from](#amendment-2026-11-17-where-a-code-comes-from)).
+neither by its words, a `totp` handler is never entered on a page that says its code was
+sent, and a watched login types the item's TOTP once into a page that names an
+authenticator app, also one its document swaps in place
+([Where a code comes from](#amendment-2026-11-17-where-a-code-comes-from)).
 
 Date: 2026-10-11
 
@@ -1933,9 +1935,10 @@ The decision has three parts, each its own PR:
 1. Where a code comes from, by the page's words, and no `totp` handler on a page that
    says its code was sent (implemented, below).
 2. The service's judged-page rows split by that class, so the two pages of one path are
-   judged apart (not implemented).
-3. Filling the authenticator app's code that shows during a watch, once (not
-   implemented).
+   judged apart (implemented:
+   [ADR 0029 amendment](0029-local-sign-in-state.md#amendment-a-judgement-for-each-code-source-of-a-path-2026-11-17)).
+3. Filling the authenticator app's code that shows during a watch, once (implemented,
+   [part 3](#part-3-the-authenticator-apps-code-during-a-watch) below).
 
 ### Part 1: the words, and the `totp` handler refused
 
@@ -2006,3 +2009,59 @@ either.
   that names no authenticator app, so its handler is not entered there.
 - Not chosen: refusing on the judge's answer alone (the judged page's row is per path,
   part 2) or on the field's attributes (the two inputs are alike).
+
+### Part 3: the authenticator app's code during a watch
+
+This changes the decision of 2026-10-12 that a watched login only reads its pages
+([Watching after a challenge](#watching-after-a-challenge)), for one handler. A watched
+login, in the tab's page on the recipe's own origin, that does not only fill, whose item
+has a TOTP and that has typed and means to type no code (`attemptUsesCode`), types the
+item's TOTP once into a page that asks for an authenticator app's code (`watchedCode` in
+`apps/extension/src/login/runtime/watched-code.ts`):
+
+- **The page is read.** The watch reads a new document of the tab and a route its
+  document takes, as before. It now also reads a code page its own document swaps in
+  place, as Luma's dialog does: the document is asked (`login.code.watch`) to say once
+  when its first shown code field changes, by a digest of that field's code source and
+  the headings of its part of the page (`codePageDigest`, never a text or a value), or
+  when no code field shows any more. The document checks at each change of the page (ADR
+  0082) for the rest of the watch. The first digest is kept with the watch
+  (`watch.code`), so a page swapped while the worker restarted is still reported; each
+  change it reports is read once as the tab's next page, and the digest it reported
+  replaces the kept one, so a page shown while that one is read or judged is reported in
+  turn. A change the worker restarted while reading is not read again. One worker asks a
+  document at most four times (`CODE_WATCHES`); a restarted one may ask four times more.
+  A report that comes once the login left the watch, as while its `totp` handler runs,
+  is dropped. A page that no longer shows a code field is read as any watched page is,
+  so a sign-in the person's own code finished in place is seen too.
+- **A page that asks for another sign-in step** (`continuing`, ADR 0029) on the recipe's
+  path gets a `totp` handler the recipe has there, not entered yet, entered as after a
+  step. Its code field must meet the new requirement `watched-totp-code`: writable,
+  empty, and on a page whose words name an authenticator app (`codeSourceOf` is
+  `authenticator`). So a page the person is typing a code into, the emailed code's page
+  and a page that says neither are left to the person; a miss is logged at once as in
+  any watch (`code-typed`, `code-sent` or `code-unnamed`).
+- **With no such handler**, the page is sent to the judge only when its description's
+  code source (`judgedCodeSource`, now in contracts and shared with the service) is
+  `authenticator`; otherwise it is logged `not-sent` with `code-unnamed`. It counts
+  toward the watch's two judged pages as before. A `challenge` answer whose revision
+  adds a `totp` handler on the page's path is taken over and the handler entered, as
+  after a step; a revision that adds only another handler is not taken over, so the
+  watched login keeps its recipe.
+- **The state machine** takes `HANDLER` in `watching` (`canEnterHandlerWatched`): the
+  watch ends, the handler's steps follow the plan's last step run (or go in at a stop,
+  which moves past them, as at a stop), and the login is `ready`. The runtime enters
+  only a `totp` handler there. Its result is read as any handler's: a sign-in completes
+  it, and a page that asks again is watched again, with a new watch, and the code is
+  never typed twice (the handler is entered once per login, and `attemptUsesCode`
+  refuses a second code).
+- Luma's first login: the stop page (the emailed code) is judged at the stop as before
+  and keeps no handler; the authenticator app's page, swapped in place after the
+  person's code, is judged once more (its own row, part 2), and its `totp` handler is
+  learned and entered. The next login enters the handler without a judge call once the
+  person typed the emailed code, as long as the recipe's path is the same; Luma's paths
+  are per event page, so another event page learns it again.
+- Not chosen: filling the code on the first page that shows a code field during the
+  watch (the emailed code's page shows the same input), reading the watch's own document
+  again on a timer (ADR 0082), and leaving the code to the person (option 2 of the
+  proposal).

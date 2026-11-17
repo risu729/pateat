@@ -44,6 +44,8 @@ import type { Runtime } from "./state";
  * not only fill (ADR 0081). `held` when the handler whose click this document holds shows
  * again here, before the login settled: the page is held as while its button still shows
  * (ADR 0027), since the button may show again for a moment before the site moves on.
+ * While watched, only a `totp` handler not entered yet is, its code field empty on a page
+ * that names an authenticator app (`watched-totp-code`, ADR 0027 amendment of 2026-11-17).
  */
 export async function enterHandler(
   rt: Runtime,
@@ -127,9 +129,16 @@ export async function enterHandler(
   // hid is gone, as for the hold, not shown again (ADR 0027).
   const held =
     run.heldClick === run.metadata.stepIndex ? plan[run.metadata.stepIndex]?.handler : undefined;
+  // A watched login enters only a `totp` handler it has not run, for the authenticator
+  // app's code its page asks for after the person's own step (ADR 0027 amendment of
+  // 2026-11-17); the page is otherwise the person's, so nothing else is entered or refused.
+  const watching = run.metadata.state === "watching";
   const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
     if (
       handler.path !== path ||
+      (watching &&
+        (handler.kind !== "totp" ||
+          run.metadata.handlers.some((entered) => entered.index === index))) ||
       (run.metadata.signInFill === true &&
         (handler.kind !== "detail" ||
           run.metadata.handlers.some((entry) => entry.index === index))) ||
@@ -163,8 +172,13 @@ export async function enterHandler(
             : handler.kind === "totp"
               ? // Its code field writable on a page whose words do not say the code was
                 // sent, so an emailed code's page on the same path never takes the TOTP
-                // (ADR 0027 amendment of 2026-11-17), and its button shown.
-                (["totp-code", "shown"] as const).slice(0, targets.length)
+                // (ADR 0027 amendment of 2026-11-17), and its button shown. While watched,
+                // the field must be empty on a page that names an authenticator app, so a
+                // code the person is typing, or a page that does not say, is theirs.
+                ([watching ? "watched-totp-code" : "totp-code", "shown"] as const).slice(
+                  0,
+                  targets.length,
+                )
               : handler.kind === "detail"
                 ? // Its inputs present, as a choice page may disable all but one, and its
                   // button shown (ADR 0061).

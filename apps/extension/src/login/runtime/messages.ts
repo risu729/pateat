@@ -29,6 +29,7 @@ import {
   submittedSchema,
   movedSchema,
   describedSchema,
+  codeChangedSchema,
   personSubmittedSchema,
   probeControlSchema,
 } from "../wire";
@@ -71,7 +72,7 @@ import { manualCancel, manualOffer, manualStart } from "./manual";
 import { endManual } from "./manual-scope";
 import { popupDetail, popupDetailFill, popupDetailRemove, detailFillCurrent } from "./detail-popup";
 import { repromptFor, dropReprompt } from "./master-password";
-import { routedHere, describedHere, terminal, idle } from "./attempt-state";
+import { routedHere, describedHere, changedHere, terminal, idle } from "./attempt-state";
 import { drive } from "./run-steps";
 import { frameKey, choiceKey } from "./steps";
 import { ready } from "./generation";
@@ -312,6 +313,28 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     delete run.emptyJudged;
     run.described = document.documentId;
     if (describedHere(run)) void drive(rt, run);
+    return undefined;
+  }
+  const changed = v.safeParse(codeChangedSchema, message);
+  if (changed.success) {
+    // The watched document's code field changed in place: its page is read once more as
+    // the tab's next page (ADR 0027 amendment of 2026-11-17).
+    const document = await identify(rt, sender);
+    const run = document ? rt.attempts.get(document.tabId) : undefined;
+    if (!document || document.frameId !== 0 || !run || !current(rt, run)) return undefined;
+    if (
+      !sameLoginDocument(run.live.document, document) ||
+      run.live.token !== changed.output.token ||
+      run.codeWatches?.documentId !== document.documentId ||
+      !run.codeWatches.armed
+    )
+      return undefined;
+    run.codeWatches.armed = false;
+    // A change reported once the login left the watch, as while its TOTP handler runs, is
+    // not read later: the next watch asks again from the page as it is then.
+    if (run.metadata.state !== "watching") return undefined;
+    run.codeChanged = { documentId: document.documentId, digest: changed.output.digest };
+    if (changedHere(run)) void drive(rt, run);
     return undefined;
   }
   if (v.safeParse(submittedSchema, message).success) {

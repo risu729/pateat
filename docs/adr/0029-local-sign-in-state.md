@@ -1027,7 +1027,7 @@ Pateat types the authenticator app's code there ("案1 見守り中に TOTP を�
 is the part of that choice about kept judgements.
 
 A page's judgement row is now also keyed by where its code comes from
-(`judgedCodeSource` in `packages/generation/src/generate/completion.ts`, column
+(`judgedCodeSource` in `packages/contracts/src/authenticator-choice.ts`, column
 `page_judgements.code_source`): `codeSourceOf` (ADR 0027 amendment of 2026-11-17) over
 the page's title and headings, the texts near its first code field and that field's own
 label, placeholder and description, giving `authenticator`, `sent`, or empty when they

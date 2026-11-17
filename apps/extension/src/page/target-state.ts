@@ -132,7 +132,9 @@ const byName = (target: LoginMarkerTarget) => target.by === "accessible-name";
  * that is also visible as the page's description reads it; with `password-choice`, a shown
  * control that names the password choice, {@link passwordChoice}, ADR 0048; with
  * `totp-code`, a writable input whose page does not say its code was sent,
- * {@link codeFieldSource}, ADR 0027 amendment of 2026-11-17); without it, or with
+ * {@link codeFieldSource}, ADR 0027 amendment of 2026-11-17; with `watched-totp-code`, an
+ * empty writable input whose page names an authenticator app, same amendment); without
+ * it, or with
  * `present`, any one element counts. A target named by its accessible name may
  * be a link to a fragment of its own document, which counts as clickable. `links` and
  * `hidden` are {@link findTargets}'s options.
@@ -161,7 +163,9 @@ export function targetState(
     (require === "shown-input" && !(signInInput(element) && shown)) ||
     (require === "password-choice" && !passwordChoice(element, { fragment })) ||
     (require === "authenticator-choice" && !authenticatorChoice(element)) ||
-    (require === "totp-code" && !(writable(element) && codeFieldSource(element) !== "sent"))
+    (require === "totp-code" && !(writable(element) && codeFieldSource(element) !== "sent")) ||
+    (require === "watched-totp-code" &&
+      !(writable(element) && element.value === "" && codeFieldSource(element) === "authenticator"))
     ? "unusable"
     : "unique";
 }
@@ -174,7 +178,9 @@ export function targetState(
  * disabled, read-only or no such control (`not-writable`, `not-clickable`); then, for a
  * `described-…` requirement, the first reason the page's description does not see it
  * ({@link presenceMiss}); for `totp-code`, a writable input whose page says its code was
- * sent (`code-sent`). Never any text or value of the page.
+ * sent (`code-sent`); for `watched-totp-code`, one whose page says so, one whose page names
+ * no authenticator app (`code-unnamed`) or one that holds a value (`code-typed`). Never any
+ * text or value of the page.
  */
 export function targetCheck(
   document: Document,
@@ -192,7 +198,8 @@ export function targetCheck(
     require === "writable" ||
     require === "described-writable" ||
     require === "settable" ||
-    require === "totp-code";
+    require === "totp-code" ||
+    require === "watched-totp-code";
   const clicking = require === "clickable" || require === "described-clickable";
   // The input and button tests require the content script's visibility first: an element
   // it does not see is named by why, apart from one that shows but takes no input.
@@ -202,6 +209,11 @@ export function targetCheck(
     return "not-writable";
   if (clicking && !clickable(element, { fragment })) return "not-clickable";
   if (require === "totp-code") return "code-sent";
+  if (require === "watched-totp-code" && element instanceof HTMLInputElement) {
+    const source = codeFieldSource(element);
+    if (source !== "authenticator") return source === "sent" ? "code-sent" : "code-unnamed";
+    return "code-typed";
+  }
   if (
     (require === "described-writable" || require === "described-clickable") &&
     element instanceof HTMLElement

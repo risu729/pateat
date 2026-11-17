@@ -143,6 +143,19 @@ export const describedHere = (run: Execution) =>
     (run.metadata.state === "reconciling" && run.metadata.settled === true)) &&
   !watchOver(run.metadata, Date.now());
 
+/**
+ * Whether a watched login's top document, the one its watch began in, said its code field
+ * changed while the watch still lasts, as a dialog that swaps the emailed code's page for
+ * the authenticator app's in place does: that page is read once as the tab's next page
+ * (ADR 0027 amendment of 2026-11-17).
+ */
+export const changedHere = (run: Execution) =>
+  run.live.document.frameId === 0 &&
+  run.codeChanged?.documentId === run.live.document.documentId &&
+  run.metadata.state === "watching" &&
+  run.metadata.watch?.documentId === run.live.document.documentId &&
+  !watchOver(run.metadata, Date.now());
+
 /** The step may have submitted or moved the page, so its result can show a handler. */
 export const effectful = (metadata: LoginAttemptMetadata) =>
   metadata.operationKind === "click" ||

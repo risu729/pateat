@@ -136,6 +136,23 @@ export const describedSchema = v.strictObject({
   token: id,
 });
 /**
+ * The code field of the document a `login.code.watch` watches changed: another code page,
+ * or none (ADR 0027 amendment of 2026-11-17). Nothing of the page is sent; the worker
+ * reads it as it reads a new page.
+ */
+export const codeChangedSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.code-changed"),
+  token: id,
+  /** The code field's digest that differed, the baseline of the document's next ask. */
+  digest: v.pipe(v.string(), v.regex(/^[0-9a-f]{16}$/u)),
+});
+/** What a document answers to `login.code.watch`: its code field's digest now. */
+export const codeWatchReplySchema = v.strictObject({
+  ok: v.literal(true),
+  digest: v.pipe(v.string(), v.regex(/^[0-9a-f]{16}$/u)),
+});
+/**
  * The person submitted the form of a page the worker named a verification Pateat does not
  * fill (ADR 0035): a trusted `submit` event of the form that holds the page's first step,
  * reported before the page leaves. No button text or value is sent.

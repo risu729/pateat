@@ -13,6 +13,7 @@ import {
   type LoginObservation,
   type SemanticSlot,
   type ValueShape,
+  judgedCodeSource,
 } from "@pateat/contracts";
 import type { ServiceTiming } from "../../service/transport";
 import { DESCRIBED_WATCH_MAX_MS, extractResultSchema } from "../wire";
@@ -28,7 +29,7 @@ import { pauseOf } from "./pause";
 import { effectful, terminal } from "./attempt-state";
 import { failureRejects, observe, passkeyStepAnswered, toStop } from "./reconcile";
 import { passkeyButton, readSignInState } from "./sign-in";
-import { takeOver } from "./continuation";
+import { routeOf, takeOver } from "./continuation";
 import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
 
@@ -335,6 +336,13 @@ export async function learn(
   rt: Runtime,
   run: Execution,
   reading?: SignInReading,
+  /**
+   * `code`: a watched login's page that asks for another sign-in step, sent only when its
+   * words name an authenticator app as where its code comes from (`judgedCodeSource`), and
+   * whose `totp` handler the judge learns is taken over and entered (ADR 0027 amendment of
+   * 2026-11-17).
+   */
+  options: { code?: true } = {},
 ): Promise<boolean> {
   const { recipe, metadata } = run;
   const { operationId } = metadata;
@@ -417,6 +425,10 @@ export async function learn(
   delete run.emptyJudged;
   delete run.described;
   const { observation, disabledLeftOut, inputLeftOut, usernameShape: shape } = described;
+  // A watched code page that does not name an authenticator app is the person's: no
+  // handler the judge could learn there would be entered.
+  if (options.code && judgedCodeSource(observation) !== "authenticator")
+    return notSent("code-unnamed");
   // The sign-in form beside another form with a text-like input and its own button, on a
   // path without a `detail` handler, as the service checks (ADR 0061); otherwise the page
   // is still the sign-in page.
@@ -545,11 +557,23 @@ export async function learn(
   });
   // Reported before the takeover's own entries, once whether it is taken over is known.
   let reported = false;
-  // A watched login only reads its pages; it never runs a learned handler (ADR 0027).
+  // A watched login only reads its pages; it never runs a learned handler (ADR 0027), but
+  // for the `totp` handler of a page that asks for an authenticator app's code (ADR 0027
+  // amendment of 2026-11-17), which `enterHandler` alone enters while watched. A watched
+  // login takes over only a revision with such a handler on the page's path, so one that
+  // learned another handler leaves the watch's recipe as it was.
+  const watchedTotp =
+    options.code === true &&
+    (routeOf(rt, run, added)?.handlers ?? []).some(
+      (handler, index) =>
+        handler.kind === "totp" &&
+        handler.path === remaining.path &&
+        !run.metadata.handlers.some((entered) => entered.index === index),
+    );
   const movedOn =
     verdict === "challenge" &&
     added !== undefined &&
-    run.metadata.state !== "watching" &&
+    (run.metadata.state !== "watching" || watchedTotp) &&
     current(rt, run) &&
     (await takeOver(rt, run, added, remaining.path, () => {
       reported = true;

@@ -1,3 +1,5 @@
+import { isCodeField, type LoginObservation } from "./observation";
+
 /**
  * Words, per language, of a button that goes on to typing a code from an authenticator
  * app on a page that asks how to confirm the sign-in (ADR 0081): English `authenticator`
@@ -132,4 +134,28 @@ export function codeSourceOf(texts: readonly string[]): CodeSource | undefined {
     if (sentWords.test(spaced)) sent = true;
   }
   return authenticator === sent ? undefined : authenticator ? "authenticator" : "sent";
+}
+
+/**
+ * Where the code of a described page's first code field comes from (`codeSourceOf`, ADR
+ * 0029 amendment of 2026-11-17), as the page's title and headings, the texts near the field
+ * and the field's own label, placeholder and description say: Luma's "Enter Code" page says
+ * its code was sent, and its "Two-Factor Authentication" page on the same path names an
+ * authenticator app. Empty on a page without a code field, or whose texts say neither or
+ * both. The service keys a page's kept judgement by it; the extension sends a watched code
+ * page to the judge only when it is `authenticator` (ADR 0027 amendment of 2026-11-17).
+ */
+export function judgedCodeSource(observation: LoginObservation): CodeSource | "" {
+  const code = observation.candidates.find(isCodeField);
+  if (!code) return "";
+  return (
+    codeSourceOf([
+      observation.title ?? "",
+      ...(observation.headings ?? []),
+      ...(observation.nearCode ?? []),
+      code.label ?? "",
+      code.placeholder ?? "",
+      code.description ?? "",
+    ]) ?? ""
+  );
 }

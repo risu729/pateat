@@ -33,6 +33,7 @@ import { terminal } from "./attempt-state";
 import { observe, reconcile, askAgain, failureRejects } from "./reconcile";
 import { allowed } from "./plan-2";
 import { learn } from "./judge";
+import { watchedCode } from "./watched-code";
 import type { Runtime } from "./state";
 
 /**
@@ -491,7 +492,8 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
 
 /**
  * Checks a new page of the tab while the login is watched after a `challenge` (ADR 0027),
- * reading only: it never fills or clicks. The login completes on a signed-in marker or on
+ * reading only: it never fills or clicks, but for the TOTP of a page that asks for an
+ * authenticator app's code (`watchedCode`, ADR 0027 amendment of 2026-11-17). The login completes on a signed-in marker or on
  * a `signed-in` reading of the loaded document, each as soon as the page shows it (ADR
  * 0029 amendment of 2026-11-03), and once `WATCH_SETTLE_MS` ran out without either, on a
  * confirmed sign-in state (ADR 0029: E1 to E3). A page with no sign of a sign-in going on
@@ -560,6 +562,10 @@ export async function watchPage(rt: Runtime, run: Execution, routed = false): Pr
     await askAgain(rt, run);
     return;
   }
+  // A page that asks for an authenticator app's code gets the item's TOTP once (ADR 0027
+  // amendment of 2026-11-17).
+  if (state?.decision === "continuing" && state.confirmed && (await watchedCode(rt, run, state)))
+    return;
   // Only a page with no sign of a sign-in going on is judged; an undecided answer never
   // completes a watched login, an optional page after the sign-in does (ADR 0065).
   if (state?.decision === "judge") await learn(rt, run, state);

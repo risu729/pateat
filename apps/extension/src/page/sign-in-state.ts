@@ -320,12 +320,14 @@ function showsPassword(document: Document): boolean {
   );
 }
 
-/** S3: a shown input that the executor would type a one-time code into. */
-function showsCode(document: Document): boolean {
-  // As the login's `codeInput`, the service's `isCodeField`: a numeric input without a
-  // `maxlength`, which only a judge's code fills (ADR 0027 amendment of 2026-11-07), is no
-  // sign of a code step here. The attributes first, as they cost less.
-  return queryAll<HTMLInputElement>(document, "input").some(
+/**
+ * The shown inputs that the executor would type a one-time code into, in page order. As
+ * the login's `codeInput`, the service's `isCodeField`: a numeric input without a
+ * `maxlength`, which only a judge's code fills (ADR 0027 amendment of 2026-11-07), is none.
+ */
+export function shownCodeInputs(document: Document): HTMLInputElement[] {
+  // The attributes first, as they cost less.
+  return queryAll<HTMLInputElement>(document, "input").filter(
     (input) =>
       (autocompleteTokens(input).includes("one-time-code") ||
         ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
@@ -333,6 +335,11 @@ function showsCode(document: Document): boolean {
           input.maxLength <= 10)) &&
       writableInput(input),
   );
+}
+
+/** S3: a shown input that the executor would type a one-time code into. */
+function showsCode(document: Document): boolean {
+  return shownCodeInputs(document).length > 0;
 }
 
 /** The fields the CAPTCHA services fill with their token once the challenge is passed. */

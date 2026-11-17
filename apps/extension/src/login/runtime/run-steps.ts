@@ -40,7 +40,15 @@ import {
   withdrawSwitch,
 } from "./attempt";
 import { codeStep, pathNow, selfSubmitStep, inPlaceNext } from "./steps";
-import { terminal, routedHere, settledHere, atStop, describedHere } from "./attempt-state";
+import {
+  terminal,
+  routedHere,
+  settledHere,
+  atStop,
+  describedHere,
+  changedHere,
+} from "./attempt-state";
+import { watchCode, readChangedCode } from "./code-watch";
 import { DocumentGone } from "./document-gone";
 import { watchPage, reconcileBounded } from "./sign-in";
 import { switchToPasskey, answerRequest } from "./passkey";
@@ -105,8 +113,13 @@ export async function drive(rt: Runtime, run: Execution): Promise<void> {
   } finally {
     run.running = false;
     // A route the document took while the login was read is read once it is watched.
-    // So is a page that showed something after its judged page described nothing.
-    if (current(rt, run) && (routedHere(run) || describedHere(run))) void drive(rt, run);
+    // So is a page that showed something after its judged page described nothing, and a
+    // code page the watched document swapped in place.
+    if (current(rt, run) && (routedHere(run) || describedHere(run) || changedHere(run)))
+      void drive(rt, run);
+    // The watched document says once its code field changes (ADR 0027 amendment of
+    // 2026-11-17).
+    else if (current(rt, run)) void watchCode(rt, run).catch(() => undefined);
   }
 }
 
@@ -145,9 +158,15 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
     });
     await save(rt, run);
   }
+  // So is a code page the watched document swapped in place (ADR 0027 amendment of
+  // 2026-11-17), its baseline dropped first so the next ask takes the page as it is then.
+  const changed = changedHere(run);
+  if (changed) await readChangedCode(rt, run);
   if (run.metadata.state === "watching") {
-    await watchPage(rt, run, routed || described);
-    return;
+    await watchPage(rt, run, routed || described || changed);
+    // A `totp` handler the watch entered runs now (ADR 0027 amendment of 2026-11-17).
+    const after: string = run.metadata.state;
+    if (!current(rt, run) || after !== "ready") return;
   }
   // A result that settled as unknown is watched from the next page on: the document the
   // watch began in is not read again, as when a restarted worker resumes the login there

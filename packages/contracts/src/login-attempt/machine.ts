@@ -419,6 +419,22 @@ function createLoginAttemptMachine() {
             beforeStop(context, context.stepIndex + 1) &&
             (event.routeStep === true ||
               context.handlers.some((entry) => entry.start === context.stepIndex))),
+      // While watched, in the tab's page, a `totp` handler for the authenticator app's code
+      // the page asks for after the person's own step, as Luma's after its emailed code
+      // (ADR 0027 amendment of 2026-11-17): its steps follow the plan's last step run, or go
+      // in at a stop as there; a login that only fills never types a code. The runtime
+      // checks the handler's kind, the item's code and that no code was typed yet.
+      canEnterHandlerWatched: ({ context, event }) =>
+        event.type === "HANDLER" &&
+        context.watch !== undefined &&
+        context.fillOnly !== true &&
+        context.signInFill !== true &&
+        context.document.frameId === 0 &&
+        !context.handlers.some((entry) => entry.index === event.handler) &&
+        context.handlers.length < MAX_ENTERED_HANDLERS &&
+        context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
+        context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
+        sameScope(context.document, event.document),
       // At the stop, with nothing in flight: a `passkey` handler shown beside the stop
       // step's password field goes in before it, as after an effect step (ADR 0036).
       canEnterHandlerAtStop: ({ context, event }) =>
@@ -570,8 +586,9 @@ function createLoginAttemptMachine() {
           ],
         },
       },
-      // Reads only: no step runs. A later page proves the sign-in or a refused password;
-      // anything else leaves the login watched until the watch ends (ADR 0027).
+      // Reads only, but for one `totp` handler (ADR 0027 amendment of 2026-11-17). A later
+      // page proves the sign-in or a refused password; anything else leaves the login
+      // watched until the watch ends (ADR 0027).
       watching: {
         on: {
           OBSERVED: [
@@ -583,6 +600,7 @@ function createLoginAttemptMachine() {
             { guard: "canJudgeWatchedStop", actions: "record" },
           ],
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
+          HANDLER: { guard: "canEnterHandlerWatched", target: "ready", actions: "record" },
           WATCH_ENDED: { target: "blocked", actions: "watchEnded" },
           // A restart or a new page of the tab keeps the watch; it has nothing in flight.
           INTERRUPTED: { actions: [] },

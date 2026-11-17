@@ -51,6 +51,11 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * words around it do not say its code was sent, by email, SMS or otherwise
  * (`codeSourceOf` is not `sent`): a `totp` handler's code field, never entered on a page
  * that asks for an emailed code on the same path (ADR 0027 amendment of 2026-11-17).
+ * `watched-totp-code` takes an empty writable input whose page's words name an
+ * authenticator app as where its code comes from (`codeSourceOf` is `authenticator`): a
+ * `totp` handler's code field entered while the login is watched, so a page the person
+ * may still be typing a code into, or one that does not say, is left to them (same
+ * amendment).
  */
 export const targetRequirementSchema = v.picklist([
   "writable",
@@ -65,6 +70,7 @@ export const targetRequirementSchema = v.picklist([
   "password-choice",
   "authenticator-choice",
   "totp-code",
+  "watched-totp-code",
 ]);
 export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
 /**
@@ -77,7 +83,9 @@ export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
  * `described-clickable`, the first reason the page's description would not see it
  * (`presenceMiss`: `hidden-attr`, `not-rendered`, `off-start`, `transparent`, `tiny`);
  * or, with `totp-code`, a writable input whose page says its code was sent (`code-sent`);
- * `unusable` for another requirement.
+ * or, with `watched-totp-code`, a writable input whose page does not name an authenticator
+ * app (`code-sent` when it says the code was sent, `code-unnamed` otherwise) or that holds
+ * a value (`code-typed`); `unusable` for another requirement.
  */
 export const targetCheckSchema = v.picklist([
   "ok",
@@ -98,6 +106,8 @@ export const targetCheckSchema = v.picklist([
   "transparent",
   "tiny",
   "code-sent",
+  "code-unnamed",
+  "code-typed",
   "unusable",
 ]);
 export type TargetCheck = v.InferOutput<typeof targetCheckSchema>;
