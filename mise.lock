@@ -130,10 +130,10 @@ checksum = "sha256:e2edda75bfb089654705cf65a13b58933bfd5f57148e8ebda916f58a2474f
 url = "https://nodejs.org/dist/v26.13.1/node-v26.13.1-win-x64.zip"
 
 [[tools."npm:oxlint"]]
-version = "1.93.0"
-aube = { path = ".mise/locks/npm-oxlint/1.93.0", digest = "sha256:3f84da90d1a47ab7459824c66884d9a093c089c2f79bf391575aef880c7b3d32" }
+version = "1.94.0"
+aube = { path = ".mise/locks/npm-oxlint/1.94.0", digest = "sha256:a253bc49b893f7edcd437bab50c99b8fa79125d40299bb35205607a7ceea494d" }
 backend = "npm:oxlint"
-specifiers = ["1.93.0"]
+specifiers = ["1.94.0"]
 
 [[tools."npm:typescript"]]
 version = "7.0.2"
