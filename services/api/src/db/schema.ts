@@ -716,8 +716,9 @@ export const recipeEntryBlocks = sqliteTable(
 );
 
 /**
- * Pages sent to the judge per recipe revision, origin, path and code source (ADR 0027): each is judged
- * at most once across devices and Worker restarts, and a recipe at most 20 times a UTC day.
+ * Pages sent to the judge per recipe revision, origin, path and code source (ADR 0027): each
+ * is judged at most once across devices and Worker restarts, and a recipe at most 20 times a
+ * UTC day.
  */
 export const pageJudgements = sqliteTable(
   "page_judgements",

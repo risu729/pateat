@@ -337,9 +337,9 @@ export async function judgeCompletion(
   const judging = backend.call({
     ...logged(loginPaths),
     device: request.deviceModel,
-    // Each revision, origin and path is judged once per judge prompt version, and a recipe
-    // 20 times a UTC day (ADR 0027), counting a stop's pages and those beside the sign-in
-    // form.
+    // Each revision, origin, path and code source is judged once per judge prompt version,
+    // and a recipe 20 times a UTC day (ADR 0027), counting a stop's pages and those beside
+    // the sign-in form.
     gate: async (now) => {
       const stale = staleHead(await backend.readHead(recipeId), head.revision);
       if (stale) return stale;
