@@ -883,6 +883,32 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
       }),
     ).toEqual({ kind: "delegate", reason: "paused" });
   });
+  it("answers a reloaded page's own conditional request again after a resume (#1673)", async () => {
+    const { h } = paused({ passkeys: vi.fn(async () => ({ passkey: true, discoverable: true })) });
+    fake.state.openTabs = [1];
+    fake.state.present = new Set(["password", "login"]);
+    const request = (documentId: string) =>
+      h.login.conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId,
+        signal: new AbortController().signal,
+        incognito: false,
+        path: "/signin",
+      });
+    await setPause(h, true);
+    expect(await request("paused-page")).toEqual({ kind: "delegate", reason: "paused" });
+    expect(await h.hello({ documentId: "paused-page" })).toEqual({ ok: false, reason: "paused" });
+    expect(await setPause(h, false)).toEqual({ ok: true });
+    // The reloaded page asks again: nothing of the pause is left, so the login of its
+    // document answers the request with the saved default on the passkey route.
+    const answer = request("reloaded");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await h.hello({ documentId: "reloaded" })).toEqual({ ok: true });
+    expect(await answer).toMatchObject({ kind: "answer", item: { connectionId, itemId } });
+    expect(stored()).toMatchObject([{ route: "passkey", document: { documentId: "reloaded" } }]);
+    expect(executes()).toEqual([]);
+  });
   it("ends paused choices on resume after the pause ran out, and re-announces frames", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const { h } = paused();
