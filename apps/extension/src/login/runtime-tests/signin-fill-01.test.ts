@@ -732,6 +732,55 @@ describe("profile sign-in autofill runtime", () => {
     ).toBeUndefined();
   });
 
+  it("lets a picked login's second factor through on the page it just completed in", async () => {
+    const { h } = start(
+      { siteDefaults: [] },
+      {
+        uris: async () => ({
+          ok: true,
+          data: uriMatch({
+            candidates: [
+              { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+              { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+            ],
+          }),
+        }),
+      },
+    );
+    expect(await h.hello()).toMatchObject({ ok: false, reason: "account-ambiguous" });
+    fake.state.onReconnect = () => h.hello();
+    // The page after the click shows nothing the login waits for: it completes at once.
+    fake.state.present = undefined;
+    const pick = {
+      version: 1,
+      type: "login.choice.pick",
+      tabId: 1,
+      documentId: "synthetic-document",
+      connectionId,
+      itemId,
+      makeDefault: false,
+    };
+    expect(await h.login.handle(pick, popup)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(stored()[0]).toMatchObject({ state: "authenticated" }));
+    const request = { tabId: 1, origin, conditional: false, userActivation: false };
+    // A security key the page asks for right after the completion (ADR 0029, amended
+    // 2026-11-17) is the picked login's, as it was while the login ran.
+    expect(
+      await h.login.passkeyPagePermission({
+        ...request,
+        documentId: "synthetic-document",
+        allowCredentials: true,
+      }),
+    ).toBeUndefined();
+    expect(
+      await h.login.passkeyPagePermission({
+        ...request,
+        documentId: "next-document",
+        allowCredentials: false,
+      }),
+    ).toBe("sign-in-fill");
+  });
+
   it("fills the username again when the first page shows again in a new document", async () => {
     const { h } = twoPageStart("/password");
     await h.hello();

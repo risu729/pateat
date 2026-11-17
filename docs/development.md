@@ -1385,7 +1385,10 @@ holds:
   mediation that names its credentials, in a tab whose Pateat login of the origin signed
   in with no logout detected since, is a re-verification while signed in and is handed
   on as `confirm-fill`
-  ([ADR 0035](adr/0035-page-kinds-per-site.md#passkey-re-verification));
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#passkey-re-verification)), except one
+  of the document that login completed in, within 30 seconds, which is its second
+  factor
+  ([ADR 0029](adr/0029-local-sign-in-state.md#amendment-a-second-factor-after-an-early-completion-2026-11-17));
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in

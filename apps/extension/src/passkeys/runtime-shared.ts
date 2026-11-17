@@ -286,12 +286,15 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
    */
   remember?: (origin: string, candidate: TCandidate) => Promise<void>;
   /**
-   * The vault item of a login that has not ended in this tab and origin (ADR 0027). Its
-   * request is answered with that item only, never the site default or the chooser.
+   * The vault item of a login that has not ended in this tab and origin (ADR 0027), or
+   * that just completed in the requesting document, whose second factor it asks for (ADR
+   * 0029, amended 2026-11-17). Its request is answered with that item only, never the
+   * site default or the chooser.
    */
   loginAccount?: (
     tabId: number,
     origin: string,
+    documentId?: string,
   ) => Promise<PasskeyItem | undefined> | PasskeyItem | undefined;
   /**
    * Told of each request of a top document that does not wait for an autofill choice
@@ -332,9 +335,11 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
   /**
    * Whether the tab's Pateat login of the origin signed in and no logout was detected
    * since. A request there that names its credentials is a re-verification while signed
-   * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035).
+   * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035). Not
+   * one of the document the login just completed in, which asks for its second factor
+   * (ADR 0029, amended 2026-11-17).
    */
-  reverification?: (tabId: number, origin: string, rpId: string) => Promise<boolean>;
+  reverification?: (tabId: number, origin: string, documentId: string) => Promise<boolean>;
   /**
    * Decides a `conditional` request of a top document through the login of its page
    * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
