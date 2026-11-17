@@ -339,12 +339,7 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
    * one of the document the login just completed in, which asks for its second factor
    * (ADR 0029, amended 2026-11-17).
    */
-  reverification?: (
-    tabId: number,
-    origin: string,
-    rpId: string,
-    documentId: string,
-  ) => Promise<boolean>;
+  reverification?: (tabId: number, origin: string, documentId: string) => Promise<boolean>;
   /**
    * Decides a `conditional` request of a top document through the login of its page
    * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).

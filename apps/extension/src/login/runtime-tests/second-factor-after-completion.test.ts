@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESULT_CORRECTION_MS } from "../runtime/constants";
+import { createPasskeyRuntime, type PasskeySource } from "../../passkeys/runtime";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
@@ -84,5 +85,63 @@ describe("a passkey request of the document a login just completed in (ADR 0029,
     expect(await h.login.loginAccount(2, origin, page)).toBeUndefined();
     expect(await h.login.loginAccount(1, "https://other.example", page)).toBeUndefined();
     expect(await h.login.passkeyReverification(2, origin, page)).toBe(false);
+  });
+  it("is answered with the login's item through the passkey bridge", async () => {
+    const h = await signedIn();
+    // Signing awaits Web Crypto, which the harness's auto-advancing timers would outrun.
+    vi.useRealTimers();
+    const source: PasskeySource = {
+      candidates: vi.fn(async () => ({
+        candidates: [
+          {
+            credentialId: "AQID",
+            rpId: "login.example",
+            userHandle: "dXNlcg",
+            discoverable: false,
+            counter: 0,
+          },
+        ],
+        complete: true,
+      })),
+      sign: vi.fn(async () => Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01)),
+    };
+    // Wired as the background wires them, so the arguments line up as they do there.
+    const runtime = createPasskeyRuntime(source, {
+      extensionId: "synthetic-extension",
+      loginAccount: h.login.loginAccount,
+      reverification: h.login.passkeyReverification,
+    });
+    const request = (documentId: string) =>
+      runtime.handle(
+        {
+          version: 1,
+          type: "passkey.get",
+          operationId: crypto.randomUUID(),
+          userActivation: false,
+          focused: true,
+          request: {
+            challenge: "AAECAwQFBgcICQoLDA0ODw",
+            rpId: "login.example",
+            allowCredentials: [{ type: "public-key", id: "AQID" }],
+          },
+        },
+        {
+          id: "synthetic-extension",
+          tab: { id: 1 },
+          frameId: 0,
+          documentId,
+          documentLifecycle: "active",
+          origin,
+          url: `${origin}/two-factor`,
+        } as never,
+      );
+    expect(await request(page)).toMatchObject({ kind: "assertion" });
+    expect(source.candidates).toHaveBeenCalledWith(
+      origin,
+      "login.example",
+      expect.any(AbortSignal),
+      { connectionId, itemId },
+    );
+    expect(await request("next-document")).toEqual({ kind: "delegate", reason: "confirm-fill" });
   });
 });

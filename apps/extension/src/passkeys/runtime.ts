@@ -343,10 +343,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         !conditional &&
         admission.request.allowCredentialIds.length > 0 &&
         options.reverification &&
-        (await abortable(
-          options.reverification(context.tabId, origin, admission.request.rpId, context.documentId),
-          signal,
-        ))
+        (await abortable(options.reverification(context.tabId, origin, context.documentId), signal))
       )
         return { kind: "delegate", reason: "confirm-fill" };
       if (conditional) return await waitForLogin(signal);

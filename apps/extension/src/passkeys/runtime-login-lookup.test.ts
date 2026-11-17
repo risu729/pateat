@@ -197,7 +197,7 @@ describe("a passkey request waiting for its tab's login records", () => {
     await runtime.handle(message, sender);
     // The document a login just completed in asks for its second factor (ADR 0029,
     // amended 2026-11-17), which only the document tells apart from a re-verification.
-    expect(reverification).toHaveBeenCalledWith(7, origin, "example.com", "synthetic-document");
+    expect(reverification).toHaveBeenCalledWith(7, origin, "synthetic-document");
     expect(loginAccount).toHaveBeenCalledWith(7, origin, "synthetic-document");
     expect(backing.candidates).toHaveBeenCalledWith(
       origin,

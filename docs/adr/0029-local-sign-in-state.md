@@ -1082,10 +1082,12 @@ Decision:
   same document a login of its tab and origin completed in, less than
   `RESULT_CORRECTION_MS` (30 seconds) after the completion, is that login's second
   factor, not a re-verification. It is answered with the login's item only, as during
-  the login (ADR 0027): `loginAccount` names the item for it, and
-  `passkeyReverification` does not count it (`secondFactorAfterCompletion` in
-  `apps/extension/src/login/runtime/passkey.ts`). Without a matching passkey in that
-  item it is handed on as a running login's would be (`login-item-…`).
+  the login (ADR 0027): `loginAccount` names the item for it, `passkeyReverification`
+  does not count it, and a login a popup pick started still counts as picked for it on
+  a site set to fill only (`explicitlyPicked`, ADR 0035). The rule is
+  `secondFactorAfterCompletion` in `apps/extension/src/login/runtime/passkey.ts`.
+  Without a matching passkey in that item it is handed on as a running login's would be
+  (`login-item-…`).
 - The time of the completion is the stored record's last change, as for the correction;
   "the same document" is the record's document, as for the correction. A request of
   another document, or after the 30 seconds, is a re-verification as before.

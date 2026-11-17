@@ -26,8 +26,8 @@ export function registerReverificationCases({
     const backing = source();
     const report = vi.fn();
     const reverification = vi.fn(
-      async (tabId: number, page: string, rpId: string) =>
-        tabId === 7 && page === origin && rpId === "example.com",
+      async (tabId: number, page: string, documentId: string) =>
+        tabId === 7 && page === origin && documentId === "document-a",
     );
     const runtime = createPasskeyRuntime(backing, { extensionId, reverification, report });
     expect(await runtime.handle(named(), sender())).toEqual({
