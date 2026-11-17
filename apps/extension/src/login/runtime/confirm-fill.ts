@@ -28,7 +28,7 @@ import {
   sameAuthority,
 } from "./confirm-scope";
 import { accountDestinationRefusal } from "./plan";
-import { CONFIRM_ATTEMPT_PREFIX } from "../sign-in-fill-page";
+import { CONFIRM_ATTEMPT_PREFIX, CONFIRM_PICK_ATTEMPT_PREFIX } from "../sign-in-fill-page";
 import type { Runtime } from "./state";
 import type { Sender } from "./types";
 
@@ -90,7 +90,7 @@ export async function authorizeConfirmation(
       rt,
       {
         origin: work.live.document.origin,
-        account: work.parent.account,
+        account: work.account,
         policyRevision: operation.policyRevision,
       },
       destination,
@@ -115,7 +115,7 @@ export async function authorizeConfirmation(
 export type ConfirmFillEnd = "filled" | "kept" | "stopped" | "asked" | "claimed";
 
 const claimOf = (work: ConfirmWork, recipe: LoginRecipe, index: number) =>
-  JSON.stringify([work.parent.id, work.live.document, work.live.path, recipe.id, index]);
+  JSON.stringify([work.id, work.live.document, work.live.path, recipe.id, index]);
 
 // Variants are alternatives; reads and claims must stop before another can act.
 /* eslint-disable no-await-in-loop */
@@ -154,7 +154,8 @@ export async function fillConfirmation(
     if (!(await claimConfirm(rt, work, claimOf(work, recipe, index)))) return "stopped";
     const operation: LoginOperation = {
       version: 1,
-      attemptId: CONFIRM_ATTEMPT_PREFIX + work.parent.id,
+      // The person's press may replace a value Pateat put in the page; a login's may not.
+      attemptId: (work.pick ? CONFIRM_PICK_ATTEMPT_PREFIX : CONFIRM_ATTEMPT_PREFIX) + work.id,
       operationId: newId(),
       document: work.live.document,
       policyRevision: work.policyRevision,

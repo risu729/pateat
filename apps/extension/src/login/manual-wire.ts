@@ -25,6 +25,31 @@ export const manualCancelRequestSchema = v.strictObject({
   requestId: ref,
 });
 export const manualCancelResponseSchema = v.strictObject({ ok: v.boolean() });
+/**
+ * The popup's **Fill** on a verification page (ADR 0035, amended 2026-11-17): the person's
+ * chosen account fills the page's fields once, and no button is pressed.
+ */
+export const confirmFillRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.confirm.fill"),
+  requestId: ref,
+  document: loginDocumentSchema,
+  scope: ref,
+  connectionId: ref,
+  itemId: ref,
+});
+export const confirmFillStatusSchema = v.strictObject({
+  requestId: ref,
+  state: v.picklist(["preparing", "generating", "asked", "filled", "kept", "blocked"]),
+  reason: v.optional(v.pipe(v.string(), v.maxLength(100))),
+});
+export const confirmFillResponseSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    state: v.picklist(["preparing", "generating", "asked", "filled", "kept"]),
+  }),
+  v.strictObject({ ok: v.literal(false), reason: v.pipe(v.string(), v.maxLength(100)) }),
+]);
 export const manualStatusSchema = v.strictObject({
   requestId: ref,
   state: v.picklist(["evaluating", "generating", "started", "blocked"]),
@@ -38,6 +63,8 @@ export const manualOfferResponseSchema = v.variant("ok", [
         v.strictObject({
           document: loginDocumentSchema,
           scope: ref,
+          /** A verification page: the popup offers **Fill** instead of **Log in now**. */
+          fill: v.optional(v.literal(true)),
           candidates: v.pipe(
             v.array(v.strictObject({ connectionId: ref, itemId: ref })),
             v.maxLength(100),
@@ -47,6 +74,8 @@ export const manualOfferResponseSchema = v.variant("ok", [
       v.maxLength(100),
     ),
     status: v.optional(manualStatusSchema),
+    /** The tab's latest **Fill** press, while it runs and how it ended. */
+    fill: v.optional(confirmFillStatusSchema),
     reason: v.optional(v.pipe(v.string(), v.maxLength(100))),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-page") }),
@@ -65,11 +94,18 @@ export type ManualStartRequest = Omit<
   "version" | "type"
 >;
 export type ManualStartResponse = v.InferOutput<typeof manualStartResponseSchema>;
+export type ConfirmFillStatus = v.InferOutput<typeof confirmFillStatusSchema>;
+export type ConfirmFillRequest = Omit<
+  v.InferOutput<typeof confirmFillRequestSchema>,
+  "version" | "type"
+>;
+export type ConfirmFillResponse = v.InferOutput<typeof confirmFillResponseSchema>;
 
 export interface ManualClient {
   get(tabId: number): Promise<ManualOfferResponse>;
   start(request: ManualStartRequest): Promise<ManualStartResponse>;
   cancel(tabId: number, requestId: string): Promise<{ ok: boolean }>;
+  fill(request: ConfirmFillRequest): Promise<ConfirmFillResponse>;
 }
 
 export function createManualClient(send: (message: unknown) => Promise<unknown>): ManualClient {
@@ -88,6 +124,11 @@ export function createManualClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         manualCancelResponseSchema,
         await send({ version: 1, type: "login.manual.cancel", tabId: tab, requestId }),
+      ),
+    fill: async (request) =>
+      v.parse(
+        confirmFillResponseSchema,
+        await send({ version: 1, type: "login.confirm.fill", ...request }),
       ),
   };
 }

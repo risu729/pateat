@@ -10,6 +10,9 @@ Amends [ADR 0022](0022-login-attempts-per-tab-and-origin.md),
 [ADR 0062](0062-log-in-again-after-a-logout.md) for this new explicit action;
 ordinary automatic logins and the existing account-choice action keep their behavior.
 Testing is synthetic; no real account or paid model request was used.
+Amended on 2026-11-17 by the owner (13:15 UTC,
+[below](#amendment-2026-11-17-fill-on-verification-pages)): a verification page with a
+`confirm` or `unclear` recipe offers **Fill** instead of **Log in now**.
 
 Date: 2026-11-11
 
@@ -126,3 +129,26 @@ feature adds a bounded per-tab pending state rather than a permanent force setti
   other tabs for a one-time request.
 - Ignore every guard or execute a cached non-login recipe as a login: would broaden
   credential release and could press a confirmation action instead of logging in.
+
+## Amendment 2026-11-17: Fill on verification pages
+
+The owner decided on 2026-11-17 at 13:15 UTC that a page whose path has a `confirm` or
+`unclear` recipe offers **Fill** (「入力」) in the popup instead of **Log in now**
+([ADR 0035](0035-page-kinds-per-site.md#amendment-2026-11-17-fill-from-the-popup)). It
+fills the picked account's password into that recipe's fields once and presses
+nothing, and it never asks the model to classify the page again.
+
+The following are the agent's choices, not confirmed by the owner:
+
+- **Fill** uses this action's offer: the same targets, account list, page fingerprint
+  and recheck before the account is used. A target is offered **Fill** only when
+  `confirm` is `fill` for the page; with `off`, the page keeps **Log in now** and its
+  re-evaluation through start-page repair described
+  [above](#interaction-with-page-permissions). A secret-answer page without a recipe is
+  offered **Fill** too, and a sign-in page keeps **Log in now**.
+- A pending **Fill** is held in memory per tab, as a pending login is, and ends on the
+  same events. While either is pending, the tab offers neither action again. The
+  worker does not refuse a **Log in now** request for a verification page; the popup
+  only stops offering it there.
+- **Fill** is not a login: it starts no attempt, clears no ask for an account and
+  changes no setting, default or record.

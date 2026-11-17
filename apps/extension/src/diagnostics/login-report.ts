@@ -46,6 +46,7 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             recipeRevision: report.recipeRevision,
             pageKind: report.pageKind,
             permissionSource: report.permissionSource,
+            accountSource: report.accountSource,
             amount: report.amount,
             e1: report.e1,
             e2: report.e2,

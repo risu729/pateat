@@ -1,5 +1,6 @@
-// A confirmation page's fill for an authenticated login (ADR 0035 delivery 3) and the
-// submitter destinations every passive fill checks before it changes a field.
+// A confirmation page's fill for an authenticated login (ADR 0035 delivery 3) or for the
+// person's **Fill** press (amended 2026-11-17), and the submitter destinations every
+// passive fill checks before it changes a field.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { recordFillEdits } from "../page/fill-edits";
@@ -195,6 +196,71 @@ test("a trusted edit and a replaced confirmation password are never overwritten"
     }),
   ).toMatchObject({ ok: false, mutation: "none", detail: "form-changed" });
   expect(input("replacement").value).toBe("");
+});
+
+test("the person's Fill replaces only a value Pateat put in that nobody edited since", async () => {
+  await install('<label>Password<input id="password" type="password"></label>');
+  const press = (attemptId: string, value: string) =>
+    fill("password", { attemptId, slot: "password", secret: "password", value });
+  expect(await press("confirm:pick:first", "Synthetic-first!")).toMatchObject({ ok: true });
+  expect(input("password").value).toBe("Synthetic-first!");
+  // A later press with another account replaces Pateat's own value.
+  expect(await press("confirm:pick:second", "Synthetic-second!")).toMatchObject({ ok: true });
+  expect(input("password").value).toBe("Synthetic-second!");
+  // Once the person edits it, no press replaces it.
+  await userEvent.clear(input("password"));
+  await userEvent.type(input("password"), "Person-typed-synthetic!");
+  expect(await press("confirm:pick:third", "Synthetic-third!")).toMatchObject({ ok: true });
+  expect(input("password").value).toBe("Person-typed-synthetic!");
+});
+
+test("the person's Fill tells Pateat's own value only by trusted edits, never by the value", async () => {
+  await install('<label>Password<input id="password" type="password"></label>');
+  const press = (attemptId: string, value: string) =>
+    fill("password", { attemptId, slot: "password", secret: "password", value });
+  expect(await press("confirm:pick:first", "Synthetic-first!")).toMatchObject({ ok: true });
+  // A page script that replaces the value without a trusted event is not seen, so a later
+  // press may replace that value: the known limit of a guard that reads no value.
+  input("password").value = "Page-later-synthetic!";
+  expect(await press("confirm:pick:second", "Synthetic-second!")).toMatchObject({ ok: true });
+  expect(input("password").value).toBe("Synthetic-second!");
+  // A trusted edit is seen, and no press replaces it.
+  await userEvent.type(input("password"), "-edited");
+  const edited = input("password").value;
+  expect(await press("confirm:pick:third", "Synthetic-third!")).toMatchObject({ ok: true });
+  expect(input("password").value).toBe(edited);
+});
+
+test.each([
+  ["the page put there", '<input id="password" type="password" value="Page-synthetic!">'],
+  ["the person typed", '<input id="password" type="password">'],
+])("the person's Fill keeps a value %s", async (_case, html) => {
+  await install(`<label>Password${html}</label>`);
+  if (!input("password").value) await userEvent.type(input("password"), "Person-typed-synthetic!");
+  const before = input("password").value;
+  expect(
+    await fill("password", {
+      attemptId: "confirm:pick:press",
+      slot: "password",
+      secret: "password",
+      value: "Synthetic-only!",
+    }),
+  ).toMatchObject({ ok: true });
+  expect(input("password").value).toBe(before);
+});
+
+test("a login's confirmation fill never replaces a value the person's Fill put in", async () => {
+  await install('<label>Password<input id="password" type="password"></label>');
+  await fill("password", {
+    attemptId: "confirm:pick:press",
+    slot: "password",
+    secret: "password",
+    value: "Synthetic-picked!",
+  });
+  expect(
+    await fill("password", { slot: "password", secret: "password", value: "Synthetic-login!" }),
+  ).toMatchObject({ ok: true });
+  expect(input("password").value).toBe("Synthetic-picked!");
 });
 
 test.each(['autocomplete="one-time-code"', 'inputmode="numeric" maxlength="6"'])(

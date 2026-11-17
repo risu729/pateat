@@ -74,7 +74,7 @@ test("all three defaults are editable and confirmation scope and unavailable per
   await expect
     .element(
       page.getByText(
-        /Verification pages fill only after a confirmed Pateat login in the same tab, using that account\./,
+        /Verification pages fill by themselves only after a confirmed Pateat login in the same tab, using that account; Fill in the popup fills one with the account you choose\./,
       ),
     )
     .toBeVisible();

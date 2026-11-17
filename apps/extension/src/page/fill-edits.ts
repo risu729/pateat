@@ -10,6 +10,8 @@ type State = {
   identities: Set<string>;
   opaque: boolean;
   filled: Set<string>;
+  /** Inputs Pateat itself wrote a value into in this document, never the value. */
+  wrote: WeakSet<Element>;
 };
 type Holder = { [key]?: State };
 const aliases = (input: Element): string[] => {
@@ -33,6 +35,7 @@ export function recordFillEdits(document: Document, window: Window): () => void 
     identities: new Set(),
     opaque: false,
     filled: new Set(),
+    wrote: new WeakSet(),
   };
   holder[key] = state;
   const roots = new Set<ShadowRoot>();
@@ -113,4 +116,19 @@ export function claimFill(
   if (state.filled.size >= 1024) return false;
   state.filled.add(identity);
   return true;
+}
+
+/** Records that Pateat is about to write a value into `input`, as any of its fills does. */
+export function noteFillWrite(window: Window, input: Element): void {
+  (window as unknown as Holder)[key]?.wrote.add(input);
+}
+
+/**
+ * Whether Pateat wrote into `input` and no trusted input event shows that the person, or
+ * another extension, edited it since. It reads no value: a value a page script set without
+ * an event is not seen, so it counts as Pateat's own.
+ */
+export function fillWrote(window: Window, input: Element): boolean {
+  const state = (window as unknown as Holder)[key];
+  return state?.wrote.has(input) === true && fillUntouched(window, input);
 }

@@ -10,6 +10,8 @@ import { terminal, passiveFillWaiting } from "./attempt-state";
 import { forget } from "./session-store";
 import { MANUAL_START_MS, endManual, type ManualStart } from "./manual-scope";
 import { cancelSso, ssoWaiting } from "./sso/flow";
+import { endConfirmPick } from "./confirm-pick-scope";
+import { confirmFillPage } from "./confirm-pick";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
 
@@ -28,7 +30,7 @@ const retryable = (rt: Runtime, live: LiveDocument, record: LoginAttemptMetadata
   ssoWaiting(rt, live, record);
 
 /** A fingerprint carries no URL, and makes a same-document navigation invalidate an offer. */
-async function fingerprint(rt: Runtime, live: LiveDocument): Promise<string> {
+export async function fingerprint(rt: Runtime, live: LiveDocument): Promise<string> {
   const top = rt.documents.get(frameKey({ tabId: live.document.tabId, frameId: 0 }));
   const bytes = new TextEncoder().encode(
     JSON.stringify([
@@ -45,7 +47,8 @@ async function fingerprint(rt: Runtime, live: LiveDocument): Promise<string> {
     .join("");
 }
 
-async function pageRefusal(rt: Runtime, live: LiveDocument): Promise<string | undefined> {
+/** Why a popup request cannot use this page now: it changed, or lacks site access. */
+export async function pageRefusal(rt: Runtime, live: LiveDocument): Promise<string | undefined> {
   if (rt.documents.get(frameKey(live.document)) !== live) return "page-changed";
   const tab = await browser.tabs.get(live.document.tabId).catch(() => undefined);
   if (!tab?.url || tab.url !== (live.topUrl ?? live.url)) return "page-changed";
@@ -103,7 +106,13 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
   const request = rt.manualStarts.get(tabId);
   if (request?.pick && Date.now() >= request.expiresAt) endManual(rt, tabId, "timed-out", request);
   if (request?.pick && tab.url !== request.topUrl) endManual(rt, tabId, "page-changed", request);
-  if (request?.pick) return { ok: true, targets: [], status: request.status };
+  // The tab's latest **Fill** press: while it runs, nothing else is offered.
+  const press = rt.confirmFill.picks.get(tabId);
+  if (press?.active && Date.now() >= press.expiresAt) endConfirmPick(press, "blocked", "timed-out");
+  if (press?.active && tab.url !== press.topUrl) endConfirmPick(press, "blocked", "page-changed");
+  const pressed = press ? { fill: press.status } : {};
+  if (request?.pick) return { ok: true, targets: [], status: request.status, ...pressed };
+  if (press?.active) return { ok: true, targets: [], ...pressed };
   const targets: Extract<ManualOfferResponse, { ok: true }>["targets"] = [];
   let reason = snapshot?.ok ? undefined : "settings-unavailable";
   if (snapshot?.ok) {
@@ -127,11 +136,14 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
         if ("reason" in found) return { reason: found.reason };
         if (!found.candidates.length) return { reason: "no-account" };
         const scope = await fingerprint(rt, live);
+        // A verification page offers **Fill** in place of **Log in now** (ADR 0035).
+        const fill = await confirmFillPage(rt, live, snapshot).catch(() => false);
         if (rt.documents.get(frameKey(live.document)) !== live) return { reason: "page-changed" };
         return {
           target: {
             document: live.document,
             scope,
+            ...(fill ? { fill: true as const } : {}),
             candidates: found.candidates
               .slice(0, 100)
               .map(({ connectionId, itemId }) => ({ connectionId, itemId })),
@@ -148,6 +160,7 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
     ok: true,
     targets,
     ...(request ? { status: request.status } : {}),
+    ...pressed,
     ...(!targets.length ? { reason: reason ?? "no-document" } : {}),
   };
 }

@@ -224,6 +224,8 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       siteWait?: Parameters<typeof createLoginRuntime>[1]["siteWait"];
       /** Keeps the worker up while a login waits for the site (ADR 0022). */
       keepAwake?: Parameters<typeof createLoginRuntime>[1]["keepAwake"];
+      /** The vault's SSO methods (ADR 0026); without it no SSO is offered. */
+      sso?: Parameters<typeof createLoginRuntime>[1]["sso"];
     } = {},
   ) {
     const customFields = (fields: CustomField[]) =>
@@ -448,6 +450,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       ...(live.askMasterPassword ? { askMasterPassword: live.askMasterPassword } : {}),
       ...(live.siteWait ? { siteWait: live.siteWait } : {}),
       ...(live.keepAwake ? { keepAwake: live.keepAwake } : {}),
+      ...(live.sso ? { sso: live.sso } : {}),
       ...(live.badge
         ? { badge: live.badge }
         : live.spin

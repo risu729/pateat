@@ -77,7 +77,7 @@ const NOT_STARTED: Record<string, string> = {
     "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again",
   "page-off": "verification filling is turned off for this site or profile",
   "confirm-unsupported":
-    "the AI classified this page as a verification while signed in, or could not tell, and Pateat fills one only for a login it confirmed in this tab and browser session; if this is a sign-in page, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
+    "the AI classified this page as a verification while signed in, or could not tell, and Pateat fills one by itself only for a login it confirmed in this tab and browser session; choose an account and press Fill to fill it now, or, if this is a sign-in page, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
   "account-ambiguous": "several accounts match; choose one to log in",
   paused: "automatic login is paused on this site; choose an account to log in",
   // In a private window whose automatic login is off (ADR 0062).

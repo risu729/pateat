@@ -51,6 +51,7 @@ function harness() {
       proofs: [],
       claims: [],
       work: new Map(),
+      picks: new Map(),
       queue: Promise.resolve(),
     },
     options: {},

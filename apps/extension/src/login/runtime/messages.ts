@@ -51,10 +51,12 @@ import {
   detailRequestSchema,
 } from "../detail-wire";
 import {
+  confirmFillRequestSchema,
   manualCancelRequestSchema,
   manualOfferRequestSchema,
   manualStartRequestSchema,
 } from "../manual-wire";
+import { confirmPickStart } from "./confirm-pick";
 import { probeMode } from "./constants";
 import { type Sender, type Execution } from "./types";
 import { change, send, current, saveSession, report, inProgress, unsubmitted } from "./attempt";
@@ -229,6 +231,8 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     if (manualRun.success) return manualStart(rt, manualRun.output);
     const manualStop = v.safeParse(manualCancelRequestSchema, message);
     if (manualStop.success) return manualCancel(rt, manualStop.output);
+    const confirmFill = v.safeParse(confirmFillRequestSchema, message);
+    if (confirmFill.success) return confirmPickStart(rt, confirmFill.output);
     const ask = v.safeParse(choiceRequestSchema, message);
     if (ask.success) return popupChoice(rt, ask.output.tabId);
     const pausing = v.safeParse(pauseRequestSchema, message);

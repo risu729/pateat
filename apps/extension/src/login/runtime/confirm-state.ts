@@ -4,10 +4,12 @@ import {
   type LoginOperation,
   type LoginRecipe,
   loginDocumentSchema,
+  sameLoginDocument,
 } from "@pateat/contracts";
 import { storage } from "wxt/utils/storage";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
+import type { ConfirmPick } from "./confirm-pick-scope";
 
 const KEY = "session:pateat.confirm-fills.v1" as const;
 const proofSchema = v.strictObject({
@@ -36,6 +38,8 @@ export const TAB_CLAIMS = 64;
 export const DECLINED_KEPT = 16;
 /** How a document's confirmation fill on a path ended, for the popup (ADR 0038). */
 export type ConfirmOutcome = "confirm-filled" | "confirm-fill-kept" | "confirm-fill-stopped";
+/** Whose account a confirmation fill uses, as its log entries name it, never the account. */
+export type ConfirmAccountSource = "login" | "pick";
 /**
  * A master password the confirmation's own window accepted for `attemptId connectionId`:
  * it fills the document once, on the path and with the recipe it was asked for, before it
@@ -44,7 +48,14 @@ export type ConfirmOutcome = "confirm-filled" | "confirm-fill-kept" | "confirm-f
 export type ConfirmGrant = { grant: string; path: string; recipeId: string; expires: number };
 export type ConfirmWork = {
   live: LiveDocument;
-  parent: LoginAttemptMetadata;
+  /** Whose fill this is: the tab's confirmed login's ID, or the person's popup press's. */
+  id: string;
+  /** The account that fills: the confirmed login's, or the one the person chose. */
+  account: { origin: string; connectionId: string; itemId: string };
+  /** The tab's confirmed login whose account fills automatically (ADR 0035 delivery 3). */
+  parent?: LoginAttemptMetadata;
+  /** The person's **Fill** press in the popup, in place of `parent` (amended 2026-11-17). */
+  pick?: ConfirmPick;
   topDocumentId: string | undefined;
   policyRevision?: number;
   snapshotId?: string;
@@ -62,11 +73,21 @@ export function createConfirmState() {
     proofs: [] as Proof[],
     claims: [] as Claim[],
     work: new Map<number, ConfirmWork>(),
+    /** Each tab's latest **Fill** press from the popup, in memory only. */
+    picks: new Map<number, ConfirmPick>(),
     /**
      * `tabId documentId` to how its fill on `path` ended, in memory only; `declined` when
      * the person closed its master password window.
      */
-    outcomes: new Map<string, { path: string; reason: ConfirmOutcome; declined?: true }>(),
+    outcomes: new Map<
+      string,
+      {
+        path: string;
+        reason: ConfirmOutcome;
+        declined?: true;
+        accountSource?: ConfirmAccountSource;
+      }
+    >(),
     /** `tabId documentId` to the grant its window left for the document's next announcement. */
     verified: new Map<string, ConfirmGrant>(),
     /** The announcement that took its document's grant, for its own fill only. */
@@ -157,12 +178,58 @@ export function hasConfirmAuthentication(rt: Runtime, metadata: LoginAttemptMeta
   );
 }
 
-/** One automatic classification attempt per authenticated document and path. */
-export const confirmationGenerationKey = (parent: LoginAttemptMetadata, live: LiveDocument) =>
-  JSON.stringify(["generation", parent.id, live.document, live.path]);
+/**
+ * One classification attempt per authenticated document and path, or per **Fill** press:
+ * `id` is the login's or the press's.
+ */
+export const confirmationGenerationKey = (id: string, live: LiveDocument) =>
+  JSON.stringify(["generation", id, live.document, live.path]);
 
 export const hasConfirmClaim = (rt: Runtime, key: string): boolean =>
   rt.confirmFill.claims.some((entry) => entry.key === key);
+
+/**
+ * The generation claim of a **Fill** press (amended 2026-11-17): one per document and
+ * path, whichever press sent it. Kept in the session store with the other claims, it also
+ * holds that document from starting a login on that path, across a worker restart. A
+ * generation the service gave no answer to drops it (`releaseConfirmClaim`).
+ */
+export const pressGenerationKey = (live: LiveDocument) => confirmationGenerationKey("pick", live);
+
+const PRESS_PREFIX = '["generation","pick",';
+
+/** Drops the press holds of `live`'s document on the paths it left. */
+export function releasePressHolds(rt: Runtime, live: LiveDocument): void {
+  const left = (key: string) => {
+    if (!key.startsWith(PRESS_PREFIX)) return false;
+    try {
+      const [, , document, path] = JSON.parse(key) as [string, string, unknown, string];
+      const parsed = v.safeParse(loginDocumentSchema, document);
+      return (
+        parsed.success && sameLoginDocument(parsed.output, live.document) && path !== live.path
+      );
+    } catch {
+      return false;
+    }
+  };
+  if (!rt.confirmFill.claims.some((entry) => left(entry.key))) return;
+  update(rt, (state) => {
+    const before = state.claims.length;
+    state.claims = state.claims.filter((entry) => !left(entry.key));
+    return state.claims.length !== before;
+  });
+}
+
+/**
+ * Drops the claim `key`: a press's generation that got no answer from the service leaves
+ * no claim, so it holds nothing and a later press may send the page again.
+ */
+export async function releaseConfirmClaim(rt: Runtime, key: string): Promise<void> {
+  const state = rt.confirmFill;
+  const before = state.claims.length;
+  state.claims = state.claims.filter((entry) => entry.key !== key);
+  if (state.claims.length !== before) await write(rt);
+}
 
 /** Claim before any read/delivery; an unknown acknowledgement is never replayed. */
 export async function claimConfirm(rt: Runtime, work: ConfirmWork, key: string): Promise<boolean> {
@@ -198,6 +265,15 @@ export function cancelConfirm(rt: Runtime, tabId?: number): void {
   }
 }
 
+/** A tab that closed or was replaced takes its **Fill** press with it. */
+function dropPick(rt: Runtime, tabId: number): void {
+  const pick = rt.confirmFill.picks.get(tabId);
+  if (!pick) return;
+  clearTimeout(pick.timer);
+  pick.active = false;
+  rt.confirmFill.picks.delete(tabId);
+}
+
 /** Runs `change` once the session state is read, and writes it only when it changed. */
 function update(rt: Runtime, change: (state: { proofs: Proof[]; claims: Claim[] }) => boolean) {
   void rt.confirmFill.loaded
@@ -224,6 +300,7 @@ const dropDocuments = (rt: Runtime, keep: (key: string) => boolean, declined = f
 
 export function forgetConfirmTab(rt: Runtime, tabId: number): void {
   cancelConfirm(rt, tabId);
+  dropPick(rt, tabId);
   dropDocuments(rt, (key) => !key.startsWith(`${tabId} `));
   update(rt, (state) => {
     const proofs = state.proofs.filter((entry) => entry.tabId !== tabId);
@@ -302,6 +379,7 @@ export function forgetConfirmProof(rt: Runtime, tabId: number, origin: string): 
  */
 export function moveConfirmTab(rt: Runtime, removed: number, added: number): void {
   cancelConfirm(rt, removed);
+  dropPick(rt, removed);
   dropDocuments(rt, (key) => !key.startsWith(`${removed} `));
   update(rt, (state) => {
     if (!state.proofs.some((entry) => entry.tabId === removed)) return false;

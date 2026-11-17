@@ -58,7 +58,8 @@ import {
   leaveConfirmDocuments,
 } from "./confirm-state";
 import { startsFor } from "./generation-scope";
-import { admitConfirm } from "./confirm-admit";
+import { confirmPickFor, confirmPickWaits } from "./confirm-pick-scope";
+import { admitConfirm, pressHold } from "./confirm-admit";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
 import { manualAuthorizationCurrent } from "./manual-scope";
@@ -355,6 +356,17 @@ export async function admit(
         rt.documents.get(frameKey(page.document)) === page &&
         page.url === topUrl &&
         !page.leftUnread));
+  // So may the person's **Fill** press for exactly this document, once no login of the
+  // tab runs (ADR 0035, amended 2026-11-17).
+  const pickedConfirmation =
+    !manual &&
+    confirmPickWaits(rt, document) &&
+    (owner === undefined || terminal(owner)) &&
+    (document.frameId === 0 ||
+      (page !== undefined &&
+        rt.documents.get(frameKey(page.document)) === page &&
+        page.url === topUrl &&
+        !page.leftUnread));
   const refreshingSso = ssoRefresh(rt, oldLive, document, token, url);
   const duplicate =
     sameDocument &&
@@ -371,7 +383,7 @@ export async function admit(
               start?.path === observedPath(new URL(url).pathname) &&
               document.documentId !== carried.metadata.watch.documentId))
         )));
-  if (duplicate && (!frameConfirmation || oldLive.token !== token)) {
+  if (duplicate && (!(frameConfirmation || pickedConfirmation) || oldLive.token !== token)) {
     note(rt, document, url, "duplicate-document");
     return { ok: false, reason: "duplicate-document" };
   }
@@ -419,6 +431,12 @@ export async function admit(
       : {}),
     ...(sameDocument && oldLive.path === path && oldLive.notStarted
       ? { notStarted: oldLive.notStarted }
+      : {}),
+    // A secret answer reported on this path, until the path offers a sign-in form instead.
+    ...(signIn?.path !== path &&
+    ((unoffered?.path === path && unoffered.why === "text-answer") ||
+      (sameDocument && oldLive.path === path && oldLive.textAnswer))
+      ? { textAnswer: true as const }
       : {}),
     seenAt: sameDocument ? oldLive.seenAt : Date.now(),
     // When it first announced a sign-in on this path, for the local log (ADR 0019).
@@ -576,14 +594,16 @@ export async function admit(
   // Try only confirmation handling before a deferred duplicate/frame-owner refusal.
   // A refusal to classify/fill must not turn this exception into ordinary login.
   const currentTop = rt.documents.get(frameKey({ tabId: ctx.document.tabId, frameId: 0 }));
-  if (
-    (busy || duplicate) &&
+  const ownerConfirms =
     frameConfirmation &&
-    rt.vars.storageHealthy &&
     owner !== undefined &&
     hasConfirmAuthentication(rt, owner) &&
     recordFor(rt, ctx.document.tabId, ctx.document.origin)?.id === owner.id &&
-    !rt.manualStarts.get(ctx.document.tabId)?.pick &&
+    !rt.manualStarts.get(ctx.document.tabId)?.pick;
+  if (
+    (busy || duplicate) &&
+    (ownerConfirms || pickedConfirmation) &&
+    rt.vars.storageHealthy &&
     (ctx.document.frameId === 0
       ? currentTop === ctx.live
       : currentTop === page &&
@@ -591,7 +611,8 @@ export async function admit(
         page.url === ctx.live.topUrl &&
         !page.leftUnread)
   ) {
-    ctx.recorded = owner;
+    // Only the confirmed login's own record lends its account; a press brings its own.
+    ctx.recorded = ownerConfirms ? owner : undefined;
     const confirmation = await admitConfirm(rt, ctx);
     if (confirmation) return confirmation;
     ctx.recorded = undefined;
@@ -616,10 +637,17 @@ export async function admit(
       !(await loginRelated(rt, ctx.document.tabId, ctx.document.frameId, ctx.document.origin)),
     );
 
-  const sso = await ssoAdmit(rt, ctx);
-  if (sso) return sso;
-  const offeredSso = await offerSso(rt, ctx);
-  if (offeredSso) return offeredSso;
+  // A page a **Fill** press sent for generation starts no login, SSO included (ADR 0035).
+  // A login the tab's move ends below still ends first, so the hold answers after it.
+  const pressed = await pressHold(rt, ctx);
+  // Nor does SSO admission take the announcement a press asked for: the press is admitted
+  // with the tab's record (`admitConfirm`), also after a move ended a login.
+  if (!pressed && !confirmPickFor(rt, ctx.live)) {
+    const sso = await ssoAdmit(rt, ctx);
+    if (sso) return sso;
+    const offeredSso = await offerSso(rt, ctx);
+    if (offeredSso) return offeredSso;
+  }
   const holder = tabAttempt(rt, ctx.document.tabId);
 
   /** Logs why a move of `record` did not complete it, or that it was kept (ADR 0022). */
@@ -874,5 +902,6 @@ export async function admit(
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
   }
 
+  if (pressed) return pressed;
   return admitRecord(rt, ctx);
 }

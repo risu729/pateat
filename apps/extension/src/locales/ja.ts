@@ -183,8 +183,8 @@ export const ja = {
     "このタブでのこのサイトへの前回のログインは中断されました",
   "the sign-in form shows, but the recipe's first step was not found":
     "ログインフォームは表示されていますが、レシピの最初の手順が見つかりませんでした",
-  "the AI classified this page as a verification while signed in, or could not tell, and Pateat fills one only for a login it confirmed in this tab and browser session; if this is a sign-in page, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again":
-    "AI の判定では、このページはログイン中の本人確認か、種類のわからないページです。本人確認ページには、このタブとブラウザーのセッションで Pateat がログインを確認した場合だけ入力します。ログインページの場合は、サービスのサイトページ（/manage/sites）でこのサイトのレシピを取り消すと、ページがもう一度送られます",
+  "the AI classified this page as a verification while signed in, or could not tell, and Pateat fills one by itself only for a login it confirmed in this tab and browser session; choose an account and press Fill to fill it now, or, if this is a sign-in page, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again":
+    "AI の判定では、このページはログイン中の本人確認か、種類のわからないページです。本人確認ページに自動で入力するのは、このタブとブラウザーのセッションで Pateat がログインを確認した場合だけです。今入力するには、アカウントを選んで「入力」を押してください。ログインページの場合は、サービスのサイトページ（/manage/sites）でこのサイトのレシピを取り消すと、ページがもう一度送られます",
   "no recipe of this site starts on this page":
     "このページから始まるこのサイトのレシピがありません",
   "Pateat waits for you to choose an account": "Pateat はアカウントの選択を待っています",

@@ -125,6 +125,11 @@ export type LiveDocument = {
   topMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** Why generation last skipped this document, so each reason is logged once. */
   generationSkip?: string;
+  /**
+   * The document reported a secret answer of `type="text"` on its current path (ADR 0035):
+   * the popup's **Fill** may send the page once for its recipe (amended 2026-11-17).
+   */
+  textAnswer?: true;
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
   /**
