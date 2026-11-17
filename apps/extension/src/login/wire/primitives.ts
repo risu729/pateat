@@ -47,7 +47,10 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * enabled or not, and none of whose text, hidden text and accessible name included, names
  * another way (`namesAuthenticatorChoice`, ADR 0081). `settable` takes a writable input or
  * a shown enabled single-choice select, as a `detail` handler's fill of a split date's
- * part may choose an option (ADR 0061).
+ * part may choose an option (ADR 0061). `totp-code` takes a writable input whose page's
+ * words around it do not say its code was sent, by email, SMS or otherwise
+ * (`codeSourceOf` is not `sent`): a `totp` handler's code field, never entered on a page
+ * that asks for an emailed code on the same path (ADR 0027 amendment of 2026-11-17).
  */
 export const targetRequirementSchema = v.picklist([
   "writable",
@@ -61,6 +64,7 @@ export const targetRequirementSchema = v.picklist([
   "shown-input",
   "password-choice",
   "authenticator-choice",
+  "totp-code",
 ]);
 export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
 /**
@@ -72,6 +76,7 @@ export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
  * (`not-writable`, `not-clickable`); or, with `described-writable` or
  * `described-clickable`, the first reason the page's description would not see it
  * (`presenceMiss`: `hidden-attr`, `not-rendered`, `off-start`, `transparent`, `tiny`);
+ * or, with `totp-code`, a writable input whose page says its code was sent (`code-sent`);
  * `unusable` for another requirement.
  */
 export const targetCheckSchema = v.picklist([
@@ -92,6 +97,7 @@ export const targetCheckSchema = v.picklist([
   "off-start",
   "transparent",
   "tiny",
+  "code-sent",
   "unusable",
 ]);
 export type TargetCheck = v.InferOutput<typeof targetCheckSchema>;

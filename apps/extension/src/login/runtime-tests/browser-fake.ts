@@ -112,6 +112,11 @@ export function createBrowserFake() {
      * password input an email form keeps for the browser.
      */
     faint: new Set<string>(),
+    /**
+     * Code fields whose page says the code was sent, as an emailed code's page does:
+     * unusable for `totp-code` only (ADR 0027 amendment of 2026-11-17).
+     */
+    codeSent: new Set<string>(),
     /** Elements that match more than once. */
     ambiguous: new Set<string>(),
     /** The document's answer to the popup's fill of a personal detail (ADR 0061). */
@@ -258,7 +263,8 @@ export function createBrowserFake() {
               : ([undefined, "present"].includes(require) === false && state.unusable.has(value)) ||
                   ([undefined, "present", "shown"].includes(require) === false &&
                     state.disabled.has(value)) ||
-                  (require?.startsWith("described-") === true && state.faint.has(value))
+                  (require?.startsWith("described-") === true && state.faint.has(value)) ||
+                  (require === "totp-code" && state.codeSent.has(value))
                 ? "unusable"
                 : "unique";
         /** Why a target has its state, as the content script explains it for the log. */
@@ -269,7 +275,12 @@ export function createBrowserFake() {
           if (found === "ambiguous") return "matches-2";
           if (require?.startsWith("described-") === true && state.faint.has(value))
             return "transparent";
-          return require?.endsWith("writable") === true ? "not-writable" : "unusable";
+          if (require?.endsWith("writable") === true) return "not-writable";
+          if (require === "totp-code")
+            return state.unusable.has(value) || state.disabled.has(value)
+              ? "not-writable"
+              : "code-sent";
+          return "unusable";
         };
         if (
           message["type"] === "login.observe" &&

@@ -31,6 +31,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["password", "login"]);
     fake.state.unusable = new Set();
+    fake.state.codeSent = new Set();
     fake.state.unobservable = new Set();
     fake.state.disabled = new Set();
     fake.state.awaited = { ok: true };
@@ -467,13 +468,54 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect.objectContaining({
           type: "login.observe",
           targets: [target("app-code"), target("verify")],
-          require: ["writable", "shown"],
+          require: ["totp-code", "shown"],
           explain: true,
         }),
       );
       expect(codeFills()).toEqual([]);
       expect(notShown(report)).toEqual([[0, "not-shown", "not-writable.ok"]]);
     }, 10_000);
+    // Luma's emailed code and its authenticator app's code share one path and one input
+    // (#1655): a `totp` handler learned on the second is never entered on the first, whose
+    // page says the code was sent, and the login ends as on a code page with no handler
+    // (ADR 0027 amendment of 2026-11-17).
+    it.each([
+      ["is not entered on a page that says its code was sent", true],
+      ["(a page with no handler, for comparison)", false],
+    ])(
+      "%s",
+      async (_label, learned) => {
+        onClick({ login: toCode });
+        fake.state.codeSent = new Set(["app-code"]);
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        h.recipes.recipe.mockResolvedValue(
+          learned ? coded : parseLoginRecipe({ ...unlearned, completion: home }),
+        );
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(codeFills()).toEqual([]);
+        if (!learned) {
+          expect(notShown(report)).toEqual([]);
+          return;
+        }
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("app-code"), target("verify")],
+            require: ["totp-code", "shown"],
+            explain: true,
+          }),
+        );
+        expect(notShown(report)).toEqual([[0, "not-shown", "code-sent.ok"]]);
+      },
+      10_000,
+    );
     it("enters a passkey handler before a totp handler shown with it", async () => {
       const key = { kind: "passkey" as const, path: "/two-factor", target: securityKey };
       // The recipe lists the code first; the passkey still goes first.

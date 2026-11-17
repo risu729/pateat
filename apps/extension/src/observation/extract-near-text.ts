@@ -10,7 +10,7 @@ import {
 } from "../page/shadow";
 import { openModals, renderedText, shown } from "../page/text";
 import { landmarks, visible } from "./extract-controls";
-import { rawLimit, observedText } from "./extract-text";
+import { rawLimit, observedText, uncutText, visibleText } from "./extract-text";
 import { idList, liveRegions } from "./extract-labels";
 
 const nearDepth = 6;
@@ -69,6 +69,70 @@ export function nearCodeTexts(
     return element ? [element] : [];
   });
   return nearTexts([field], keep, errors);
+}
+
+/** Headings, as the page's outline and assistive technology read them. */
+const headingElements = "h1, h2, h3, h4, h5, h6, [role~='heading' i]";
+
+/** Headings read for the code field's own part of the page. */
+const maxPartHeadings = 3;
+
+/**
+ * The shown headings of a code field's own part of the page, the first three in page
+ * order, normalized and redacted as the observation's headings (`visibleText`) but not
+ * cut, for the login to tell where its code comes from (ADR 0027 amendment of
+ * 2026-11-17); they are never sent or logged. The part is the field's nearest parent
+ * that shows a heading, bounded as {@link nearCodeTexts} bounds its texts: within six
+ * parents, never the body or above, and no parent that holds another shown field to type
+ * in, so a sign-in form's or a newsletter's heading beside the code is not the code's.
+ * Inside an open modal dialog the walk may reach the dialog itself however far it is, and
+ * never goes past it; the same bound holds there, so a dialog's title over another form
+ * is not read either. A heading inside a live region is left out, as the observation's
+ * near texts leave out such text.
+ */
+export function nearCodeHeadings(field: HTMLElement): string[] {
+  const read = (area: Element) =>
+    queryAll(area, headingElements)
+      .filter((heading) => !closestAcross(heading, liveRegions))
+      .flatMap((heading) => {
+        const text = visibleText(heading);
+        return text ? [text] : [];
+      })
+      .slice(0, maxPartHeadings);
+  const modal = openModals(field.ownerDocument).find((open) => containsAcross(open, field));
+  let area = composedParent(field);
+  for (let depth = 0; area; depth += 1, area = composedParent(area)) {
+    if (
+      area === field.ownerDocument.body ||
+      area === field.ownerDocument.documentElement ||
+      (modal ? !containsAcross(modal, area) : depth >= nearDepth) ||
+      otherEntryField(area, field)
+    )
+      break;
+    const headings = read(area);
+    if (headings.length) return headings;
+  }
+  return [];
+}
+
+/**
+ * The text of the elements a code field's `aria-describedby` names, for the login to tell
+ * where its code comes from (ADR 0027 amendment of 2026-11-17), never sent or logged:
+ * read as {@link nearCodeTexts} reads near texts, so a link, a button, a control, a
+ * heading, a live region or code-like text inside it (`notNear`), such as "Send code by
+ * SMS instead", gives none, and a description that is or sits inside one gives nothing.
+ * The field's `aria-errormessage` and a field marked `aria-invalid="true"` give none.
+ */
+export function nearCodeDescription(field: HTMLElement): string | undefined {
+  if (field.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return undefined;
+  const errors = new Set(idList(field, "aria-errormessage"));
+  const parts = idList(field, "aria-describedby").flatMap((id) => {
+    const described = errors.has(id) ? null : treeOf(field).getElementById(id);
+    if (!described || closestAcross(described, notNear)) return [];
+    const text = uncutText(renderedText(described, rawLimit, { skip: notNear }));
+    return text ? [text] : [];
+  });
+  return uncutText(parts.join(" "));
 }
 
 /**
