@@ -37,10 +37,12 @@ decision card "送信クリックの直前に確認"):
 Amended on 2026-11-17 by
 [ADR 0067](0067-software-keyboard-entry.md#amendment-2026-11-17-a-read-only-field-that-shows-a-value)
 (an agent's choice after [#1676](https://github.com/risu729/pateat/issues/1676), not
-confirmed by the owner): on a password step, a digits-only username is also compared
-with the number in a read-only input of the form marked `autocomplete="username"`, as a
-member number shown again above the password, without spaces and hyphens on either
-side, so a form for another member ends `wrong-account`.
+confirmed by the owner): on a step that fills a masked secret (a password, Hidden
+field, PIN, card number or card code), a digits-only username is also compared with the
+number in a shown read-only input marked `autocomplete="username"` of the form (of the
+document, for a fill outside any form), as a member number shown again above the
+password, without spaces, hyphens or leading zeros on either side, so a form for
+another member ends `wrong-account`.
 
 Date: 2026-10-18
 

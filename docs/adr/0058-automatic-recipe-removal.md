@@ -172,6 +172,9 @@ marked `new-password` or `one-time-code` and is in no form with such an input (t
 passkey-only recipe's page is read for a form). A code page whose field is marked
 `one-time-code`, or one that asks for the email and a code together, has no password
 to learn: it is refused at once, logged `not-due` with `no-form`, and spends no claim.
+The page is read once, without waiting: a password input rendered after that read, or
+a page that cannot be asked, is refused the same way, and the next document of the
+page is checked again.
 A recipe with no `password` variant at all is claimed as before. A layout added by the
 repair fills the password, fits the re-login page better than the code layout (its
 button shows and the code page's does not, [ADR 0060](0060-recipe-layouts.md)), and

@@ -411,6 +411,8 @@ export function registerSignedInCandidates({
       `<input id="f" autocomplete="username" readonly value="1234567890">`,
       `<input id="f" type="email" readonly value="me@example.com">`,
       `<input id="f" type="tel" maxlength="10" readonly value="0312345678">`,
+      // The keypad PIN field below, with no keypad on the page.
+      `<div><input id="f" inputmode="numeric" maxlength="4" readonly value="12"></div>`,
     ]) {
       page(`<button id="logout">Sign out</button>${field}`);
       expect(gap(), field).toEqual([true, undefined]);
@@ -424,6 +426,13 @@ export function registerSignedInCandidates({
       // A secret's field: a code or a password shown in a read-only text input.
       `<input id="f" autocomplete="one-time-code" readonly value="123456">`,
       `<input id="f" autocomplete="current-password" readonly value="1234">`,
+      `<input id="f" autocomplete="new-password" readonly value="1234">`,
+      // A PIN the page's own keypad typed into an unmarked field (`findKeypad`, ADR 0067).
+      `<div><input id="f" inputmode="numeric" maxlength="4" readonly value="12"><div>${[
+        ..."0123456789",
+      ]
+        .map((key) => `<input type="button" value="${key}">`)
+        .join("")}</div></div>`,
     ]) {
       page(`<button id="logout">Sign out</button>${field}`);
       expect(gap(), field).toEqual([false, "unfillable-field"]);

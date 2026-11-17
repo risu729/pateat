@@ -373,14 +373,19 @@ export function registerLoginKnownFields({
     // A PIN typed on the page's keypad into a read-only text field marked for a password,
     // or into one beside its own keypad with no mark, or a code shown in a field marked
     // for one: the value may be the secret itself, so the page stays incomplete.
-    for (const field of [
+    const marked = [
       `<input id="pin" type="text" autocomplete="current-password" readonly value="12">`,
       `<input id="pin" type="text" autocomplete="new-password" readonly value="12">`,
-      `<input id="pin" type="text" autocomplete="one-time-code" readonly value="123456">`,
-      `<input id="pin" type="text" readonly value="12">`,
+      `<input id="pin" type="tel" autocomplete="one-time-code" readonly value="123456">`,
+    ];
+    for (const field of [
+      ...marked.map((entry) => `${entry}<div id="pad">${keys}</div>`),
+      // The mark alone, with no keypad on the page.
+      ...marked,
+      `<input id="pin" type="text" readonly value="12"><div id="pad">${keys}</div>`,
     ]) {
       page(
-        `<form id="f"><input id="u">${field}<div id="pad">${keys}</div><button id="go" type="button">Log in</button></form>`,
+        `<form id="f"><input id="u">${field}<button id="go" type="button">Log in</button></form>`,
       );
       const result = extractLoginObservation();
       expect(result.ok && result.observation.complete, field).toBe(false);

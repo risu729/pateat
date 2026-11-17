@@ -253,6 +253,86 @@ describe("repairing a code layout on a password page for an item without its TOT
     expect(executed()).toEqual([]);
   });
 
+  it("claims no repair on a page that shows only an identifier input", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start();
+    fake.state.signIn = { password: false, identifier: true };
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(generation.claimRepair).not.toHaveBeenCalled();
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(unfits(reports)).toMatchObject([
+      { route: "password", outcome: "not-due", reason: "no-form" },
+    ]);
+  });
+
+  /** Whether `message` is the page check before the claim (`showsPassword`). */
+  const passwordCheck = (message: Record<string, unknown>) =>
+    message["type"] === "login.observe" &&
+    message["signIn"] === true &&
+    (message["targets"] as unknown[]).length === 0;
+
+  it("claims no repair when the page cannot be asked for its password input", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start();
+    const send = fake.browser.tabs.sendMessage;
+    const spy = vi
+      .spyOn(fake.browser.tabs, "sendMessage")
+      .mockImplementation(async (tabId, message, options) => {
+        if (passwordCheck(message)) throw new Error("The message port closed.");
+        return send(tabId, message, options);
+      });
+    try {
+      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(generation.claimRepair).not.toHaveBeenCalled();
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(unfits(reports)).toMatchObject([
+      { route: "password", outcome: "not-due", reason: "no-form" },
+    ]);
+  });
+
+  it("drops the repair of a document replaced while its password input is read", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start();
+    const send = fake.browser.tabs.sendMessage;
+    let answered: Promise<unknown> | undefined;
+    const spy = vi
+      .spyOn(fake.browser.tabs, "sendMessage")
+      .mockImplementation((tabId, message, options) => {
+        if (!passwordCheck(message) || answered) return send(tabId, message, options);
+        // The page goes on to another document, one with no password input, before the
+        // first one's check answers that it shows one.
+        answered = (async () => {
+          fake.state.signIn = { password: false };
+          await h.hello({ documentId: "synthetic-document-2" });
+          await vi.waitFor(() => expect(unfits(reports)).toHaveLength(1));
+          fake.state.signIn = { password: true };
+          return send(tabId, message, options);
+        })();
+        return answered;
+      });
+    try {
+      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(answered).toBeDefined());
+      await answered;
+      // The first document's repair goes on from the answer within these turns, if at all.
+      // eslint-disable-next-line no-await-in-loop
+      for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+    } finally {
+      spy.mockRestore();
+    }
+    // Only the new document's own check counts: the first one's answer claims nothing.
+    expect(generation.claimRepair).not.toHaveBeenCalled();
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(unfits(reports)).toMatchObject([
+      { route: "password", outcome: "not-due", reason: "no-form" },
+    ]);
+  });
+
   it("repairs nothing for an item without a password or a TOTP secret", async () => {
     fake.state.extracted = { login: formPage };
     const { h, reports, generation } = start({ password: "empty" });

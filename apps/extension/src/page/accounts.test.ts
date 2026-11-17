@@ -139,18 +139,45 @@ describe("formAccounts", () => {
     expect(showsOtherAccount(page("1234567890"), "9876543210", password)).toBe(true);
     // The account's own number, written with spaces or hyphens on either side, does not.
     expect(showsOtherAccount(page("1234567890"), "1234567890", password)).toBe(false);
+    expect(page("1234 5678 90")).toEqual(["1234567890"]);
     expect(showsOtherAccount(page("1234 5678 90"), "1234567890", password)).toBe(false);
+    expect(showsOtherAccount(page("1234 5678 90"), "9876543210", password)).toBe(true);
     expect(showsOtherAccount(page("1234567890"), "1234-5678-90", password)).toBe(false);
+    // Nor with leading zeros on either side, while another number still stops it.
+    expect(showsOtherAccount(page("0001234567"), "1234567", password)).toBe(false);
+    expect(showsOtherAccount(page("1234567"), "0001234567", password)).toBe(false);
+    expect(showsOtherAccount(page("0001234567"), "0001234568", password)).toBe(true);
+    expect(showsOtherAccount(page("0001234567"), "12345670", password)).toBe(true);
     // Only on a password step, and never for an email or a letters username.
     expect(showsOtherAccount(page("1234567890"), "9876543210", { masked: false })).toBe(false);
     expect(showsOtherAccount(page("1234567890"), "me@example.com", password)).toBe(false);
     expect(showsOtherAccount(page("1234567890"), "taro99", password)).toBe(false);
-    // A number in a hidden input, as a site's own user ID, or one not marked `username`, or
-    // a value that is no number, adds nothing.
-    expect(page("1234567890", `name="userId" readonly hidden`)).toEqual([]);
+    // A number the page does not show, as a site's own user ID, adds nothing: under a
+    // `hidden` attribute, not rendered, off the page or in a hidden input.
+    for (const hidden of [
+      `hidden`,
+      `style="display:none"`,
+      `style="position:absolute;left:-9999px"`,
+    ])
+      expect(page("1234567890", `autocomplete="username" readonly ${hidden}`), hidden).toEqual([]);
     document.body.innerHTML = `<form id="login"><input type="hidden" name="userId" value="1234567890">
       <input type="password" id="p"></form>`;
     expect(formAccounts(document, document.getElementById("login") as HTMLFormElement)).toEqual([]);
+    // Nor does one the person may have typed: a disabled input that is not read-only, the
+    // fill's own target, or one beside a software keyboard whose keys typed it.
+    expect(page("1234567890", `autocomplete="username" disabled`)).toEqual([]);
+    page("1234567890");
+    expect(
+      formAccounts(document, document.getElementById("login") as HTMLFormElement, [
+        document.getElementById("n")!,
+      ]),
+    ).toEqual([]);
+    const keys = [..."0123456789"].map((key) => `<button type="button">${key}</button>`).join("");
+    document.body.innerHTML = `<form id="login"><input type="text" id="n" autocomplete="username"
+      readonly value="1234567890"><div id="pad">${keys}</div>
+      <input type="password" id="p"></form>`;
+    expect(formAccounts(document, document.getElementById("login") as HTMLFormElement)).toEqual([]);
+    // One not marked `username`, or a value that is no number, adds nothing either.
     expect(page("1234567890", `name="account" readonly`)).toEqual([]);
     expect(page("taro99")).toEqual([]);
     expect(page("123")).toEqual([]);

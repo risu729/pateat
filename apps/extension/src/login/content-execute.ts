@@ -1,5 +1,5 @@
 import type { LoginTarget } from "@pateat/contracts";
-import { comparableAccounts, formAccounts, showsOtherAccount } from "../page/accounts";
+import { comparableAccounts, fillShowsNone, fillShowsOther, formAccounts } from "../page/accounts";
 import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { findTargets } from "../page/targets";
@@ -188,9 +188,7 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
       return fail("wrong-account");
     };
     const nothingShown = (deferred: NonNullable<typeof context.deferredAccount>) =>
-      comparableAccounts(formAccounts(document, deferred.form), deferred.username, {
-        masked: deferred.masked,
-      })?.length === 0;
+      fillShowsNone(document, deferred);
     /**
      * Before a click or Enter's own checks: while a fill left its account check to it
      * (`deferredAccount`) and the page still shows no identifier and has not loaded, waits
@@ -231,9 +229,7 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
       if (!deferred) return undefined;
       if (!submit && nothingShown(deferred)) return undefined;
       context.deferredAccount = undefined;
-      const other = showsOtherAccount(formAccounts(document, deferred.form), deferred.username, {
-        masked: deferred.masked,
-      });
+      const other = fillShowsOther(document, deferred);
       deferred.username = "";
       if (!other) return undefined;
       clearTyped(deferred.inputs);
@@ -341,8 +337,9 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
         const first = step.fields[0] ? matches(step.fields[0].target) : [];
         const form =
           first.length === 1 && first[0] instanceof HTMLInputElement ? formOf(first[0]) : null;
+        const targets = step.fields.flatMap((field) => matches(field.target));
         const comparable = comparableAccounts(
-          formAccounts(document, form),
+          formAccounts(document, form, targets),
           command.account.username,
           { masked },
         );
@@ -443,10 +440,9 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
           };
           command.account.username = "";
         } else {
-          const other = showsOtherAccount(formAccounts(document, form), command.account.username, {
-            masked,
-          });
-          command.account.username = "";
+          const fill = { form, inputs: writableInputs, username: command.account.username, masked };
+          const other = fillShowsOther(document, fill);
+          command.account.username = fill.username = "";
           if (other) return otherAccount(command);
         }
       }

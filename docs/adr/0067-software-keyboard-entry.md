@@ -32,7 +32,7 @@ Amended on 2026-11-17 by an agent's choice, not confirmed by the owner
 that holds a value, not marked for a secret and without a keypad beside it, is left out
 of a login page's and a signed-in page's description instead of counting as
 unfillable, and a member number shown that way is compared with a digits-only username
-before a password-only fill (amends [ADR 0049](0049-start-at-a-later-step.md)).
+before a fill that writes a secret (amends [ADR 0049](0049-start-at-a-later-step.md)).
 
 Date: 2026-10-23
 
@@ -261,16 +261,27 @@ refused `no-candidates` (with `d0` in the detail) instead of `unfillable-field`
 it is reads as complete, so the judge sees it
 ([ADR 0029](0029-local-sign-in-state.md), [ADR 0035](0035-page-kinds-per-site.md)).
 
-The account check before a password-only fill
-([ADR 0049](0049-start-at-a-later-step.md)) compares a member number shown this way:
-`formAccounts` in `apps/extension/src/page/accounts.ts` adds the number of a read-only,
-not hidden, input marked `autocomplete="username"` that holds 4 to 64 digits once its
-spaces and hyphens are removed, and `showsOtherAccount` compares a digits-only username
-with it on a password step, also without its spaces and hyphens. A form that shows
-another member's number then ends `wrong-account` instead of filling this item's
-password. Only the input's own form is read, the value is compared on the device and
-never kept or sent, and a hidden input's number, which may be the site's own user ID,
-is not compared.
+The account check before a fill that writes a secret
+([ADR 0049](0049-start-at-a-later-step.md)) compares a member number shown this way.
+`formAccounts` in `apps/extension/src/page/accounts.ts` adds the number of a read-only
+input marked `autocomplete="username"` that the page shows (`presence` is `visible`: no
+`hidden` attribute, rendered, not moved off the page, not transparent or tiny) and that
+holds 4 to 64 digits once its spaces and hyphens are removed. `showsOtherAccount`
+compares a digits-only username with it, also without spaces and hyphens and without
+leading zeros on either side (`0001234567` is `1234567`), on any step that fills a
+masked secret (`maskedSecret`: a password, Hidden field, PIN, card number or card
+code). A form that shows another member's number then ends `wrong-account` instead of
+filling this item's secret. The input's own form is read, or the whole document for a
+fill outside any form. The value is compared on the device and never kept or sent. A
+number that may not be the account shown is not compared: a hidden input's or a hidden
+or off-page one's (it may be the site's own user ID), a disabled input's that is not
+read-only, one beside a software keyboard (its keys may have typed it), and one in an
+input the fill itself fills.
+
+A bank's re-login that shows the customer number read-only beside a software keyboard
+for the PIN keeps both rules apart: the number is not left out of the description (it
+has a keypad beside it), so the form stays incomplete (`unfillable-field`) and is
+never generated or filled, as before this amendment.
 
 Known risk: a read-only field a script sets without being marked as a picker, as a date
 picker with a default date and no ARIA, is left out too, so a recipe generated for its

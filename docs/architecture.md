@@ -1481,14 +1481,16 @@ submits it: a form for a remembered account may keep the address only there
 never read. The username never leaves the content script or reaches status. An email
 username is compared with shown email addresses. A username of digits only is compared
 with masked IDs that show at least two characters (`****1234`), and only on a step that
-fills a password or Hidden field, because a one-time-code page usually shows the masked
-phone number the code was sent to. On such a step it is also compared, without spaces
-and hyphens on either side, with the 4 to 64 digits of a read-only input of the form
-that is not hidden and is marked `autocomplete="username"`, as a member number shown
-again above the password (an agent's choice after
+fills a masked secret (`maskedSecret`: a password, Hidden field, PIN, card number or
+card code), because a one-time-code page usually shows the masked phone number the code
+was sent to. On such a step it is also compared, without spaces, hyphens or leading
+zeros on either side, with the 4 to 64 digits of a read-only input marked
+`autocomplete="username"` that the page shows (`presence` visible), as a member number
+shown again above the password (an agent's choice after
 [#1676](https://github.com/risu729/pateat/issues/1676),
-[ADR 0067](adr/0067-software-keyboard-entry.md#amendment-2026-11-17-a-read-only-field-that-shows-a-value));
-a hidden input's number, which may be the site's own user ID, is not. If comparable
+[ADR 0067](adr/0067-software-keyboard-entry.md#amendment-2026-11-17-a-read-only-field-that-shows-a-value)).
+A hidden or off-page input's number, which may be the site's own user ID, one beside a
+software keyboard and one in an input the fill itself fills are not. If comparable
 identifiers are shown and none fits
 (`myaccount@example.com` or `****9999` shown while `my2@example.com` or `00001234` is
 selected), the step fills nothing and the attempt ends `wrong-account` without a retry
