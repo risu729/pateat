@@ -461,6 +461,24 @@ describe("the fields the popup proposes for a detail (ADR 0061)", () => {
     ]);
   });
 
+  it("leaves out an identity's or a card's field that holds no value", () => {
+    const blank = item("blank", "Synthetic blank identity", [
+      { ...builtin("identity.phone", "Phone"), empty: true },
+    ]);
+    const noCode = item("no-code", "Synthetic card without a code", [
+      builtin("card.number", "Number", "hidden"),
+      { ...builtin("card.code", "Security code", "hidden"), empty: true },
+    ]);
+    const { catalog, connection } = vault([login, blank, identity, noCode]);
+    expect(ids(detailCandidates(policy(), catalog, connection, "phone-last-4", page))).toEqual([
+      "identity identity.phone",
+    ]);
+    expect(ids(detailCandidates(policy(), catalog, connection, "card-code", page))).toEqual([]);
+    expect(ids(detailCandidates(policy(), catalog, connection, "card-last-4", page))).toEqual([
+      "no-code card.number",
+    ]);
+  });
+
   it("lists card numbers for their last digits and card codes for a code", () => {
     const { catalog, connection } = vault([login, identity, card]);
     expect(ids(detailCandidates(policy(), catalog, connection, "card-last-4", page))).toEqual([

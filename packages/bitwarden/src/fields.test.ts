@@ -332,6 +332,47 @@ describe("custom field value semantics", () => {
     ).toEqual(text(value));
   });
 
+  it("flags an identity's and a card's own fields that hold no value, never their values", () => {
+    const empty = (view: { list(): readonly { ref: { fieldId: string }; empty?: true }[] }) =>
+      view
+        .list()
+        .filter((field) => field.empty)
+        .map((field) => field.ref.fieldId);
+    const identity = localIdentityView();
+    expect(empty(snapshot(identity))).toEqual([]);
+    expect(
+      empty(
+        snapshot({
+          ...identity,
+          identity: { ...identity.identity, phone: null, email: "  ", title: null },
+        }),
+      ),
+    ).toEqual(["identity.title", "identity.email", "identity.phone"]);
+    expect(
+      empty(
+        snapshot({
+          ...identity,
+          identity: {
+            ...identity.identity,
+            title: null,
+            firstName: null,
+            middleName: "",
+            lastName: null,
+          },
+        }),
+      ),
+    ).toEqual([
+      "identity.title",
+      "identity.firstName",
+      "identity.middleName",
+      "identity.lastName",
+      "identity.fullName",
+    ]);
+    const card = localCardView();
+    expect(empty(snapshot(card))).toEqual([]);
+    expect(empty(snapshot({ ...card, card: { ...card.card, code: null } }))).toEqual(["card.code"]);
+  });
+
   it("resolves calculated identity full name with every source permission", () => {
     const item = { ...localIdentityView(), fields: [{ name: "Name", type: 3, linkedId: 418 }] };
     const ids = [

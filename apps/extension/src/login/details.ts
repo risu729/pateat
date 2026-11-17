@@ -422,7 +422,10 @@ export function linkedField(
   return { itemId: item.id, fieldId: field.id, name: field.name };
 }
 
-/** Whether every field a detail's value is made from is in the item and allowed. */
+/**
+ * Whether every field a detail's value is made from is in the item, allowed and holds a
+ * value: an identity without a phone number, or a card without a code, gives none.
+ */
 function readable(
   detail: LoginDetail,
   fieldId: string,
@@ -430,7 +433,8 @@ function readable(
   allowed: readonly string[],
 ): boolean {
   return detailFieldIds(detail, fieldId).every(
-    (id) => allowed.includes(id) && item.fields.some((entry) => entry.id === id),
+    (id) =>
+      allowed.includes(id) && item.fields.some((entry) => entry.id === id && entry.empty !== true),
   );
 }
 

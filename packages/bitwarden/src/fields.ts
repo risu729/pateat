@@ -218,10 +218,24 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
       add("login.password", "Password", "hidden", undefined, !item.login?.password);
       add("login.totp-code", "Verification code", "otp", undefined, !item.login?.totp);
     }
-    if (item.type === 3) for (const key of cardFields) add(`card.${key}`, key, "text");
+    // Value-free flags too: whether a card's or an identity's own field holds a value, so a
+    // personal detail is never offered from an empty one (ADR 0061).
+    if (item.type === 3)
+      for (const key of cardFields)
+        add(`card.${key}`, key, "text", undefined, !item.card?.[key]?.trim());
     if (item.type === 4) {
-      for (const key of identityFields) add(`identity.${key}`, key, "text");
-      add("identity.fullName", "Full name", "text");
+      const identity = item.identity;
+      for (const key of identityFields)
+        add(`identity.${key}`, key, "text", undefined, !identity?.[key]?.trim());
+      add(
+        "identity.fullName",
+        "Full name",
+        "text",
+        undefined,
+        !(["title", "firstName", "middleName", "lastName"] as const).some((key) =>
+          identity?.[key]?.trim(),
+        ),
+      );
     }
     const custom = new Map<string, number>();
     item.fields?.forEach((field, index) => {

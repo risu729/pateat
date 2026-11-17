@@ -116,6 +116,11 @@ export function SiteApp({
       message.current?.focus({ preventScroll: true });
     wasBusy.current = busy;
   }, [busy]);
+  // A result shows at the top: one from a control far down a long popup, such as a
+  // detail's Fill below its list of fields, is brought into view so it is not missed.
+  useEffect(() => {
+    if (notice.text) message.current?.scrollIntoView?.({ block: "nearest" });
+  }, [notice]);
   const {
     tab,
     settings,
