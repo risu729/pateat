@@ -39,21 +39,32 @@ export function registerLoginKnownFields({
       ["pin", { by: "test-id", value: "pad" }],
       ["go", undefined],
     ]);
-    // Without a keypad, a read-only field is still unfillable. So is one that holds a
-    // value, as a date or an email address shown again, or a read-only text input, as a
-    // search box beside an A-Z filter bar of buttons, and a keypad with neither every
+    // Without a keypad, a read-only field is still unfillable. So is a read-only text input,
+    // as a search box beside an A-Z filter bar of buttons, and a keypad with neither every
     // digit nor 26 letters is no keypad.
     for (const html of [
       `<input id="q" type="text" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXYZ")}</div>`,
       `<input id="pin" type="password" readonly><div id="pad">${keys("012345678")}</div>`,
       `<input id="pin" type="password" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXY")}</div>`,
       `<input id="pin" type="password" readonly disabled><div id="pad">${keys("0123456789")}</div>`,
-      `<input id="day" readonly value="2026-10-23"><input id="pin" type="password" readonly><div id="pad">${keys("0123456789")}</div>`,
     ]) {
       page(`<form>${html}<button id="go" type="button">Log in</button></form>`);
       const result = extractLoginObservation();
       expect(result.ok && result.observation.complete, html).toBe(false);
     }
+    // A read-only field that holds a value, as a date shown again, is no keypad field: it
+    // only shows what the page put there, so it is left out (#1676).
+    page(
+      `<form><input id="day" readonly value="2026-10-23"><input id="pin" type="password" readonly>
+      <div id="pad">${keys("0123456789")}</div><button id="go" type="button">Log in</button></form>`,
+    );
+    expect(observe().complete).toBe(true);
+    expect(
+      summary(observe()).map((candidate) => [candidate.target.value, candidate.keypad]),
+    ).toEqual([
+      ["pin", { by: "id", value: "pad" }],
+      ["go", undefined],
+    ]);
     // A keypad that shares no box with the field but the body belongs to something else.
     page(
       `<form><input id="pin" type="password" readonly><button id="go" type="button">Log in</button></form>
@@ -288,6 +299,83 @@ export function registerLoginKnownFields({
         { by: "text", value: "Sign in" },
       ]);
     }
+  });
+
+  it("leaves out a read-only field that only shows the page's own value, and never sends it (#1676)", () => {
+    // JAL's member re-login (2026-11-17), reached while signed in: the member number shown
+    // read-only above an empty password field, in the password pane beside a passkey pane.
+    const number = "1234567890";
+    page(
+      `<main><h1>会員ログイン</h1>
+      <section><h2>パスワードでログインする</h2>
+        <form id="LB_form-password" action="/contents/login" method="post">
+          <label for="LB_input-jmbnumber-2">JMB会員番号</label>
+          <input type="text" id="LB_input-jmbnumber-2" name="memberNo" autocomplete="username" readonly value="${number}">
+          <label for="LB_input-password">パスワード</label>
+          <input type="password" name="password" id="LB_input-password" autocomplete="current-password">
+          <input type="checkbox" name="checkPassword" id="checkPassword"><label for="checkPassword">パスワードを表示する</label>
+          <button type="submit" id="LB_button-password">ログイン</button>
+        </form></section>
+      <section><h2>パスキーでログインする</h2>
+        <button type="button" id="LB_button-passkey">パスキーで会員ログイン</button></section></main>`,
+      "会員ログイン",
+    );
+    const result = extractLoginObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.gap).toBeUndefined();
+    expect(result.observation.complete).toBe(true);
+    expect(summary(result.observation)).toEqual([
+      {
+        role: "password",
+        target: { by: "id", value: "LB_input-password" },
+        label: "パスワード",
+        autocomplete: "current-password",
+        group: "f1",
+      },
+      {
+        role: "checkbox",
+        target: { by: "id", value: "checkPassword" },
+        label: "パスワードを表示する",
+        group: "f1",
+      },
+      {
+        role: "button",
+        target: { by: "id", value: "LB_button-password" },
+        label: "ログイン",
+        group: "f1",
+      },
+      // The passkey pane's button beside the form (`besideDepth`).
+      {
+        role: "button",
+        target: { by: "id", value: "LB_button-passkey" },
+        label: "パスキーで会員ログイン",
+      },
+    ]);
+    expect(JSON.stringify(result.observation)).not.toContain(number);
+    expect(JSON.stringify(result.observation)).not.toContain("jmbnumber");
+    // A read-only field that shows nothing yet, one disabled or faint, a password, or one a
+    // picker sets still cannot be filled, and still makes the page incomplete.
+    for (const field of [
+      `<input type="text" id="member" autocomplete="username" readonly>`,
+      `<input type="text" id="member" autocomplete="username" disabled value="${number}">`,
+      `<input type="text" id="member" autocomplete="username" readonly value="${number}" style="opacity: 0">`,
+      `<input type="password" id="member" readonly value="${number}">`,
+      `<input type="text" id="member" role="combobox" readonly value="2026-11-17">`,
+      `<input type="text" id="member" aria-haspopup="dialog" readonly value="2026-11-17">`,
+    ]) {
+      page(
+        `<form id="f">${field}<input type="password" id="p" autocomplete="current-password"><button id="go">ログイン</button></form>`,
+      );
+      const flawed = extractLoginObservation();
+      expect(flawed.ok && flawed.observation.complete, field).toBe(false);
+      expect(flawed.ok && flawed.gap, field).toBe("unfillable-field");
+    }
+    // An email shown read-only and a field the person can still edit: the editable one is
+    // described as any field is, the shown one left out.
+    page(
+      `<form id="f"><input type="email" id="shown" readonly value="me@example.com"><input type="text" id="code" autocomplete="one-time-code"><button id="go">Verify</button></form>`,
+    );
+    expect(summary(observe()).map((candidate) => candidate.target.value)).toEqual(["code", "go"]);
   });
 
   it("matches a known field by its name or test ID locator too, exactly (ADR 0018)", () => {

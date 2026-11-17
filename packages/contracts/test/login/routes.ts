@@ -3,6 +3,7 @@ import * as v from "valibot";
 import {
   chooseLoginRoute,
   extendsRecipe,
+  heldRouteMissing,
   passkeyAnswersRequest,
   passwordVariants,
   recipeHasRoute,
@@ -408,6 +409,34 @@ export function registerPasswordVariants({
         route: "password",
         variant: 1,
       });
+    });
+
+    it("names the password route as missing when no variant fills a password (ADR 0058 A, #1676)", () => {
+      const held = { password: true, discoverablePasskey: false };
+      // A layout learned on a one-time-code page on the sign-in form's path asks for the code
+      // alone: an item with a password and no TOTP secret has no route there.
+      const codeOnly = parseLoginRecipe(
+        varied({ slots: ["totp"], steps: [fill(["totp"]), submit()], alternatives: undefined }),
+      );
+      expect(recipeHasRoute(codeOnly, "password")).toBe(true);
+      expect(heldRouteMissing(codeOnly, held, false)).toBe("password");
+      expect(heldRouteMissing(codeOnly, { ...held, password: false }, false)).toBeUndefined();
+      // A variant that fills the password, beside the TOTP code or not, is that route.
+      const coded = parseLoginRecipe(
+        varied({ slots: ["password", "totp"], steps: [fill(["password", "totp"]), submit()] }),
+      );
+      expect(heldRouteMissing(coded, held, false)).toBeUndefined();
+      expect(
+        heldRouteMissing(
+          parseLoginRecipe(varied({ alternatives: [variant(["totp"])] })),
+          held,
+          false,
+        ),
+      ).toBeUndefined();
+      // A discoverable passkey on a passkey page names its own route first.
+      expect(heldRouteMissing(codeOnly, { ...held, discoverablePasskey: true }, true)).toBe(
+        "passkey",
+      );
     });
   });
 }

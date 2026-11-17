@@ -139,6 +139,52 @@ export function registerRecipeSelection({
     expect(languageDecides(rankLayouts(candidates, [shows(true, 2), ...tie.slice(1)]))).toBe(false);
   });
 
+  it("tells a password layout from a code layout that shares its field by their buttons (#1676)", () => {
+    // One start path shows a one-time-code page and a password sign-in again that reuse one
+    // field ID, beside an identifier-first sign-in (JAL, 2026-11-17).
+    const layout = (slot: string, field: string, button: string, purpose = "submit") =>
+      parseLoginRecipe({
+        ...recipe("member-login", "/login"),
+        slots: [slot],
+        steps: [
+          { kind: "fill", path: "/login", fields: [{ slot, target: target(field) }] },
+          { kind: "click", path: "/login", target: target(button), purpose },
+        ],
+      });
+    const code = layout("totp", "secret", "send");
+    const member = layout("username", "member", "next", "advance");
+    const password = layout("password", "secret", "login");
+    const candidates = [
+      { recipe: code, createdAt: 1000 },
+      { recipe: member, createdAt: 2000 },
+      { recipe: password, createdAt: 3000 },
+    ];
+    const ranked = (shown: string[]) =>
+      rankLayouts(
+        candidates,
+        candidates.map(({ recipe: route }) =>
+          layoutShown(layoutFirstSteps(route), layoutStartTargets(route), (asked) =>
+            shown.includes(asked.value),
+          ),
+        ),
+      ).map((candidate) => candidate.recipe);
+    // The sign-in again shows the password field and its button: only the password layout.
+    expect(ranked(["secret", "login"])).toEqual([password]);
+    // The code page shows the same field beside its own button: only the code layout.
+    expect(ranked(["secret", "send"])).toEqual([code]);
+    // Before the repair, the code layout is the only one that starts there.
+    expect(
+      rankLayouts(candidates.slice(0, 2), [
+        layoutShown(
+          layoutFirstSteps(code),
+          layoutStartTargets(code),
+          (asked) => asked.value === "secret",
+        ),
+        layoutShown(layoutFirstSteps(member), layoutStartTargets(member), () => false),
+      ]).map((candidate) => candidate.recipe),
+    ).toEqual([code]);
+  });
+
   it("measures a layout against what the page shows", () => {
     const route = parseLoginRecipe({
       ...recipe("bank-signin", "/login"),

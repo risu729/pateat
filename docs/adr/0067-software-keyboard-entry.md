@@ -27,6 +27,11 @@ key text in a field's label, keys read from the keypad alone, a redrawn keypad, 
 page's own submission, the wait after a press, password and code fields only). No
 installed-Chrome or real-site check has been run.
 
+Amended on 2026-11-17 by an agent's choice, not confirmed by the owner
+([below](#amendment-2026-11-17-a-read-only-field-that-shows-a-value)): a read-only field
+that holds a value the page put there is left out of a login page's and a signed-in
+page's description instead of counting as unfillable.
+
 Date: 2026-10-23
 
 ## Context
@@ -84,9 +89,13 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   `keypad` set to its own keypad's locator. A read-only field that holds a value, as a
   date or an email address shown again, and a read-only text input, as a search box
   beside an `A`-`Z` filter bar of buttons, stay unfillable, and so does any field
-  without a keypad, as before. The keys of every keypad on the page, also an optional
-  keyboard beside a writable field and the document's own key groups, are left out of
-  the candidates, and their text is never part of a field's label or description: a
+  without a keypad, as before. Since the
+  [2026-11-17 amendment](#amendment-2026-11-17-a-read-only-field-that-shows-a-value), a
+  shown, enabled read-only field of a text-like type other than a password that holds a
+  value is left out of the description instead. The keys of every keypad on the page,
+  also an optional keyboard beside a writable field and the document's own key groups,
+  are left out of the candidates, and their text is never part of a field's label or
+  description: a
   label by layout stops at a key, and a `<label>` or the element `aria-labelledby` or
   `aria-describedby` names is read without the keys and keeps the rest of its text. So
   the key labels and their order never reach the service.
@@ -205,3 +214,37 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
 - Reloading the page after a stop that pressed a key: clears the field without the
   person, but a reload may send a posted form again and loses what the page held, so
   the person is told to reload instead.
+
+## Amendment 2026-11-17: a read-only field that shows a value
+
+An agent's choice, not confirmed by the owner, after
+[#1676](https://github.com/risu729/pateat/issues/1676). JAL's member re-login, reached
+while signed in (2026-11-17, build `200756f`), shows the member number in
+`<input type="text" autocomplete="username" readonly>`, filled by the site, above an
+empty `current-password` field. The read-only field made the form incomplete
+(`unfillable-field`), so the page could not be sent for repair and no password layout
+was ever generated for it.
+
+Such a field is information the page shows, not a field Pateat must fill. The login
+page's description (`extractLoginObservation`) and the signed-in page's
+(`extractSignedInObservation`) now leave out a field that `shownValue` in
+`apps/extension/src/observation/extract-candidates.ts` accepts: a shown (not transparent
+or tiny), enabled, read-only input of type `text`, `email`, `tel` or `number` that holds
+a value and opens no picker (no `role="combobox"` and no `aria-haspopup` other than
+`false`). It is left out rather than kept as a candidate that cannot be filled: the
+description has no role for one, no step needs it, and its label could not tell the
+model more than the password field beside it does. This matches the rule for a field a
+continued recipe already fills ([ADR 0018](0018-recipe-generation-route.md)). The
+person cannot have typed its value; only whether it is empty is read, and the value is
+never kept or sent ([#932](https://github.com/risu729/pateat/issues/932)).
+
+Unchanged: an empty read-only field, a disabled, transparent or tiny one, a read-only
+password field (a keypad's field before it is empty, or a masked value), and a picker
+still count as fields that cannot be filled, and a keypad field is described as above.
+On a signed-in page such a field no longer keeps the page from the judge
+(`unfillable-field`), whatever its `autocomplete`; a sign-in field the person can fill
+beside it still counts as one.
+
+Known risk: a read-only field a script sets without being marked as a picker, as a date
+picker with a default date and no ARIA, is left out too, so a recipe generated for its
+form fills nothing there and the page keeps that default.

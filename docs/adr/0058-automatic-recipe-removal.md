@@ -18,6 +18,10 @@ per layout of a recipe
 by [ADR 0041](0041-repair-stale-recipes.md) (accepted by the owner on 2026-10-23), which
 repairs the recipe instead of revoking it
 ([Amendment: repair instead of revoke](#amendment-2026-10-23-repair-instead-of-revoke)).
+Amended on 2026-11-17 by an agent's choice, not confirmed by the owner: part A counts a
+recipe as lacking the `password` route when none of its `password` variants fills a
+password
+([Amendment: a route that fills no password](#amendment-2026-11-17-a-route-that-fills-no-password)).
 
 Date: 2026-10-19
 
@@ -143,6 +147,38 @@ missing route (`passkey` or `password`) in 3 days, so at most two claims per rec
 not block another's). It is given back when the request never reached the model. The log
 event is `recipe.unfit`, and the request itself is `recipe.generate` with page `repair`.
 The Delivery section below describes part A before this amendment, then after it.
+
+### Amendment 2026-11-17: a route that fills no password
+
+An agent's choice, not confirmed by the owner, after
+[#1676](https://github.com/risu729/pateat/issues/1676). On JAL's member re-login
+(2026-11-17, build `200756f`) the recipe's start path held two layouts: one learned on
+the site's emailed one-time-code page, which shows on the same path and reuses the
+password field's ID, whose only step fills the TOTP code there; and one for the
+identifier page. Only the code layout showed on the re-login page, so a new login took
+it, and an item with a password and no TOTP secret was refused `no-route` (`no-totp`).
+That layout has a `password` variant, so part A found no missing route, and the page
+was never sent for repair unless the item also held a discoverable passkey.
+
+Part A now counts the `password` route as missing when the item holds a password and
+none of the recipe's `password` variants fills the `password` slot
+(`heldRouteMissing` in `packages/contracts/src/login/routes.ts`), as before for a
+passkey-only recipe. The rest of the trigger is unchanged: every variant was refused
+for the item's facts, and the claim in `pateat.recipe-replacements.v1` still bounds it
+to once per recipe, device and missing route in 3 days. A layout added by the repair
+fills the password, fits the re-login page better than the code layout (its button
+shows and the code page's does not, [ADR 0060](0060-recipe-layouts.md)), and runs for
+the same binding, whose new `password` slot is filled from the item's password
+([ADR 0027](0027-per-account-login-routes.md), amended 2026-10-19).
+
+Known cost: when the code page itself starts a new login, as after a sign-in the person
+made by hand, an item with a password and no TOTP secret claims the same repair, so that
+page may be sent to the model once every 3 days per device, as an item with a
+discoverable passkey already did. An answer equal to the code layout writes nothing
+(ADR 0041 section 3) and the page is refused as before; one that names the code page by
+other locators adds a layout, which may replace the least recently used of three. A
+variant that reads the password through a slot with another name counts as filling
+none.
 
 ## Consequences
 

@@ -61,7 +61,11 @@ tests only). This also amends [ADR 0012](0012-inference-request-log.md) and
 Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): a read-only input
 the step typed on the page's software keyboard is a sign-in input for F1 and F2, as is
 one the re-shown form holds beside a keypad, and an empty read-only password input
-beside a keypad counts for S2.
+beside a keypad counts for S2. Amended again on 2026-11-17 by
+[ADR 0067](0067-software-keyboard-entry.md#amendment-2026-11-17-a-read-only-field-that-shows-a-value)
+(an agent's choice, not confirmed by the owner): a judged page's description leaves out
+a read-only field that holds a value the page put there, so it no longer keeps the page
+from the judge as `unfillable-field`.
 
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
 owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe

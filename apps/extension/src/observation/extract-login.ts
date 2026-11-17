@@ -14,7 +14,13 @@ import type { ObservationGap, ObservationResult, Draft, Found } from "./extract-
 import { withGap, observe } from "./extract-observe";
 import { maxCandidates, landmarks, fillTypes, presence } from "./extract-controls";
 import { locators, locatorIndex, locate } from "./extract-locators";
-import { autocomplete, siteSearch, describeAll, pageKeypads } from "./extract-candidates";
+import {
+  autocomplete,
+  siteSearch,
+  describeAll,
+  pageKeypads,
+  shownValue,
+} from "./extract-candidates";
 
 /** Login-page gaps, the first one present reported (`extractLoginObservation`). */
 const loginGaps = [
@@ -162,7 +168,9 @@ function loginFormsOf(
  * `known` names the fields a recipe already fills, on any of its paths, for a page that
  * continues it after an `advance` step (ADR 0018). Such a field shown read-only or disabled, as an
  * email address shown again beside the password, is left out instead: the recipe has
- * filled it, and no step of this page needs it.
+ * filled it, and no step of this page needs it. So is a read-only field that holds a
+ * value the page put there, known or not (`shownValue`): an empty one still marks the
+ * page incomplete.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
@@ -202,13 +210,16 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   // A field both faint and disabled takes input from no one, neither the person nor a
   // widget drawn over it, so a login page leaves it out as a decoy; Bitwarden never picks
   // a disabled field as the username or password field either. The signed-in page still
-  // sees it, as a code field may wait there for a timer (`describeSignedIn`).
+  // sees it, as a code field may wait there for a timer (`describeSignedIn`). A read-only
+  // field that only shows a value the page put there, as a sign-in again shows the
+  // account's number above an empty password field, is no field to fill (`shownValue`).
   const found = describeAll(document, keypads).filter(
     (entry) =>
       !(
         entry.kind === "unsupported" &&
         entry.field &&
         (filled(entry.field) ||
+          shownValue(entry.field) ||
           (entry.field.matches(":disabled") && presence(entry.field) === "faint"))
       ) &&
       !(

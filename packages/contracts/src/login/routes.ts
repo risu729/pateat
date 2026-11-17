@@ -217,9 +217,12 @@ export function chooseLoginRoute(
  * The route the item would take that the recipe lacks (ADR 0058 A), for a new login whose
  * plan found no route from the item's facts: `passkey` when the item holds a discoverable
  * passkey, the page is one the passkey scripts run on (`passkeyPage`, ADR 0050) and the
- * recipe has no passkey button; else `password` when the item holds a password and the
- * recipe has no `password` variant. A recipe generated again for the page may have that
- * route. A passkey that is not discoverable never counts.
+ * recipe has no passkey button; else `password` when the item holds a password and no
+ * `password` variant of the recipe fills a `password` slot: a passkey-only recipe, or a
+ * layout learned on a one-time-code page that shares the sign-in form's path and asks
+ * for the code alone, which an item without its TOTP secret cannot run (an agent's
+ * choice, 2026-11-17, #1676). A recipe generated again for the page may have that route.
+ * A passkey that is not discoverable never counts.
  */
 export function heldRouteMissing(
   recipe: LoginRecipe,
@@ -228,7 +231,11 @@ export function heldRouteMissing(
 ): LoginRoute | undefined {
   if (facts.discoverablePasskey && passkeyPage && !recipeHasRoute(recipe, "passkey"))
     return "passkey";
-  if (facts.password && !recipeHasRoute(recipe, "password")) return "password";
+  const fillsPassword = (variant: PasswordVariant) =>
+    variant.steps.some(
+      (step) => step.kind === "fill" && step.fields.some((field) => field.slot === "password"),
+    );
+  if (facts.password && !passwordVariants(recipe).some(fillsPassword)) return "password";
   return undefined;
 }
 /**

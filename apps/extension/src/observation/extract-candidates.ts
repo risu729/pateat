@@ -164,6 +164,31 @@ export function describe(element: Element, keypads?: Keypads): Found | undefined
   return undefined;
 }
 
+/**
+ * Whether a field `describe` finds unfillable only shows a value the page put there, as
+ * a sign-in again shows the account's member number above an empty password field
+ * (JAL's re-login, 2026-11-17, #1676): a shown (not faint), enabled, read-only input of a
+ * text-like type other than a password that holds a value, and that opens no picker
+ * (`role="combobox"` or an `aria-haspopup`), as a date picker with a default date does.
+ * No step needs it, so a login page's and a signed-in page's descriptions leave it out
+ * rather than count it as a field that cannot be filled. The person cannot have typed
+ * its value, and only whether it is empty is read: the value is never kept or sent
+ * (#932). An empty, disabled, faint or password one, or a picker, still counts.
+ */
+export function shownValue(field: HTMLInputElement): boolean {
+  const popup = field.getAttribute("aria-haspopup")?.trim().toLowerCase();
+  return (
+    field.readOnly &&
+    !field.matches(":disabled") &&
+    field.type !== "password" &&
+    fillTypes[field.type] !== undefined &&
+    field.value !== "" &&
+    !field.matches("[role~='combobox' i]") &&
+    (popup === undefined || popup === "" || popup === "false") &&
+    presence(field) === "visible"
+  );
+}
+
 /** Radio buttons, selects, text areas and the ARIA widgets that stand for them. */
 const answerControls = [
   "input[type='radio' i]",
