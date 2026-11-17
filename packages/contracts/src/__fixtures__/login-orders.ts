@@ -202,7 +202,9 @@ function recipeEvents(
   const recipe = recipeFor(metadata, recipes);
   if (!recipe) return [];
   const events: AttemptEvent[] = [];
-  for (const [handler, entry] of (recipe.handlers ?? []).entries())
+  for (const [handler, entry] of (recipe.handlers ?? []).entries()) {
+    // A watched login enters only a `totp` handler (ADR 0027 amendment of 2026-11-17).
+    if (metadata.state === "watching" && entry.kind !== "totp") continue;
     for (const field of entry.kind === "detail" ? entry.fields.keys() : [undefined]) {
       const steps = handlerSteps(entry, field);
       events.push({
@@ -215,6 +217,7 @@ function recipeEvents(
         document,
       });
     }
+  }
   const choice: LoginRouteChoice =
     metadata.route === "passkey"
       ? { route: "passkey" }
@@ -462,8 +465,20 @@ function broken(
     names.push("lost that the login left the passkey route");
   if (from.route === "passkey" && to.route === "password" && to.passkeyLeft !== true)
     names.push("left the passkey route without recording it");
-  // A `watching` login only reads pages until it ends (ADR 0027).
-  if (from.state === "watching" && !["watching", "authenticated", "blocked"].includes(to.state))
+  // A `watching` login only reads pages until it ends (ADR 0027), but for one handler it
+  // enters there, in the tab's page, by a login that does not only fill (ADR 0027
+  // amendment of 2026-11-17).
+  if (
+    from.state === "watching" &&
+    !["watching", "authenticated", "blocked"].includes(to.state) &&
+    !(
+      type === "HANDLER" &&
+      to.state === "ready" &&
+      from.fillOnly !== true &&
+      from.document.frameId === 0 &&
+      to.handlers.length === from.handlers.length + 1
+    )
+  )
     names.push("watched login acted");
   if (from.state === "watching" && to.submissions !== from.submissions)
     names.push("watched login counted a submission");

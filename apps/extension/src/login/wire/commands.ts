@@ -350,6 +350,20 @@ export const commandSchema = v.variant("type", [
     token: id,
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(DESCRIBED_WATCH_MAX_MS)),
   }),
+  /**
+   * While a login is watched in this document (ADR 0027 amendment of 2026-11-17): answers
+   * the digest of its first shown code field (`codePageDigest`), then reports once, with
+   * `login.document.code-changed`, when the digest differs from `baseline` (the one the
+   * worker kept, else the one it answered), checking at each change of the page (ADR 0082)
+   * for up to `timeoutMs`. A later watch replaces it; it never mutates.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.code.watch"),
+    token: id,
+    baseline: v.optional(v.pipe(v.string(), v.regex(/^[0-9a-f]{16}$/u))),
+    timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(DESCRIBED_WATCH_MAX_MS)),
+  }),
   /** Lists the hosts the page's URL and its links name (ADR 0031). */
   v.strictObject({ version: v.literal(1), type: v.literal("login.entry.hosts"), token: id }),
   /**

@@ -62,6 +62,8 @@ export function createContentSession({ probeStatus = false }: LoginContentOption
   const waits = new AbortController();
   // Ends the running `login.extract.watch`, once another replaces it or the login cancels.
   let describedWatch: AbortController | undefined;
+  // Ends the running `login.code.watch`, once another replaces it or the login ends.
+  let codeWatch: AbortController | undefined;
   // Whether the background asked for the value the page set in an account input.
   let siteAccountAsked = false;
   // Set once this document's login has ended; it then watches for its first step to show
@@ -842,6 +844,12 @@ export function createContentSession({ probeStatus = false }: LoginContentOption
     },
     set describedWatch(value: typeof describedWatch) {
       describedWatch = value;
+    },
+    get codeWatch() {
+      return codeWatch;
+    },
+    set codeWatch(value: typeof codeWatch) {
+      codeWatch = value;
     },
     get siteAccountAsked() {
       return siteAccountAsked;

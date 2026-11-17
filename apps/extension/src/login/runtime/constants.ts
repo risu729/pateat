@@ -104,6 +104,12 @@ export const WATCH_MS = DESCRIBED_WATCH_MAX_MS;
  * a judged page there described nothing (ADR 0027 amendment of 2026-11-04).
  */
 export const DESCRIBED_WATCHES = 3;
+/**
+ * How many times one watched document is asked to say its code field changed (ADR 0027
+ * amendment of 2026-11-17): each change it reports is read once, so a dialog that keeps
+ * swapping its pages is read a bounded number of times.
+ */
+export const CODE_WATCHES = 4;
 
 /**
  * How long each new page of a watched login's tab is read before a reading that shows no

@@ -37,6 +37,8 @@ export {
   submittedSchema,
   movedSchema,
   describedSchema,
+  codeChangedSchema,
+  codeWatchReplySchema,
   personSubmittedSchema,
   readySchema,
   reconnectSchema,

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { codePageDigest } from "./code-page";
 import { codeFieldSource } from "./code-source";
 import { targetCheck, targetState } from "./target-state";
 
@@ -130,5 +131,44 @@ describe("a totp handler's code field (ADR 0027 amendment of 2026-11-17)", () =>
     luma(emailCode);
     field().disabled = true;
     expect(targetCheck(document, code, "totp-code")).toBe("not-writable");
+  });
+});
+
+describe("a totp handler's code field while the login is watched (ADR 0027 amendment of 2026-11-17)", () => {
+  it("takes Luma's authenticator app's code page while its field is empty", () => {
+    luma(authenticatorCode);
+    expect(targetState(document, code, "watched-totp-code")).toBe("unique");
+    expect(targetCheck(document, code, "watched-totp-code")).toBe("ok");
+    // A digit the person typed leaves the page to them.
+    field().value = "1";
+    expect(targetState(document, code, "watched-totp-code")).toBe("unusable");
+    expect(targetCheck(document, code, "watched-totp-code")).toBe("code-typed");
+  });
+
+  it("refuses the emailed code's page, and a page that does not say", () => {
+    luma(emailCode);
+    expect(targetCheck(document, code, "watched-totp-code")).toBe("code-sent");
+    document.body.innerHTML = `<h2>Verification</h2><input autocomplete="one-time-code">`;
+    expect(targetState(document, code, "totp-code")).toBe("unique");
+    expect(targetState(document, code, "watched-totp-code")).toBe("unusable");
+    expect(targetCheck(document, code, "watched-totp-code")).toBe("code-unnamed");
+  });
+});
+
+describe("the digest of a watched document's code field (ADR 0027 amendment of 2026-11-17)", () => {
+  it("changes when Luma's dialog swaps the emailed code's page for the authenticator app's", async () => {
+    luma(emailCode);
+    const emailed = await codePageDigest(document);
+    expect(emailed).toMatch(/^[0-9a-f]{16}$/u);
+    // The digits the person types change nothing.
+    field().value = "123";
+    expect(await codePageDigest(document)).toBe(emailed);
+    document.body.innerHTML = authenticatorCode;
+    const app = await codePageDigest(document);
+    expect(app).not.toBe(emailed);
+    // A page without a code field, as once the code signed the person in, has its own.
+    document.body.innerHTML = "<h1>Your events</h1><button>Profile</button>";
+    const none = await codePageDigest(document);
+    expect(new Set([emailed, app, none]).size).toBe(3);
   });
 });

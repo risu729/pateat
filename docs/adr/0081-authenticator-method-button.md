@@ -184,3 +184,13 @@ the sign-in as it does after a password. Now the button is pressed after either 
 factor: the password filled in this login, or Pateat's answer to the passkey request of
 its step. Before either, it is still never pressed, so it never skips the password or
 the passkey.
+
+## Amendment 2026-11-17: the code during the watch
+
+The owner chose on 2026-11-17 at 08:49 UTC that a watched login types the item's TOTP
+once into a page that asks for an authenticator app's code
+([ADR 0027 amendment of 2026-11-17](0027-per-account-login-routes.md#part-3-the-authenticator-apps-code-during-a-watch)),
+for Luma, whose authenticator app's page follows an emailed code the person types. That
+takes part of the alternative "Fill the code during the watch after the person's own
+choice": when the person presses the authenticator choice themselves during a watch, the
+code page that follows gets the TOTP too. The learned button of this ADR is unchanged.

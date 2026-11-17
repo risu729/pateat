@@ -61,6 +61,7 @@ import {
   credentialInputs,
 } from "./content-dom";
 import { executeNative } from "./content-execute";
+import { codePageDigest } from "../page/code-page";
 
 /** Answers the worker's commands for this document. */
 export function createContentListener(context: ContentSession) {
@@ -245,6 +246,7 @@ export function createContentListener(context: ContentSession) {
       context.cancelled = true;
       context.lateWatch?.();
       context.describedWatch?.abort();
+      context.codeWatch?.abort();
       if (context.deferredAccount) context.deferredAccount.username = "";
       context.deferredAccount = undefined;
       context.waits.abort();
@@ -377,6 +379,7 @@ export function createContentListener(context: ContentSession) {
         context.ended = true;
         // An ended login reads no page again here (ADR 0027 amendment of 2026-11-04).
         context.describedWatch?.abort();
+        context.codeWatch?.abort();
         context.rejected = command.outcome === "credential-rejected";
         void context.announce(false).catch(() => undefined);
       }
@@ -653,6 +656,44 @@ export function createContentListener(context: ContentSession) {
         });
       respond({ ok: true });
       return false;
+    }
+    if (command.type === "login.code.watch") {
+      // Answers the code field's digest now, then reads it again at each change of the page
+      // (ADR 0082), at most once per `checkGapMs`, until it differs from the baseline; then
+      // says so once (ADR 0027 amendment of 2026-11-17).
+      context.codeWatch?.abort();
+      const watching = new AbortController();
+      context.codeWatch = watching;
+      const until = Date.now() + command.timeoutMs;
+      const stopped = () => context.cancelled || watching.signal.aborted;
+      void (async () => {
+        const now = await codePageDigest(document);
+        respond({ ok: true, digest: now });
+        const baseline = command.baseline ?? now;
+        /* eslint-disable no-await-in-loop */
+        for (let digest = now; ; digest = await codePageDigest(document)) {
+          if (stopped()) return;
+          if (digest !== baseline) {
+            await sendMessage("login", {
+              version: 1,
+              type: "login.document.code-changed",
+              token: context.token,
+            });
+            return;
+          }
+          const checked = Date.now();
+          if (checked >= until) return;
+          await pageChange(document, until, watching.signal);
+          const gap = checked + checkGapMs - Date.now();
+          if (gap > 0 && !stopped()) await pause(gap);
+        }
+        /* eslint-enable no-await-in-loop */
+      })()
+        .catch(() => respond({ ok: false }))
+        .finally(() => {
+          if (context.codeWatch === watching) context.codeWatch = undefined;
+        });
+      return true;
     }
     if (command.type === "login.state") {
       const username = command.account?.username;

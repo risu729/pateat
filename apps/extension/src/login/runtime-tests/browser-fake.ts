@@ -117,6 +117,13 @@ export function createBrowserFake() {
      * unusable for `totp-code` only (ADR 0027 amendment of 2026-11-17).
      */
     codeSent: new Set<string>(),
+    /**
+     * Empty code fields whose page names an authenticator app: the only ones usable for
+     * `watched-totp-code` (ADR 0027 amendment of 2026-11-17).
+     */
+    appCode: new Set<string>(),
+    /** The document's answer to `login.code.watch`: its code field's digest now. */
+    codeDigest: "0000000000000000" as string | undefined,
     /** Elements that match more than once. */
     ambiguous: new Set<string>(),
     /** The document's answer to the popup's fill of a personal detail (ADR 0061). */
@@ -264,7 +271,8 @@ export function createBrowserFake() {
                   ([undefined, "present", "shown"].includes(require) === false &&
                     state.disabled.has(value)) ||
                   (require?.startsWith("described-") === true && state.faint.has(value)) ||
-                  (require === "totp-code" && state.codeSent.has(value))
+                  (require === "totp-code" && state.codeSent.has(value)) ||
+                  (require === "watched-totp-code" && !state.appCode.has(value))
                 ? "unusable"
                 : "unique";
         /** Why a target has its state, as the content script explains it for the log. */
@@ -280,6 +288,12 @@ export function createBrowserFake() {
             return state.unusable.has(value) || state.disabled.has(value)
               ? "not-writable"
               : "code-sent";
+          if (require === "watched-totp-code")
+            return state.unusable.has(value) || state.disabled.has(value)
+              ? "not-writable"
+              : state.codeSent.has(value)
+                ? "code-sent"
+                : "code-unnamed";
           return "unusable";
         };
         if (
@@ -339,6 +353,10 @@ export function createBrowserFake() {
           );
           return index < 0 ? { ok: true } : { ok: true, index };
         }
+        if (message["type"] === "login.code.watch")
+          return state.codeDigest === undefined
+            ? { ok: false }
+            : { ok: true, digest: state.codeDigest };
         if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.detail.fill") return state.detailFillReply ?? { ok: true };
         if (message["type"] === "login.choose") return state.chosen;

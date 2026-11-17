@@ -367,3 +367,13 @@ whatever the RP ID.
   generated yet sends the page after its click for continuation: paid, once per branch
   (and once more after an identifier-only branch's Continue), shared by later logins of
   any account (item 2 of [account lists](#account-lists)).
+
+## Amendment: a TOTP during the watch after the stop (2026-11-17)
+
+The owner chose on 2026-11-17 at 08:49 UTC that a watched login types the item's TOTP
+once into a page that asks for an authenticator app's code
+([ADR 0027 amendment of 2026-11-17](0027-per-account-login-routes.md#part-3-the-authenticator-apps-code-during-a-watch)).
+That covers a login watched at its stop too, as Luma's, whose item has no password: the
+page after the person's emailed code is judged as any watched page is, and its `totp`
+handler is entered there, its steps going in at the stop, which moves past them. At the
+stop itself nothing changes: no `totp` handler is learned or entered there.

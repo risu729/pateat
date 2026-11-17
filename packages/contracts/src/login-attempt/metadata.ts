@@ -119,7 +119,11 @@ export const attemptMetadataSchema = v.pipe(
      * `transitionLoginAttempt`. `path` is the path of that document the login was last read
      * on, as the runtime observes it, so a route the document takes in place, as a
      * single-page site's, is read once as the tab's next page, also after a worker restart
-     * (ADR 0027 amendment of 2026-10-25).
+     * (ADR 0027 amendment of 2026-10-25). `code` is the digest of that document's code
+     * field as the login last read it (its code source and the headings of its part of the
+     * page, never a value), so a code page the document swaps in place, as Luma's dialog
+     * does from the emailed code to the authenticator app's, is read once as the tab's next
+     * page, also after a worker restart (ADR 0027 amendment of 2026-11-17).
      */
     watch: v.optional(
       v.strictObject({
@@ -127,6 +131,7 @@ export const attemptMetadataSchema = v.pipe(
         documentId: identifier,
         pages: integer(MAX_JUDGED_PAGES),
         path: v.optional(v.pipe(v.string(), v.startsWith("/"), v.maxLength(WATCH_PATH_MAX))),
+        code: v.optional(v.pipe(v.string(), v.regex(/^[0-9a-f]{16}$/u))),
       }),
     ),
     /**
