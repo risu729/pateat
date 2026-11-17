@@ -641,14 +641,14 @@ revision ordering, deployment readback and public checks retain their existing
 roles.
 
 The pinned CLI reconciles the complete trigger configuration, not only hostname
-attachments. The API declares the Custom Domain `pateat.takuk.me`; docs declares
-only the exact `/docs` and `/docs/*` routes, which retain precedence over the API
-without capturing `/docs-other`. The docs routes pin the existing `takuk.me` zone
-by ID, so reconciliation does not require a zone-name lookup. Both configurations
-disable workers.dev and
-preview URLs. Neither declares schedules, Queue consumers or Workflows. Any later
-addition to those trigger kinds is a release-affecting configuration change and
-needs review with the credential scope that authorizes it.
+attachments. The API declares the Custom Domain `pateat.takuk.me`; docs declares only
+the exact `/docs` and `/docs/*` routes, which retain precedence over the API without
+capturing `/docs-other`. The docs routes pin the existing `takuk.me` zone by ID, so
+reconciliation does not require a zone-name lookup. Both Workers have routes, so cf
+disables workers.dev without a setting, and both configurations disable preview URLs.
+Neither declares schedules, Queue consumers or Workflows. Any later addition to those
+trigger kinds is a release-affecting configuration change and needs review with the
+credential scope that authorizes it.
 
 The API and docs production credentials remain separate. The public Custom Domain
 PUT documents Workers Scripts Write, whereas the pinned CLI uses legacy

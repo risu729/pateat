@@ -238,13 +238,13 @@ The writer uses those same schemas and projections, so values written, downloade
 and sent to the service share their checks. Existing callers keep importing from
 `log.ts`.
 
-`mise.toml` owns exact tool versions and installation. Tool lockfiles use format
-version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
+`mise.toml` owns exact tool versions and installation. Tool lockfiles use format version
+3 and mise's default `generate` lockfile mode, rebuilding them from current requests
 while reusing unchanged artifacts. The repository-wide tasks live in the root
-`tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
-(owner decision, 2026-10-12); each project's tasks stay in its own `mise.toml`. Use
-native workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
-the task graph. aube installs dependencies; pinned supported Node executes tools that
+`tasks.toml`, which the root `mise.toml` loads with `[task_config] includes` (owner
+decision, 2026-10-12); each project's tasks stay in its own `mise.toml`. Use native
+workspace mise tasks, not package.json scripts or wrapper scripts that duplicate the
+task graph. aube installs dependencies; pinned supported Node executes tools that
 require it, notably cf, and Bun writes the lockfile and runs the two inference scripts
 that use it. aube's settings are in `aube-workspace.yaml`: its `packages` list must
 match the `workspaces` globs in `package.json`, which Bun and Renovate read, and
@@ -254,11 +254,11 @@ malicious-package hit. Commit `mise.lock`, the aube tool locks under `.mise/lock
 `bun.lock` after resolving them, never hand-author a purported installed dependency
 graph. Bun writes `bun.lock`: change dependencies with `bun add --exact`, `bun remove`
 or `bun update`, each with `--lockfile-only` so that only aube installs packages and
-runs their build scripts, then `mise run install`, because aube 2.7.0 rewrote
-`bun.lock` into a form its own frozen install refused
-([ADR 0032](adr/0032-aube-package-manager.md)); the fixes released in aube 2.7.1 are
-not checked here yet ([lockfile gaps](research/2026-10-12-aube-lockfile-gaps.md)).
-Renovate updates `bun.lock` with Bun too.
+runs their build scripts, then `mise run install`, because aube 2.7.0 rewrote `bun.lock`
+into a form its own frozen install refused
+([ADR 0032](adr/0032-aube-package-manager.md)); the fixes released in aube 2.7.1 are not
+checked here yet ([lockfile gaps](research/2026-10-12-aube-lockfile-gaps.md)). Renovate
+updates `bun.lock` with Bun too.
 
 `paranoid: true` runs the `esbuild` and `workerd` install scripts in aube's build jail,
 which on Linux needs Landlock and seccomp in the kernel. Where either is missing, every

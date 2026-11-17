@@ -43,11 +43,13 @@ export default defineConfig({
     // The only public host. Routine releases reconcile this declaration and the
     // other trigger settings from the tested build (docs/delivery.md).
     domains: ["pateat.takuk.me"],
-    // Set although cf leaves it unset otherwise: an unset value sends no preview
-    // setting at deploy (getSubdomainValues), so it would not turn preview URLs off.
+    // Set explicitly: for an unset value cf sends no preview setting at deploy
+    // (getSubdomainValues) and leaves it to the API.
     previewUrls: false,
     observability: {
       enabled: true,
+      // Set explicitly: cf omits an unset rate, and its default is set by the API.
+      headSamplingRate: 1,
       redactQueryString: true,
       // Groups thrown errors, 5xx responses and console.error lines into the dashboard's
       // Workers Issues (docs/operations.md#server-errors). A deploy without this turns it off.
