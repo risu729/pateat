@@ -327,11 +327,13 @@ heading shows another of your accounts, the window opens with that account first
 the login's.
 
 Some sites ask for the passkey of the account you typed after you enter your email, on a
-page Pateat has no login steps for, without a passkey button. When that page comes right
-after the site's sign-in page in the same tab, exactly one passkey in your vault is one
-the site asks for there, and no Pateat login is running in the tab, Pateat signs in with
-that passkey's item, even one with no password. A page that asks as soon as you open it,
-without your sign-in step before it, still goes to the browser. So does the request when
+page Pateat has no login steps for, without a passkey button. When you sent your email
+or password yourself on that site in the same tab less than a minute before, by pressing
+its button or Enter, exactly one passkey in your vault is one the site asks for there,
+and no Pateat login is running in the tab, Pateat signs in with that passkey's item,
+even one with no password. Each of your sign-in steps answers one such request. A page
+that asks as soon as you open it, with no sign-in step of yours just before it, still
+goes to the browser, and so does one in a frame of the page. So does the request when
 the site names several passkeys of your vault, when automatic login is paused or set to
 ask every time on that site, and when Pateat already signed you in there in that tab.
 

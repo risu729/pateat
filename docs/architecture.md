@@ -3855,15 +3855,20 @@ assigning `get` or `create`, so it answers claimed requests first. A top documen
 conditional request goes to the login runtime, which answers it only through a login of
 that document and otherwise hands it on, or withholds it after that login signed in
 ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). The one exception is a
-conditional request that names its credentials on a path where no recipe starts, on a
-page that follows the person's sign-in step in its tab (the page right after a submitted
-sign-in form, or after the origin's start, later step or sign-in entry): once its page
-announced with no sign-in, or at the three-second bound, and no login of its tab runs,
-it is answered with the one vault passkey it names. It is handed on when several
-passkeys or none are named, on a paused site, one that asks every time or the relogin
-guard holds, and on a re-verification after Pateat's login or its own passkey sign-in in
-the tab (ADR 0034 amendment of 2026-11-17, the owner's decision; its details are the
-agent's). A login that stops before its item's missing password answers its document's
+conditional request that names its credentials on a path where no recipe starts, less
+than `AFTER_SIGN_IN_MS` (60 seconds) after the person's own sign-in step in its tab. The
+top document's content script reports that step (`login.document.person-step`, its path
+only) when a form with an identifier or a password input is sent by a trusted submit,
+Enter or submit-button click under `navigator.userActivation.isActive`. The worker keeps
+the latest per tab and origin in memory, and the request must come from that document on
+another path or from the tab's next top document of the origin. Once its page announced
+with no sign-in, or at the three-second bound, and no login of its tab runs or is
+watched, it is answered with the one vault passkey it names, which uses the step up. It
+is handed on when several passkeys or none are named, for an unread item or a nonzero
+counter, on a paused site, one that asks every time or the relogin guard holds, and on a
+re-verification after Pateat's login or its own passkey sign-in in the tab (ADR 0034
+amendment of 2026-11-17, the owner's decision; its details are the agent's). A login
+that stops before its item's missing password answers its document's
 waiting request at its stop, also one made after its first submission
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Real-extension coexistence
 requires separate compatibility tests.

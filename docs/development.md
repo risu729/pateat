@@ -1442,9 +1442,10 @@ holds:
   ([ADR 0036 amendment of 2026-11-17](adr/0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17));
 - `namedCredential` when a conditional request that named its credentials, on a path
   where no recipe starts, was answered with the one vault passkey it named, or handed on
-  with why (`no-login` when its page followed no sign-in step or a login of the tab ran,
-  `no-credential`, `ambiguous-credential`, `vault-incomplete`, `paused`,
-  `default-unset`, `confirm-fill`, `page-moved` and the like)
+  with why (`no-login` when it followed no sign-in step of the person within a minute or
+  a login of the tab ran, `no-credential`, `ambiguous-credential`, `vault-incomplete`,
+  `unsupported-counter`, `master-password-reprompt`, `paused`, `default-unset`,
+  `confirm-fill`, `page-moved` and the like)
   ([ADR 0034 amendment of 2026-11-17](adr/0034-answer-page-passkey-requests.md#amendment-a-request-that-names-its-credentials-2026-11-17));
 - `pageAccount` `other` when the page showed another matching account than the site
   default, so the chooser asked with that account first; where the window could not

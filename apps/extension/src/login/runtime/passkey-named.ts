@@ -1,15 +1,14 @@
 import type { LoginDocument } from "@pateat/contracts";
-import { observedPath } from "../../observation/path";
-import { terminal, idle } from "./attempt-state";
+import { terminal } from "./attempt-state";
 import { AFTER_SIGN_IN_MS } from "./constants";
 import { routesOf } from "./generation-scope";
 import { frameKey } from "./steps";
-import type { ParkedRequest } from "./types";
+import type { ParkedRequest, PersonStep } from "./types";
 import type { Runtime } from "./state";
 
 // A conditional request that names its credentials on a path where no recipe starts (ADR
-// 0034 amendment of 2026-11-17, #1673): answered by the passkey it names only when its page
-// follows the person's sign-in step in its tab, and no login of the tab answers it.
+// 0034 amendment of 2026-11-17, #1673): answered by the passkey it names only right after
+// the person's own sign-in step in its tab, and when no login of the tab answers it.
 
 /** A path as a request's is compared: one trailing `/` does not count. */
 export const comparable = (path: string) =>
@@ -28,78 +27,68 @@ export async function recipeOnPath(
 ): Promise<boolean> {
   if (path === undefined) return true;
   const on = (other: string) => comparable(other) === comparable(path);
-  const [starts, routes] = await Promise.all([
-    signInStartsOn(rt, origin, path),
-    routesOf(rt, origin),
-  ]);
-  if (starts !== false || !routes) return true;
-  return routes.some((recipe) => recipe.steps[0] !== undefined && on(recipe.steps[0].path));
-}
-
-/**
- * Whether a person's sign-in step of the origin shows on `path`: a recipe's or chooser's
- * start, a later step a login may start at (ADR 0049) or a sign-in entry (ADR 0031);
- * `undefined` when the origin's recipes cannot be read.
- */
-async function signInStartsOn(
-  rt: Runtime,
-  origin: string,
-  path: string,
-): Promise<boolean | undefined> {
-  const on = (other: string) => comparable(other) === comparable(path);
-  const [starts, entries] = await Promise.all([
+  const [starts, entries, routes] = await Promise.all([
     rt.recipes.starts(origin).catch(() => undefined),
     rt.recipes.entries(origin).catch(() => undefined),
+    routesOf(rt, origin),
   ]);
-  if (!starts || !entries) return undefined;
+  if (!starts || !entries || !routes) return true;
   return (
     starts.some((start) => on(start.path) || start.later?.some((step) => on(step.path))) ||
-    entries.some((entry) => on(entry.entry.path))
+    entries.some((entry) => on(entry.entry.path)) ||
+    routes.some((recipe) => recipe.steps[0] !== undefined && on(recipe.steps[0].path))
   );
 }
 
-/** Whether a login of the tab runs, which a named request leaves its answer to. */
+/** Whether a login of the tab runs, or is watched, which a named request leaves its answer to. */
 export function tabLoginRuns(rt: Runtime, tabId: number): boolean {
   const run = rt.attempts.get(tabId);
-  return run !== undefined && !terminal(run.metadata) && !idle(run.metadata);
+  return run !== undefined && !terminal(run.metadata) && run.metadata.settled !== true;
 }
 
 /**
- * Whether the tab's page of `documentId` is, or will be when it announces, the page right
- * after a sign-in form the person submitted on the origin (ADR 0028): a request of an origin
- * without a recipe may follow only such a step.
+ * Records the person's own sign-in step in the tab's top document on `path`, the latest
+ * per tab and origin (ADR 0034 amendment of 2026-11-17). A frame's step is none.
  */
-export function afterSubmit(
+export function personStepped(rt: Runtime, document: LoginDocument, path: string): void {
+  if (document.frameId !== 0) return;
+  rt.personSteps.set(`${document.tabId} ${document.origin}`, {
+    documentId: document.documentId,
+    path,
+    at: Date.now(),
+  });
+}
+
+/** A top document of the tab announced: the first of its origin after a step is its next. */
+export function personStepNext(rt: Runtime, document: LoginDocument): void {
+  if (document.frameId !== 0) return;
+  const step = rt.personSteps.get(`${document.tabId} ${document.origin}`);
+  if (step && step.next === undefined && step.documentId !== document.documentId)
+    step.next = document.documentId;
+}
+
+/**
+ * The person's own sign-in step a named request follows, if one does: the tab's step on the
+ * request's origin less than `AFTER_SIGN_IN_MS` before the request, made in the request's
+ * document on another path, or in the document before it, the request's being the tab's
+ * next top document of the origin after the step. A request of a document after a step
+ * that no other document followed yet is that next document.
+ */
+export function personStepFor(
   rt: Runtime,
-  tabId: number,
-  origin: string,
-  documentId: string,
-): boolean {
-  if (rt.afterSignIn.get(tabId) === documentId) return true;
-  const submitted = rt.signInSubmits.get(tabId);
-  return (
-    submitted !== undefined &&
-    submitted.origin === origin &&
-    submitted.documentId !== documentId &&
-    Date.now() - submitted.at < AFTER_SIGN_IN_MS
-  );
-}
-
-/**
- * Whether a waiting request's page follows the person's sign-in step on its origin in its
- * tab, as the owner's decision has it ("after the email is entered"): its page announced
- * as the page right after a submitted sign-in form (ADR 0028), or the tab's page before it
- * on the origin showed a recipe's start, a later step or a sign-in entry. A page that has
- * not announced, or recipes that cannot be read, follow none.
- */
-export async function followsSignIn(rt: Runtime, parked: ParkedRequest): Promise<boolean> {
-  const live = rt.documents.get(frameKey({ tabId: parked.tabId, frameId: 0 }));
-  if (live?.document.documentId !== parked.documentId || live.document.origin !== parked.origin)
-    return false;
-  if (rt.afterSignIn.get(parked.tabId) === parked.documentId) return true;
-  const previous = live.previousUrl === undefined ? null : URL.parse(live.previousUrl);
-  if (previous?.origin !== parked.origin) return false;
-  return (await signInStartsOn(rt, parked.origin, observedPath(previous.pathname))) === true;
+  request: { tabId: number; origin: string; documentId: string; path?: string; since: number },
+): PersonStep | undefined {
+  const step = rt.personSteps.get(`${request.tabId} ${request.origin}`);
+  if (!step) return undefined;
+  // A clock set back counts nothing.
+  const age = request.since - step.at;
+  if (age < 0 || age >= AFTER_SIGN_IN_MS) return undefined;
+  if (step.documentId === request.documentId)
+    return request.path !== undefined && comparable(request.path) !== comparable(step.path)
+      ? step
+      : undefined;
+  step.next ??= request.documentId;
+  return step.next === request.documentId ? step : undefined;
 }
 
 /**
@@ -120,25 +109,19 @@ export function announcedWithoutStart(rt: Runtime, parked: ParkedRequest): boole
 }
 
 /**
- * Decides a named request no login took: answered by the passkey it names when its page
- * follows the person's sign-in step, handed on as `no-login` otherwise. A login that started
- * while that was read leaves the request to `reviewRequests`.
+ * Decides a named request no login took, from what is already known: answered by the
+ * passkey it names when it follows the person's own sign-in step, which that answer uses
+ * up, and handed on as `no-login` otherwise.
  */
-export async function decideNamed(rt: Runtime, parked: ParkedRequest): Promise<void> {
-  if (parked.deciding) return;
-  parked.deciding = true;
-  const follows = await followsSignIn(rt, parked).catch(() => false);
-  delete parked.deciding;
-  if (
-    !rt.parkedRequests.has(parked) ||
-    parked.during ||
-    tabLoginRuns(rt, parked.tabId) ||
-    rt.attempts.get(parked.tabId)?.live.document.documentId === parked.documentId
-  )
+export function decideNamed(rt: Runtime, parked: ParkedRequest): void {
+  const step = personStepFor(rt, parked);
+  if (!step) {
+    parked.settle({ kind: "delegate", reason: "no-login", named: true });
     return;
-  parked.settle(
-    follows ? { kind: "named" } : { kind: "delegate", reason: "no-login", named: true },
-  );
+  }
+  const key = `${parked.tabId} ${parked.origin}`;
+  if (parked.settle({ kind: "named" }) && rt.personSteps.get(key) === step)
+    rt.personSteps.delete(key);
 }
 
 /**
@@ -161,7 +144,8 @@ export function passkeySignInLeft(rt: Runtime, document: LoginDocument): void {
 
 /**
  * Whether a sign-in a passkey answer outside a login made in the tab, on another page than
- * `documentId`, still holds: a named request there is a re-verification (ADR 0035).
+ * `documentId`, still holds: a named request there is a re-verification (ADR 0035). Kept in
+ * memory per tab and origin, so a worker restart forgets it.
  */
 export function passkeySignedIn(
   rt: Runtime,

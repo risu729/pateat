@@ -240,7 +240,7 @@ export type ConditionalDecision =
   | {
       /**
        * No login of its page answers it and no recipe starts on its path, but it names its
-       * credentials on the page after the person's sign-in step: it is answered with the
+       * credentials right after the person's own sign-in step: it is answered with the
        * vault passkey it names, if exactly one is (ADR 0034 amendment of 2026-11-17, the
        * exception to rule 2).
        */

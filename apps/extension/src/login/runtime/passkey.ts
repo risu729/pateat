@@ -46,11 +46,11 @@ import { ssoAfterPasskey } from "./sso/passkey-refused";
 import { observedPath } from "../../observation/path";
 import type { Runtime } from "./state";
 import {
-  afterSubmit,
   announcedWithoutStart,
   comparable,
   decideNamed,
   passkeySignedIn,
+  personStepFor,
   recipeOnPath,
   tabLoginRuns,
 } from "./passkey-named";
@@ -444,9 +444,10 @@ export async function requestOnItsPath(
  * holds a discoverable passkey, the login the pick starts answers it. A request of an origin
  * without a recipe is handed on at once, and one whose document starts no login within
  * `REQUEST_START_WAIT_MS` then. One that names its credentials on a path where no recipe
- * starts, on a page that follows the person's sign-in step in the tab, is answered by the
- * passkey it names instead (`named`) once its page announced with no sign-in, or at that
- * bound, unless a login of the tab runs (ADR 0034 amendment of 2026-11-17).
+ * starts, right after the person's own sign-in step in the tab (`personStepFor`), is
+ * answered by the passkey it names instead (`named`) once its page announced with no
+ * sign-in, or at that bound, unless a login of the tab runs (ADR 0034 amendment of
+ * 2026-11-17).
  */
 export async function conditionalRequest(
   rt: Runtime,
@@ -491,16 +492,18 @@ export async function conditionalRequest(
     return { kind: "delegate", reason: "one-time-pick" };
   // One that names its credentials, on a path where no recipe starts, may be answered by
   // the passkey it names once no login of the tab answers it (ADR 0034 amendment of
-  // 2026-11-17). On an origin without a recipe, only a page after a sign-in form the
-  // person submitted can follow a sign-in step; any other is handed on as before.
+  // 2026-11-17). On an origin without a recipe, only one that follows the person's own
+  // sign-in step can; any other is handed on as before.
   const named =
     input.namesCredentials === true &&
     run?.live.document.documentId !== input.documentId &&
     !(await recipeOnPath(rt, input.origin, path));
   if (run?.live.document.documentId !== input.documentId) {
     const starts = await startsFor(rt, input.origin).catch(() => []);
-    if (!starts.length && !(named && afterSubmit(rt, input.tabId, input.origin, input.documentId)))
-      return { kind: "delegate", reason: "no-recipe" };
+    const stepped =
+      named &&
+      personStepFor(rt, { ...input, ...(path === undefined ? {} : { path }), since: Date.now() });
+    if (!starts.length && !stepped) return { kind: "delegate", reason: "no-recipe" };
   }
   if (input.signal.aborted) return { kind: "delegate", reason: "cancelled" };
   return new Promise<ConditionalDecision>((resolve) => {
@@ -635,11 +638,11 @@ export function reviewRequests(rt: Runtime): void {
       // One that names its credentials on a path without a recipe, which no login of its
       // document ever took and no login of its tab may still take, is decided as soon as
       // its page announced with no sign-in, the wait being only the bound: answered by the
-      // passkey it names when its page follows the person's sign-in step (ADR 0034
-      // amendment of 2026-11-17).
+      // passkey it names when it follows the person's own sign-in step (ADR 0034
+      // amendment of 2026-11-17). Nothing is read for it, so the bound holds.
       const untaken =
         parked.named === true && !own && !parked.during && !tabLoginRuns(rt, parked.tabId);
-      if (untaken && (due || announcedWithoutStart(rt, parked))) void decideNamed(rt, parked);
+      if (untaken && (due || announcedWithoutStart(rt, parked))) decideNamed(rt, parked);
       else if (due)
         parked.settle({
           kind: "delegate",

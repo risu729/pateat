@@ -422,12 +422,23 @@ type ParkedRequest = {
   /**
    * It names its credentials and no recipe starts on its path: once no login of its tab
    * runs to answer it, it is answered by the passkey it names instead of being handed on,
-   * when its page follows the person's sign-in step (ADR 0034 amendment of 2026-11-17).
+   * when it follows the person's own sign-in step (ADR 0034 amendment of 2026-11-17).
    */
   named?: true;
-  /** Whether its page follows a sign-in step is being read (`decideNamed`). */
-  deciding?: true;
   settle(decision: ConditionalDecision): boolean;
+};
+
+export /**
+ * The person's own sign-in step in a tab's top document (ADR 0034 amendment of
+ * 2026-11-17): a form with an identifier or a password input sent by a trusted submit,
+ * Enter or click under transient activation, on `path` of `documentId`, at `at`. `next` is
+ * the tab's next top document of the origin after it, once one announced or asked.
+ */
+type PersonStep = {
+  documentId: string;
+  path: string;
+  at: number;
+  next?: string;
 };
 
 export /**
