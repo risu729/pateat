@@ -49,6 +49,10 @@ Amended on 2026-11-17 by the owner (13:15 UTC,
 verification page stays limited to the tab's own confirmed login, and the popup gains
 **Fill**, which fills such a page once with an account the person picks and presses
 nothing. Implemented on a branch, synthetic tests only.
+Amended on 2026-11-17 by the agent
+([below](#amendment-2026-11-17-fill-after-a-worker-restart)): the popup's offer gets a
+top verification page that a restarted worker does not know to announce again, with a
+bounded wait, so **Fill** shows there.
 
 Date: 2026-10-12
 
@@ -639,3 +643,38 @@ agent's choices, not confirmed by the owner:
 Amends
 [ADR 0088](0088-popup-manual-login.md#amendment-2026-11-17-fill-on-verification-pages)
 for the popup's offer.
+
+## Amendment 2026-11-17: Fill after a worker restart
+
+On a real Chrome, the popup on a verification page whose path had a `confirm` recipe
+showed **Log in now** with "No sign-in form was found on this page." about 17 minutes
+after the page logged `confirm-unsupported`. The worker keeps the documents it admitted
+in memory only, and Chrome stops an idle worker. A restarted worker asks only the tabs
+of sites with a saved default or a login record to announce again
+(`apps/extension/src/login/runtime/index.ts`), and the popup's offer did not wait for
+any of them, so it found no document of the tab and offered nothing.
+
+The agent's fix, not confirmed by the owner (`announceConfirmPage` in
+`apps/extension/src/login/runtime/confirm-announce.ts`):
+
+- When the worker knows no top document of the tab, the tab's path, as observed with
+  its token segments redacted, has a `confirm` or `unclear` recipe and `confirm` is
+  `fill` there, the offer gets the tab's top document to announce again before it lists
+  the tab's documents.
+- The restarted worker keeps each tab's reconnect while it is in flight. The offer first
+  waits for the restarted worker to send its own reconnects, then for the one to this
+  tab, or for another offer's, and sends `login.reconnect` to the top frame only when
+  none brought the page and no announcement of it is being admitted. So one tab gets
+  one reconnect at a time.
+- Each wait is bounded: after 1.5 seconds in all
+  (`CONFIRM_ANNOUNCE_MS`), as on a page whose script a dialog blocks, or at once on a
+  page without Pateat's content script, the offer goes on without that document and
+  the popup says no sign-in form was found.
+- The announcement is admitted as the page's own was, and as a restarted worker's
+  reconnect of a site with a saved default is; the offer itself fills and presses
+  nothing. The popup then offers **Fill** there, also on an excluded site or in a
+  private window, as before the restart.
+- Only the tab's top page is asked. A verification page in a frame, such as a 3-D
+  Secure frame, is not, and neither are a secret-answer page without a recipe, a
+  sign-in page, or a verification page where `confirm` is `off`. After a restart the
+  popup still says no sign-in form was found on them until their page announces again.

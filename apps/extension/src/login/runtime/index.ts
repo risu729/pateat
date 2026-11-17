@@ -65,6 +65,7 @@ import type { Runtime } from "./state";
 import { explicitlyPicked, pagePermission, signInPermission } from "./page-permission";
 import { createRuntimeState } from "./state";
 import { moveConfirmTab } from "./confirm-state";
+import { trackReconnect } from "./confirm-announce";
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 
 export { LOGIN_SITE_WAIT_ALARM } from "./constants";
@@ -532,14 +533,20 @@ function startRuntime(rt: Runtime) {
         ...rt.persisted.values().map((entry) => entry.document.tabId),
       ]);
       for (const tabId of tabIds)
-        void browser.tabs
-          // Every frame announces again; a frame inside the page may hold the attempt.
-          .sendMessage(tabId, { version: 1, type: "login.reconnect" })
-          .catch(() => undefined);
+        void trackReconnect(
+          rt,
+          tabId,
+          browser.tabs
+            // Every frame announces again; a frame inside the page may hold the attempt.
+            .sendMessage(tabId, { version: 1, type: "login.reconnect" }),
+        );
+      rt.reconnects.sent.resolve();
       await rt.vars.sessionLoaded;
       for (const waiting of rt.pending.values())
         if (!tabIds.has(waiting.document.tabId)) void revive(rt, waiting);
       return undefined;
     })
-    .catch(() => undefined);
+    .catch(() => undefined)
+    // A popup offer waits for these sends, so it never sends the same request again.
+    .finally(() => rt.reconnects.sent.resolve());
 }

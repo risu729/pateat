@@ -12,6 +12,7 @@ import { MANUAL_START_MS, endManual, type ManualStart } from "./manual-scope";
 import { cancelSso, ssoWaiting } from "./sso/flow";
 import { endConfirmPick } from "./confirm-pick-scope";
 import { confirmFillPage } from "./confirm-pick";
+import { announceConfirmPage } from "./confirm-announce";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
 
@@ -116,6 +117,8 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
   const targets: Extract<ManualOfferResponse, { ok: true }>["targets"] = [];
   let reason = snapshot?.ok ? undefined : "settings-unavailable";
   if (snapshot?.ok) {
+    // A verification page a restarted worker does not know yet (ADR 0035).
+    await announceConfirmPage(rt, tabId, tab.url, snapshot);
     // The top page is first. A popup choice's frame follows it, before any other frames.
     const waiting = rt.pending.get(tabId)?.document;
     const pages = [...rt.documents.values()]

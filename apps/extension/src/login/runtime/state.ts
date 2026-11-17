@@ -443,6 +443,16 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
 
   const reviving = new Map<number, Promise<void>>();
 
+  /**
+   * The `login.reconnect` sends in flight by tab: a restarted worker's own to each tab it
+   * asks to announce again, and the popup offer's to a verification page (ADR 0035).
+   * `sent` settles once the restarted worker sent its own, or found none to send.
+   */
+  const reconnects = {
+    sent: Promise.withResolvers<void>(),
+    tabs: new Map<number, Promise<unknown>>(),
+  };
+
   /** By tab: the popup's last logged answer, so an open popup asking each second logs once. */
   const popupAnswers = new Map<number, string>();
 
@@ -545,6 +555,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     confirmVisits,
     admitting,
     reviving,
+    reconnects,
     popupAnswers,
     variantRefusals,
     startTries,
