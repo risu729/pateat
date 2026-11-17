@@ -209,6 +209,12 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   /** Top documents' own conditional passkey requests, waiting for their login (ADR 0034). */
   const parkedRequests = new Set<ParkedRequest>();
 
+  /**
+   * By the request's signal: the path its tab showed when it first came, kept when the
+   * request waits again after a failed answer (ADR 0034 amendment of 2026-11-17).
+   */
+  const requestPaths = new WeakMap<AbortSignal, { path?: string }>();
+
   /** By tab: its popup choice outside an ask and whether it offers a passkey (ADR 0034). */
   const choicePasskeys = new Map<number, ChoicePasskeys>();
 
@@ -494,6 +500,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     leftFrames,
     movedFrames,
     parkedRequests,
+    requestPaths,
     choicePasskeys,
     continuations,
     persisted,

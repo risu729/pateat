@@ -298,6 +298,41 @@ export function registerConditionalCases({
     expect(events).toEqual(["hold", "leave"]);
   });
 
+  it("hands on a signed answer whose page moved in place meanwhile (ADR 0034)", async () => {
+    const answeredTab = vi.fn();
+    const report = vi.fn();
+    const backing = source();
+    const { conditional, waiting } = decisions();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      conditional,
+      report,
+      answered: answeredTab,
+    });
+    const pending = runtime.handle({ ...conditionalGet(), path: "/sign-in" }, sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    // The page's own path reaches the login with the request.
+    expect(waiting[0]!.input).toMatchObject({ path: "/sign-in" });
+    const signed = vi.fn();
+    // The page moved while the assertion was signed: it is checked right before it leaves.
+    const stillOnPath = vi.fn(async () => {
+      expect(backing.sign).toHaveBeenCalledTimes(1);
+      return false;
+    });
+    waiting[0]!.decide({ kind: "answer", item: loginItem, answered: signed, stillOnPath });
+    expect(await pending).toEqual({ kind: "delegate", reason: "page-moved" });
+    expect(stillOnPath).toHaveBeenCalledTimes(1);
+    expect(signed.mock.calls).toEqual([[false]]);
+    // Never answered, and not passed to the login again.
+    expect(waiting).toHaveLength(1);
+    expect(answeredTab).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({ outcome: "delegate", reason: "page-moved" }),
+      ),
+    );
+  });
+
   it("is not cancelled by a settings change while it waits", async () => {
     const { conditional, waiting } = decisions();
     const runtime = createPasskeyRuntime(source(), { extensionId, conditional });

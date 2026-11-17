@@ -13,6 +13,13 @@ import type { BridgedCreateRequest } from "./create";
 import type { BridgedGetRequest } from "./request";
 import type { PasskeyAssertion } from "./assertion";
 import { newId } from "@pateat/contracts/ids";
+import { redactPath } from "../observation/token-segment";
+
+/**
+ * `REDACTED_PATH_SEGMENT`, which `observedPath` puts in place of a token segment; the
+ * page-world script cannot import the contracts package without bundling all of it.
+ */
+export const PAGE_REDACTED_SEGMENT = "[id]";
 
 type PageScope = Window & typeof globalThis;
 const MAX_ALLOW_CREDENTIALS = 64;
@@ -183,6 +190,19 @@ function decodeBuffer(value: string): ArrayBuffer {
   return decoded.buffer as ArrayBuffer;
 }
 
+/**
+ * Whether two paths are the same page's as the background compares them: redacted as
+ * observations carry a path (`observedPath`), one trailing `/` aside. A rewrite of a token
+ * segment alone is no move, so the page never drops an answer the background let go.
+ */
+function samePath(a: string, b: string): boolean {
+  const bare = (path: string) => {
+    const observed = redactPath(path, PAGE_REDACTED_SEGMENT);
+    return observed.length > 1 && observed.endsWith("/") ? observed.slice(0, -1) : observed;
+  };
+  return bare(a) === bare(b);
+}
+
 /** Plain objects with native prototypes, matching Chrome's assertion shape and toJSON output. */
 function toCredential(
   assertion: PasskeyAssertion,
@@ -348,6 +368,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
     request: BridgedGetRequest | BridgedCreateRequest,
     signal: AbortSignal | undefined,
     limit: number | undefined,
+    path?: string,
   ) => {
     const id = newId();
     return new Promise<PageResult | { kind: "aborted" }>((resolve) => {
@@ -377,7 +398,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
         },
       });
       signal?.addEventListener("abort", onAbort, { once: true });
-      post({ channel: PAGE_CHANNEL, type, id, request });
+      post({ channel: PAGE_CHANNEL, type, id, request, ...(path === undefined ? {} : { path }) });
     });
   };
 
@@ -403,7 +424,16 @@ export function installPasskeyPage(scope: PageScope = window): void {
     // A conditional request may wait for a login of the page for as long as the relay
     // answers (ADR 0034).
     const conditional = request.mediation === "conditional";
-    const result = await ask("get", request, signal, conditional ? undefined : PAGE_MAX_WAIT_MS);
+    // The path a conditional request is made on stands in for its autofill field; the
+    // background keeps it as the request's (ADR 0034 amendment of 2026-11-17).
+    const askedOn = conditional ? scope.location.pathname : undefined;
+    const result = await ask(
+      "get",
+      request,
+      signal,
+      conditional ? undefined : PAGE_MAX_WAIT_MS,
+      askedOn,
+    );
     if (result.kind === "aborted") throw signal?.reason;
     // A Pateat login signed the page in: the request stays pending until the page aborts
     // it, as a conditional request whose autofill choice is never made does (ADR 0034).
@@ -417,7 +447,11 @@ export function installPasskeyPage(scope: PageScope = window): void {
     // Chrome's own rejection when its prompt times out or is dismissed.
     if (result.kind === "not-allowed")
       throw new DOMExceptionClass(NOT_ALLOWED_MESSAGE, "NotAllowedError");
-    if (result.kind === "assertion") {
+    // An assertion for a conditional request whose page then moved in place to another
+    // path is dropped: its autofill field is gone, so no browser would answer it there,
+    // and the page would act on it where it is now (#1670).
+    const moved = askedOn !== undefined && !samePath(askedOn, scope.location.pathname);
+    if (result.kind === "assertion" && !moved) {
       try {
         return toCredential(result.assertion, credentialPrototype, responsePrototype);
       } catch {

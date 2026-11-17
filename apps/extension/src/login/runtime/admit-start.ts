@@ -46,7 +46,7 @@ import { askMasterPassword, holdPassword } from "./master-password";
 import { type PolicyChange } from "./report";
 import { addAskFill, reloginLimited } from "./relogin";
 import { noteChoice } from "./choice-save";
-import { reviewRequests, parkedFor, restartForRequest, retryAfterPasskey } from "./passkey";
+import { reviewRequests, parkedOn, restartForRequest, retryAfterPasskey } from "./passkey";
 import { startsFor } from "./generation-scope";
 import { offerBindingReview, attachBindingReview, detachBindingReview } from "./binding-review";
 import { repairUnfit, repairChooser } from "./repair-run";
@@ -135,9 +135,13 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
 
   // A new login answers the page's own passkey request when its item holds a passkey
   // (ADR 0034), as one picked in the popup and one on a chooser's list do, instead of
-  // clicking there; a login that only fills keeps its form.
+  // clicking there; a login that only fills keeps its form. Only a request that came on the
+  // path the page shows counts: one its page moved away from in place is never answered
+  // (ADR 0034 amendment of 2026-11-17).
   const pageRequest =
-    !ctx.previous && ctx.document.frameId === 0 && parkedFor(rt, ctx.document) !== undefined;
+    !ctx.previous &&
+    ctx.document.frameId === 0 &&
+    parkedOn(rt, ctx.document, ctx.live.path) !== undefined;
 
   // A paused site starts no login by itself; a resumed one goes on (ADR 0062).
   const pausedStart = ctx.paused && !ctx.previous;

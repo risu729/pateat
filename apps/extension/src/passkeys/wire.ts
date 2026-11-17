@@ -36,6 +36,8 @@ export const PAGE_CREATE_MAX_WAIT_MS = PAGE_TIMEOUT_MS;
  * names is about 110,000 characters; a larger one is handed on.
  */
 export const MAX_REQUEST_CHARACTERS = 131_072;
+/** Upper bound on a conditional request's path; a longer one is not relayed. */
+export const MAX_PATH_CHARACTERS = 2_048;
 
 const operationId = v.pipe(v.string(), v.uuid());
 const base64Url = (maximum: number) =>
@@ -55,6 +57,8 @@ export const pageRequestSchema = v.variant("type", [
     type: v.literal("get"),
     id: operationId,
     request: v.unknown(),
+    /** The page's path as a conditional request was made; the relay checks its size. */
+    path: v.optional(v.unknown()),
   }),
   /** A `create` request whose `excludeCredentials` the background checks (ADR 0007). */
   v.strictObject({
@@ -124,6 +128,11 @@ export const runtimeMessageSchema = v.variant("type", [
     userActivation: v.boolean(),
     /** The document was visible and focused, so a chooser window may open for it. */
     focused: v.boolean(),
+    /**
+     * The page's path as a conditional request was made, which stands in for its autofill
+     * field; the login runtime checks it is a path (ADR 0034 amendment of 2026-11-17).
+     */
+    path: v.optional(v.pipe(v.string(), v.maxLength(MAX_PATH_CHARACTERS))),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("passkey.cancel"), operationId }),
 ]);

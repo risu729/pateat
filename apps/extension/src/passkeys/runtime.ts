@@ -120,13 +120,20 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   };
 
   async function get(
-    message: { operationId: string; request: unknown; userActivation: boolean; focused: boolean },
+    message: {
+      operationId: string;
+      request: unknown;
+      userActivation: boolean;
+      focused: boolean;
+      path?: string | undefined;
+    },
     origin: string,
     context: { documentId: string; tabId: number; incognito: boolean; active: boolean },
     detail: ReportDetail,
     after: After<TCandidate>,
   ): Promise<RuntimeResult> {
     const { documentId } = context;
+    const { path } = message;
     if (operations.has(message.operationId) || reading.has(message.operationId))
       return { kind: "delegate", reason: "busy" };
     // Read before the limits below, so no wait falls between counting and adding.
@@ -300,6 +307,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
             documentId,
             signal,
             incognito: context.incognito,
+            ...(path === undefined ? {} : { path }),
           }),
         ),
         signal,
@@ -318,6 +326,21 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         if (signal.aborted || error instanceof ListedSite) throw error;
         detail.cause = step;
         result = { kind: "delegate", reason: "assertion-failed" };
+      }
+      // The page's path is read again before the assertion leaves: a request whose page
+      // moved in place while it was signed is handed on, never answered (ADR 0034
+      // amendment of 2026-11-17).
+      if (
+        result.kind === "assertion" &&
+        decision.stillOnPath &&
+        !(await abortable(
+          Promise.try(decision.stillOnPath).catch(() => false),
+          signal,
+        ))
+      ) {
+        answered(false);
+        answered = undefined;
+        return { kind: "delegate", reason: "page-moved" };
       }
       const signed = result.kind === "assertion";
       answered(signed);

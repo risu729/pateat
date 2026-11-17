@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
-import { snapshotGetOptions } from "../../src/passkeys/page";
+import { REDACTED_PATH_SEGMENT } from "@pateat/contracts";
+import { PAGE_REDACTED_SEGMENT, snapshotGetOptions } from "../../src/passkeys/page";
 import { PAGE_CHANNEL, PAGE_MAX_WAIT_MS, PAGE_TIMEOUT_MS } from "../../src/passkeys/wire";
 import type { PageFixtures } from "../../src/passkeys/page.test";
 
@@ -243,5 +244,58 @@ export function registerPageGetCases({
     expect(credential.id).toBe("AQID");
     expect(Object.getPrototypeOf(credential)).toBe(page.prototypes.credential);
     expect(credential.toJSON()).toMatchObject({ id: "AQID", type: "public-key" });
+    // Only a conditional request names its path.
+    expect(page.posted[0]).not.toHaveProperty("path");
+  });
+
+  it("names the path a conditional request was made on, and uses its assertion there (ADR 0034)", async () => {
+    const page = fakePage(answer({ kind: "assertion", assertion: syntheticAssertion }));
+    const result = page.container.get({ publicKey, mediation: "conditional" });
+    // One trailing `/` does not count as a move.
+    page.location.pathname = "/sign-in/";
+    const credential = (await result) as { id: string };
+    expect(credential.id).toBe("AQID");
+    expect(page.nativeGet).not.toHaveBeenCalled();
+    expect(page.posted[0]).toMatchObject({ type: "get", path: "/sign-in" });
+  });
+
+  it("drops a conditional request's assertion that came back after its page moved in place (ADR 0034)", async () => {
+    const page = fakePage((message) =>
+      message.type === "get" ? [{ type: "ack", id: message.id }] : [],
+    );
+    const options = { publicKey, mediation: "conditional" };
+    const result = page.container.get(options);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const id = page.posted[0]!.id;
+    // The site's router moves to another path; then a login's answer arrives.
+    page.location.pathname = "/challenge";
+    page.post({
+      channel: PAGE_CHANNEL,
+      type: "result",
+      id,
+      result: { kind: "assertion", assertion: syntheticAssertion },
+    });
+    await expect(result).resolves.toBe("native");
+    expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+  });
+
+  it("uses an assertion across a rewrite of a token segment alone, as the background compares (ADR 0034)", async () => {
+    const page = fakePage(answer({ kind: "assertion", assertion: syntheticAssertion }));
+    page.location.pathname = "/signin/3f2c9a1e-8b4d-4c6a-9e1f-2a7b5c8d0e13";
+    const result = page.container.get({ publicKey, mediation: "conditional" });
+    // The router swaps one token for another with history.replaceState.
+    page.location.pathname = "/signin/9d8e7f6a-5b4c-4d3e-8f2a-1b0c9d8e7f6a/";
+    await expect(result).resolves.toMatchObject({ id: "AQID" });
+    expect(page.nativeGet).not.toHaveBeenCalled();
+    // The page redacts as observations do.
+    expect(PAGE_REDACTED_SEGMENT).toBe(REDACTED_PATH_SEGMENT);
   });
 }
+
+const syntheticAssertion = {
+  credentialId: "AQID",
+  clientDataJSON: "e30",
+  authenticatorData: "AA",
+  signature: "MAA",
+  userHandle: null,
+};

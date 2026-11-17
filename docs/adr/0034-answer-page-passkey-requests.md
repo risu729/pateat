@@ -55,6 +55,14 @@ not yet confirmed by the owner;
 that comes after its document's login was refused for want of the `passkey` route starts
 that login again (rule 5).
 
+Amended on 2026-11-17 (agent fix under the owner's policy of 2026-10-12 13:58 UTC, not
+yet confirmed by the owner;
+[the amendment below](#amendment-a-request-its-page-moved-away-from-2026-11-17)): a
+request is answered only while its tab still shows the path it came on, checked again
+right before its assertion leaves, and is handed on as `page-moved` otherwise, or as
+`page-unknown` when a path could not be read; Pateat's page script also drops an
+assertion that comes back after its page's path changed. This narrows ADR 0036 rule 4.
+
 Date: 2026-10-12
 
 ## Context
@@ -302,3 +310,68 @@ The owner chose on 2026-11-04 at 14:52 UTC to allow each way once before a submi
   back once and stays.
 - The fallback after the passkey answer is unchanged: it comes after a submission and
   was already once.
+
+## Amendment: a request its page moved away from (2026-11-17)
+
+[#1670](https://github.com/risu729/pateat/issues/1670): in the owner's Chrome on build
+`92fdd25` (2026-11-17, about 12:38 to 12:42 UTC), OpenAI's sign-in on `auth.openai.com`
+moved to its "Select a method to continue" page (`/auth_challenge`, buttons for a
+passkey and a recovery key, no input), and before anyone clicked, the page turned into
+its own 405 error: `Route "AUTH_CHALLENGE_SELECTION" does not have an action`, "but you
+are trying to submit to it". That text is the client-side router's, so the page itself
+submitted its current route from script. No recipe step or handler names that path, and
+Pateat's clicks stop when the page leaves the step's path; the one thing Pateat does
+there without a click is answer a passkey request. A single-page site that moves in
+place from its email page to another route can leave the email page's `conditional`
+request waiting: its autofill field is gone, so no browser would answer it, but rule 3
+(the `passkey` route) and ADR 0036 rule 3 (the stop) answered the newest waiting request
+of the document wherever the page then was, so the page could act on the answer on the
+route it showed. A synthetic login runtime test reproduced both answers before this
+change. Which request OpenAI's page made is not proven: the uploaded logs hold no
+`auth.openai.com` lines, and the device's own `passkey.request` lines tell it.
+
+An agent change, as a general rule (ADR 0033), not confirmed by the owner:
+
+- The path stands in for the autofill field the request was made for, which Pateat
+  cannot see: a conditional request records the path its page showed when it first came.
+  Pateat's page script sends `location.pathname` with the request, and the background
+  redacts it as observations carry a path (`observedPath`); when the page sent none, or
+  one that is not a path, the tab's committed URL stands in, which follows a
+  same-document move (`history.pushState`) where a sender's URL does not, but can lag a
+  move made just before the request. A request that waits again after a failed answer
+  keeps that first path. One trailing `/` does not count.
+- A new login takes the `passkey` route for the page's own request (rule 3) only when a
+  request came on the path the login starts on. The `passkey` route, the switch to it,
+  and a stop of ADR 0036 take only a waiting request whose tab still shows its path, and
+  check again just before the answer is recorded; a stop that finds the move then goes
+  on as without a request, its submission unspent. A request whose page moved to
+  another path is handed on as `page-moved`, and one whose path, or whose tab's path,
+  could not be read (a failed tab read, or another origin) as `page-unknown`; neither
+  is ever answered. The login goes on as when no request waits: the `password` route
+  stays, the `passkey` route falls back as `request-missing`, and a stop ends
+  `challenge` as `password-empty`. A request the page makes on the route it moved to is
+  answered as before.
+- The vault is read and the assertion signed after that check, so the background reads
+  the tab's path once more right before the assertion leaves, as it reads the page's
+  permission again then: a request whose page moved meanwhile is handed on as
+  `page-moved`, and its login is told it was not answered: on the `passkey` route it
+  falls back as `answer-failed`, and at a stop of ADR 0036, whose answer was already
+  recorded, it ends `challenge` with the cause `answer-failed`. What remains after
+  that, the trip to the page, the page itself closes: Pateat's page script drops an
+  assertion for a conditional request that comes back after its path changed, compared
+  redacted as observations carry it (a rewrite of a token segment alone is no move) and
+  one trailing `/` aside, handing the request to the browser instead. The background
+  does not learn of that drop.
+- A site whose route after the email keeps the email page's request and offers it in a
+  field of its own is not answered there any more; the browser or another provider gets
+  the request. Rule 7's case for answering, a request a person could pick from an
+  autofill suggestion, does not hold once that field is gone.
+- This narrows ADR 0036 rule 4, which counts at the stop "one that was already
+  waiting": an identifier-first site that keeps the same autofill field across a
+  `history.pushState` to its next step now has that request handed on, and the login
+  ends `challenge` there unless the page asks again on the new path.
+- A router that rewrites the path in place with `history.replaceState` without moving
+  the person, such as one that adds a locale or a trailing segment once the form shows,
+  also hands its request on, for the same reason: Pateat cannot tell such a rewrite from
+  a move to another step. Its passkey then goes to the browser or another provider, as
+  on a site Pateat has no recipe for.

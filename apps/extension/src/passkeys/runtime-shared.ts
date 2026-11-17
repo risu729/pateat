@@ -207,6 +207,12 @@ export type ConditionalDecision =
       readonly kind: "answer";
       readonly item: PasskeyItem;
       readonly answered: (signed: boolean) => void;
+      /**
+       * Whether the request's page still shows the path it came on, asked again once the
+       * assertion is signed, right before it leaves; one that moved is handed on as
+       * `page-moved` (ADR 0034 amendment of 2026-11-17).
+       */
+      readonly stillOnPath?: () => Promise<boolean>;
     }
   | { readonly kind: "delegate"; readonly reason: string }
   | { readonly kind: "withhold" };
@@ -351,6 +357,8 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
     signal: AbortSignal;
     /** Whether the page's tab is incognito, as its sender says; it keeps its own pauses. */
     incognito: boolean;
+    /** The page's own path as it made the request, unchecked (ADR 0034). */
+    path?: string;
   }) => Promise<ConditionalDecision>;
   /**
    * Reads whether an RP lists the page's origin, for a request whose RP ID belongs to

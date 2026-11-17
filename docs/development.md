@@ -1374,13 +1374,16 @@ holds:
   minutes of waiting for that login or for a pick while its tab asks for an account) and
   the delegate `reason`. Any request of a hostname listed under "Sites whose passkey
   requests go to the browser" on the settings page is handed on first, as `browser-site`
-  ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23).
-  A conditional request is handed on as `no-recipe` (no recipe for the site),
-  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
-  or `no-pick` (the popup offered its page an ordinary choice of accounts, outside an
-  ask, with an item that holds a passkey, and nothing was picked within four minutes),
-  and at once as `paused` while automatic login of its site is paused
-  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23). A
+  conditional request is handed on as `no-recipe` (no recipe for the site), `no-login`
+  (no login of its page started), `login-ended` (the login did not sign in) or `no-pick`
+  (the popup offered its page an ordinary choice of accounts, outside an ask, with an
+  item that holds a passkey, and nothing was picked within four minutes), as
+  `page-moved` when its page moved in place to another path before a login's answer
+  left, including while the assertion was signed, as `page-unknown` when the path it
+  came on or its tab's path could not be read (a failed tab read, or another origin),
+  and at once as `paused` while automatic login of
+  its site is paused ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
   ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
   mediation that names its credentials, in a tab whose Pateat login of the origin signed
   in with no logout detected since, is a re-verification while signed in and is handed

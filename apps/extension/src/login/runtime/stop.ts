@@ -5,7 +5,7 @@ import { type Execution } from "./types";
 import { current, change, report, spinning, spend } from "./attempt";
 import { atStop, stopsPastPlan } from "./attempt-state";
 import { allowed } from "./plan-2";
-import { parkedFor, bridgeAnswer } from "./passkey";
+import { requestOnItsPath, handOnIfMoved, bridgeAnswer } from "./passkey";
 import { REQUEST_WAIT_MS } from "./constants";
 import { type StopCause, type LoginReport } from "./report";
 import { observe } from "./reconcile";
@@ -32,7 +32,9 @@ export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<v
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   const stopped = () => current(rt, run) && run.metadata.state === "ready" && atStop(run.metadata);
   if (!(await allowed(rt, run)) || !stopped()) return;
-  let parked = parkedFor(rt, run.live.document);
+  // A request of a path its page moved away from in place is handed on, never answered
+  // (ADR 0034 amendment of 2026-11-17).
+  let parked = await requestOnItsPath(rt, run.live.document);
   let bridged = bridgeAnswer(rt, run);
   for (
     const until = Date.now() + REQUEST_WAIT_MS;
@@ -41,10 +43,17 @@ export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<v
     // eslint-disable-next-line no-await-in-loop
     await sleep(100);
     if (!stopped()) return;
-    parked = parkedFor(rt, run.live.document);
+    // eslint-disable-next-line no-await-in-loop
+    parked = await requestOnItsPath(rt, run.live.document);
     bridged = bridgeAnswer(rt, run);
   }
   if (!(await allowed(rt, run)) || !stopped()) return;
+  // Checked again before the answer is recorded: a request whose page moved meanwhile is
+  // handed on, and the stop goes on as without one, its submission unspent.
+  if (parked) {
+    parked = await requestOnItsPath(rt, run.live.document);
+    if (!stopped()) return;
+  }
   // A continuation the stop could not be moved into names why (ADR 0036).
   const end = (cause?: StopCause) =>
     change(
@@ -110,12 +119,14 @@ export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<v
     };
     const target = parked;
     // The bridge says whether the assertion went back; a request that went away
-    // meanwhile was never answered.
-    let gone = false;
-    const signed = await new Promise<boolean>((resolve) => {
-      gone = !target.settle({ kind: "answer", item, answered: resolve });
-      if (gone) resolve(false);
-    });
+    // meanwhile, or whose page moved in place since it was found, was never answered.
+    let gone = !(await handOnIfMoved(target));
+    const signed =
+      !gone &&
+      (await new Promise<boolean>((resolve) => {
+        gone = !target.settle({ kind: "answer", item, answered: resolve });
+        if (gone) resolve(false);
+      }));
     if (!answering()) return;
     if (!signed) {
       await end(gone ? undefined : "answer-failed");
