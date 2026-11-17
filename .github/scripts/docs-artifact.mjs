@@ -40,7 +40,9 @@ export async function verifyDocsBuild(directory) {
     /^[0-9a-f]{40}$/u,
   );
   assert.notEqual(worker.assets?.runWorkerFirst, true, "No Worker code runs first");
-  assert.equal(worker.workersDev, false, "The docs have no workers.dev address");
+  // cf turns workers.dev off for a Worker with routes when `workersDev` is unset
+  // (getSubdomainValues); the exact routes are asserted below.
+  assert.notEqual(worker.workersDev, true, "The docs have no workers.dev address");
   assert.equal(worker.previewUrls, false, "The docs have no preview addresses");
   assert.deepEqual(
     (worker.triggers ?? []).map(({ pattern, zone }) => ({ pattern, zone })),

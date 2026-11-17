@@ -16,6 +16,9 @@ export default defineConfig({
         zone: "e5f785a1c55a37a4b7c65ee832002237",
       }),
     ],
+    // Set although cf leaves it unset otherwise: an unset value sends no preview
+    // setting at deploy (getSubdomainValues), so it would not turn preview URLs off.
+    previewUrls: false,
     observability: { logs: { enabled: true }, traces: { enabled: true } },
   },
 });
