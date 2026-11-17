@@ -35,6 +35,7 @@ import { tabAttempt } from "./hold";
 import { DocumentGone } from "./document-gone";
 import { quietly } from "./session-store";
 import { admit } from "./admit";
+import { reviewRequests } from "./passkey";
 import type { Runtime } from "./state";
 
 /** Logs once per document and reason why it was not sent for generation. */
@@ -618,6 +619,13 @@ export async function ready(
     return result;
   } finally {
     if (rt.admitting.get(helloKey) === admission) rt.admitting.delete(helloKey);
+    // A named request of the tab's page waits for this announcement, not for a time (ADR
+    // 0034 amendment of 2026-11-17, ADR 0082).
+    if (
+      sender.frameId === 0 &&
+      [...rt.parkedRequests].some((parked) => parked.named && parked.tabId === sender.tab?.id)
+    )
+      reviewRequests(rt);
   }
 }
 

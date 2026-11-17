@@ -252,8 +252,10 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
       if (unsetNamed)
         return { kind: "delegate", reason: unsetNamed === "paused" ? "paused" : "default-unset" };
       credential = only!;
-      // Pateat signed in by itself, as for any answer without a login or a choice.
-      if (!message.userActivation) after.silent = true;
+      // Pateat signed in by itself, as for any answer without a login or a choice: an
+      // autofill request is no press, whatever the page's activation, so the relogin guard
+      // counts it.
+      after.silent = true;
     } else if (selection.kind === "credential" && !reprompt && !pageOther) {
       credential = selection.credential;
       // Signed with no login of the tab, no choice and no click of the person: a sign-in

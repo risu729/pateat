@@ -168,8 +168,8 @@ export interface PasskeyRequestReport {
   readonly pageAccount?: "other";
   /**
    * A conditional request that named its credentials, with no login of its page and no
-   * recipe on its path, was answered with the one vault item holding one of them, or handed
-   * on with why (ADR 0034 amendment of 2026-11-17). Never a credential ID or a username.
+   * recipe on its path, was answered with the one vault passkey it named, or handed on with
+   * why (ADR 0034 amendment of 2026-11-17). Never a credential ID or a username.
    */
   readonly namedCredential?: boolean;
   /**
@@ -240,14 +240,23 @@ export type ConditionalDecision =
   | {
       /**
        * No login of its page answers it and no recipe starts on its path, but it names its
-       * credentials: it is answered with the one vault item holding one of them, if exactly
-       * one does (ADR 0034 amendment of 2026-11-17, the exception to rule 2).
+       * credentials on the page after the person's sign-in step: it is answered with the
+       * vault passkey it names, if exactly one is (ADR 0034 amendment of 2026-11-17, the
+       * exception to rule 2).
        */
       readonly kind: "named";
       /** As for `answer`: whether the page still shows the path it came on. */
       readonly stillOnPath?: () => Promise<boolean>;
     }
-  | { readonly kind: "delegate"; readonly reason: string }
+  | {
+      readonly kind: "delegate";
+      readonly reason: string;
+      /**
+       * It named its credentials with no recipe on its path, and was handed on (ADR 0034
+       * amendment of 2026-11-17): logged as `namedCredential`.
+       */
+      readonly named?: true;
+    }
   | { readonly kind: "withhold" };
 
 export const MAX_OPERATIONS = 32;
@@ -392,13 +401,18 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
   /**
    * Whether the tab's Pateat login of the origin signed in and no logout was detected
    * since. A request there that names its credentials is a re-verification while signed
-   * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035), a
-   * conditional one answered by its named credentials too (ADR 0034 amendment of
-   * 2026-11-17). Not
+   * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035). Not
    * one of the document the login just completed in, which asks for its second factor
-   * (ADR 0029, amended 2026-11-17).
+   * (ADR 0029, amended 2026-11-17). `named` asks for a conditional request answered by its
+   * named credentials (ADR 0034 amendment of 2026-11-17): a passkey answer outside a login
+   * that signed another page of the tab in counts as signed in too.
    */
-  reverification?: (tabId: number, origin: string, documentId: string) => Promise<boolean>;
+  reverification?: (
+    tabId: number,
+    origin: string,
+    documentId: string,
+    named?: boolean,
+  ) => Promise<boolean>;
   /**
    * Decides a `conditional` request of a top document through the login of its page
    * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPasskeyRuntime, type ConditionalDecision, type PasskeySource } from "./runtime";
+import type { PasskeyCandidate } from "./select";
 
 // A conditional request that names its credentials, decided `named` by the login runtime:
 // no login of its page answers it and no recipe starts on its path (ADR 0034 amendment of
@@ -20,7 +21,7 @@ const accountA = { ...base, credentialId: "AAAA" };
 // The site default, which never breaks a tie among named passkeys.
 const accountB = { ...base, credentialId: "BBBB", preferred: true };
 const accountC = { ...base, credentialId: "CCCC" };
-const get = (allowCredentials: string[]) => ({
+const get = (allowCredentials: string[], userActivation = false) => ({
   version: 1,
   type: "passkey.get",
   operationId: crypto.randomUUID(),
@@ -30,11 +31,14 @@ const get = (allowCredentials: string[]) => ({
     mediation: "conditional",
     allowCredentials: allowCredentials.map((id) => ({ type: "public-key", id })),
   },
-  userActivation: false,
+  userActivation,
   focused: true,
   path: "/sign-in/password",
 });
-const vault = (stored = [accountA, accountB, accountC], complete = true): PasskeySource => ({
+const vault = (
+  stored: PasskeyCandidate[] = [accountA, accountB, accountC],
+  complete = true,
+): PasskeySource => ({
   candidates: vi.fn(async () => ({ candidates: stored, complete })),
   sign: vi.fn(async () => Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01)),
 });
@@ -49,8 +53,11 @@ function runtime(
   const report = vi.fn();
   const answered = vi.fn();
   const chooser = { choose: vi.fn() };
-  const conditional = vi.fn(async () => options.decision ?? { kind: "named" as const });
+  const conditional = vi.fn(
+    async (): Promise<ConditionalDecision> => options.decision ?? { kind: "named" },
+  );
   const source = options.source ?? vault();
+  const reverification = vi.fn(async () => options.reverification ?? false);
   const passkeys = createPasskeyRuntime(source, {
     extensionId,
     report,
@@ -58,9 +65,9 @@ function runtime(
     chooser,
     conditional,
     defaultUnset: async () => options.defaultUnset ?? false,
-    reverification: async () => options.reverification ?? false,
+    reverification,
   });
-  return { passkeys, report, answered, chooser, conditional, source };
+  return { passkeys, report, answered, chooser, conditional, source, reverification };
 }
 
 describe("a conditional request answered by the passkey it names (ADR 0034, 2026-11-17)", () => {
@@ -133,12 +140,62 @@ describe("a conditional request answered by the passkey it names (ADR 0034, 2026
     expect(asking.report).toHaveBeenCalledWith(expect.objectContaining({ namedCredential: true }));
   });
 
+  it("counts an answer under the page's activation as a sign-in Pateat made too", async () => {
+    const { passkeys, answered } = runtime();
+    expect(await passkeys.handle(get(["AAAA"], true), sender())).toMatchObject({
+      kind: "assertion",
+    });
+    expect(answered).toHaveBeenCalledWith(
+      7,
+      origin,
+      "example.com",
+      expect.objectContaining({ credentialId: "AAAA" }),
+      expect.objectContaining({ silent: true }),
+    );
+  });
+
+  it("is handed on for a passkey with a counter or a re-prompt item", async () => {
+    const counted = runtime({ source: vault([{ ...accountA, counter: 4 }]) });
+    expect(await counted.passkeys.handle(get(["AAAA"]), sender())).toEqual({
+      kind: "delegate",
+      reason: "unsupported-counter",
+    });
+    expect(counted.source.sign).not.toHaveBeenCalled();
+    const reprompt = runtime({ source: vault([{ ...accountA, reprompt: true }]) });
+    expect(await reprompt.passkeys.handle(get(["AAAA"]), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    expect(reprompt.chooser.choose).not.toHaveBeenCalled();
+    expect(reprompt.source.sign).not.toHaveBeenCalled();
+  });
+
+  it("logs a request the login runtime handed on as named", async () => {
+    const { passkeys, report } = runtime({
+      decision: { kind: "delegate", reason: "no-login", named: true },
+    });
+    expect(await passkeys.handle(get(["AAAA"]), sender())).toEqual({
+      kind: "delegate",
+      reason: "no-login",
+    });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "no-login", namedCredential: true }),
+    );
+    const plain = runtime({ decision: { kind: "delegate", reason: "no-login" } });
+    await plain.passkeys.handle(get(["AAAA"]), sender());
+    expect(plain.report).toHaveBeenCalledWith(
+      expect.not.objectContaining({ namedCredential: true }),
+    );
+  });
+
   it("hands a re-verification after Pateat's login in the tab on, as ADR 0035 says", async () => {
     const confirm = runtime({ reverification: true });
     expect(await confirm.passkeys.handle(get(["AAAA"]), sender())).toEqual({
       kind: "delegate",
       reason: "confirm-fill",
     });
+    // Asked as a named request, so Pateat's own passkey sign-in of the tab counts too.
+    expect(confirm.reverification).toHaveBeenCalledWith(7, origin, "document-a", true);
     expect(confirm.source.candidates).not.toHaveBeenCalled();
     expect(confirm.report).toHaveBeenCalledWith(
       expect.objectContaining({ reason: "confirm-fill", namedCredential: true }),

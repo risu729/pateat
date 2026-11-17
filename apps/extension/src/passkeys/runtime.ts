@@ -317,7 +317,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         signal,
       );
       operation.parked = false;
-      if (decision.kind === "delegate") return { kind: "delegate", reason: decision.reason };
+      if (decision.kind === "delegate") {
+        if (decision.named) detail.namedCredential = true;
+        return { kind: "delegate", reason: decision.reason };
+      }
       if (decision.kind === "withhold") return { kind: "withheld" };
       if (decision.kind === "named") return answerNamed(decision, signal);
       answered = decision.answered;
@@ -363,9 +366,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     /**
      * A conditional request that names its credentials, with no login of its page and no
      * recipe on its path (ADR 0034 amendment of 2026-11-17): answered with the one vault
-     * item holding one of them, unless it is a re-verification after Pateat's login in the
-     * tab, which goes to the browser or Bitwarden as a click's does (ADR 0035). The page's
-     * path is read again before the assertion leaves, as for a login's answer.
+     * passkey it names, unless it is a re-verification after Pateat's login or its
+     * own passkey sign-in in the tab, which goes to the browser or Bitwarden as a click's
+     * does (ADR 0035). The page's path is read again before the assertion leaves, as for a
+     * login's answer.
      */
     const answerNamed = async (
       decision: Extract<ConditionalDecision, { kind: "named" }>,
@@ -375,7 +379,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       step = "account-lookup";
       if (
         options.reverification &&
-        (await abortable(options.reverification(context.tabId, origin, context.documentId), signal))
+        (await abortable(
+          options.reverification(context.tabId, origin, context.documentId, true),
+          signal,
+        ))
       )
         return { kind: "delegate", reason: "confirm-fill" };
       step = "passkey-lookup";

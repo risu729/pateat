@@ -63,6 +63,7 @@ import { admitConfirm, pressHold } from "./confirm-admit";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
 import { manualAuthorizationCurrent } from "./manual-scope";
+import { passkeySignInLeft } from "./passkey-named";
 
 export async function admit(
   rt: Runtime,
@@ -123,6 +124,11 @@ export async function admit(
     if (submitted.origin === document.origin && Date.now() - submitted.at < AFTER_SIGN_IN_MS)
       rt.afterSignIn.set(document.tabId, document.documentId);
   }
+
+  // A recipe's first step shows again, as after a logout: a passkey's sign-in of another
+  // page of the tab no longer makes its named requests re-verifications (ADR 0034
+  // amendment of 2026-11-17).
+  if (start) passkeySignInLeft(rt, document);
 
   // A new page in the tab replaces the document that waited for a choice.
   const waiting = rt.pending.get(document.tabId);

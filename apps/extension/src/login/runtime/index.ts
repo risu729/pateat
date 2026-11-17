@@ -167,8 +167,12 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     /** A login of the tab that moved to the requesting page (ADR 0036, 2026-11-17 D). */
     movedLogin: (tabId: number, pageOrigin: string, documentId: string) =>
       movedLogin(rt, tabId, pageOrigin, documentId),
-    passkeyReverification: (tabId: number, siteOrigin: string, documentId?: string) =>
-      passkeyReverification(rt, tabId, siteOrigin, documentId),
+    passkeyReverification: (
+      tabId: number,
+      siteOrigin: string,
+      documentId?: string,
+      named?: boolean,
+    ) => passkeyReverification(rt, tabId, siteOrigin, documentId, named),
     passkeyRequested: (tabId: number, siteOrigin: string) =>
       passkeyRequested(rt, tabId, siteOrigin),
     passkeyAnswered: (

@@ -421,10 +421,12 @@ type ParkedRequest = {
   restarted?: number;
   /**
    * It names its credentials and no recipe starts on its path: once no login of its tab
-   * runs to answer it, it is answered by the passkey it names instead of being handed on
-   * (ADR 0034 amendment of 2026-11-17).
+   * runs to answer it, it is answered by the passkey it names instead of being handed on,
+   * when its page follows the person's sign-in step (ADR 0034 amendment of 2026-11-17).
    */
   named?: true;
+  /** Whether its page follows a sign-in step is being read (`decideNamed`). */
+  deciding?: true;
   settle(decision: ConditionalDecision): boolean;
 };
 

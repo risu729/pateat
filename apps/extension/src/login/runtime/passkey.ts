@@ -34,7 +34,7 @@ import {
 } from "./moves";
 import { pauseOf } from "./pause";
 import { asksEveryTime } from "./entry-press";
-import { routesOf, startsFor } from "./generation-scope";
+import { startsFor } from "./generation-scope";
 import { askFor } from "./choice";
 import { choiceWaits } from "./choice-save";
 import { change, current } from "./attempt";
@@ -45,6 +45,15 @@ import { planFor, itemMatchesUrl } from "./plan";
 import { ssoAfterPasskey } from "./sso/passkey-refused";
 import { observedPath } from "../../observation/path";
 import type { Runtime } from "./state";
+import {
+  afterSubmit,
+  announcedWithoutStart,
+  comparable,
+  decideNamed,
+  passkeySignedIn,
+  recipeOnPath,
+  tabLoginRuns,
+} from "./passkey-named";
 
 /**
  * Whether a passkey request naming its credentials in this tab is a re-verification while
@@ -52,20 +61,24 @@ import type { Runtime } from "./state";
  * did not show again since, which forgets the record as a logout (ADR 0062). A login made
  * in another tab or before a browser restart is not known here. A request of the document
  * the login completed in, soon after, is that login's second factor instead
- * (`secondFactorAfterCompletion`).
+ * (`secondFactorAfterCompletion`). A `named` conditional request (ADR 0034 amendment of
+ * 2026-11-17) is one too after a passkey answer outside a login signed another page of the
+ * tab in, until a recipe's first step shows again (`passkeySignInLeft`).
  */
 export async function passkeyReverification(
   rt: Runtime,
   tabId: number,
   siteOrigin: string,
   documentId?: string,
+  named = false,
 ): Promise<boolean> {
   await rt.vars.loaded;
   const metadata = recordFor(rt, tabId, siteOrigin);
   return (
-    metadata?.state === "authenticated" &&
-    !metadata.fillOnly &&
-    !secondFactorAfterCompletion(rt, metadata, documentId)
+    (metadata?.state === "authenticated" &&
+      !metadata.fillOnly &&
+      !secondFactorAfterCompletion(rt, metadata, documentId)) ||
+    (named && passkeySignedIn(rt, tabId, siteOrigin, documentId))
   );
 }
 
@@ -363,10 +376,6 @@ async function tabPath(parked: ParkedRequest): Promise<string | undefined> {
   return shownPath(tab?.url, parked.origin);
 }
 
-/** A path as a request's is compared: one trailing `/` does not count. */
-const comparable = (path: string) =>
-  path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
-
 /**
  * Whether a waiting request came on `path`, a path its document shows; reads nothing.
  * The path stands in for the autofill field the request was made for (ADR 0034 amendment
@@ -376,38 +385,6 @@ export function cameOn(parked: ParkedRequest, path: string | undefined): boolean
   return (
     parked.path !== undefined && path !== undefined && comparable(parked.path) === comparable(path)
   );
-}
-
-/**
- * Whether a recipe of the origin starts on `path`, as admission reads it: a login recipe's
- * or chooser's start, a later step a login may start at (ADR 0049), a sign-in entry (ADR
- * 0031), or the first page of a recipe generated as `confirm` or `unclear` (ADR 0035). A
- * path that is not known, or recipes that cannot be read, count as one.
- */
-async function recipeOnPath(
-  rt: Runtime,
-  origin: string,
-  path: string | undefined,
-): Promise<boolean> {
-  if (path === undefined) return true;
-  const on = (other: string) => comparable(other) === comparable(path);
-  const [starts, entries, routes] = await Promise.all([
-    rt.recipes.starts(origin).catch(() => undefined),
-    rt.recipes.entries(origin).catch(() => undefined),
-    routesOf(rt, origin),
-  ]);
-  if (!starts || !entries || !routes) return true;
-  return (
-    starts.some((start) => on(start.path) || start.later?.some((step) => on(step.path))) ||
-    entries.some((entry) => on(entry.entry.path)) ||
-    routes.some((recipe) => recipe.steps[0] !== undefined && on(recipe.steps[0].path))
-  );
-}
-
-/** Whether a login of the tab runs, which a named request leaves its answer to. */
-function tabLoginRuns(rt: Runtime, tabId: number): boolean {
-  const run = rt.attempts.get(tabId);
-  return run !== undefined && !terminal(run.metadata) && !idle(run.metadata);
 }
 
 /** The newest conditional request of a top document still waiting that came on `path`. */
@@ -467,8 +444,9 @@ export async function requestOnItsPath(
  * holds a discoverable passkey, the login the pick starts answers it. A request of an origin
  * without a recipe is handed on at once, and one whose document starts no login within
  * `REQUEST_START_WAIT_MS` then. One that names its credentials on a path where no recipe
- * starts is answered then by the passkey it names instead (`named`), unless a login of the
- * tab runs (ADR 0034 amendment of 2026-11-17).
+ * starts, on a page that follows the person's sign-in step in the tab, is answered by the
+ * passkey it names instead (`named`) once its page announced with no sign-in, or at that
+ * bound, unless a login of the tab runs (ADR 0034 amendment of 2026-11-17).
  */
 export async function conditionalRequest(
   rt: Runtime,
@@ -511,15 +489,18 @@ export async function conditionalRequest(
     (await asksEveryTime(rt, input.origin, incognito === true))
   )
     return { kind: "delegate", reason: "one-time-pick" };
-  // One that names its credentials, on a path where no recipe starts, is answered by the
-  // passkey it names once no login of the tab answers it (ADR 0034 amendment of 2026-11-17).
+  // One that names its credentials, on a path where no recipe starts, may be answered by
+  // the passkey it names once no login of the tab answers it (ADR 0034 amendment of
+  // 2026-11-17). On an origin without a recipe, only a page after a sign-in form the
+  // person submitted can follow a sign-in step; any other is handed on as before.
   const named =
     input.namesCredentials === true &&
     run?.live.document.documentId !== input.documentId &&
     !(await recipeOnPath(rt, input.origin, path));
-  if (run?.live.document.documentId !== input.documentId && !named) {
+  if (run?.live.document.documentId !== input.documentId) {
     const starts = await startsFor(rt, input.origin).catch(() => []);
-    if (!starts.length) return { kind: "delegate", reason: "no-recipe" };
+    if (!starts.length && !(named && afterSubmit(rt, input.tabId, input.origin, input.documentId)))
+      return { kind: "delegate", reason: "no-recipe" };
   }
   if (input.signal.aborted) return { kind: "delegate", reason: "cancelled" };
   return new Promise<ConditionalDecision>((resolve) => {
@@ -648,19 +629,24 @@ export function reviewRequests(rt: Runtime): void {
       // the repair is over (ADR 0034 amendment of 2026-10-25).
       const repairing = !own && awaitingDocument(rt, parked)?.repairing === true;
       if (repairing) parked.restarted = now;
-      if (
-        repairing
-          ? now - parked.since >= REQUEST_PARK_MS
-          : now - Math.max(parked.since, parked.restarted ?? 0) >= REQUEST_START_WAIT_MS
-      )
-        // One that names its credentials on a path without a recipe, which no login of
-        // its document ever took and no login of its tab may still take, is answered by the
-        // passkey it names (ADR 0034 amendment of 2026-11-17).
-        parked.settle(
-          parked.named && !own && !parked.during && !tabLoginRuns(rt, parked.tabId)
-            ? { kind: "named" }
-            : { kind: "delegate", reason: own ? "login-ended" : "no-login" },
-        );
+      const due = repairing
+        ? now - parked.since >= REQUEST_PARK_MS
+        : now - Math.max(parked.since, parked.restarted ?? 0) >= REQUEST_START_WAIT_MS;
+      // One that names its credentials on a path without a recipe, which no login of its
+      // document ever took and no login of its tab may still take, is decided as soon as
+      // its page announced with no sign-in, the wait being only the bound: answered by the
+      // passkey it names when its page follows the person's sign-in step (ADR 0034
+      // amendment of 2026-11-17).
+      const untaken =
+        parked.named === true && !own && !parked.during && !tabLoginRuns(rt, parked.tabId);
+      if (untaken && (due || announcedWithoutStart(rt, parked))) void decideNamed(rt, parked);
+      else if (due)
+        parked.settle({
+          kind: "delegate",
+          reason: own ? "login-ended" : "no-login",
+          // Handed on although it named its credentials, as a login of the tab runs.
+          ...(parked.named && !own ? { named: true as const } : {}),
+        });
     } else if (own.state === "authenticated") parked.settle({ kind: "withhold" });
     else if (ended) parked.settle({ kind: "delegate", reason: "login-ended" });
     else if (now - parked.since >= REQUEST_PARK_MS) parked.settle({ kind: "withhold" });
