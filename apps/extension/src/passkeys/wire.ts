@@ -38,6 +38,8 @@ export const PAGE_CREATE_MAX_WAIT_MS = PAGE_TIMEOUT_MS;
 export const MAX_REQUEST_CHARACTERS = 131_072;
 /** Upper bound on a conditional request's path; a longer one is not relayed. */
 export const MAX_PATH_CHARACTERS = 2_048;
+/** Upper bound on the address a page shows (an email address is at most 320). */
+export const MAX_ACCOUNT_CHARACTERS = 320;
 
 const operationId = v.pipe(v.string(), v.uuid());
 const base64Url = (maximum: number) =>
@@ -133,6 +135,13 @@ export const runtimeMessageSchema = v.variant("type", [
      * field; the login runtime checks it is a path (ADR 0034 amendment of 2026-11-17).
      */
     path: v.optional(v.pipe(v.string(), v.maxLength(MAX_PATH_CHARACTERS))),
+    /**
+     * The one unmasked email address the top page's form and headings showed as the
+     * person clicked, the document's first one found, sent again with its later clicks;
+     * compared with the matching items' usernames in the background only (ADR 0028
+     * amendment of 2026-11-17).
+     */
+    account: v.optional(v.pipe(v.string(), v.minLength(3), v.maxLength(MAX_ACCOUNT_CHARACTERS))),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("passkey.cancel"), operationId }),
 ]);

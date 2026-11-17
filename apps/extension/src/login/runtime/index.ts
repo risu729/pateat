@@ -37,7 +37,7 @@ import { choiceBadge, recordKey, reloginKey } from "./steps";
 import { armEntryTimer, asksEveryTime } from "./entry-press";
 import { probeMode } from "./constants";
 import { pausingSettings, showTabPause, pauseOf } from "./pause";
-import { frameLeftInPlace } from "./moves";
+import { frameLeftInPlace, movedLogin } from "./moves";
 import { ssoTabLoaded } from "./sso-choices";
 import {
   forgetTab,
@@ -163,6 +163,9 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     siteWaitDue: () => endSiteWaits(rt),
     loginAccount: (tabId: number, siteOrigin: string, documentId?: string) =>
       loginAccount(rt, tabId, siteOrigin, documentId),
+    /** A login of the tab that moved to the requesting page (ADR 0036, 2026-11-17 D). */
+    movedLogin: (tabId: number, pageOrigin: string, documentId: string) =>
+      movedLogin(rt, tabId, pageOrigin, documentId),
     passkeyReverification: (tabId: number, siteOrigin: string, documentId?: string) =>
       passkeyReverification(rt, tabId, siteOrigin, documentId),
     passkeyRequested: (tabId: number, siteOrigin: string) =>

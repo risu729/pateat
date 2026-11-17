@@ -311,6 +311,21 @@ account. The first switch on a site asks your Pateat service which control logs 
 the clicks it finds are kept for the next switch. A site you log in to through another
 account, such as a company or Google sign-in, may log you out of that account too.
 
+When you press a site's passkey button and several of your accounts have a passkey
+there, Pateat signs in with the site's default account. If the page's form or heading
+shows the email address of another of those accounts instead, and no other address,
+Pateat opens its passkey window with that account first and signs in only once you
+choose. If you press the button again after closing that window, the same account comes
+first again. When a Pateat login moves on to another page of the same site, or to a site
+that shares its passkeys, such as from `chatgpt.com` to `auth.openai.com`, and that page
+asks for a passkey as it loads, while the login is still running, Pateat answers with
+the login's own account. The login checks the new page for only a few seconds, so a
+request that comes later, such as after you typed something there, is not the login's.
+If that site asks you to choose every time or has automatic login paused, Pateat opens
+its passkey window with the login's account first. Otherwise, if that page's form or
+heading shows another of your accounts, the window opens with that account first, then
+the login's.
+
 With **Auto**, when you log out of a site yourself, Pateat logs in again on the next
 login page, with the account it would use for an automatic login. To stay logged out,
 pause the site first. If Pateat logged in to a site twice in the last 10 minutes, it

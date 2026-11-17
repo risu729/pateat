@@ -50,6 +50,11 @@ Amended on 2026-11-08 (owner, 02:58 UTC: no rule split by sign-in method): the p
 after a sign-in counts after a code or a passkey too; see
 [the amendment below](#amendment-2026-11-08-the-page-after-any-sign-in).
 
+Amended on 2026-11-17 (owner, 13:51 UTC, option A):
+[a passkey request on a page that shows another account](#amendment-2026-11-17-a-passkey-request-on-a-page-that-shows-another-account)
+than the site default's opens the chooser window with that account first instead of
+signing with the default.
+
 Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
@@ -709,3 +714,94 @@ and nothing gave a reason to treat it otherwise. Now the same skip follows any o
   submission, so the tab's next document of its origin within a minute is the page after
   a sign-in. A sign-in in place within that document is not seen this way, as the
   content script does not hear of the answer.
+
+## Amendment 2026-11-17: a passkey request on a page that shows another account
+
+Owner (risu), 2026-11-17 at 13:51 UTC: option A, the recommended option of the first
+decision of the proposal `designs/passkey-account-typed-email-proposal-ja.md` in the
+project files: 「ページのフォームか見出しに、伏せ字なしのメールがちょうど 1 つ出ていて、
+それが既定とは別の一致項目のユーザー名と同じとき、既定では答えず選択ウィンドウを開く。
+その項目を先頭に出す」 (when the page's form or headings show exactly one unmasked email
+address and it equals the username of a matching item other than the default, do not
+answer with the default: open the chooser window with that item first). Context:
+[#1670](https://github.com/risu729/pateat/issues/1670): OpenAI's vault held three items
+with passkeys, the site default was another one than the account the person typed on
+`auth.openai.com`, and the page's passkey request named no account (an empty
+`allowCredentials`), so Pateat answered with the default. Until now the address a page
+shows only stopped a login that would fill another account (`showsOtherAccount` in
+`apps/extension/src/page/accounts.ts`), and the page's values chose an item only without
+a default (the amendment of 2026-10-23 above).
+
+A passkey request the person's click made, that waits for no autofill choice and names
+no credentials (discoverable), and that the site default would answer, now first
+compares the address the top page shows:
+
+1. **What is read.** Pateat's isolated passkey script reads, as the request comes and
+   without waiting, the rendered text of the form that holds the focused element (the
+   control just clicked), else of the page's only shown form, and of the first eight
+   `h1` to `h3` headings. Never the header, navigation, footer, `mailto:` links,
+   `<address>`, frames, `<output>`, live regions or editable text, and never an input's
+   value (#932). The page shows an account only when that text holds exactly one email
+   address, unmasked; a masked one, or two different ones, show none.
+2. **One address a document.** The document's requests are read until one finds such an
+   address. That first address is kept and goes with that request and with each later
+   such request of the document, which never read the page again, so a page cannot try
+   one address after another. Nothing shown yet means the rules as before.
+3. **Compared in the extension.** The background compares the address, ignoring case,
+   with the login username of each matching passkey's item (read from the crypto Worker
+   as ADR 0080 reads it, only where the settings let the item's username be filled) and
+   with the user name stored with the passkey. The address and usernames are never
+   stored, logged or sent; `passkey.request` logs only `pageAccount` `other`.
+4. **What happens.** When the address fits a matching item that is not the site default,
+   and no passkey of the default fits it, the request opens the chooser window instead
+   of signing: the fitting passkeys first, then the default, marked **Default**, then
+   the rest. Nothing is signed without a choice. Where the window cannot open (a private
+   window, a background tab, too little of the request's time left), the request is
+   handed on as `page-account`, never signed with the default.
+5. **Precedence.** In this order:
+   1. A login of the page's origin running in the tab answers with its item, whatever
+      the page shows (ADR 0027).
+   2. A request's list of credentials decides.
+   3. A site whose default counts as unset (paused, ADR 0062, or asking every time,
+      ADR 0063) asks as before.
+   4. The page's display, as above.
+   5. The site default answers.
+
+   A login that moved to the page
+   ([ADR 0036 amendment of 2026-11-17](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17))
+   takes the site default's place in steps 2 to 5 (an agent's choice, below): a list
+   naming only other items' passkeys is handed on as `login-item-no-credential`; a site
+   whose default counts as unset opens the chooser with the moved login's passkeys
+   first; the page's display opens it with the fitting passkeys first, then the moved
+   login's; otherwise its item answers.
+
+The agent's choices, not confirmed by the owner:
+
+- The form read is the one holding the focused element, else the only shown form; with
+  several forms and none focused, only the headings are read.
+- A page that shows a field to type text into (a text, email, telephone, search or URL
+  input, a textarea or editable text, not read-only or disabled) outside its header and
+  navigation reads nothing, since its text may echo what is typed there; the page after
+  the email, as OpenAI's method selection, has no such field. The owner's 「打った文字の
+  こだま」 (an echo of what was typed) is read as such a live echo in the same page, not
+  as the next page naming the account the person entered, which is the case the decision
+  is for.
+- The document is read at each such request until an address is found ("read once per
+  document" read as "compared once per document"), so a request made before the page
+  showed its account does not use up the document's comparison.
+- "Compared once per document" is refined to "one address per document": the first
+  address found is kept and sent again with each later click's request of the document.
+  Sending it only once would let the next click, after the person closed the chooser,
+  sign in with the site default unasked, as in #1670. Only that first address is ever
+  sent, so the page still cannot try different ones.
+- A login that moved to the page is held to steps 2 to 5 of rule 5 as the site default
+  is, so it never signs in with another account than the one the page shows, and a site
+  whose default counts as unset asks for it too
+  ([ADR 0036 amendment of 2026-11-17](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17)).
+- The item's username counts where the passkey's stored user name does not name the
+  address, and the reverse; a username that cannot be read compares nothing.
+- With no site default, or several items that fit, the chooser opens as before, with
+  every fitting item first; the page's display does not reorder a site without a
+  default.
+- Whether OpenAI's page shows the address in its form or headings has not been checked
+  on the real site.

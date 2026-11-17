@@ -63,6 +63,15 @@ right before its assertion leaves, and is handed on as `page-moved` otherwise, o
 `page-unknown` when a path could not be read; Pateat's page script also drops an
 assertion that comes back after its page's path changed. This narrows ADR 0036 rule 4.
 
+Amended on 2026-11-17 by two owner decisions on requests that wait for no autofill
+choice; `conditional` requests stay as above. Option D (13:50 UTC,
+[ADR 0036 amendment](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17)):
+a running login answers the request of a page its tab moved to, of its site or a related
+origin, with its item. Option A (13:51 UTC,
+[ADR 0028 amendment](0028-account-chooser-login-pages.md#amendment-2026-11-17-a-passkey-request-on-a-page-that-shows-another-account)):
+a click's discoverable request on a page that shows another matching account than the
+site default opens the chooser with that account first.
+
 Date: 2026-10-12
 
 ## Context

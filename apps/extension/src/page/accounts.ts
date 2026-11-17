@@ -1,4 +1,4 @@
-import { renderedText } from "./text";
+import { renderedText, shown as rendered } from "./text";
 import { closestAcross, inputsOf, queryAll } from "./shadow";
 import { autocompleteTokens } from "./targets";
 
@@ -157,4 +157,76 @@ export function formAccounts(document: Document, form: HTMLFormElement | null): 
       : [],
   );
   return [...shownAccounts(accountText(document, form)), ...submitted];
+}
+
+/** Where a page's own account is not read: its header, navigation, contacts and echoes. */
+const notShownAccount = [
+  'a[href^="mailto:" i], address, footer, header, nav, output',
+  "[role~='banner' i], [role~='navigation' i], [role~='contentinfo' i]",
+  "[contenteditable]:not([contenteditable='false' i])",
+  // Live regions and status messages can echo what the person typed.
+  ...["alert", "status", "log", "marquee", "timer"].map((role) => `[role~='${role}' i]`),
+  "[aria-live]:not([aria-live='off' i])",
+].join(", ");
+
+/** A page's header and navigation, where a search box is no account field. */
+const pageChrome = "header, nav, [role~='banner' i], [role~='navigation' i]";
+
+/** A field the person types text into: a text-like input, a textarea or editable text. */
+const typedField = [
+  "input:not([type]), input[type='text' i], input[type='email' i], input[type='tel' i]",
+  "input[type='search' i], input[type='url' i], textarea",
+  "[contenteditable]:not([contenteditable='false' i])",
+].join(", ");
+
+/** The element that has focus, inside open shadow trees too. */
+function focusedElement(document: Document): Element | null {
+  let element = document.activeElement;
+  while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+  return element;
+}
+
+/**
+ * The one unmasked email address the top page shows as its account when a passkey is asked
+ * for after a click (ADR 0028 amendment of 2026-11-17), or `undefined`. Read once, as the
+ * page stands, without waiting: the rendered text of the form that holds the focused
+ * element (the control just clicked), else of the page's only shown form, and of the first
+ * headings; never inside the header, navigation, footer, a frame, an output, a live region
+ * or editable text, and never an input's value. A page that shows a field to type text in
+ * outside its header and navigation reads nothing, since its text may echo what is typed
+ * there (#932). A masked address, or two different ones, read as none.
+ */
+export function shownPasskeyAccount(document: Document): string | undefined {
+  const outside = (element: Element) => !closestAcross(element, notShownAccount);
+  const editable = (field: Element) =>
+    !(
+      (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) &&
+      (field.readOnly || field.matches(":disabled"))
+    ) && !closestAcross(field, pageChrome);
+  if (queryAll(document, typedField).some((field) => rendered(field) && editable(field)))
+    return undefined;
+  const focused = focusedElement(document);
+  const focusedForm = focused ? closestAcross(focused, "form") : null;
+  const forms = queryAll(document, "form").filter((form) => rendered(form) && outside(form));
+  const form =
+    focusedForm && forms.includes(focusedForm)
+      ? focusedForm
+      : forms.length === 1
+        ? forms[0]
+        : undefined;
+  const options = { everyElement: true, skip: notShownAccount };
+  const read = (root: Element, limit: number) =>
+    (renderedText(root, limit, options) ?? "").slice(0, limit);
+  const headings = queryAll(document, "h1, h2, h3")
+    .filter(outside)
+    .slice(0, headingLimit)
+    .map((heading) => read(heading, headingReadLimit));
+  const text = [form ? read(form, readLimit) : "", ...headings].join(" ");
+  const emails = new Map<string, string>();
+  for (const entry of shownAccounts(text))
+    if (entry.includes("@")) emails.set(entry.toLowerCase(), entry);
+  const [only] = emails.values();
+  return emails.size === 1 && only !== undefined && !only.includes("*") && only.length <= 320
+    ? only
+    : undefined;
 }

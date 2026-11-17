@@ -720,6 +720,36 @@ describe("vault passkey source", () => {
     expect(manager.signPasskey.mock.calls[0]).toHaveLength(2);
   });
 
+  it("reads the login usernames a page's address is compared with, as a fill would (ADR 0028)", async () => {
+    const response = saved();
+    const live = response.catalog.connections[0]!;
+    for (const entry of live.items)
+      entry.fields.push({ id: "login.username", label: "Username", name: null, kind: "text" });
+    excludeField(response.snapshot.settings, live, second, "login.username");
+    const { connections, manager } = runtime([response]);
+    manager.findPasskeys.mockResolvedValue({ ok: true as const, data: matches([first, second]) });
+    const readUsernames = vi.fn(async (_connection: unknown, itemIds: readonly string[]) =>
+      Object.fromEntries(itemIds.map((id) => [id, `${id.slice(0, 4)}@example.com`])),
+    );
+    const source = createVaultPasskeySource(
+      connections as unknown as Parameters<typeof createVaultPasskeySource>[0],
+      readUsernames,
+    );
+    const found = await source.candidates(origin, rpId, signal);
+    // The username the person excluded is never read.
+    expect(await source.loginUsernames!(found!.candidates)).toEqual([
+      "4444@example.com",
+      undefined,
+    ]);
+    expect(readUsernames).toHaveBeenCalledOnce();
+    expect(readUsernames).toHaveBeenCalledWith(expect.objectContaining({ id: "live" }), [first]);
+    // Without a reader, nothing is read.
+    const plain = createVaultPasskeySource(
+      connections as unknown as Parameters<typeof createVaultPasskeySource>[0],
+    );
+    expect(await plain.loginUsernames!(found!.candidates)).toEqual([undefined, undefined]);
+  });
+
   it("reads an item's passkey RP IDs from its own connection's open vault (ADR 0084)", async () => {
     const { source, manager } = runtime([saved()]);
     expect(await source.rpIds!({ connectionId: "live", itemId: first })).toEqual(["openai.com"]);

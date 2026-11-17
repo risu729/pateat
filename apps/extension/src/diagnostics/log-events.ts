@@ -554,6 +554,8 @@ export const LOG_EVENTS = {
       mediation: "code",
       uiMode: "code",
       duringLogin: "flag",
+      movedLogin: "flag",
+      pageAccount: "code",
       paused: "flag",
       answerFailed: "code",
       cause: "code",

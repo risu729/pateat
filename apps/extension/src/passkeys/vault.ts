@@ -1,6 +1,7 @@
 import {
   connectionUse,
   getItemEligibility,
+  isFieldExcluded,
   isSupportedSite,
   onlyChoicesSince,
   itemAsksForMasterPassword,
@@ -12,6 +13,7 @@ import {
   type LocalSettings,
 } from "@pateat/contracts";
 import type { ConnectionRuntime } from "../connections/runtime";
+import type { LoginUsernameSource } from "../login/vault";
 import type { PasskeyMatches } from "../crypto/passkey";
 import type { VaultResult } from "../vault/record";
 import { fromBase64Url, toBase64Url } from "./encoding";
@@ -272,10 +274,13 @@ export function createVaultPasskeyFinder(
 
 /**
  * Vault-backed passkey source. Signing happens in the crypto Worker and only while the settings
- * revision, snapshot and item eligibility that produced the candidate still hold.
+ * revision, snapshot and item eligibility that produced the candidate still hold. With
+ * `readUsernames`, it also reads the login usernames of candidates' items that a page's
+ * shown address is compared with (ADR 0028 amendment of 2026-11-17).
  */
 export function createVaultPasskeySource(
   connections: Pick<ConnectionRuntime, "settings" | "registry" | "vaultFor">,
+  readUsernames?: LoginUsernameSource,
 ): PasskeySource<VaultPasskeyCandidate> {
   const read = async () => {
     const saved = await connections.settings.handle({ version: 1, type: "settings.get" });
@@ -318,6 +323,50 @@ export function createVaultPasskeySource(
         find,
         ...(only ? { only } : {}),
       });
+    },
+    async loginUsernames(candidates) {
+      const names: (string | undefined)[] = candidates.map(() => undefined);
+      const saved = readUsernames ? await read() : undefined;
+      if (!readUsernames || !saved) return names;
+      const { settings } = saved.snapshot;
+      const { catalog } = saved;
+      // Read as a fill would be (ADR 0080): under the settings the candidate was found in,
+      // for an eligible item whose login username is an allowed field.
+      const wanted = new Map<string, number[]>();
+      for (const [index, candidate] of candidates.entries()) {
+        const eligibility = getItemEligibility(
+          settings,
+          catalog,
+          candidate.connectionId,
+          candidate.itemId,
+        );
+        if (
+          !current(saved, candidate) ||
+          !eligibility.eligible ||
+          !eligibility.fieldIds.includes("login.username") ||
+          isFieldExcluded(
+            settings,
+            catalog,
+            candidate.connectionId,
+            candidate.itemId,
+            "login.username",
+          )
+        )
+          continue;
+        wanted.getOrInsertComputed(candidate.connectionId, () => []).push(index);
+      }
+      for (const [connectionId, indexes] of wanted) {
+        const connection = catalog.connections.find((entry) => entry.id === connectionId);
+        if (!connection) continue;
+        const itemIds = [...new Set(indexes.map((index) => candidates[index]!.itemId))];
+        // oxlint-disable-next-line no-await-in-loop -- a vault's Worker takes one job at a time
+        const usernames = await readUsernames(connection, itemIds).catch(() => undefined);
+        for (const index of indexes) {
+          const name = usernames?.[candidates[index]!.itemId];
+          if (name) names[index] = name;
+        }
+      }
+      return names;
     },
     async rpIds(item) {
       const vault = await managerFor(item.connectionId);
