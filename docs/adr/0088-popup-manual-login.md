@@ -152,3 +152,7 @@ The following are the agent's choices, not confirmed by the owner:
   only stops offering it there.
 - **Fill** is not a login: it starts no attempt, clears no ask for an account and
   changes no setting, default or record.
+- After a worker restart, the offer gets a top verification page the worker does not
+  know yet to announce again, with a bounded wait, so **Fill** shows there; other pages
+  are not asked
+  ([ADR 0035](0035-page-kinds-per-site.md#amendment-2026-11-17-fill-after-a-worker-restart)).

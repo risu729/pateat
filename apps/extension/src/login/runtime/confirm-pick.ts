@@ -5,7 +5,6 @@
 import { sameLoginDocument, type SettingsResponse } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
 import { browser } from "wxt/browser";
-import { observedPath } from "../../observation/path";
 import type { ConfirmFillRequest, ConfirmFillResponse } from "../manual-wire";
 import { frameKey, logCode, siteOf } from "./steps";
 import { siteCandidates } from "./choice-save";
@@ -45,35 +44,6 @@ export async function confirmFillPage(
   const pressing = pick?.active === true && sameLoginDocument(pick.document, live.document);
   if (!pressing && hasConfirmClaim(rt, pressGenerationKey(live))) return false;
   return live.textAnswer === true && (await offersGeneration(rt, live)) === true;
-}
-
-/**
- * Asks the tab's page to announce again when the worker knows no document of it and its
- * path has a `confirm` or `unclear` recipe that `confirm` lets fill, so the popup can offer
- * **Fill** there. A restarted worker keeps no document: it asks only the tabs of sites
- * with a saved default or a login record to announce again, and the popup's offer may
- * come before they do. The announcement is the one the page made before the restart.
- */
-export async function announceConfirmPage(
-  rt: Runtime,
-  tabId: number,
-  url: string,
-  snapshot: Extract<SettingsResponse, { ok: true }>,
-): Promise<void> {
-  if (rt.documents.has(frameKey({ tabId, frameId: 0 }))) return;
-  const page = URL.parse(url);
-  if (
-    !page ||
-    pagePermission(snapshot.snapshot.settings, url, "confirm").permission !== "fill" ||
-    (await confirmRecipeOn(rt, page.origin, observedPath(page.pathname))) === undefined
-  )
-    return;
-  // An announcement already under way, as the restarted worker's own reconnect, is enough.
-  if (!rt.admitting.has(`${tabId}:0`) && !rt.documents.has(frameKey({ tabId, frameId: 0 })))
-    await browser.tabs
-      .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId: 0 })
-      .catch(() => undefined);
-  await rt.admitting.get(`${tabId}:0`)?.catch(() => undefined);
 }
 
 /** What holds the tab from a press: any login, account switch or other fill there. */

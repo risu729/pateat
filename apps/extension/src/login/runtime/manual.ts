@@ -11,7 +11,8 @@ import { forget } from "./session-store";
 import { MANUAL_START_MS, endManual, type ManualStart } from "./manual-scope";
 import { cancelSso, ssoWaiting } from "./sso/flow";
 import { endConfirmPick } from "./confirm-pick-scope";
-import { announceConfirmPage, confirmFillPage } from "./confirm-pick";
+import { confirmFillPage } from "./confirm-pick";
+import { announceConfirmPage } from "./confirm-announce";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
 
