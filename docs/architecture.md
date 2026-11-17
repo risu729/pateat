@@ -3313,8 +3313,8 @@ hidden native button rather than clicking a script link with its text. A recipe 
 names a script link by text clicks a native button instead if the page later adds one
 with the same text. Other script buttons, such as a `<div role="button">`, are often
 widgets such as menus and toggles, so their `id`, `name` or `data-testid` names them,
-and their rendered text only inside a login `<form>` or beside a password form, on a
-judged page when it names the authenticator app's code
+and their rendered text only inside a login `<form>` or beside a password or account
+form, on a judged page when it names the authenticator app's code
 ([ADR 0081](adr/0081-authenticator-method-button.md#amendment-a-role-button-that-chooses-the-authenticator-app)),
 or when it names a passkey on a passkey-only start page
 ([ADR 0053](adr/0053-passkey-only-generation.md)) or beside an account list
