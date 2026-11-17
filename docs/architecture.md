@@ -4856,9 +4856,9 @@ A saved mapping is validated directly at every use; discovery runs only for an u
 method or when the person asks, and a mapping this device cannot resolve can still be
 removed, here in the popup or from any browser on the service's Vaults page, which
 lists every mapping by item ID. Popup choices are memory-only, bounded to ten minutes
-and withdrawn on cancellation, a settings change of what the offer reads (its site and
-selected IdP accounts, its page's and their origins' rules, the site's default,
-private-window pausing and the passkey policy; amended on 2026-11-17 by
+and withdrawn on cancellation, a settings change of what the offer reads (its site
+account and its selected and mapped IdP accounts, the rules and saved defaults of the
+site and those IdP origins, and private-window pausing; amended on 2026-11-17 by
 [ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read)),
 a catalog change behind the offer's accounts, and a new document or path in the offer's
 own frame or the top frame. An SSO route validates its own method

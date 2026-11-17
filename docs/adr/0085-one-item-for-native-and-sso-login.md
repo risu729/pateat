@@ -522,16 +522,26 @@ check therefore ended the choice the person was about to answer.
 - **What an offer reads.** An open offer, its receipt and a request still reading the
   settings now depend on what they read, as an SSO flow already does
   (`ssoScopeDependencies`): the site account's eligibility, item and connection, and
-  that of each method's selected IdP account; the sign-in page permission, site rules
-  and master-password asks of the page and of those IdP origins; the site's saved
-  default; private-window pausing; and the passkey policy behind the native passkey
-  route. The site item's mappings stay the offer's own copy, as above, and the catalog
-  is still compared as a whole.
+  that of each method's selected IdP account and of the IdP account each saved mapping
+  named when the offer was made; the sign-in page permission, site rules and
+  master-password asks of the site and of those IdP origins; the saved defaults of the
+  site and of those IdP origins, which the flow that follows reads too, so an offer no
+  longer outlives an IdP default that would end the flow at its start; and
+  private-window pausing. A mapping refused for its IdP account's settings therefore
+  ends its offer once the person changes those settings, and the next sign-in tries
+  it again. The site item's mappings stay the offer's own copy, as above, and the
+  catalog is still compared as a whole. The passkey policy is not among them: only a
+  passkey assertion reads it, at signing time.
 - **A settings change.** It withdraws only the offers whose dependencies changed, with
   `settings-changed`; any other offer stays open and is checked against the new
   settings. A request whose settings read a change outran reads them again, ends with
   `settings-changed` when the newer read changes what it reads, and otherwise builds its
   offer from the newer read.
+- **The coordinator's own read.** The coordinator chooses the site account and admits
+  the page under its own settings read, before it requests the method choice. It hands
+  that read to the request, which ends with `settings-changed` when its own read
+  changes what it reads, so a change between the two reads cannot leave a native
+  route on an account the newer settings would not choose.
 - **Revisions.** An offer no longer compares revision causes (`onlyChoicesSince`): a
   revision of any cause, or one whose cause the history no longer holds, keeps it
   unless it changed what the offer reads. Running logins and the other work fenced on

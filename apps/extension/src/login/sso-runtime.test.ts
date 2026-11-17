@@ -142,11 +142,11 @@ it.each(["synced", "saved"] as const)(
       itemId: account.itemId,
     });
     fixture.saved.snapshot.settings.theme = "dark";
-    const reads = fixture.readSettings.mock.calls.length;
+    const checked = vi.spyOn(runtime.ssoChoices!, "settingsChanged");
     runtime.settingsChanged(source);
-    // The offer is checked against the settings the change wrote.
-    await vi.waitFor(() => expect(fixture.readSettings.mock.calls.length).toBeGreaterThan(reads));
-    await Promise.resolve();
+    // The offer was checked against the settings the change wrote, and kept.
+    expect(checked).toHaveBeenCalledTimes(1);
+    await checked.mock.results[0]!.value;
     expect(ended).toBe(false);
     expect(await runtime.ssoChoices!.get(7)).toMatchObject({
       ok: true,

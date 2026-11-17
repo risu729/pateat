@@ -446,7 +446,7 @@ describe("open offers and SSO mapping revisions (ADR 0085)", () => {
     "withdraws an open offer after a revision that changes %s",
     async (change) => {
       const h = start();
-      const pending = await h.request({ url: `${h.input.document.origin}/sign-in` });
+      const pending = await h.request();
       expect(await h.choose("mapping")).toEqual({ ok: true });
       await h.updateSettings(undefined, "service-sync", (snapshot) => ({
         ...snapshot,

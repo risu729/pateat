@@ -17,7 +17,7 @@ import {
   type SsoMapping,
 } from "@pateat/contracts";
 import { exportedSettings } from "../service/settings-sync";
-import { ssoScopeDependencies } from "./runtime/sso/dependencies";
+import { ssoScopeDependencies } from "./sso-dependencies";
 import type { VaultSsoSource } from "./sso-vault";
 import {
   ssoEntriesSchema,
@@ -127,30 +127,43 @@ export function createSsoChoiceController(options: {
   }
   const selectedOf = (method: Method) =>
     method.candidates.find((entry) => entry.id === method.selectedId);
+  type Choice = Method["candidates"][number]["selected"];
   /**
-   * What the offer reads from the settings: the site account and each method's selected
-   * IdP account, the page and those IdP origins, the site's saved default, the
-   * private-window pausing and the passkey policy behind its native passkey route.
+   * What an offer or request reads from the settings: the site account and the IdP
+   * accounts of `choices`, the site's and those IdP origins' rules and saved defaults,
+   * and the private-window pausing, as an SSO flow reads them.
    */
-  function dependencies(input: SsoChoiceInput, methods: Method[], saved: Saved) {
-    const { account, document, url, incognito } = input;
-    const chosen = methods.flatMap((method) => {
-      const entry = selectedOf(method);
-      return entry ? [entry.selected] : [];
+  function dependencies(input: SsoChoiceInput, choices: Choice[], saved: Saved) {
+    const { account, document, incognito } = input;
+    const origins = choices.map((entry) => entry.origin);
+    return ssoScopeDependencies(
+      {
+        accounts: [account, ...choices.map((entry) => entry.account)],
+        pages: [document.origin, ...origins],
+        origins: [account.origin, ...origins],
+        incognito,
+      },
+      saved,
+    );
+  }
+  /**
+   * The IdP accounts and origins the offer's methods use: each selected one, and the one
+   * each saved mapping named when the offer was made, so a mapping refused for its IdP
+   * account's settings recovers once the person fixes them.
+   */
+  function offerChoices(offer: Offer): Choice[] {
+    const site = portable(offer.saved, offer.input.account);
+    const mappings = offer.saved.snapshot.settings.ssoMappings ?? [];
+    return offer.methods.flatMap((method) => {
+      const chosen = selectedOf(method)?.selected;
+      const key = site && method.stored && ssoMappingKey({ ...site, method: method.method.number });
+      const stored = key ? mappings.find((entry) => ssoMappingKey(entry) === key) : undefined;
+      const account = stored && resolveAccount(offer.saved, stored.idp);
+      return [
+        ...(chosen ? [chosen] : []),
+        ...(stored && account ? [{ account, origin: stored.idp.origin }] : []),
+      ];
     });
-    return JSON.stringify([
-      ssoScopeDependencies(
-        {
-          accounts: [account, ...chosen.map((entry) => entry.account)],
-          pages: [url ?? document.origin, ...chosen.map((entry) => entry.origin)],
-          // The IdP account comes from the mapping, never from the IdP origin's default.
-          origins: [account.origin],
-          incognito,
-        },
-        saved,
-      ),
-      saved.snapshot.settings.passkeyPolicy,
-    ]);
   }
   /**
    * Whether `saved` keeps the offer's settings and catalog. A newer revision keeps it
@@ -163,8 +176,8 @@ export function createSsoChoiceController(options: {
     const { account, document } = offer.input;
     return (
       siteMappings(saved.snapshot.settings, portable(offer.saved, account)) === offer.mappings &&
-      dependencies(offer.input, offer.methods, saved) ===
-        dependencies(offer.input, offer.methods, offer.saved) &&
+      dependencies(offer.input, offerChoices(offer), saved) ===
+        dependencies(offer.input, offerChoices(offer), offer.saved) &&
       JSON.stringify(saved.catalog) === JSON.stringify(offer.saved.catalog) &&
       !saved.catalog.settingsSyncPending &&
       account.origin === document.origin &&
@@ -576,6 +589,9 @@ export function createSsoChoiceController(options: {
       pending.delete(tabId);
       if (!saved) return early("unavailable");
       if (!saved.ok) return early("settings-unavailable");
+      // A change since the coordinator's own read, before this request began, ends it too.
+      if (input.basis && dependencies(input, [], input.basis) !== dependencies(input, [], saved))
+        return early("settings-changed");
       if (input.entries && !v.safeParse(ssoEntriesSchema, input.entries).success)
         return early("entry-invalid");
       const path = options.currentDocument(input.document);
