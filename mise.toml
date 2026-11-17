@@ -1,6 +1,6 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
-min_version = "2026.10.8"
+min_version = "2026.10.19"
 monorepo_root = true
 
 [monorepo]
@@ -40,8 +40,6 @@ betterleaks = "v1.10.1"
 [settings]
 experimental = true
 lockfile = true
-# Default only from mise 2026.10.19; min_version stays at 2026.10.8 (docs/development.md).
-lockfile_mode = "generate"
 lockfile_platforms = ["linux-x64", "windows-x64"]
 
 [env]

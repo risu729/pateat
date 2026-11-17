@@ -287,11 +287,13 @@ everything else `paranoid` turns on, `allowBuilds` and `advisoryBloomCheck` stil
 apply, so only those two scripts run, just without the jail. Never set this variable in
 CI, in `mise.toml` or on a machine whose kernel has Landlock.
 
-`min_version` in the root `mise.toml` stays at 2026.10.8 (owner decision, 2026-10-13).
-The owner's Windows mise comes from winget, which lags mise releases and refuses
-`mise self-update`, so a higher minimum stops every mise command there. Do not lower it
-to the oldest version that works, and raise it by hand only when the repository needs
-a newer mise. CI pins the mise version in `jdx/mise-action`, which Renovate updates, so
+`min_version` in the root `mise.toml` is 2026.10.19, the first release in which
+`lockfile_mode` defaults to `generate`, so `mise.toml` does not set it. Raise
+`min_version` whenever the repository relies on a newer mise default or feature,
+instead of keeping a default-equal setting for older releases (owner decision,
+2026-11-17 02:55 UTC). This replaces the 2026-10-13 decision to hold it at 2026.10.8
+for the winget mise on Windows. Do not lower it to the oldest version that works.
+CI pins the mise version in `jdx/mise-action`, which Renovate updates, so
 a mise release that breaks the repository fails CI. The shared Renovate preset raised
 `min_version` with every mise release; that manager moves to risu729/dotfiles
 ([risu729/renovate-config#2696](https://github.com/risu729/renovate-config/pull/2696)).
