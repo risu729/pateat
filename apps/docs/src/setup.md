@@ -217,8 +217,9 @@ the account you choose now, also when a page script changed it without an edit. 
 does not ask the AI to look at a page that already has a recipe again. A page that asks
 for a secret answer and has no recipe yet is described once to make one, under the
 normal limits and costs, and is filled only if it comes back as a verification page;
-otherwise Pateat leaves that page to you. **Fill** remembers no account and changes no
-setting; press it again to fill again.
+otherwise Pateat leaves that page to you. If no answer came back, as when a limit was
+reached, the popup says why, and pressing **Fill** again sends the page again. **Fill**
+remembers no account and changes no setting; press it again to fill again.
 
 A new verification page may be described to make a recipe, even when filling is off. A
 restarted extension worker does not replay an uncertain fill; a reloaded page is a new

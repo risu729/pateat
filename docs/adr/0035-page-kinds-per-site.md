@@ -603,7 +603,8 @@ agent's choices, not confirmed by the owner:
   ordinary generation once, under the usual sent-page cooldowns and spending limits and
   without `manual: true`, and only the pressed document is asked to announce the
   result. A returned `confirm` or `unclear` recipe then fills with the picked account.
-  Any other result ends the press (`not-a-verification-page`), and the pressed document
+  Any other recipe, or an abstention, ends the press (`not-a-verification-page`), and
+  the popup offers no **Fill** on that document and path again; the pressed document
   starts no login, also with a returned `sign-in` recipe, while it stays on that path:
   a press never leads to a login that presses buttons. Its announcements there are
   answered as watching, before SSO admission, so no SSO entry is pressed either. The
@@ -611,7 +612,10 @@ agent's choices, not confirmed by the owner:
   document, so the hold outlasts a worker restart; it goes once the document moves to
   another path, and with the tab's page as the other claims do. The person's own
   **Log in now** or popup account pick for that document still logs in. Other pages on
-  that path follow the returned recipe as usual.
+  that path follow the returned recipe as usual. The hold answers only after a login of
+  one of the page's frames that the page's move ends has ended. A generation that got
+  no answer (failed, unavailable or skipped) ends the press with its own reason, leaves
+  no claim and holds nothing, so a later press may send the page again.
 - A `confirm` page without a recipe that shows only a password form is not offered
   **Fill**: **Log in now** sends it once through its own generation, and once that comes
   back `confirm`, the popup offers **Fill** on the page.

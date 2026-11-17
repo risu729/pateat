@@ -2,7 +2,6 @@
 // verification that comes back fills, nothing else starts a login there that presses
 // buttons, also after a worker restart, and the person's own Log in now still logs in.
 import { describe, expect, it, vi } from "vitest";
-import { parseLoginRecipe } from "@pateat/contracts";
 import type { ManualStartRequest } from "../manual-wire";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
@@ -30,38 +29,11 @@ const {
   secretAnswer,
   sessionKey,
   origin,
+  generated,
+  signInCached,
+  ready,
+  heldPage,
 } = pickFixture(fake);
-type H = ReturnType<typeof harness>;
-
-const generated = () => parseLoginRecipe({ ...cached(), pageKind: "sign-in" });
-/** The origin's recipes once the page came back as a sign-in page that starts on its path. */
-function signInCached(on: H) {
-  on.recipes.routes.mockResolvedValue([generated()]);
-  on.recipes.recipe.mockResolvedValue(generated());
-  on.recipes.starts.mockResolvedValue(startsOf([generated().steps[0]!]));
-}
-/** The pressed page announces with its first step ready, as a sign-in form's page does. */
-const ready = (on: H) => on.hello({ documentId: "confirmation-document" });
-
-/** A secret-answer page a press sent for generation, which came back as a sign-in page. */
-async function heldPage() {
-  const { service, answer } = generation();
-  const { h } = start({}, { generation: service, custom: [] });
-  await secretAnswer(h)();
-  fake.state.onReconnect = () => ready(h);
-  expect(await press(h)).toMatchObject({ ok: true, state: "generating" });
-  await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
-  signInCached(h);
-  answer.resolve({ outcome: "recipe", recipe: generated() });
-  await vi.waitFor(async () =>
-    expect(await offers(h)).toMatchObject({
-      fill: { state: "blocked", reason: "not-a-verification-page" },
-    }),
-  );
-  await settled(h);
-  expect(executes()).toEqual([]);
-  return h;
-}
 
 describe("a page a Fill press sent for generation", () => {
   it("starts no login after a worker restart either", async () => {
@@ -113,6 +85,8 @@ describe("a page a Fill press sent for generation", () => {
     ]);
   });
 
+  // Its document's announcements while its generation runs are answered before admission,
+  // from the tab's confirmation work, so they never reach the press or the hold.
   it("is not ended by its page announcing again while it is sent", async () => {
     const { service, answer } = generation();
     const { h } = start({}, { generation: service, custom: [] });

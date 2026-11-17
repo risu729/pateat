@@ -1,8 +1,8 @@
 // The shared setup of the popup's **Fill** tests (ADR 0035, amended 2026-11-17): a tab
 // whose site Pateat did not log in to, with both items matching its pages.
 import * as v from "valibot";
-import { vi } from "vitest";
-import type { LocalSettings } from "@pateat/contracts";
+import { expect, vi } from "vitest";
+import { parseLoginRecipe, type LocalSettings } from "@pateat/contracts";
 import { manualOfferResponseSchema } from "../manual-wire";
 import type { LoginGeneration } from "../runtime/deps";
 import type { LoginReport } from "../runtime/report";
@@ -23,6 +23,9 @@ export function pickFixture(fake: ReturnType<typeof createBrowserFake>) {
     popup,
     executes,
     liveDefault,
+    cached,
+    startsOf,
+    settled,
   } = base;
   type H = ReturnType<typeof harness>;
 
@@ -122,5 +125,48 @@ export function pickFixture(fake: ReturnType<typeof createBrowserFake>) {
       );
   }
 
-  return { ...base, generation, both, start, offers, press, clicks, secretAnswer };
+  const generated = () => parseLoginRecipe({ ...cached(), pageKind: "sign-in" });
+  /** The origin's recipes once the page came back as a sign-in page that starts on its path. */
+  function signInCached(on: H) {
+    on.recipes.routes.mockResolvedValue([generated()]);
+    on.recipes.recipe.mockResolvedValue(generated());
+    on.recipes.starts.mockResolvedValue(startsOf([generated().steps[0]!]));
+  }
+  /** The pressed page announces with its first step ready, as a sign-in form's page does. */
+  const ready = (on: H) => on.hello({ documentId: "confirmation-document" });
+
+  /** A secret-answer page a press sent for generation, which came back as a sign-in page. */
+  async function heldPage(live: Parameters<typeof harness>[1] = {}) {
+    const { service, answer } = generation();
+    const { h } = start({}, { generation: service, custom: [], ...live });
+    await secretAnswer(h)();
+    fake.state.onReconnect = () => ready(h);
+    expect(await press(h)).toMatchObject({ ok: true, state: "generating" });
+    await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+    signInCached(h);
+    answer.resolve({ outcome: "recipe", recipe: generated() });
+    await vi.waitFor(async () =>
+      expect(await offers(h)).toMatchObject({
+        fill: { state: "blocked", reason: "not-a-verification-page" },
+      }),
+    );
+    await settled(h);
+    expect(executes()).toEqual([]);
+    return h;
+  }
+
+  return {
+    ...base,
+    generation,
+    both,
+    start,
+    offers,
+    press,
+    clicks,
+    secretAnswer,
+    generated,
+    signInCached,
+    ready,
+    heldPage,
+  };
 }

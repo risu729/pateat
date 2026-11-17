@@ -18,6 +18,7 @@ import {
   confirmBusy,
   hasConfirmAuthentication,
   pressGenerationKey,
+  releaseConfirmClaim,
   releasePressHolds,
   type ConfirmWork,
 } from "./confirm-state";
@@ -32,7 +33,8 @@ import { terminal } from "./attempt-state";
 import type { LoginRecipe } from "@pateat/contracts";
 import type { Runtime } from "./state";
 import type { AdmitContext } from "./admit-context";
-import type { ConfirmVisit, Readiness } from "./types";
+import type { GenerationOutcome } from "./report";
+import type { ConfirmVisit, LiveDocument, Readiness } from "./types";
 
 const OUTCOMES = {
   filled: "confirm-filled",
@@ -136,13 +138,13 @@ export async function pressHold(rt: Runtime, ctx: AdmitContext): Promise<Readine
   if (!hasConfirmClaim(rt, pressGenerationKey(ctx.live))) return undefined;
   if (ctx.manual || manualPending(rt, ctx.live) || explicitlyPicked(rt, ctx.document))
     return undefined;
-  const pick = confirmPickFor(rt, ctx.live);
-  // The press's own generation is still running: its work goes on.
-  if (pick && rt.confirmFill.work.get(ctx.document.tabId)?.pick === pick) return undefined;
+  // While the press's own generation runs, its document's announcements are answered
+  // before admission (`rt.confirmFill.work`), so they never reach this.
   const confirm = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
   // A verification came back: the press, or the tab's own login, fills it as usual.
   if (confirm) return undefined;
+  const pick = confirmPickFor(rt, ctx.live);
   if (pick) endConfirmPick(pick, "blocked", "not-a-verification-page");
   if (ctx.live.state !== "watching" || ctx.live.reason !== undefined) {
     ctx.live.state = "watching";
@@ -172,11 +174,9 @@ async function admitConfirmPick(
   const recipe = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
   if (confirmPickFor(rt, ctx.live) !== pick) return undefined;
-  // The press's own work is still running, as while its page is sent: it goes on.
-  if (rt.confirmFill.work.get(tabId)?.pick === pick)
-    return answer(rt, ctx, recipe ? "confirm-fill" : "generating");
   const generationKey = pressGenerationKey(ctx.live);
-  // Sent once already: a page that came back as anything but a verification is not one.
+  // Sent once already and answered: a page that came back as anything but a verification
+  // is not one. A generation that got no answer left no claim (`releaseConfirmClaim`).
   if (!recipe && (pick.generated || hasConfirmClaim(rt, generationKey)))
     return refuse("not-a-verification-page");
   if (!recipe && !ctx.live.textAnswer) return refuse("no-recipe-on-path");
@@ -215,21 +215,36 @@ async function admitConfirmPick(
       else if (end === "asked") {
         if (pick.active) pick.status = { requestId: pick.status.requestId, state: "asked" };
       } else if (end !== "reconnected")
-        endConfirmPick(
-          pick,
-          "blocked",
-          recipe ? "confirm-fill-stopped" : (ctx.live.generationSkip ?? "not-sent"),
-        );
+        endConfirmPick(pick, "blocked", recipe ? "confirm-fill-stopped" : unsent(ctx.live, end));
     },
   );
   return answer(rt, ctx, recipe ? "confirm-fill" : "generating", visit);
 }
 
 /**
+ * Why a press's page got no recipe: the service judged it no login page of any kind
+ * (`abstained`), so it is no verification page either, or the service's own reason, or
+ * why the page was not sent.
+ */
+function unsent(live: LiveDocument, end: ConfirmEnd): string {
+  if (typeof end === "object")
+    return end.outcome === "abstained" ? "not-a-verification-page" : end.reason;
+  return live.generationSkip ?? "not-sent";
+}
+
+/** How the tab's confirmation work ended, or the service's answer that brought no recipe. */
+type ConfirmEnd =
+  | ConfirmFillEnd
+  | "reconnected"
+  | Exclude<GenerationOutcome, { outcome: "recipe" }>;
+
+/**
  * Starts the tab's confirmation work in the background: it fills with `recipe`, or, with
  * none, sends the page for generation once under `generationKey` and has the document
  * announce again with what came back. `done` hears how it ended: `reconnected` once a
- * generated recipe is announced to the page.
+ * generated recipe is announced to the page, or the service's answer without a recipe.
+ * A press's generation the service did not answer with a recipe or an abstention drops
+ * its claim, so the person may press again.
  */
 function runConfirmWork(
   rt: Runtime,
@@ -237,7 +252,7 @@ function runConfirmWork(
   authority: Pick<ConfirmWork, "live" | "id" | "account" | "parent" | "pick">,
   recipe: LoginRecipe | undefined,
   generationKey: string,
-  done?: (end: ConfirmFillEnd | "reconnected") => void,
+  done?: (end: ConfirmEnd) => void,
 ): void {
   const work: ConfirmWork = {
     ...authority,
@@ -248,6 +263,7 @@ function runConfirmWork(
   };
   rt.confirmFill.work.set(ctx.document.tabId, work);
   let reconnected = false;
+  let answered: GenerationOutcome | undefined;
   const finish = () => {
     if (rt.confirmFill.work.get(ctx.document.tabId) === work)
       rt.confirmFill.work.delete(ctx.document.tabId);
@@ -276,11 +292,28 @@ function runConfirmWork(
             reconnected = true;
             finish();
           },
+          answered: (outcome) => {
+            answered = outcome;
+          },
         });
       }
     } finally {
       finish();
-      done?.(recipe ? end : reconnected ? "reconnected" : "stopped");
+      // A recipe that came back holds the page even when it reached it no more.
+      const unanswered =
+        !recipe &&
+        (answered === undefined ||
+          (answered.outcome !== "recipe" && answered.outcome !== "abstained"));
+      if (work.pick && unanswered) await releaseConfirmClaim(rt, generationKey);
+      done?.(
+        recipe
+          ? end
+          : reconnected
+            ? "reconnected"
+            : answered && answered.outcome !== "recipe"
+              ? answered
+              : "stopped",
+      );
       // The document's latest announcement, which may have replaced this one meanwhile.
       const page = rt.documents.get(ctx.key);
       if (recipe && page?.document.documentId === ctx.document.documentId) {

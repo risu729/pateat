@@ -10,7 +10,7 @@ import { frameKey, logCode, siteOf } from "./steps";
 import { siteCandidates } from "./choice-save";
 import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
-import { confirmBusy } from "./confirm-state";
+import { confirmBusy, hasConfirmClaim, pressGenerationKey } from "./confirm-state";
 import { confirmRecipeOn, offersGeneration } from "./generation-scope";
 import { pagePermission } from "./page-permission";
 import { fingerprint, pageRefusal } from "./manual";
@@ -37,6 +37,12 @@ export async function confirmFillPage(
   if (pagePermission(snapshot.snapshot.settings, live.url, "confirm").permission !== "fill")
     return false;
   if ((await confirmRecipeOn(rt, live.document.origin, live.path)) !== undefined) return true;
+  // A press's page that came back as anything but a verification is not offered again;
+  // the press still at work keeps its offer.
+  await rt.confirmFill.loaded;
+  const pick = rt.confirmFill.picks.get(live.document.tabId);
+  const pressing = pick?.active === true && sameLoginDocument(pick.document, live.document);
+  if (!pressing && hasConfirmClaim(rt, pressGenerationKey(live))) return false;
   return live.textAnswer === true && (await offersGeneration(rt, live)) === true;
 }
 

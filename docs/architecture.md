@@ -4755,20 +4755,22 @@ does not stop it. A press fills once and presses nothing; it writes no login rec
 default or binding. A secret-answer page without a recipe is offered only while it could
 be sent, and a press sends it for ordinary generation once, without `manual: true`,
 asking only the pressed document to announce the result. Only a returned `confirm` or
-`unclear` recipe fills; after any other result the pressed document starts no login on
-that path, also with a returned `sign-in` recipe, so a press never leads to a login that
-presses buttons. Admission answers it as watching before SSO admission (`pressHold` in
-`apps/extension/src/login/runtime/confirm-admit.ts`), unless the person's own **Log in
-now** or account pick names the document. The press's generation claim in
+`unclear` recipe fills; after any other recipe or an abstention the popup offers no
+**Fill** there again and the pressed document starts no login on that path, also with a
+returned `sign-in` recipe, so a press never leads to a login that presses buttons.
+Admission answers it as watching before SSO admission, and after a framed login's move
+has ended that login (`pressHold` in
+`apps/extension/src/login/runtime/confirm-admit.ts`), unless the person's own
+**Log in now** or account pick names the document. The press's generation claim in
 `session:pateat.confirm-fills.v1` holds it, so the hold outlasts a worker restart; it is
-dropped once the document moves to another path. In the page, a press replaces a value
-Pateat itself wrote unless trusted input events show it was edited since (`fillWrote` in
-`apps/extension/src/page/fill-edits.ts`, which keeps only which inputs were written and
-reads no value); a value a page script sets without an event is not seen and may be
-replaced. Every other nonempty value is kept, and a login's own confirmation fill keeps
-every value as before. A master password window the
-person closed for a press leaves that document's path to them, also for the tab's own
-login.
+dropped once the document moves to another path. A generation that got no answer drops
+the claim instead, so a later press may send the page again. In the page, a press
+replaces a value Pateat itself wrote unless trusted input events show it was edited
+since (`fillWrote` in `apps/extension/src/page/fill-edits.ts`, which keeps only which
+inputs were written and reads no value); a value a page script sets without an event is
+not seen and may be replaced. Every other nonempty value is kept, and a login's own
+confirmation fill keeps every value as before. A master password window the person
+closed for a press leaves that document's path to them, also for the tab's own login.
 
 ## Local SSO choice boundary
 

@@ -191,7 +191,8 @@ export const hasConfirmClaim = (rt: Runtime, key: string): boolean =>
 /**
  * The generation claim of a **Fill** press (amended 2026-11-17): one per document and
  * path, whichever press sent it. Kept in the session store with the other claims, it also
- * holds that document from starting a login on that path, across a worker restart.
+ * holds that document from starting a login on that path, across a worker restart. A
+ * generation the service gave no answer to drops it (`releaseConfirmClaim`).
  */
 export const pressGenerationKey = (live: LiveDocument) => confirmationGenerationKey("pick", live);
 
@@ -217,6 +218,17 @@ export function releasePressHolds(rt: Runtime, live: LiveDocument): void {
     state.claims = state.claims.filter((entry) => !left(entry.key));
     return state.claims.length !== before;
   });
+}
+
+/**
+ * Drops the claim `key`: a press's generation that got no answer from the service leaves
+ * no claim, so it holds nothing and a later press may send the page again.
+ */
+export async function releaseConfirmClaim(rt: Runtime, key: string): Promise<void> {
+  const state = rt.confirmFill;
+  const before = state.claims.length;
+  state.claims = state.claims.filter((entry) => entry.key !== key);
+  if (state.claims.length !== before) await write(rt);
 }
 
 /** Claim before any read/delivery; an unknown acknowledgement is never replayed. */

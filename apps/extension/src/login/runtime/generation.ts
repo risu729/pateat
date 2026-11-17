@@ -95,7 +95,13 @@ export async function generateFor(
     later?: { layout: string; step: number };
     done(outcome: GenerationOutcome): void;
   },
-  confirmation?: { current(): Promise<boolean>; reconnect(): void; only?: boolean },
+  confirmation?: {
+    current(): Promise<boolean>;
+    reconnect(): void;
+    only?: boolean;
+    /** Hears the service's answer, whatever it was. */
+    answered?(outcome: GenerationOutcome): void;
+  },
 ): Promise<void> {
   if (!rt.generation) return;
   const manualRequest = manualPending(rt, live);
@@ -303,6 +309,7 @@ export async function generateFor(
       ...(signedIn === undefined ? {} : { signedIn }),
     });
     repair?.done(result);
+    confirmation?.answered?.(result);
     const manual = manualPending(rt, live);
     if (manual && manual === manualRequest) {
       if (result.outcome !== "recipe") endManual(rt, live.document.tabId, result.reason);

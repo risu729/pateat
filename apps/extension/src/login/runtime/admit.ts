@@ -638,13 +638,14 @@ export async function admit(
     );
 
   // A page a **Fill** press sent for generation starts no login, SSO included (ADR 0035).
+  // A login the tab's move ends below still ends first, so the hold answers after it.
   const pressed = await pressHold(rt, ctx);
-  if (pressed) return pressed;
-
-  const sso = await ssoAdmit(rt, ctx);
-  if (sso) return sso;
-  const offeredSso = await offerSso(rt, ctx);
-  if (offeredSso) return offeredSso;
+  if (!pressed) {
+    const sso = await ssoAdmit(rt, ctx);
+    if (sso) return sso;
+    const offeredSso = await offerSso(rt, ctx);
+    if (offeredSso) return offeredSso;
+  }
   const holder = tabAttempt(rt, ctx.document.tabId);
 
   /** Logs why a move of `record` did not complete it, or that it was kept (ADR 0022). */
@@ -899,5 +900,6 @@ export async function admit(
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
   }
 
+  if (pressed) return pressed;
   return admitRecord(rt, ctx);
 }
