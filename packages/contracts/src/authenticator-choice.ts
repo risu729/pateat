@@ -100,7 +100,14 @@ export function codeSourceOf(texts: readonly string[]): CodeSource | undefined {
   let authenticator = false;
   let sent = false;
   for (const text of texts) {
-    const folded = text.normalize("NFKC").replace(/\S+@\S+|\[(?:email|masked|number)\]/gu, " ");
+    // Each whitespace-separated piece holding an `@` is an address; split first, so the
+    // match never scans the rest of the text again from each character.
+    const folded = text
+      .normalize("NFKC")
+      .replaceAll(/\[(?:email|masked|number)\]/gu, " ")
+      .split(/\s+/u)
+      .filter((piece) => !piece.includes("@"))
+      .join(" ");
     const spaced = words(folded);
     if (
       authenticatorWords.test(spaced) ||
