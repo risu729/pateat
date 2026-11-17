@@ -401,9 +401,7 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   const signInField = (form: HTMLFormElement | null) => {
     const fields = formFields.get(form) ?? [];
     const inputs = fields.filter((field) => field instanceof HTMLInputElement);
-    return (
-      inputs.findLast((input) => input.type === "password") ?? inputs.findLast(accountField)
-    );
+    return inputs.findLast((input) => input.type === "password") ?? inputs.findLast(accountField);
   };
   // A located native submit of the button's form after that form's sign-in field, with
   // no other fillable field between them, and before the button, so a search box's
