@@ -10,6 +10,8 @@ type State = {
   identities: Set<string>;
   opaque: boolean;
   filled: Set<string>;
+  /** Inputs Pateat itself wrote a value into in this document, never the value. */
+  wrote: WeakSet<Element>;
 };
 type Holder = { [key]?: State };
 const aliases = (input: Element): string[] => {
@@ -33,6 +35,7 @@ export function recordFillEdits(document: Document, window: Window): () => void 
     identities: new Set(),
     opaque: false,
     filled: new Set(),
+    wrote: new WeakSet(),
   };
   holder[key] = state;
   const roots = new Set<ShadowRoot>();
@@ -113,4 +116,18 @@ export function claimFill(
   if (state.filled.size >= 1024) return false;
   state.filled.add(identity);
   return true;
+}
+
+/** Records that Pateat is about to write a value into `input`, as any of its fills does. */
+export function noteFillWrite(window: Window, input: Element): void {
+  (window as unknown as Holder)[key]?.wrote.add(input);
+}
+
+/**
+ * Whether the value in `input` may be Pateat's own: Pateat wrote into it and nobody edited
+ * it since. A value the page or another extension set is not, so it is never replaced.
+ */
+export function fillWrote(window: Window, input: Element): boolean {
+  const state = (window as unknown as Holder)[key];
+  return state?.wrote.has(input) === true && fillUntouched(window, input);
 }

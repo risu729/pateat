@@ -246,6 +246,11 @@ export type LoginReport = (
       pageKind?: PageKind;
       permissionSource?: "site" | "default";
       /**
+       * For `confirm-fill` and `confirm-fill-stopped`: whose account fills, the tab's
+       * confirmed login's or the person's **Fill** pick's (ADR 0035, amended 2026-11-17).
+       */
+      accountSource?: "login" | "pick";
+      /**
        * Also for `confirm-unsupported`, what the page showed for the evaluation of page
        * kinds, never a value or page text (ADR 0035): whether an amount shows in the form of
        * its first step (absent when that step is in no form), whether a signed-in marker of

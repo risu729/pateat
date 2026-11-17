@@ -161,7 +161,7 @@ export function PagePermissionNotes() {
       </p>
       <p className="m-0">
         {t(
-          "Verification pages fill only after a confirmed Pateat login in the same tab, using that account. Off leaves them alone. Buttons, codes and passkey verification stay with you or the browser.",
+          "Verification pages fill by themselves only after a confirmed Pateat login in the same tab, using that account; Fill in the popup fills one with the account you choose. Off leaves them alone and hides Fill. Buttons, codes and passkey verification stay with you or the browser.",
         )}
       </p>
       <p className="m-0">

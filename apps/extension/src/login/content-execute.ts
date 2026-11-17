@@ -33,11 +33,11 @@ import { nodeProperty } from "../page/form-native";
 import { typeValue } from "../page/enter-value";
 import { nextFrame } from "../page/frames";
 import { pageChange } from "../page/page-change";
-import { claimFill, fillUntouched, fillEditsReady } from "../page/fill-edits";
+import { claimFill, fillUntouched, fillEditsReady, noteFillWrite } from "../page/fill-edits";
 import {
   beyondSignInFill,
-  confirmOperation,
   destinationWatch,
+  keepsValue,
   passiveRecheck,
 } from "./sign-in-fill-page";
 import { settled } from "../page/quiet";
@@ -585,17 +585,9 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
                   ? "page-changed"
                   : "field-changed",
             );
-          // As Bitwarden's autofill on page load fills only empty password fields
-          // (`onlyEmptyFields`), a sign-in fill keeps a password already in its input. A
-          // confirmation fill keeps any value already there (ADR 0035 delivery 3).
-          const keptPassword =
-            (value.secret === "password" ||
-              (input instanceof HTMLInputElement && input.type === "password")) &&
-            input.value.trim() !== "";
           if (
             operation.signInFill &&
-            (keptPassword ||
-              (confirmOperation(operation) && input.value !== "") ||
+            (keepsValue(window, operation, input, value.secret) ||
               !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot))
           ) {
             value.value = "";
@@ -613,6 +605,7 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
           }
           // Mark uncertainty before calling into DOM/page code, including a throwing setter.
           mutated = true;
+          noteFillWrite(window, input);
           if (
             !context.shownBefore &&
             (!context.submitsTaken || writableInputs.every((other) => !other.value))

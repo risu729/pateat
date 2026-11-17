@@ -355,6 +355,7 @@ describe("production login document admission", () => {
             origin,
             reason: "not-started",
             detail: "confirm-fill",
+            accountSource: "login",
             recipeId: "gen-confirm",
             recipeRevision: confirm.revision,
             pageKind: "confirm",

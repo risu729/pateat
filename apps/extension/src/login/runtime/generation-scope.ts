@@ -27,6 +27,7 @@ import { listedBrowserSite, pauseOf } from "./pause";
 import { skipGeneration } from "./generation";
 import { readUsernames, usernameShape } from "./markers";
 import { manualPending } from "./manual-scope";
+import { confirmPickFor } from "./confirm-pick-scope";
 import type { Runtime } from "./state";
 
 /**
@@ -439,7 +440,13 @@ export async function pausedMeanwhile(
   live: LiveDocument,
   page?: "entry" | "other",
 ): Promise<boolean> {
-  if (manualPending(rt, live) || (await pauseOf(rt, live)) === undefined) return false;
+  // The person's own request, **Log in now** or **Fill**, sends a paused site's page too.
+  if (
+    manualPending(rt, live) ||
+    confirmPickFor(rt, live) ||
+    (await pauseOf(rt, live)) === undefined
+  )
+    return false;
   skipGeneration(rt, live, "paused", page);
   void browser.tabs
     .sendMessage(

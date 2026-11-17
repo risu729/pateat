@@ -44,6 +44,12 @@ as a page that looks like a verification but is not sent (`frame`).
 Amended on 2026-11-11 by [ADR 0088](0088-popup-manual-login.md) for the explicit
 one-time popup login.
 
+Amended on 2026-11-17 by the owner (13:15 UTC,
+[below](#amendment-2026-11-17-fill-from-the-popup)): automatic filling of a
+verification page stays limited to the tab's own confirmed login, and the popup gains
+**Fill**, which fills such a page once with an account the person picks and presses
+nothing. Implemented on a branch, synthetic tests only.
+
 Date: 2026-10-12
 
 ## Context
@@ -455,8 +461,10 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   `authenticated` login for the document's origin. A blocked, unconfirmed, watched or
   fill-only record is insufficient, and so is a sign-in **Fill only** login or a passive
   autofill: neither ever enables verification autofill. Defaults, popup picks and
-  another tab's login do not select an account. The original authenticated record
-  remains unchanged.
+  another tab's login do not select an account for automatic filling; the popup's
+  **Fill** is the person's own one-time choice
+  ([amended 2026-11-17](#amendment-2026-11-17-fill-from-the-popup)). The original
+  authenticated record remains unchanged.
 - Session evidence of that authentication is written after its durable login record. It
   survives a worker restart and is absent after a browser restart or extension reload.
   Restoring a local attempt by tab ID alone does not authorize confirmation filling. A
@@ -541,3 +549,63 @@ filled again, by design: the content script's own record of the inputs it filled
 keeps those inputs and their values, so only fields still empty and untouched are
 filled. Closing a tab removes its entries. No vault value or
 page text is written to this store.
+
+## Amendment 2026-11-17: Fill from the popup
+
+The owner decided on 2026-11-17 at 13:15 UTC, answering two questions about
+verification pages a tab reaches without Pateat's own login in it:
+
+1. Automatic filling stays as it is (「いまのまま」): a `confirm` or `unclear` page is
+   filled by itself only in a tab whose own Pateat login finished `authenticated`,
+   with that login's account, as [delivery 3](#implementation-of-delivery-3) describes.
+2. The popup gets a button for such pages (「付ける」). On a page whose path has a
+   `confirm` or `unclear` recipe, the popup shows **Fill** (「入力」) instead of
+   **Log in now**. The person picks one of the page's matching accounts, and Pateat
+   fills that account's password into the recipe's fillable fields. It never presses
+   a button and never asks the model to classify a page that has a recipe again.
+
+The details below were proposed with the question and not objected to; they are the
+agent's choices, not confirmed by the owner:
+
+- **Fill** is not offered where `confirm` is `off` for the page's site or profile, and
+  the worker refuses a press there (`not-a-verification-page`, or `page-off` when the
+  setting changes while the press waits).
+- As the person's own action, like an account pick or **Log in now**, it works on a
+  paused or excluded site and in a private window where automatic login is off. Every
+  other check of a confirmation fill still runs: site access, the exact document and
+  path, the vault account's URI match, item and field policy, master-password re-prompt,
+  form destinations, the recipe-cache fence and the session's mutation claims.
+- A re-prompt item opens the master password window. The press waits for it, holding no
+  tab, and fills once the vault accepts the password while the same document is still
+  on the same path; closing the window ends the press (`closed`).
+- A value Pateat itself put into the input, which nobody edited since, may be replaced
+  by a later press, also with another account; a value the person typed, or the page
+  put there, is kept. A login's own automatic confirmation fill still keeps every value,
+  including one a press put in.
+- The scope is the selected document: the top page, or a frame whose picked account
+  matches the tab's top page as well (the frame rule of
+  [ADR 0086](0086-logins-in-frames-like-top-pages.md)). The press ends when that page,
+  its URL or its top page changes, after five minutes, on a worker restart, or when
+  the tab closes.
+- A secret-answer page without a recipe (the `text-answer` page of delivery 1) offers
+  **Fill** too. A press sends that page for ordinary generation once, under the usual
+  sent-page cooldowns and spending limits and without `manual: true`; a returned
+  `confirm` or `unclear` recipe then fills with the picked account, and any other result
+  ends the press (`not-a-verification-page`) and leaves the page to ordinary admission,
+  where a `sign-in` recipe may start an automatic login as on any other sign-in page.
+- A `confirm` page without a recipe that shows only a password form is not offered
+  **Fill**: **Log in now** sends it once through its own generation, and once that comes
+  back `confirm`, the popup offers **Fill** on the page.
+- Each press fills at most once and creates no login record, default, binding or
+  session account; a later press fills again. The log rows `confirm-fill` and
+  `confirm-fill-stopped` carry `accountSource`, `pick` for a press and `login` for a
+  login's automatic fill, never the account or a value. It stays on the device: a
+  problem line leaves it out, as it does `permissionSource` (`LOCAL_ONLY_FIELDS`).
+- While a press waits, the tab's popup offers neither **Log in now** nor another
+  **Fill**, and another login, account switch or confirmation fill in the tab refuses
+  the press (`login-running`). The popup shows the press's progress and closes once it
+  filled.
+
+Amends
+[ADR 0088](0088-popup-manual-login.md#amendment-2026-11-17-fill-on-verification-pages)
+for the popup's offer.

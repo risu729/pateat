@@ -79,7 +79,8 @@ export const LOCAL_ONLY_FIELDS = {
   // Keep the service's strict problem-report field contract unchanged (ADR 0035).
   "login.start": ["fillMode", "fillExpired", "permissionSource"],
   "login.exception": ["fillMode", "fillExpired", "permissionSource"],
-  "login.refused": ["permissionSource"],
+  // Whose account a verification fill uses (amended 2026-11-17) explains local autofill too.
+  "login.refused": ["permissionSource", "accountSource"],
   "login.attempt": [
     "fillMode",
     "fillExpired",

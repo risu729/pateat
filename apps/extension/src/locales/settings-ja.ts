@@ -353,8 +353,8 @@ export const settingsJa = {
   "Use profile default ({{behavior}})": "プロファイルの既定値を使う（{{behavior}}）",
   "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.":
     "「自動」はログインページに入力し、送信します。「入力のみ」では、ボタンの操作、認証コードの入力、ソフトウェアキーボードの操作は自分で行います。入力だけでページが進んだり送信されたりする項目は空欄のままにします。ポップアップでアカウントを選ぶと、ボタンを押してログインします。",
-  "Verification pages fill only after a confirmed Pateat login in the same tab, using that account. Off leaves them alone. Buttons, codes and passkey verification stay with you or the browser.":
-    "ログイン後の本人確認ページには、同じタブで Pateat がログインを確認したアカウントだけで入力します。「オフ」は何もしません。ボタンの操作と認証コードの入力は自分で行い、パスキーによる本人確認はブラウザーに任せます。",
+  "Verification pages fill by themselves only after a confirmed Pateat login in the same tab, using that account; Fill in the popup fills one with the account you choose. Off leaves them alone and hides Fill. Buttons, codes and passkey verification stay with you or the browser.":
+    "ログイン後の本人確認ページに自動で入力するのは、同じタブで Pateat がログインを確認したときだけで、そのアカウントを使います。ポップアップの「入力」では、選んだアカウントで入力します。「オフ」は何もせず、「入力」も表示しません。ボタンの操作と認証コードの入力は自分で行い、パスキーによる本人確認はブラウザーに任せます。",
   "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.":
     "ログイン以外の個人情報フォームへの入力は未対応です。設定は対応後に使うために保存します。ログインの途中で求められる個人情報には、ログインページの設定が適用されます。",
   "This site already has a rule. Edit it in the list.":
@@ -380,8 +380,8 @@ export const settingsJa = {
     "このホストに保存されたルールは、サブドメインにも適用されます。適用範囲を確認しながら、設定画面で編集してください。",
   "Rule for {{hostname}}": "{{hostname}} のルール",
   "Profile default": "プロファイルの既定値",
-  "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages use the account Pateat confirmed in this tab; Off leaves them alone. Other personal-detail forms are not filled yet.":
-    "「入力のみ」では、ボタンの操作、認証コードの入力、ソフトウェアキーボードの操作は自分で行います。ポップアップでアカウントを選んだ場合は、ボタンを押してログインします。ログイン後の本人確認には、このタブで Pateat がログインを確認したアカウントで入力し、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力は未対応です。",
+  "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages use the account Pateat confirmed in this tab, or the one you choose with Fill; Off leaves them alone. Other personal-detail forms are not filled yet.":
+    "「入力のみ」では、ボタンの操作、認証コードの入力、ソフトウェアキーボードの操作は自分で行います。ポップアップでアカウントを選んだ場合は、ボタンを押してログインします。ログイン後の本人確認には、このタブで Pateat がログインを確認したアカウントか、「入力」で選んだアカウントで入力し、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力は未対応です。",
   "Edit profile defaults and site rules": "既定値とサイトのルールを編集",
   "Page behavior saved.": "ページでの動作を保存しました。",
 } satisfies Record<keyof typeof settingsEn, string>;

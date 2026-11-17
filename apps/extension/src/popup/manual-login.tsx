@@ -3,9 +3,9 @@ import type { SettingsResponse, SiteAccountsResponse } from "@pateat/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LoaderCircle, LogIn } from "lucide-react";
+import { KeyRound, LoaderCircle, LogIn } from "lucide-react";
 import { i18n } from "../i18n";
-import type { ManualClient, ManualOfferResponse } from "../login/manual-wire";
+import type { ConfirmFillStatus, ManualClient, ManualOfferResponse } from "../login/manual-wire";
 import { Button } from "../options/button";
 import { siteAccountOptions } from "../options/site-policy";
 
@@ -79,8 +79,40 @@ export function manualReason(reason: string | undefined, t: TFunction): string {
       return t("Enter the master password in Pateat's window to continue this login.");
     case "closed":
       return t("The master password window was closed. Try again when you are ready.");
+    // A **Fill** press on a verification page (ADR 0035).
+    case "page-off":
+      return t("Verification filling is off for this site. Change it under Page behavior first.");
+    case "not-a-verification-page":
+    case "no-recipe-on-path":
+      return t("This page was not recognized as a verification page, so nothing was filled.");
+    case "confirm-fill-stopped":
+      return t("Filling stopped. Check the page, vault and settings, then try again.");
     default:
       return t("The login could not start. Check Diagnostics for the reason, then try again.");
+  }
+}
+
+/** Whether a **Fill** press is still at work: the popup waits and offers nothing else. */
+export const fillRunning = (status: ConfirmFillStatus | undefined): boolean =>
+  status?.state === "preparing" || status?.state === "generating" || status?.state === "asked";
+
+/** What the popup says of a **Fill** press, while it runs and once it ended. */
+export function fillStatusText(status: ConfirmFillStatus, t: TFunction): string {
+  switch (status.state) {
+    case "preparing":
+      return t("Filling this page…");
+    case "generating":
+      return t("Checking the page before filling it…");
+    case "asked":
+      return t("Enter the master password in Pateat's window to fill this page.");
+    case "filled":
+      return t("Filled. Review the page and press its button yourself.");
+    case "kept":
+      return t(
+        "Nothing was filled, as the fields already have values. Press the page's button yourself when ready.",
+      );
+    case "blocked":
+      return manualReason(status.reason, t);
   }
 }
 
@@ -155,6 +187,7 @@ export function ManualLogin({
       return answer?.ok &&
         (answer.status?.state === "evaluating" ||
           answer.status?.state === "generating" ||
+          fillRunning(answer.fill) ||
           answer.reason === "origin-busy" ||
           answer.reason === "login-running")
         ? 1000
@@ -186,12 +219,34 @@ export function ManualLogin({
     : options.length === 1
       ? options[0]
       : undefined;
-  const preparing = found?.status?.state === "evaluating" || found?.status?.state === "generating";
-  const pending = preparing ? found?.status?.requestId : undefined;
+  // A manual login, or a **Fill** press, that is still at work: nothing else starts.
+  const manualPreparing =
+    found?.status?.state === "evaluating" || found?.status?.state === "generating";
+  const preparing = manualPreparing || fillRunning(found?.fill);
+  const pending = manualPreparing ? found?.status?.requestId : undefined;
+  // This popup's own press, or one still at work, shows how it goes.
+  const press =
+    found?.fill && (fillRunning(found.fill) || found.fill.requestId === submitted)
+      ? found.fill
+      : undefined;
+  // A verification page offers **Fill** in place of **Log in now** (ADR 0035): the chosen
+  // account's password goes in, and the person presses the page's button.
+  const filling = selected ? selected.fill === true : press !== undefined;
   useEffect(() => {
-    if (submitted && found?.status?.requestId === submitted && found.status.state === "started")
+    if (
+      submitted &&
+      ((found?.status?.requestId === submitted && found.status.state === "started") ||
+        (found?.fill?.requestId === submitted && found.fill.state === "filled"))
+    )
       onStarted();
-  }, [submitted, found?.status?.requestId, found?.status?.state, onStarted]);
+  }, [
+    submitted,
+    found?.status?.requestId,
+    found?.status?.state,
+    found?.fill?.requestId,
+    found?.fill?.state,
+    onStarted,
+  ]);
 
   async function start() {
     if (!selected || !picked || disabled || preparing || running.current) return;
@@ -200,14 +255,22 @@ export function ManualLogin({
     const requestId = crypto.randomUUID();
     setSubmitted(requestId);
     setFailure(undefined);
+    const request = {
+      requestId,
+      document: selected.document,
+      scope: selected.scope,
+      connectionId: picked.connectionId,
+      itemId: picked.itemId,
+    };
     try {
-      const response = await client.start({
-        requestId,
-        document: selected.document,
-        scope: selected.scope,
-        connectionId: picked.connectionId,
-        itemId: picked.itemId,
-      });
+      if (selected.fill) {
+        const response = await client.fill(request);
+        if (response.ok && response.state === "filled") onStarted();
+        else if (!response.ok) setFailure(response.reason);
+        await offer.refetch();
+        return;
+      }
+      const response = await client.start(request);
       if (response.ok && response.state === "started") onStarted();
       else if (!response.ok) setFailure(response.reason);
       await offer.refetch();
@@ -244,9 +307,13 @@ export function ManualLogin({
   return (
     <section className="popup-section" aria-labelledby="popup-manual-heading">
       <div className="popup-section-head">
-        <h2 id="popup-manual-heading">{t("Log in now")}</h2>
+        <h2 id="popup-manual-heading">{filling ? t("Fill") : t("Log in now")}</h2>
         <p className="popup-muted popup-reason">
-          {t("Try once with a matching account. Automatic login settings stay the same.")}
+          {filling
+            ? t(
+                "This page asks you to verify while signed in. Fill enters the chosen account's password once; Pateat presses no button.",
+              )
+            : t("Try once with a matching account. Automatic login settings stay the same.")}
         </p>
       </div>
       {offer.isPending && <p className="popup-muted">{t("Checking this page…")}</p>}
@@ -283,7 +350,7 @@ export function ManualLogin({
       )}
       {selected && (
         <label className="popup-muted" htmlFor="popup-manual-account">
-          {t("Account to log in with")}
+          {filling ? t("Account to fill") : t("Account to log in with")}
           <select
             id="popup-manual-account"
             value={picked?.value ?? ""}
@@ -306,17 +373,19 @@ export function ManualLogin({
         </label>
       )}
       <output id="popup-manual-status" className="popup-muted" aria-live="polite">
-        {preparing
+        {manualPreparing
           ? found?.status?.reason === "master-password-reprompt"
             ? manualReason("master-password-reprompt", t)
             : found?.status?.state === "generating"
               ? t("Checking the page before starting the login…")
               : t("Preparing this login…")
-          : reason || offer.isError
-            ? manualReason(reason, t)
-            : undefined}
+          : press && (fillRunning(press) || !failure)
+            ? fillStatusText(press, t)
+            : reason || offer.isError
+              ? manualReason(reason, t)
+              : undefined}
       </output>
-      {preparing && found?.status?.reason === "master-password-reprompt" && (
+      {manualPreparing && found?.status?.reason === "master-password-reprompt" && (
         <Button type="button" disabled={disabled} onClick={onReprompt}>
           {t("Enter the master password")}
         </Button>
@@ -331,10 +400,12 @@ export function ManualLogin({
       >
         {preparing ? (
           <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+        ) : filling ? (
+          <KeyRound size={16} strokeWidth={2} aria-hidden="true" />
         ) : (
           <LogIn size={16} strokeWidth={2} aria-hidden="true" />
         )}
-        {t("Log in now")}
+        {filling ? t("Fill") : t("Log in now")}
       </Button>
       {pending && (
         <Button type="button" variant="outline" disabled={disabled} onClick={() => void cancel()}>

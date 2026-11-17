@@ -99,6 +99,7 @@ function harness(entry = record()) {
       proofs: [],
       claims: [],
       work: new Map(),
+      picks: new Map(),
       queue: Promise.resolve(),
     },
     settings: {

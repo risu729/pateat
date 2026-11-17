@@ -3,7 +3,7 @@
 import type * as v from "valibot";
 import { fillOnlyStep } from "@pateat/contracts";
 import { pageChange } from "../page/page-change";
-import { fillUntouched } from "../page/fill-edits";
+import { fillUntouched, fillWrote } from "../page/fill-edits";
 import type { commandSchema } from "./wire/commands";
 import type { LoginReadiness } from "./wire/readiness";
 import type { FormDestination } from "../page/form-destination";
@@ -14,9 +14,38 @@ type FillChange = Extract<Command, { type: "login.fill.change" }>;
 
 /** Marks the attempt ID of a confirmation page's fill (ADR 0035 delivery 3). */
 export const CONFIRM_ATTEMPT_PREFIX = "confirm:";
-/** Whether a fill operation fills a confirmation page for an authenticated login. */
+/**
+ * Marks the attempt ID of a confirmation page's fill the person asked for with **Fill** in
+ * the popup (ADR 0035, amended 2026-11-17): it is also a confirmation fill.
+ */
+export const CONFIRM_PICK_ATTEMPT_PREFIX = `${CONFIRM_ATTEMPT_PREFIX}pick:`;
+/** Whether a fill operation fills a confirmation page, for a login or the person's press. */
 export const confirmOperation = (operation: { attemptId: string }): boolean =>
   operation.attemptId.startsWith(CONFIRM_ATTEMPT_PREFIX);
+/** Whether a confirmation page's fill is the person's own **Fill** press. */
+export const confirmPickOperation = (operation: { attemptId: string }): boolean =>
+  operation.attemptId.startsWith(CONFIRM_PICK_ATTEMPT_PREFIX);
+
+/**
+ * Whether a passive fill leaves the value already in `input` as it is. As Bitwarden's
+ * autofill on page load fills only empty password fields (`onlyEmptyFields`), a sign-in
+ * fill keeps a password already in its input. A confirmation fill keeps any value already
+ * there (ADR 0035 delivery 3), except that the person's own **Fill** replaces a value
+ * Pateat put there that nobody edited since, and keeps every other (amended 2026-11-17).
+ */
+export function keepsValue(
+  window: Window,
+  operation: { attemptId: string },
+  input: Element & { value: string },
+  secret: string | undefined,
+): boolean {
+  if (confirmPickOperation(operation)) return input.value !== "" && !fillWrote(window, input);
+  if (confirmOperation(operation)) return input.value !== "";
+  return (
+    (secret === "password" || (input instanceof HTMLInputElement && input.type === "password")) &&
+    input.value.trim() !== ""
+  );
+}
 
 /**
  * Reads where a passive fill's values may go now, and answers later whether they still go

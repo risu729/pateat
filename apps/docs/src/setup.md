@@ -205,6 +205,19 @@ page once you enter it. If a master password window for another account is alrea
 open, Pateat asks for this account after it closes. If you close the window, Pateat
 leaves that page to you.
 
+On a verification page Pateat did not log you in to, such as after you signed in
+yourself, the popup shows **Fill** instead of **Log in now** while
+**Verification while signed in** is **Fill only**. Choose one of the page's matching
+accounts and press **Fill**: Pateat fills that account's password into the page once and
+presses nothing. It works on a paused site and in a private window too, and asks for the
+master password when the item requires it. An embedded form is filled only with an
+account that also matches the page around it. A value you typed stays; a value Pateat
+filled earlier may be replaced with the account you choose now. Pateat does not ask the
+AI to look at a page that already has a recipe again. A page that asks for a secret
+answer and has no recipe yet is described once to make one, under the normal limits and
+costs, and is filled only if it comes back as a verification page. **Fill** remembers no
+account and changes no setting; press it again to fill again.
+
 A new verification page may be described to make a recipe, even when filling is off. A
 restarted extension worker does not replay an uncertain fill; a reloaded page is a new
 page. After a browser restart, Pateat needs a newly confirmed login in the tab before
@@ -277,8 +290,10 @@ apply. The popup shows whether it is preparing, generating a recipe, starting or
 to continue; **Cancel this login** stops a request that is still preparing, as when the
 page never shows its sign-in form. If the page only has a sign-in link, open the actual
 sign-in page first. A running login in another tab, missing site access, a locked vault
-or a required master password still needs attention. A page classified as a confirmation
-is re-evaluated, not executed as a login merely because this button was pressed.
+or a required master password still needs attention. On a page classified as a
+verification, the popup offers **Fill** instead while verification filling is
+**Fill only**. With **Off**, **Log in now** has the page re-evaluated; it is never
+executed as a login merely because this button was pressed.
 
 With **Fill only**, **Log in now** can start one normal login, including presses, once
 Pateat is waiting for you or has filled what it could. It cannot interrupt an input or

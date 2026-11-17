@@ -58,7 +58,8 @@ you saved an [AI key](./setup.md#ai-key), Anthropic's API
 needs there: on Bitwarden, those of the server you chose.
 
 Verification autofill uses the account of a confirmed Pateat login in the same tab and
-browser session, under the profile's verification-page setting. It fills ordinary
+browser session, under the profile's verification-page setting. The popup's **Fill**
+uses the account you choose, once, for the page you are on. It fills ordinary
 empty, untouched fields and presses nothing. It does not authorize a transfer, order,
 account change or other action; you review the form and press its button yourself.
 It requests no additional Chrome permission.

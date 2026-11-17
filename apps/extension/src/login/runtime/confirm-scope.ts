@@ -16,6 +16,7 @@ import { pauseOf } from "./pause";
 import { pagePermission } from "./page-permission";
 import { probeMode } from "./constants";
 import { manualPending } from "./manual-scope";
+import { confirmPickFor, endConfirmPick } from "./confirm-pick-scope";
 import { hasConfirmAuthentication, type ConfirmWork } from "./confirm-state";
 import { openPasswordWindow } from "./master-password";
 import { settleConfirmFill } from "./not-started";
@@ -40,9 +41,28 @@ export function sameAuthority<T extends { snapshot: { snapshot: SettingsSnapshot
   );
 }
 
-export function confirmCurrent(rt: Runtime, work: ConfirmWork): boolean {
-  const { live, parent } = work;
+/**
+ * Whether the work's authority holds: the tab's confirmed login is still the origin's
+ * record, or the person's **Fill** press still names this document, path and page.
+ */
+function authorityCurrent(rt: Runtime, work: ConfirmWork): boolean {
+  const { live, parent, pick } = work;
+  if (pick) {
+    const flow = rt.sso.flows.get(live.document.tabId);
+    return confirmPickFor(rt, live) === pick && (!flow || flow.ended === true);
+  }
   const latest = recordFor(rt, live.document.tabId, live.document.origin);
+  return (
+    parent !== undefined &&
+    latest?.id === parent.id &&
+    hasConfirmAuthentication(rt, latest) &&
+    latest.account.connectionId === parent.account.connectionId &&
+    latest.account.itemId === parent.account.itemId
+  );
+}
+
+export function confirmCurrent(rt: Runtime, work: ConfirmWork): boolean {
+  const { live } = work;
   const top = rt.documents.get(frameKey({ tabId: live.document.tabId, frameId: 0 }));
   const running = tabAttempt(rt, live.document.tabId);
   return (
@@ -51,10 +71,7 @@ export function confirmCurrent(rt: Runtime, work: ConfirmWork): boolean {
     rt.vars.storageHealthy &&
     rt.confirmFill.work.get(live.document.tabId) === work &&
     rt.documents.get(frameKey(live.document)) === live &&
-    latest?.id === parent.id &&
-    hasConfirmAuthentication(rt, latest) &&
-    latest.account.connectionId === parent.account.connectionId &&
-    latest.account.itemId === parent.account.itemId &&
+    authorityCurrent(rt, work) &&
     (!running || terminal(running)) &&
     !manualPending(rt, live) &&
     !rt.manualStarts.get(live.document.tabId)?.pick &&
@@ -84,12 +101,15 @@ async function snapshotFor(rt: Runtime, work: ConfirmWork) {
     }),
   );
   if (!admissions.every(Boolean) || !confirmCurrent(rt, work)) return;
-  if (await pauseOf(rt, live)) return;
+  // The person's own press works on a paused site and in a private window, as a popup
+  // account pick does (ADR 0062); automatic filling does not.
+  if (!work.pick && (await pauseOf(rt, live))) return;
   if (!confirmCurrent(rt, work)) return;
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!snapshot.ok || !confirmCurrent(rt, work)) return;
   const permission = pagePermission(snapshot.snapshot.settings, live.url, "confirm");
-  if (!work.generation && permission.permission !== "fill") return;
+  // Only automatic classification goes on under `off`; a press is never offered there.
+  if ((work.pick || !work.generation) && permission.permission !== "fill") return;
   if (
     work.policyRevision !== undefined &&
     !onlyChoicesSince(snapshot.snapshot, work.policyRevision)
@@ -98,11 +118,14 @@ async function snapshotFor(rt: Runtime, work: ConfirmWork) {
   return snapshot;
 }
 
-/** Eligibility is checked for the authenticated account, never by a default or popup pick. */
+/**
+ * Eligibility is checked for the authenticated account, or the account the person chose
+ * with **Fill**; never by a default or another popup choice.
+ */
 export async function confirmAccount(rt: Runtime, work: ConfirmWork) {
   const snapshot = await snapshotFor(rt, work);
   if (!snapshot) return;
-  const { account } = work.parent;
+  const { account } = work;
   const scoped = await liveScope(rt, snapshot, work.live, account);
   if ("reason" in scoped || !confirmCurrent(rt, work)) return;
   // A frame-only URI grant must never authorize its top page, even on the same origin.
@@ -163,7 +186,7 @@ export async function confirmPlan(
     found.catalog,
     found.snapshot.snapshot.settings,
     recipe,
-    { ...work.parent.account, saved: false, source: "match" },
+    { ...work.account, saved: false, source: "match" },
     work.live.document.origin,
     slots,
     () => Promise.resolve(rt.generation?.slotFields(recipe.id)).catch(() => undefined),
@@ -188,7 +211,7 @@ export async function confirmPlan(
     ...found,
     fence,
     binding: bound.binding,
-    account: { ...work.parent.account, fieldIds: found.eligible.fieldIds },
+    account: { ...work.account, fieldIds: found.eligible.fieldIds },
   };
 }
 
@@ -212,10 +235,15 @@ export async function confirmReprompt(
   if (!itemAsksForMasterPassword(found.snapshot.snapshot.settings, found.item, work.live.url))
     return true;
   if (!rt.options.askMasterPassword || !confirmCurrent(rt, work)) return false;
-  const { live, parent } = work;
+  const { live, pick } = work;
   const { tabId, frameId, documentId } = live.document;
   const key = tabId + " " + documentId;
-  const grant = parent.id + " " + found.connection.id;
+  const grant = work.id + " " + found.connection.id;
+  // The login, or the person's press, whose fill the window answers for.
+  const stillAsks = () =>
+    pick
+      ? rt.confirmFill.picks.get(tabId) === pick && pick.active
+      : recordFor(rt, tabId, live.document.origin)?.id === work.id;
   const state = rt.confirmFill;
   const recipeId = work.recipe?.id;
   const granted = state.granted.get(live);
@@ -232,7 +260,7 @@ export async function confirmReprompt(
       openPasswordWindow(rt, "detail", key, {
         tabId,
         origin: live.document.origin,
-        account: parent.account,
+        account: work.account,
         connection: found.connection,
         item: found.item,
       });
@@ -240,14 +268,13 @@ export async function confirmReprompt(
       .then(async ({ answer, aborted }) => {
         const page = rt.documents.get(frameKey(live.document));
         const here = page?.document.documentId === documentId ? page : undefined;
-        const current =
-          !aborted &&
-          here?.path === live.path &&
-          recordFor(rt, tabId, live.document.origin)?.id === parent.id;
+        const current = !aborted && here?.path === live.path && stillAsks();
         // Checked for another vault account: once it ends, the page asks for its own.
         if (current && asked.connectionId !== found.connection.id) return ask();
         state.asking.delete(key);
         if (!current || answer !== "verified") {
+          // The press ends with its window; the person may press **Fill** again.
+          if (pick) endConfirmPick(pick, "blocked", answer === "closed" ? "closed" : "unavailable");
           // Only the person closing the window leaves the page to them; an unavailable
           // vault or prompt asks again at the document's next announcement.
           if (here)
@@ -257,6 +284,7 @@ export async function confirmReprompt(
               live.path,
               "confirm-fill-stopped",
               current && answer === "closed",
+              pick ? "pick" : "login",
             );
           return undefined;
         }

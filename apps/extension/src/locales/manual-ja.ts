@@ -36,4 +36,21 @@ export const manualJa = {
   "Cancel this login": "このログインをキャンセル",
   "Cancelled. Nothing will start from this request.":
     "キャンセルしました。この操作からログインが始まることはありません。",
+  "This page asks you to verify while signed in. Fill enters the chosen account's password once; Pateat presses no button.":
+    "ログイン中の本人確認のページです。「入力」を押すと、選んだアカウントのパスワードを 1 回だけ入力します。ボタンは押しません。",
+  "Account to fill": "入力するアカウント",
+  "Filling this page…": "このページに入力しています…",
+  "Checking the page before filling it…": "入力する前にページを確認しています…",
+  "Enter the master password in Pateat's window to fill this page.":
+    "このページに入力するには、Pateat のウィンドウでマスターパスワードを入力してください。",
+  "Filled. Review the page and press its button yourself.":
+    "入力しました。内容を確認して、ページのボタンはご自身で押してください。",
+  "Nothing was filled, as the fields already have values. Press the page's button yourself when ready.":
+    "入力欄にすでに値があるため、何も入力しませんでした。準備ができたら、ページのボタンはご自身で押してください。",
+  "Verification filling is off for this site. Change it under Page behavior first.":
+    "このサイトでは本人確認ページへの入力がオフです。先に「ページでの動作」で変更してください。",
+  "This page was not recognized as a verification page, so nothing was filled.":
+    "このページは本人確認のページと判定されなかったため、何も入力しませんでした。",
+  "Filling stopped. Check the page, vault and settings, then try again.":
+    "入力を中止しました。ページ、保管庫、設定を確認してから、もう一度お試しください。",
 };

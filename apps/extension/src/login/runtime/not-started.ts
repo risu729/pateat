@@ -1,7 +1,7 @@
 import { type LoginRecipe } from "@pateat/contracts";
 import { publish, report } from "./attempt";
 import { confirmSigns } from "./markers";
-import type { ConfirmOutcome } from "./confirm-state";
+import type { ConfirmAccountSource, ConfirmOutcome } from "./confirm-state";
 import type { Runtime } from "./state";
 import type { ConfirmVisit, LiveDocument, Shown } from "./types";
 
@@ -13,6 +13,8 @@ export function noteNotStarted(
   detail: string,
   recipe?: LoginRecipe,
   visit?: ConfirmVisit,
+  /** For a confirmation fill: whose account fills, the login's or the person's pick. */
+  accountSource?: ConfirmAccountSource,
 ): void {
   if (shown?.path !== live.path || live.notStarted === detail || visit?.noted?.has(detail)) return;
   live.notStarted = detail;
@@ -27,6 +29,7 @@ export function noteNotStarted(
     reason: "not-started",
     detail,
     ...(live.document.frameId === 0 ? {} : { frame: true as const }),
+    ...(accountSource ? { accountSource } : {}),
   };
   if (!visit) {
     const later = shown?.later;
@@ -68,19 +71,29 @@ const documentOf = (live: LiveDocument) => `${live.document.tabId} ${live.docume
  * A verification page's rows for its confirmation fill (ADR 0035 delivery 3), each once per
  * visit and with the page's evaluation fields: `confirm-fill` once it is checked, and
  * `confirm-fill-stopped` once the fill on its path stopped. A fill that ended before the
- * page reported its first step shown is logged when it does.
+ * page reported its first step shown is logged when it does. Both name whose account
+ * fills (`accountSource`): the tab's confirmed login's, or the person's **Fill** pick's.
  */
 export function noteConfirmFill(
   rt: Runtime,
   live: LiveDocument,
   shown: Shown | undefined,
   visit: ConfirmVisit,
+  accountSource: ConfirmAccountSource = "login",
 ): void {
   const reported = shown?.path === live.path ? shown : visit.shown;
-  noteNotStarted(rt, live, reported, "confirm-fill", undefined, visit);
+  noteNotStarted(rt, live, reported, "confirm-fill", undefined, visit, accountSource);
   const outcome = rt.confirmFill.outcomes.get(documentOf(live));
   if (outcome?.path === live.path && outcome.reason === "confirm-fill-stopped")
-    noteNotStarted(rt, live, reported, "confirm-fill-stopped", undefined, visit);
+    noteNotStarted(
+      rt,
+      live,
+      reported,
+      "confirm-fill-stopped",
+      undefined,
+      visit,
+      outcome.accountSource ?? accountSource,
+    );
 }
 
 /**
@@ -104,12 +117,14 @@ export async function settleConfirmFill(
   path: string,
   reason: ConfirmOutcome,
   declined = false,
+  accountSource: ConfirmAccountSource = "login",
 ): Promise<void> {
   // Inserted anew, so the map keeps outcomes in the order they last ended.
   rt.confirmFill.outcomes.delete(documentOf(page));
   rt.confirmFill.outcomes.set(documentOf(page), {
     path,
     reason,
+    accountSource,
     ...(declined ? { declined: true as const } : {}),
   });
   if (page.path !== path) return;
@@ -117,6 +132,6 @@ export async function settleConfirmFill(
   page.reason = reason;
   const visit = rt.confirmVisits.get(page.document.tabId);
   if (visit?.document.documentId === page.document.documentId && visit.path === path)
-    noteConfirmFill(rt, page, undefined, visit);
+    noteConfirmFill(rt, page, undefined, visit, accountSource);
   await publish(rt, page);
 }
