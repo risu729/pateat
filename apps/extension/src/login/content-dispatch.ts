@@ -666,9 +666,11 @@ export function createContentListener(context: ContentSession) {
       context.codeWatch = watching;
       const until = Date.now() + command.timeoutMs;
       const stopped = () => context.cancelled || watching.signal.aborted;
+      let answered = false;
       void (async () => {
         const now = await codePageDigest(document);
         respond({ ok: true, digest: now });
+        answered = true;
         const baseline = command.baseline ?? now;
         /* eslint-disable no-await-in-loop */
         for (let digest = now; ; digest = await codePageDigest(document)) {
@@ -678,6 +680,7 @@ export function createContentListener(context: ContentSession) {
               version: 1,
               type: "login.document.code-changed",
               token: context.token,
+              digest,
             });
             return;
           }
@@ -689,7 +692,9 @@ export function createContentListener(context: ContentSession) {
         }
         /* eslint-enable no-await-in-loop */
       })()
-        .catch(() => respond({ ok: false }))
+        .catch(() => {
+          if (!answered) respond({ ok: false });
+        })
         .finally(() => {
           if (context.codeWatch === watching) context.codeWatch = undefined;
         });

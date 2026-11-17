@@ -330,7 +330,10 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     )
       return undefined;
     run.codeWatches.armed = false;
-    run.codeChanged = document.documentId;
+    // A change reported once the login left the watch, as while its TOTP handler runs, is
+    // not read later: the next watch asks again from the page as it is then.
+    if (run.metadata.state !== "watching") return undefined;
+    run.codeChanged = { documentId: document.documentId, digest: changed.output.digest };
     if (changedHere(run)) void drive(rt, run);
     return undefined;
   }

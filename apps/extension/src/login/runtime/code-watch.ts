@@ -13,9 +13,10 @@ import type { Runtime } from "./state";
  * authenticator app's after the emailed code in one document and one input, or none, as
  * when the person's code signed them in there. The watch reads only new documents and
  * routes otherwise, so such a page would never be read. The document compares its code
- * field's digest with the one the watch kept, recorded on the first ask, so a page swapped
- * while the worker restarted is reported too; it checks at each change of the page (ADR
- * 0082), never on a timer. Each document is asked at most `CODE_WATCHES` times.
+ * field's digest with the one the watch kept, recorded on the first ask and replaced by
+ * each change read, so a page swapped while the worker restarted is reported too; it
+ * checks at each change of the page (ADR 0082), never on a timer. One worker asks each
+ * document at most `CODE_WATCHES` times.
  */
 export async function watchCode(rt: Runtime, run: Execution): Promise<void> {
   const { document } = run.live;
@@ -64,16 +65,20 @@ export async function watchCode(rt: Runtime, run: Execution): Promise<void> {
 }
 
 /**
- * The document's changed code page is read now (`changedHere`): the next ask takes the
- * page as it is then for its baseline, recorded first so a restarted worker does not read
- * the same change again.
+ * The document's changed code page is read now (`changedHere`): the digest it reported
+ * becomes the baseline of the next ask, so a page shown while this one is read or judged
+ * is reported in turn. It is recorded first, so a restarted worker does not read the same
+ * change again; a change the worker restarted while reading is not read again either.
  */
 export async function readChangedCode(rt: Runtime, run: Execution): Promise<void> {
+  const changed = run.codeChanged;
   delete run.codeChanged;
   if (run.codeWatches) run.codeWatches.armed = false;
   const { watch } = run.metadata;
-  if (!watch?.code) return;
-  const { code: _read, ...rest } = watch;
-  run.metadata = parseAttemptMetadata({ ...run.metadata, watch: rest });
+  if (!watch || !changed || watch.code === changed.digest) return;
+  run.metadata = parseAttemptMetadata({
+    ...run.metadata,
+    watch: { ...watch, code: changed.digest },
+  });
   await save(rt, run);
 }

@@ -151,7 +151,7 @@ export const describedHere = (run: Execution) =>
  */
 export const changedHere = (run: Execution) =>
   run.live.document.frameId === 0 &&
-  run.codeChanged === run.live.document.documentId &&
+  run.codeChanged?.documentId === run.live.document.documentId &&
   run.metadata.state === "watching" &&
   run.metadata.watch?.documentId === run.live.document.documentId &&
   !watchOver(run.metadata, Date.now());

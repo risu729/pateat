@@ -467,7 +467,8 @@ function broken(
     names.push("left the passkey route without recording it");
   // A `watching` login only reads pages until it ends (ADR 0027), but for one handler it
   // enters there, in the tab's page, by a login that does not only fill (ADR 0027
-  // amendment of 2026-11-17).
+  // amendment of 2026-11-17). That it is a `totp` handler is the runtime's to check, as
+  // `recipeEvents` builds no other while watched: the machine never sees a handler's kind.
   if (
     from.state === "watching" &&
     !["watching", "authenticated", "blocked"].includes(to.state) &&

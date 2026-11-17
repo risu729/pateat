@@ -362,14 +362,16 @@ export type Execution = {
   /**
    * The watched top document asked to say when its code field changes (`login.code.watch`,
    * ADR 0027 amendment of 2026-11-17), and how many times it was asked (`CODE_WATCHES`).
-   * Kept in memory only: a restarted worker asks again, against the digest the watch kept.
+   * Kept in memory only, so a restarted worker asks again, up to `CODE_WATCHES` times more,
+   * against the digest the watch kept.
    */
   codeWatches?: { documentId: string; count: number; armed: boolean };
   /**
    * That document since said its code field changed: its page is read once more as the
-   * tab's next page, though the watch began there. Kept in memory only.
+   * tab's next page, though the watch began there, and the next ask compares with the
+   * digest it reported (`digest`). Kept in memory only.
    */
-  codeChanged?: string;
+  codeChanged?: { documentId: string; digest: string };
 };
 
 export /**

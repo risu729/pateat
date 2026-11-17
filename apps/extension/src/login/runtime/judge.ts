@@ -29,7 +29,7 @@ import { pauseOf } from "./pause";
 import { effectful, terminal } from "./attempt-state";
 import { failureRejects, observe, passkeyStepAnswered, toStop } from "./reconcile";
 import { passkeyButton, readSignInState } from "./sign-in";
-import { takeOver } from "./continuation";
+import { routeOf, takeOver } from "./continuation";
 import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
 
@@ -559,11 +559,21 @@ export async function learn(
   let reported = false;
   // A watched login only reads its pages; it never runs a learned handler (ADR 0027), but
   // for the `totp` handler of a page that asks for an authenticator app's code (ADR 0027
-  // amendment of 2026-11-17), which `enterHandler` alone enters while watched.
+  // amendment of 2026-11-17), which `enterHandler` alone enters while watched. A watched
+  // login takes over only a revision with such a handler on the page's path, so one that
+  // learned another handler leaves the watch's recipe as it was.
+  const watchedTotp =
+    options.code === true &&
+    (routeOf(rt, run, added)?.handlers ?? []).some(
+      (handler, index) =>
+        handler.kind === "totp" &&
+        handler.path === remaining.path &&
+        !run.metadata.handlers.some((entered) => entered.index === index),
+    );
   const movedOn =
     verdict === "challenge" &&
     added !== undefined &&
-    (run.metadata.state !== "watching" || options.code === true) &&
+    (run.metadata.state !== "watching" || watchedTotp) &&
     current(rt, run) &&
     (await takeOver(rt, run, added, remaining.path, () => {
       reported = true;

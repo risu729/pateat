@@ -2024,13 +2024,16 @@ item's TOTP once into a page that asks for an authenticator app's code (`watched
   place, as Luma's dialog does: the document is asked (`login.code.watch`) to say once
   when its first shown code field changes, by a digest of that field's code source and
   the headings of its part of the page (`codePageDigest`, never a text or a value), or
-  when no code field shows any more. The document checks at each change of the page
-  (ADR 0082) for the rest of the watch. The first digest is kept with the watch
+  when no code field shows any more. The document checks at each change of the page (ADR
+  0082) for the rest of the watch. The first digest is kept with the watch
   (`watch.code`), so a page swapped while the worker restarted is still reported; each
-  change it reports is read once as the tab's next page, and the digest is then taken
-  again from the page as it is. A document is asked at most four times
-  (`CODE_WATCHES`). A page that no longer shows a code field is read as any watched page
-  is, so a sign-in the person's own code finished in place is seen too.
+  change it reports is read once as the tab's next page, and the digest it reported
+  replaces the kept one, so a page shown while that one is read or judged is reported in
+  turn. A change the worker restarted while reading is not read again. One worker asks a
+  document at most four times (`CODE_WATCHES`); a restarted one may ask four times more.
+  A report that comes once the login left the watch, as while its `totp` handler runs,
+  is dropped. A page that no longer shows a code field is read as any watched page is,
+  so a sign-in the person's own code finished in place is seen too.
 - **A page that asks for another sign-in step** (`continuing`, ADR 0029) on the recipe's
   path gets a `totp` handler the recipe has there, not entered yet, entered as after a
   step. Its code field must meet the new requirement `watched-totp-code`: writable,
@@ -2042,7 +2045,9 @@ item's TOTP once into a page that asks for an authenticator app's code (`watched
   code source (`judgedCodeSource`, now in contracts and shared with the service) is
   `authenticator`; otherwise it is logged `not-sent` with `code-unnamed`. It counts
   toward the watch's two judged pages as before. A `challenge` answer whose revision
-  adds a `totp` handler is taken over and the handler entered, as after a step.
+  adds a `totp` handler on the page's path is taken over and the handler entered, as
+  after a step; a revision that adds only another handler is not taken over, so the
+  watched login keeps its recipe.
 - **The state machine** takes `HANDLER` in `watching` (`canEnterHandlerWatched`): the
   watch ends, the handler's steps follow the plan's last step run (or go in at a stop,
   which moves past them, as at a stop), and the login is `ready`. The runtime enters

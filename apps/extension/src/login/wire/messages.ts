@@ -144,6 +144,8 @@ export const codeChangedSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.code-changed"),
   token: id,
+  /** The code field's digest that differed, the baseline of the document's next ask. */
+  digest: v.pipe(v.string(), v.regex(/^[0-9a-f]{16}$/u)),
 });
 /** What a document answers to `login.code.watch`: its code field's digest now. */
 export const codeWatchReplySchema = v.strictObject({
