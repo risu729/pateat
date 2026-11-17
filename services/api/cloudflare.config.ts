@@ -39,15 +39,12 @@ export default defineConfig({
       }),
     },
     // Every request reaches the Worker first, so no built file skips the Access check.
-    assets: { runWorkerFirst: true, htmlHandling: "none", notFoundHandling: "none" },
+    assets: { runWorkerFirst: true, htmlHandling: "none" },
     // The only public host. Routine releases reconcile this declaration and the
     // other trigger settings from the tested build (docs/delivery.md).
     domains: ["pateat.takuk.me"],
-    workersDev: false,
-    previewUrls: false,
     observability: {
       enabled: true,
-      headSamplingRate: 1,
       redactQueryString: true,
       // Groups thrown errors, 5xx responses and console.error lines into the dashboard's
       // Workers Issues (docs/operations.md#server-errors). A deploy without this turns it off.
