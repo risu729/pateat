@@ -42,12 +42,45 @@ export function registerLoginCandidates({
       "pw",
       "go",
     ]);
-    // Only a form with a password field has neighbours, and only a few of them.
+    // Only a form with a password or account field has neighbours, and only a few of them.
     page(
       `<main><div><button id="pk">Passkey</button><form id="search"><input id="q">
         <button id="go">Search</button></form></div></main>`,
     );
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["q", "go"]);
+    // An identifier-first form's passkey button after it, as Luma's on 2026-11-17 (#1655).
+    for (const field of [
+      `type="email"`,
+      `autocomplete="username"`,
+      `autocomplete="email"`,
+      `autocomplete="webauthn"`,
+    ]) {
+      page(
+        `<main><div><div><form id="login"><label for="id">Email</label><input id="id" ${field}>
+          <button id="go" type="submit">Continue with Email</button></form>
+          <div><div></div><div><button id="google" type="button">Sign in with Google</button>
+          <button id="pk" type="button">Sign in with Passkey</button></div></div></div></div></main>`,
+      );
+      expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual([
+        "id",
+        "go",
+        "google",
+        "pk",
+      ]);
+    }
+    // One without a submit button of its own may be submitted by a script button after it,
+    // which would be no form's action, so it has none; a clear button in it is no submit.
+    page(
+      `<main><div><div><form id="login"><input id="id" type="email"></form>
+        <div><button id="next" type="button">Next</button></div></div></div></main>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["id"]);
+    page(
+      `<main><div><div><form id="login"><input id="id" type="email">
+        <button id="clear" type="button">Clear</button></form>
+        <div><button id="next" type="button">Next</button></div></div></div></main>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).not.toContain("next");
     page(
       `<main><div>${["a", "b", "c", "d", "e"].map((id) => `<button id="${id}">${id}</button>`).join("")}
         <form id="login"><input id="pw" type="password"><button id="go">Sign in</button></form>

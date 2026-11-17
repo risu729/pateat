@@ -2065,3 +2065,37 @@ item's TOTP once into a page that asks for an authenticator app's code (`watched
   watch (the emailed code's page shows the same input), reading the watch's own document
   again on a timer (ADR 0082), and leaving the code to the person (option 2 of the
   proposal).
+
+## Amendment 2026-11-17: a passkey button beside an identifier form
+
+The owner, 2026-11-17 (08:50 UTC, on
+[Luma's sign-in (#1655)](https://github.com/risu729/pateat/issues/1655)): a login of an
+item with a passkey on Luma should take the `passkey` route, not the `password` route
+up to its stop. Luma's sign-in card has a form with an email input
+(`autocomplete="webauthn"`) and "Continue with Email", and after the form, outside it,
+"Sign in with Google" and "Sign in with Passkey". The description of the start page
+sent for generation held the form's three controls only (inference log of
+2026-11-16 23:20 UTC), so the recipe had no `passkey` route and the item, which holds a
+passkey and no password, took the `password` route to its stop (ADR 0036). The page's
+own conditional passkey request came before the recipe existed, so it was left to the
+browser (`no-recipe`) and could not choose the route either (ADR 0034).
+
+- **Decision (agent change, implementing the owner's ask):** the buttons outside every
+  form that the description keeps beside a login form (`besideDepth`, never making the
+  description incomplete) are kept beside a login form with an account field and a
+  submit button of its own too, not only beside one with a password field. An account
+  field is an input of `type="email"`, or one whose `autocomplete` names `username`,
+  `email` or `webauthn` (`accountField`). A search form has none of these, so it still
+  has no such neighbours. A form without a submit button of its own may be submitted by
+  a script button after it, which the plan would refuse as an action of another group,
+  so it still has none. At most four are kept beside each form (the innermost area
+  holding a button), no longer four on the whole page, so buttons around a second form
+  never drop a password form's passkey button. The generation role then sees the passkey
+  button and may name it as the `passkeyButton`, under the rules above, and a login of
+  an item with a discoverable passkey takes the `passkey` route.
+- A recipe generated before this keeps no `passkey` route. On a later visit the page's
+  own conditional request, held once a recipe exists, chooses the `passkey` route when
+  it comes before the login starts (ADR 0034); a recipe generated again for the page has
+  the route.
+- Not chosen: holding a conditional request while no recipe exists, which would keep
+  the browser's own passkey autofill from the page whenever Pateat has no recipe yet.

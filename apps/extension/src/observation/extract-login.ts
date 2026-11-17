@@ -1,5 +1,5 @@
 import type { LoginTarget, ObservedCandidate } from "@pateat/contracts";
-import { findTargets } from "../page/targets";
+import { autocompleteTokens, findTargets } from "../page/targets";
 import { closestAcross, composedParent, containsAcross, formOf, readingPage } from "../page/shadow";
 import { redactsPath } from "./path";
 import { buttonText, fieldName, isButton, isScriptButton } from "../page/text";
@@ -49,6 +49,20 @@ const iconButton = (element: Element, nearFields: (element: Element) => boolean)
   isButton(element) &&
   (element.type === "button" || (formOf(element) === null && !nearFields(element))) &&
   buttonText(element) === undefined;
+
+/** A native button that submits its form: a submit `<button>`, or a submit or image input. */
+const submits = (element: Element) =>
+  (element instanceof HTMLButtonElement && element.type === "submit") ||
+  (element instanceof HTMLInputElement && (element.type === "submit" || element.type === "image"));
+
+/**
+ * Whether an input asks for the account's identifier by its own markup: an email input,
+ * or one whose `autocomplete` names a username, an email address or a passkey
+ * (`webauthn`), as an identifier-first sign-in form's does. A search box does none.
+ */
+const accountField = (input: HTMLInputElement) =>
+  input.type === "email" ||
+  autocompleteTokens(input).some((token) => ["username", "email", "webauthn"].includes(token));
 
 /**
  * Whether a checkbox must be checked before its form submits: `required`, or
@@ -107,21 +121,22 @@ function loginFormsOf(
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
  * links (or, for fields outside any form, every control outside a form; a site search box
  * outside every form is no such field, and a control the executor cannot act on counts
- * there only near those fields, `formlessFieldsArea`). Up to four
- * buttons outside every form but near a login form with a password field
- * (`besideDepth`), such as a passkey button, are kept when they can be located and never
- * make the observation incomplete. A field or button that cannot be located (other than
- * a script button, an icon button that never submits in a form with another button, a
- * textless button away from the fields outside every form when another button outside
- * every form is located, or a checkbox the page does not require, which is left out) or
- * a control the executor cannot act on marks the observation
- * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
- * left out entirely. More than 48 candidates mark it incomplete too, and inference rejects an incomplete observation. An incomplete result
- * names its first cause in `loginGaps` order as `gap`, for the log only. A page without a
- * field is refused, and so is one where nothing can be located. As on every observed
- * page, a path segment that may carry a token is sent as `REDACTED_PATH_SEGMENT`
- * (`observedPath`, ADR 0039); on such a page an ID, name or test ID that may be a token
- * locates nothing.
+ * there only near those fields, `formlessFieldsArea`). Up to four buttons outside every
+ * form but near a login form with a password field, or with an account field and a submit
+ * button of its own (`besideDepth`, `accountField`), such as a passkey button, are kept
+ * for each such form when they can be located and never make the observation
+ * incomplete. A field or button that cannot be located (other than a script button, an
+ * icon button that never submits in a form with another button, a textless button away
+ * from the fields outside every form when another button outside every form is located,
+ * or a checkbox the page does not require, which is left out) or a control the executor
+ * cannot act on marks the observation incomplete when it is in a login form
+ * (`loginFormsOf`); any other form with one is left out entirely. More than 48
+ * candidates mark it incomplete too, and inference rejects an incomplete observation. An
+ * incomplete result names its first cause in `loginGaps` order as `gap`, for the log
+ * only. A page without a field is refused, and so is one where nothing can be located.
+ * As on every observed page, a path segment that may carry a token is sent as
+ * `REDACTED_PATH_SEGMENT` (`observedPath`, ADR 0039); on such a page an ID, name or test
+ * ID that may be a token locates nothing.
  *
  * `known` names the fields a recipe already fills, on any of its paths, for a page that
  * continues it after an `advance` step (ADR 0018). Such a field shown read-only or disabled, as an
@@ -208,9 +223,9 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
 
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
   // Script buttons are often widgets (menus, toggles), and text locators name only the
-  // `<a>` ones and, in a login form or beside a password form, the `role="button"` ones
-  // and pointer tab stops, so one without a locator is left out rather than marking the
-  // page incomplete.
+  // `<a>` ones and, in a login form or beside a password or account form, the
+  // `role="button"` ones and pointer tab stops, so one without a locator is left out rather
+  // than marking the page incomplete.
   const scripted: typeof required = [];
   // Icon buttons follow the same rule, but only in a form that has another button to
   // submit with: an icon-only button may itself be the form's script submit.
@@ -220,12 +235,27 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   // require, as "Remember me", is left out without a locator; a required one, as an
   // agreement the form cannot submit without, still marks the form incomplete.
   const checks: typeof required = [];
-  const beside: typeof required = [];
-  // Only a form with a password field has such neighbours; a search form does not.
-  const passwordForms = new Set(
+  // The buttons beside each login form's area, by area (`besideDepth`).
+  const beside = new Map<Element, typeof required>();
+  // Only a form with a password field has such neighbours; a search form does not. So
+  // does an identifier-first sign-in form with an account field and a submit button of
+  // its own, whose passkey button may follow it (Luma, 2026-11-17: an email field,
+  // "Continue with Email", and "Sign in with Passkey" after the form, #1655); one without
+  // one may be submitted by a script button after it, which is then no form's action.
+  const formButtons = new Set<HTMLFormElement | null>(
+    found.flatMap((entry) =>
+      entry.kind === "candidate" && entry.form !== null && submits(entry.draft.element)
+        ? [entry.form]
+        : [],
+    ),
+  );
+  const neighbourForms = new Set(
     found.flatMap((entry) => {
       const input = entry.kind === "candidate" ? entry.draft.element : entry.field;
-      return input instanceof HTMLInputElement && input.type === "password" ? [entry.form] : [];
+      if (!(input instanceof HTMLInputElement)) return [];
+      return input.type === "password" || (accountField(input) && formButtons.has(entry.form))
+        ? [entry.form]
+        : [];
     }),
   );
   // Fields outside every form, and whether a button is near them: one of them within the
@@ -253,7 +283,7 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
     );
   };
   const areas = [...loginForms].flatMap((form) => {
-    if (!passwordForms.has(form)) return [];
+    if (!neighbourForms.has(form)) return [];
     let area: Element | null = form;
     for (let depth = 0; depth < besideDepth && area; depth++) area = composedParent(area);
     // Never the whole page, as when the form sits directly in the body.
@@ -261,15 +291,20 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   });
   const formlessArea = loginForms.has(null) ? formlessFieldsArea(found, document) : undefined;
   for (const entry of found) {
-    if (
+    const around =
       entry.kind === "candidate" &&
       entry.form === null &&
       !loginForms.has(null) &&
       entry.draft.role === "button" &&
-      !closestAcross(entry.draft.element, landmarks) &&
-      areas.some((area) => containsAcross(area, entry.draft.element))
-    ) {
-      beside.push(entry);
+      !closestAcross(entry.draft.element, landmarks)
+        ? areas.filter((area) => containsAcross(area, entry.draft.element))
+        : [];
+    // The innermost area holding it, so nested areas never share their buttons.
+    const area = around.find((outer) =>
+      around.every((inner) => inner === outer || !containsAcross(outer, inner)),
+    );
+    if (area && entry.kind === "candidate") {
+      beside.getOrInsertComputed(area, () => []).push(entry);
       continue;
     }
     if (!fieldForms.has(entry.form)) continue;
@@ -295,10 +330,10 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
 
   // Links and script buttons without a locator are left out without flawing their form.
   // A `role="button"` element or pointer tab stop is named by its text only inside a login
-  // form or beside a password form, where it is the form's own control rather than a widget elsewhere; a
-  // search form beside the login form names none. A link never takes the text of such an
-  // element, whatever its form, since one observation's candidates need distinct targets
-  // and the login's own control needs that text more.
+  // form or beside a password or account form, where it is the form's own control rather
+  // than a widget elsewhere; a search form beside the login form names none. A link never
+  // takes the text of such an element, whatever its form, since one observation's
+  // candidates need distinct targets and the login's own control needs that text more.
   let unlocated = false;
   // A login form's native button that nothing else names alone is named by its accessible
   // name, which a route step's click may press (ADR 0048 amendment of 2026-10-23).
@@ -343,8 +378,11 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
     ...kept(checks, { optional: true }),
     ...kept(scripted, { optional: true }),
     ...keep(iconsFound),
-    // More than a few is page content around the form, not its alternatives.
-    ...(beside.length <= maxBeside ? located(beside, { optional: true, near: true }) : []),
+    // More than a few beside one form is page content around it, not its alternatives.
+    ...located([...beside.values()].filter((entries) => entries.length <= maxBeside).flat(), {
+      optional: true,
+      near: true,
+    }),
   ].slice(0, maxCandidates);
   const chosen = [
     ...buttons,
