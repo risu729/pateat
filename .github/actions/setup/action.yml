@@ -1,5 +1,5 @@
 name: Set up mise and dependencies
-description: Install the locked mise tools and the frozen workspace dependencies, optionally with the test browser.
+description: Install the locked mise tools, optionally with the test browser. The first mise run or mise exec installs the frozen workspace dependencies.
 inputs:
   cache:
     description: Restore and save mise's tool cache. Release builds pass "false".
@@ -15,9 +15,6 @@ runs:
         version: 2026.11.8
         install_args: --locked
         cache: ${{ inputs.cache }}
-    - name: Install frozen dependencies
-      shell: bash
-      run: mise deps --force aube_workspace
     - name: Install isolated browser runtime
       if: ${{ inputs.browser == 'true' }}
       shell: bash
