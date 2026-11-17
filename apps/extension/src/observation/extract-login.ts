@@ -66,9 +66,11 @@ const submits = (element: Element) =>
  * A `type="button"` button with text inside a login form, which never submits that form
  * on its own. A script may still make it the form's submit, such as an `<input
  * type="button" value="Login">`, so one without a locator counts unless a located native
- * submit button of the form sits between the form's last fillable field and it
- * (`locatedSubmitBefore`), as Kuroneko Members' ログイン does before its 新規登録（無料）,
- * whose text a second sign-up button outside the form repeats (seen 2026-11-12, #1491).
+ * submit button of the form sits between it and the form's last password field (or,
+ * without one, its last account field), with no other fillable field between that field
+ * and the submit (`locatedSubmitBefore`), as Kuroneko Members' ログイン does before its
+ * 新規登録（無料）, whose text a second sign-up button outside the form repeats (seen
+ * 2026-11-12, #1491).
  */
 const plainFormButton = (element: Element, form: HTMLFormElement | null) =>
   form !== null && isButton(element) && element.type === "button";
@@ -250,7 +252,8 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   // submit with: an icon-only button may itself be the form's script submit.
   const icons: typeof required = [];
   // A login form's `type="button"` buttons with text count only without a located native
-  // submit button after the form's fields and before them (`plainFormButton`).
+  // submit button right after the form's sign-in fields and before them
+  // (`plainFormButton`).
   const plainButtons: typeof required = [];
   const links: typeof required = [];
   // A checkbox is context only, never checked by a recipe, so one the page does not
@@ -387,23 +390,36 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   const requiredFound = located(required, { names: true });
   const plainButtonsFound = located(plainButtons, { optional: true, names: true });
   const locatedSubmits = requiredFound.filter((entry) => submits(entry.draft.element));
-  // The last fillable field of each form, in the order the page shows them.
-  const lastFields = new Map<HTMLFormElement | null, Element>();
+  // Each form's fillable fields, in the order the page shows them.
+  const formFields = new Map<HTMLFormElement | null, Element[]>();
   for (const entry of found)
-    if (entry.kind === "candidate" && fillTypes[entry.draft.role]) {
-      const last = lastFields.get(entry.form);
-      if (!last || composedOrder(last, entry.draft.element) < 0)
-        lastFields.set(entry.form, entry.draft.element);
-    }
-  // A located native submit of the button's form after that form's fields and before the
-  // button, so a search box's submit above the sign-in fields never stands in for it.
+    if (entry.kind === "candidate" && fillTypes[entry.draft.role])
+      formFields.getOrInsertComputed(entry.form, () => []).push(entry.draft.element);
+  for (const fields of formFields.values()) fields.sort(composedOrder);
+  // The sign-in field a submit must follow: the form's last password field, or without
+  // one its last account field (`accountField`).
+  const signInField = (form: HTMLFormElement | null) => {
+    const fields = formFields.get(form) ?? [];
+    const inputs = fields.filter((field) => field instanceof HTMLInputElement);
+    return (
+      inputs.findLast((input) => input.type === "password") ?? inputs.findLast(accountField)
+    );
+  };
+  // A located native submit of the button's form after that form's sign-in field, with
+  // no other fillable field between them, and before the button, so a search box's
+  // submit before or after the sign-in fields never stands in for it.
   const locatedSubmitBefore = (entry: (typeof required)[number]) => {
-    const last = lastFields.get(entry.form);
+    const anchor = signInField(entry.form);
+    if (!anchor) return false;
+    const fields = formFields.get(entry.form) ?? [];
     return locatedSubmits.some(
       ({ form, draft: { element } }) =>
         form === entry.form &&
-        (!last || composedOrder(last, element) < 0) &&
-        composedOrder(element, entry.draft.element) < 0,
+        composedOrder(anchor, element) < 0 &&
+        composedOrder(element, entry.draft.element) < 0 &&
+        !fields.some(
+          (field) => composedOrder(anchor, field) < 0 && composedOrder(field, element) < 0,
+        ),
     );
   };
   for (const entry of plainButtons)

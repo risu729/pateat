@@ -625,6 +625,26 @@ export function registerLoginCandidates({
       <aside><button type="button">Log in</button></aside>`,
     );
     expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // Nor one that follows another field after the sign-in fields, as a search block's
+    // between the password and the script-run "Log in".
+    page(
+      `<form><input id="u" autocomplete="username"><input id="p" type="password">
+        <div><input id="q"><input type="submit" id="find" value="Search"></div>
+        <button type="button">Log in</button></form>
+      <aside><button type="button">Log in</button></aside>`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // Without a password field the submit follows the last account field instead.
+    page(
+      `<form><input id="u" type="email"><button type="submit" id="go">Next</button>
+        ${signUp}</form><aside>${signUp}</aside>`,
+    );
+    expect(observe().complete).toBe(true);
+    page(
+      `<form><input id="u" type="email"><input id="q">
+        <button type="submit" id="go">Next</button>${signUp}</form><aside>${signUp}</aside>`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
     // Nor one after the button.
     page(
       `<form><input id="u" autocomplete="username"><input id="p" type="password">
