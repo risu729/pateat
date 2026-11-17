@@ -2026,7 +2026,10 @@ released to other tabs and later logout detection is unchanged
 ([ADR 0029 amendment](adr/0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14)).
 An `unclear` answer on a page with a confirmed sign of another sign-in step (S2 to S5),
 or the service's `judged-challenge` for a path judged `challenge` before in the
-revision, ends it `challenge`. Anything else, including the service's `judged-rejected`
+revision with the same inputs and the same code source (an authenticator app's, a sent
+one, or neither;
+[ADR 0029 amendment](adr/0029-local-sign-in-state.md#amendment-a-judgement-for-each-code-source-of-a-path-2026-11-17)),
+ends it `challenge`. Anything else, including the service's `judged-rejected`
 for a path judged `rejected` before, its `judgement-unanswered` for a path whose earlier
 request has no verdict, and a page that was not sent, leaves it unknown. A login that
 stops before its item's missing password

@@ -355,6 +355,7 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
       origin: page.origin,
       path: "/home",
       promptVersion: "v2",
+      codeSource: "",
     };
     const stale = { expired: 1_000, versions: ["v2"] };
     const inputs = "a1";
@@ -394,6 +395,54 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     expect(await backend.judgement(key)).toEqual({ verdict: "unclear", inputs: "b2" });
     expect(await backend.recordJudgement(key, 3_600, stale, inputs)).toBe(true);
     expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
+    // A page of the path whose code comes from an authenticator app has a row of its own
+    // beside the one whose code was sent (ADR 0029 amendment of 2026-11-17).
+    const sent = { ...key, codeSource: "sent" } as const;
+    const authenticator = { ...key, codeSource: "authenticator" } as const;
+    expect(await backend.recordJudgement(sent, 3_700, stale, inputs)).toBe(true);
+    await backend.keepVerdict(sent, "challenge");
+    expect(await backend.recordJudgement(authenticator, 3_700, stale, inputs)).toBe(true);
+    await backend.keepVerdict(authenticator, "challenge", inputs);
+    expect(await backend.recordJudgement(sent, 3_800, stale, inputs)).toBe(false);
+    expect(await backend.judgement(sent)).toEqual({ verdict: "challenge", inputs });
+    expect(await backend.judgement(authenticator)).toEqual({ verdict: "challenge", inputs });
+  });
+
+  it("reads a judgement kept before code sources as one with none", async () => {
+    const { backend } = setup({
+      record: {
+        version: 1,
+        attempts: [],
+        repairs: [],
+        judgements: [
+          {
+            recipeId: "gen_synthetic",
+            branch: "",
+            revision: 2,
+            origin: page.origin,
+            path: "/home",
+            promptVersion: "v2",
+            verdict: "challenge",
+            inputs: "a1",
+            at: 1_000,
+          },
+        ],
+        layoutUses: [],
+      },
+    });
+    const key = {
+      recipeId: "gen_synthetic",
+      branch: "",
+      revision: 2,
+      origin: page.origin,
+      path: "/home",
+      promptVersion: "v2",
+    };
+    expect(await backend.judgement({ ...key, codeSource: "" })).toEqual({
+      verdict: "challenge",
+      inputs: "a1",
+    });
+    expect(await backend.judgement({ ...key, codeSource: "authenticator" })).toBeUndefined();
   });
 
   it("keeps attempts and repairs within their windows", async () => {
@@ -551,6 +600,7 @@ describe("the device's model calls (ADR 0040)", () => {
       origin: page.origin,
       path: "/account",
       promptVersion: "v2",
+      codeSource: "",
     };
     await backend.recordJudgement(key, 2_000, { expired: 1_000, versions: ["v2"] }, "a1");
     await backend.keepVerdict(key, "rejected");

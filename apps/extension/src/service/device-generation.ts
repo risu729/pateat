@@ -29,6 +29,7 @@ import {
   judgeCompletion,
   nextAttempt,
   pageJudgementVerdicts,
+  judgementCodeSources,
   repairFamilies,
   roleChoices,
   servedModel,
@@ -73,6 +74,9 @@ const judgementKey = {
   origin: textSchema,
   path: textSchema,
   promptVersion: textSchema,
+  // Where the page's code comes from (ADR 0029 amendment of 2026-11-17); a judgement kept
+  // before it had none.
+  codeSource: v.optional(v.picklist(judgementCodeSources), ""),
 };
 /**
  * What the service keeps in its tables for the generation routes' limits (ADR 0016, ADR
@@ -134,7 +138,8 @@ const sameJudgement = (key: JudgementKey) => (entry: JudgementKey) =>
   entry.revision === key.revision &&
   entry.origin === key.origin &&
   entry.path === key.path &&
-  entry.promptVersion === key.promptVersion;
+  entry.promptVersion === key.promptVersion &&
+  entry.codeSource === key.codeSource;
 
 /** The layout keys a recipe holds, of its own layouts or its chooser's (ADR 0060). */
 function layoutKeysOf(recipe: StoredLoginRecipe): string[] {
