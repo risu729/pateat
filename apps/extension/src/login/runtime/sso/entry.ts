@@ -156,6 +156,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   const requested = await rt.ssoChoices.request({
     document: ctx.document,
     account,
+    url: ctx.live.url,
+    incognito: ctx.incognito === true,
     native: { passkey: facts.discoverablePasskey && !passkeyRefused, password: facts.password },
     automatic: !ctx.manual,
     entries: [...targets].map(([id, entry]) => ({ id, label: entry.label })),

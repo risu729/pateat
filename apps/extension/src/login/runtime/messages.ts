@@ -514,7 +514,9 @@ export async function operationRun(
 /**
  * Settings were synced from the service or saved locally: stops every running login but
  * a watched one, which only reads, so it is checked against the new settings instead and
- * stops only when they no longer plan its account (ADR 0027). A save of only a choice
+ * stops only when they no longer plan its account (ADR 0027). An SSO method offer and an
+ * SSO flow end only when what they read changed, so a sync of unrelated settings keeps
+ * the offer the person is answering (ADR 0085). A save of only a choice
  * (`CHOICE_ONLY_CAUSES`) changes nothing running logins or open offers were authorized
  * under, so it stops none of them.
  */
@@ -524,7 +526,7 @@ export function settingsChanged(
   cause?: SettingsChangeCause,
 ): void {
   if (cause !== undefined && CHOICE_ONLY_CAUSES.has(cause)) return;
-  rt.ssoChoices?.invalidateAll("settings-changed");
+  void rt.ssoChoices?.settingsChanged().catch(() => undefined);
   // An SSO flow ends only when what it depends on changed; its effects check meanwhile.
   void ssoVaultChanged(rt, "sso-settings-changed").catch(() => undefined);
   // A confirmation's document asks again before it fills, so stopping the work is enough;

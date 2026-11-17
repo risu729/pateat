@@ -6,7 +6,6 @@ import {
   isSiteExcluded,
   MAX_SETTINGS_DOCUMENT_BYTES,
   MAX_SSO_MAPPINGS,
-  onlyChoicesSince,
   settingsDocumentBytes,
   ssoMappingKey,
   ssoMappingsSchema,
@@ -18,6 +17,7 @@ import {
   type SsoMapping,
 } from "@pateat/contracts";
 import { exportedSettings } from "../service/settings-sync";
+import { ssoScopeDependencies } from "./runtime/sso/dependencies";
 import type { VaultSsoSource } from "./sso-vault";
 import {
   ssoEntriesSchema,
@@ -93,8 +93,11 @@ export function createSsoChoiceController(options: {
 }) {
   const offers = new Map<number, Offer>();
   const receipts = new Map<string, Receipt>();
-  /** Requests still reading settings, by tab; an invalidation marks them with its reason. */
-  const pending = new Map<number, { frameId: number; reason?: string }>();
+  /**
+   * Requests still reading settings, by tab; an invalidation marks them with its reason,
+   * and a settings change marks them to read the settings again.
+   */
+  const pending = new Map<number, { frameId: number; reason?: string; reread?: boolean }>();
   function retained(offer: Offer) {
     return (
       offers.get(offer.input.document.tabId) === offer &&
@@ -122,17 +125,46 @@ export function createSsoChoiceController(options: {
     for (const [id, receipt] of receipts)
       if (receipt.offer.input.document.tabId === tabId) receipts.delete(id);
   }
+  const selectedOf = (method: Method) =>
+    method.candidates.find((entry) => entry.id === method.selectedId);
   /**
-   * Whether `saved` keeps the offer's settings and catalog. A newer revision of only
-   * choices (`onlyChoicesSince`) keeps it while the site item's mappings are still the
-   * offer's own copy: a mapping another tab saved or removed for this item withdraws it.
+   * What the offer reads from the settings: the site account and each method's selected
+   * IdP account, the page and those IdP origins, the site's saved default, the
+   * private-window pausing and the passkey policy behind its native passkey route.
+   */
+  function dependencies(input: SsoChoiceInput, methods: Method[], saved: Saved) {
+    const { account, document, url, incognito } = input;
+    const chosen = methods.flatMap((method) => {
+      const entry = selectedOf(method);
+      return entry ? [entry.selected] : [];
+    });
+    return JSON.stringify([
+      ssoScopeDependencies(
+        {
+          accounts: [account, ...chosen.map((entry) => entry.account)],
+          pages: [url ?? document.origin, ...chosen.map((entry) => entry.origin)],
+          // The IdP account comes from the mapping, never from the IdP origin's default.
+          origins: [account.origin],
+          incognito,
+        },
+        saved,
+      ),
+      saved.snapshot.settings.passkeyPolicy,
+    ]);
+  }
+  /**
+   * Whether `saved` keeps the offer's settings and catalog. A newer revision keeps it
+   * while everything the offer reads is unchanged (`dependencies`), as a sync of
+   * unrelated settings or another site's account choice leaves it, and the site item's
+   * mappings are still the offer's own copy: a mapping another tab saved or removed for
+   * this item withdraws it.
    */
   function matching(saved: Saved, offer: Offer) {
     const { account, document } = offer.input;
     return (
-      onlyChoicesSince(saved.snapshot, offer.saved.snapshot.revision) &&
-      (saved.snapshot.revision === offer.saved.snapshot.revision ||
-        siteMappings(saved.snapshot.settings, portable(offer.saved, account)) === offer.mappings) &&
+      siteMappings(saved.snapshot.settings, portable(offer.saved, account)) === offer.mappings &&
+      dependencies(offer.input, offer.methods, saved) ===
+        dependencies(offer.input, offer.methods, offer.saved) &&
       JSON.stringify(saved.catalog) === JSON.stringify(offer.saved.catalog) &&
       !saved.catalog.settingsSyncPending &&
       account.origin === document.origin &&
@@ -151,8 +183,6 @@ export function createSsoChoiceController(options: {
     const saved = await options.readSettings().catch(() => undefined);
     return retained(offer) && saved?.ok === true && matching(saved, offer);
   }
-  const selectedOf = (method: Method) =>
-    method.candidates.find((entry) => entry.id === method.selectedId);
   const methodOf = (offer: Offer, number: number) =>
     offer.methods.find((entry) => entry.method.number === number);
   /** Another method whose mapping names the same IdP account. */
@@ -523,9 +553,24 @@ export function createSsoChoiceController(options: {
         result: Promise.resolve<SsoChoiceOutcome>({ ok: false, reason }),
       });
       invalidateTab(tabId, "replaced");
-      const request: { frameId: number; reason?: string } = { frameId };
+      const request: { frameId: number; reason?: string; reread?: boolean } = { frameId };
       pending.set(tabId, request);
-      const saved = await options.readSettings().catch(() => undefined);
+      let saved = await options.readSettings().catch(() => undefined);
+      // A settings change during the read may not be in it: a newer read that changes
+      // what the request reads ends it, as it ends an open offer, and any other is used.
+      while (request.reread && pending.get(tabId) === request) {
+        request.reread = false;
+        // oxlint-disable-next-line no-await-in-loop -- each read follows a settings change
+        const next = await options.readSettings().catch(() => undefined);
+        if (
+          pending.get(tabId) === request &&
+          (!saved?.ok ||
+            !next?.ok ||
+            dependencies(input, [], saved) !== dependencies(input, [], next))
+        )
+          invalidateTab(tabId, "settings-changed");
+        saved = next;
+      }
       // The invalidation that ended this request names why, as a settings change.
       if (pending.get(tabId) !== request) return early(request.reason ?? "replaced");
       pending.delete(tabId);
@@ -594,6 +639,18 @@ export function createSsoChoiceController(options: {
         offers.get(document.tabId)?.input.document.frameId ?? pending.get(document.tabId)?.frameId;
       if (frameId !== undefined && (document.frameId === frameId || document.frameId === 0))
         invalidateTab(document.tabId, reason);
+    },
+    /**
+     * The settings changed: withdraws only the offers whose own settings changed
+     * (`matching`), as the vault notice below does, so a sync of unrelated settings or
+     * another site's choice keeps an offer the person is still answering.
+     */
+    async settingsChanged() {
+      for (const request of pending.values()) request.reread = true;
+      const saved = await options.readSettings().catch(() => undefined);
+      for (const [tabId, offer] of [...offers])
+        if (offers.get(tabId) === offer && (!saved?.ok || !matching(saved, offer)))
+          invalidateTab(tabId, "settings-changed");
     },
     invalidateAll(reason = "scope-changed") {
       for (const tabId of new Set([...offers.keys(), ...pending.keys()]))
