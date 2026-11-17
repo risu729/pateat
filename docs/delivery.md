@@ -67,7 +67,8 @@ Rules and their reasons:
 - `.github/actions/setup` holds the mise install (`jdx/mise-action` with the pinned mise
   version and `--locked`) and, with `browser: "true"`, the browser install, for every
   job in `ci.yml`, `pricing.yml` and `release.yml` that runs mise; the first `mise run`
-  or `mise exec` of the job then makes the frozen aube install. Jobs call it as `uses: $/.github/actions/setup`, GitHub's
+  or `mise exec` of the job then makes the frozen aube install. Jobs call it as
+  `uses: $/.github/actions/setup`, GitHub's
   [self-repository syntax](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/),
   which loads it from the running commit; zizmor's `self-repository` audit flags the
   `./` form.
