@@ -246,8 +246,57 @@ function revealedByLabel(element: Element): boolean {
 }
 
 /**
- * `checkVisibility`, with an element that is fading in, or an input its label reveals,
- * counted as opaque.
+ * Whether `element` is a fillable input at opacity 0 of its own laid over boxes its page
+ * draws for it: its parent shows at full opacity, it is the element a click at its centre
+ * lands on, and an element beside it under the same parent shows within its box. A code
+ * input drawn as one box per digit often works this way: Luma's two-factor page keeps its
+ * one `one-time-code` input at opacity 0 over six `aria-hidden` digit boxes, and the
+ * person's click and keys go to that input (cloud Chromium, 2026-11-17, #1655). The boxes
+ * hold no control: a trap at opacity 0 sits beside the form's fields, under other elements
+ * or over other controls, as SBI新生銀行's disabled pair over its real fields. A disabled
+ * or read-only input, and one under a transparent ancestor, is not one. The official
+ * Bitwarden extension reads the input's own opacity, so it leaves such an input out.
+ */
+const controlSelector = "input, select, textarea, button";
+
+function overDrawnBoxes(element: Element): boolean {
+  if (!(element instanceof HTMLInputElement) || !fieldInputTypes.has(element.type)) return false;
+  const view = element.ownerDocument.defaultView;
+  const parent = composedParent(element);
+  if (
+    !view ||
+    !parent ||
+    element.disabled ||
+    element.readOnly ||
+    Number(view.getComputedStyle(element).opacity) !== 0 ||
+    !Element.prototype.checkVisibility.call(parent, visibility(true))
+  )
+    return false;
+  const box = element.getBoundingClientRect();
+  if (box.width < 2 || box.height < 2) return false;
+  // The tree it is in answers with the input itself, a document with a shadow tree's host.
+  const tree = element.getRootNode();
+  if (!(tree instanceof Document || tree instanceof ShadowRoot)) return false;
+  if (tree.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) !== element)
+    return false;
+  return [...elementProperty(parent, "children")].some((sibling) => {
+    if (
+      sibling === element ||
+      sibling.matches(controlSelector) ||
+      sibling.querySelector(controlSelector) !== null ||
+      !Element.prototype.checkVisibility.call(sibling, visibility(true))
+    )
+      return false;
+    const drawn = sibling.getBoundingClientRect();
+    const width = Math.min(drawn.right, box.right) - Math.max(drawn.left, box.left);
+    const height = Math.min(drawn.bottom, box.bottom) - Math.max(drawn.top, box.top);
+    return width >= 2 && height >= 2;
+  });
+}
+
+/**
+ * `checkVisibility`, with an element that is fading in, an input its label reveals, or an
+ * input laid over boxes drawn for it, counted as opaque.
  */
 function rendered(element: Element, opacity: boolean): boolean {
   const checkVisibility = (options: CheckVisibilityOptions) =>
@@ -256,14 +305,15 @@ function rendered(element: Element, opacity: boolean): boolean {
     checkVisibility(visibility(opacity)) ||
     (opacity &&
       checkVisibility(visibility(false)) &&
-      (fadingIn(element) || revealedByLabel(element)))
+      (fadingIn(element) || revealedByLabel(element) || overDrawnBoxes(element)))
   );
 }
 
 /**
  * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional; an
  * element still fading in from opacity 0 counts as opaque, {@link fadingIn}, and so does
- * an input transparent only under its own label, {@link revealedByLabel}).
+ * an input transparent only under its own label, {@link revealedByLabel}, and an input
+ * laid over boxes drawn for it, {@link overDrawnBoxes}).
  * An element with `display: contents` has no box of its own, so `checkVisibility` is
  * false for it although its children render in its place; it counts as shown when its
  * parent is, the parent renders its content (not a closed `<details>` or
