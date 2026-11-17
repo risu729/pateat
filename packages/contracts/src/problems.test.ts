@@ -166,7 +166,20 @@ describe("problem report contract (ADR 0066)", () => {
           }),
         ),
       ).toBe(true);
-    expect(accepts(problemReportSchema, info("login.handler", { outcome: "entered" }))).toBe(false);
+    // A `detail` handler that filled nothing, so a personal-detail page left to the person
+    // is told apart from one never entered; one filled or linked stays on the device.
+    for (const outcome of [
+      "detail-unlinked",
+      "detail-reprompt",
+      "detail-manual",
+      "detail-unreadable",
+      "detail-unavailable",
+    ])
+      expect(accepts(problemReportSchema, info("login.handler", { kind: "detail", outcome }))).toBe(
+        true,
+      );
+    for (const outcome of ["entered", "detail-saved", "detail-kept"])
+      expect(accepts(problemReportSchema, info("login.handler", { outcome }))).toBe(false);
     expect(accepts(problemReportSchema, info("login.entry", { outcome: "pressed" }))).toBe(false);
     expect(accepts(problemReportSchema, info("login.entry", {}))).toBe(false);
     expect(accepts(problemReportSchema, info("recipe.generate", { outcome: "recipe" }))).toBe(
