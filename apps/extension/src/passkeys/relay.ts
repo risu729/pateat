@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  MAX_ACCOUNT_CHARACTERS,
   MAX_PATH_CHARACTERS,
   MAX_REQUEST_CHARACTERS,
   PAGE_CHANNEL,
@@ -46,8 +47,19 @@ function withinBound(request: unknown): boolean {
  * While the background works on a request, the relay repeats its acknowledgement so the page's
  * backstop keeps waiting, for as long as `alive` reports a usable extension context. Leaving the
  * page cancels every pending request, which closes a chooser window opened for it.
+ *
+ * `readAccount` reads the address the page shows as its account (ADR 0028 amendment of
+ * 2026-11-17). It is read for a request the person's click made that waits for no autofill
+ * choice, as it comes and without waiting, until it finds one; that one goes with its
+ * request, and no later request of the document carries one, so it is compared at most once
+ * a document.
  */
-export function installPasskeyRelay(send: Send, alive: () => boolean = () => true): () => void {
+export function installPasskeyRelay(
+  send: Send,
+  alive: () => boolean = () => true,
+  readAccount?: () => string | undefined,
+): () => void {
+  let accountSent = false;
   // A synchronous throw, such as from an invalidated extension context, still settles.
   const relay = (message: unknown) => Promise.try(() => send(message));
   // Cleanup snapshots the keys because cancel and settle delete entries from this map.
@@ -123,6 +135,22 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
     // A path the background could not take is left out; it then reads the tab's.
     const { path } = message;
     const relayed = typeof path === "string" && path.length <= MAX_PATH_CHARACTERS ? { path } : {};
+    const mediation = (message.request as { mediation?: unknown } | null)?.mediation;
+    let account: string | undefined;
+    if (readAccount && !accountSent && userActivation && mediation !== "conditional") {
+      try {
+        account = readAccount();
+      } catch {
+        account = undefined;
+      }
+      if (
+        typeof account === "string" &&
+        account.length >= 3 &&
+        account.length <= MAX_ACCOUNT_CHARACTERS
+      )
+        accountSent = true;
+      else account = undefined;
+    }
     void relay({
       version: 1,
       type: "passkey.get",
@@ -131,6 +159,7 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
       userActivation,
       focused,
       ...relayed,
+      ...(account === undefined ? {} : { account }),
     }).then(
       (response) => {
         const result = v.safeParse(runtimeResultSchema, response);

@@ -44,6 +44,12 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
     signal: AbortSignal,
   ): Promise<Uint8Array>;
   /**
+   * The login username of each candidate's item, by position, where the settings let it be
+   * read as a fill would (ADR 0080); `undefined` for one that cannot be. Compared with the
+   * address a page shows, only inside the extension (ADR 0028 amendment of 2026-11-17).
+   */
+  loginUsernames?(candidates: readonly TCandidate[]): Promise<readonly (string | undefined)[]>;
+  /**
    * Whether a master password is right for the candidate's account, before a `reprompt`
    * candidate signs; throws when the vault cannot tell. Without it such a candidate never signs.
    */
@@ -149,6 +155,17 @@ export interface PasskeyRequestReport {
    * provider, such as the Bitwarden extension, may have shown its prompt during that login.
    */
   readonly duringLogin?: boolean;
+  /**
+   * The request was answered, or handed on, for a login of the tab that moved to the page
+   * from another origin (ADR 0036 amendment of 2026-11-17).
+   */
+  readonly movedLogin?: boolean;
+  /**
+   * The page showed another matching account than the site default, so the chooser asked
+   * with that account first (`other`), or the request was handed on where it could not
+   * (ADR 0028 amendment of 2026-11-17). Never the address or a username.
+   */
+  readonly pageAccount?: "other";
   /**
    * Automatic login of the page's site was paused (ADR 0062), so the request was answered only
    * through the chooser window, or handed on when it could not open.
@@ -302,6 +319,22 @@ export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
     origin: string,
     documentId?: string,
   ) => Promise<PasskeyItem | undefined> | PasskeyItem | undefined;
+  /**
+   * The running login of the tab whose page moved to `origin`, another origin, at most 30
+   * seconds after the login's last step (ADR 0036 amendment of 2026-11-17, the owner's
+   * option D): its item, its own origin, and whether `origin` is of its site. When
+   * `loginAccount` names none, the request is answered with that item only, as a running
+   * login's, if `origin` is of the login's site or the request's RP ID is one the login's
+   * origin may use, by itself or by the RP's list (ADR 0084).
+   */
+  movedLogin?: (
+    tabId: number,
+    origin: string,
+    documentId: string,
+  ) =>
+    | Promise<(PasskeyItem & { origin: string; sameSite: boolean }) | undefined>
+    | (PasskeyItem & { origin: string; sameSite: boolean })
+    | undefined;
   /**
    * Told of each request of a top document that does not wait for an autofill choice
    * (conditional mediation), so a login can tell that the page asked for a passkey after

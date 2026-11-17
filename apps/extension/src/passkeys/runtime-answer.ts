@@ -1,5 +1,6 @@
 import { createPasskeyAssertion } from "./assertion";
 
+import { shownAccountFirst } from "./page-account";
 import { matchingPasskeys, selectPasskey, type PasskeyCandidate } from "./select";
 import { CHOOSER_MIN_REMAINING_MS, RUNTIME_TIMEOUT_MS, type RuntimeResult } from "./wire";
 
@@ -46,7 +47,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
   request: AdmittedGetRequest;
   origin: string;
   context: { documentId: string; tabId: number; incognito: boolean; active: boolean };
-  message: { userActivation: boolean; focused: boolean };
+  message: { userActivation: boolean; focused: boolean; account?: string | undefined };
   operation: Operation;
   detail: ReportDetail;
   after: After<TCandidate>;
@@ -96,6 +97,30 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     const selection: typeof found = unset
       ? { kind: "delegate", reason: "ambiguous-credential" }
       : found;
+    // The page shows another matching account than the site default (ADR 0028 amendment of
+    // 2026-11-17): the person's own discoverable request, with no login of the tab and a
+    // default in force, opens the chooser with that account first instead of signing with
+    // the default. A running login, a list of credentials and a site without a default in
+    // force (`selection` is no credential then) come first.
+    const shownFirst =
+      !login &&
+      message.account !== undefined &&
+      message.userActivation &&
+      request.conditional !== true &&
+      request.allowCredentialIds.length === 0 &&
+      selection.kind === "credential" &&
+      selection.credential.preferred === true
+        ? await abortable(
+            shownAccountFirst(
+              message.account,
+              accepted.filter((entry) => entry.counter === 0),
+              source.loginUsernames?.bind(source),
+            ),
+            signal,
+          )
+        : [];
+    const pageOther = shownFirst.length > 0;
+    if (pageOther) detail.pageAccount = "other";
     // The page's permission is read before signing, and again before an assertion leaves.
     const refused = async () => {
       const refusal = await abortable(
@@ -164,8 +189,11 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     // after its master password is typed in the chooser window (owner, 2026-10-23 12:46 UTC).
     // A running login's item was asked for when that login started.
     const reprompt =
-      !login && selection.kind === "credential" && selection.credential.reprompt === true;
-    if (selection.kind === "credential" && !reprompt) {
+      !login &&
+      !pageOther &&
+      selection.kind === "credential" &&
+      selection.credential.reprompt === true;
+    if (selection.kind === "credential" && !reprompt && !pageOther) {
       credential = selection.credential;
       // Signed with no login of the tab, no choice and no click of the person: a sign-in
       // the page started and Pateat made by itself, as a login page that asks on load
@@ -177,24 +205,27 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     else if (login && selection.kind === "delegate")
       return { kind: "delegate", reason: `login-item-${selection.reason}` };
     else {
-      // Only passkeys Pateat can sign with are offered, the site default first. Fewer than
-      // two is not a choice, except where the default counts as unset or the one asks for
-      // the master password.
+      // Only passkeys Pateat can sign with are offered: the account the page shows first,
+      // then the site default. Fewer than two is not a choice, except where the default
+      // counts as unset or the one asks for the master password.
+      const rank = (entry: TCandidate) =>
+        shownFirst.includes(entry) ? 0 : entry.preferred === true ? 1 : 2;
       const offered =
         reprompt && selection.kind === "credential"
           ? [selection.credential]
           : accepted
               .filter((entry) => entry.counter === 0)
-              .sort((a, b) =>
-                unset ? 0 : Number(b.preferred === true) - Number(a.preferred === true),
-              );
+              .sort((a, b) => (unset ? 0 : rank(a) - rank(b)));
       const asksPassword = offered.some((entry) => entry.reprompt === true);
       // A paused site is handed on rather than signed without a choice (ADR 0062).
+      // Nor is the default when the page shows another account: never signed unasked.
       const declined = reprompt
         ? ({ kind: "delegate", reason: "master-password-reprompt" } as const)
-        : unset
-          ? ({ kind: "delegate", reason: paused ? "paused" : "default-unset" } as const)
-          : ({ kind: "delegate", reason: "ambiguous-credential" } as const);
+        : pageOther
+          ? ({ kind: "delegate", reason: "page-account" } as const)
+          : unset
+            ? ({ kind: "delegate", reason: paused ? "paused" : "default-unset" } as const)
+            : ({ kind: "delegate", reason: "ambiguous-credential" } as const);
       if (selection.kind === "delegate") {
         if (unset ? offered.length === 0 : selection.reason !== "ambiguous-credential")
           return unset ? declined : selection;

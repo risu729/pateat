@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { accountText, formAccounts, showsOtherAccount, shownAccounts } from "./accounts";
+import {
+  accountText,
+  formAccounts,
+  showsOtherAccount,
+  shownAccounts,
+  shownPasskeyAccount,
+} from "./accounts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -167,5 +173,63 @@ describe("accountText", () => {
     expect(shownAccounts(accountText(document, document.forms[0]!))).toEqual([]);
     document.body.innerHTML = `<p>${"a".repeat(100_000)}</p>`;
     expect(accountText(document, null).length).toBeLessThanOrEqual(4000);
+  });
+});
+
+describe("shownPasskeyAccount (ADR 0028 amendment of 2026-11-17)", () => {
+  const read = (html: string, focus?: string) => {
+    document.body.innerHTML = html;
+    if (focus) document.getElementById(focus)!.focus();
+    return shownPasskeyAccount(document);
+  };
+
+  it("reads the one unmasked address of the clicked control's form and the headings", () => {
+    expect(
+      read(
+        `<form><p>Signed in as <b>A@Example.com</b></p><button id="key">Passkey</button></form>
+        <form><p>other@example.com</p></form>`,
+        "key",
+      ),
+    ).toBe("A@Example.com");
+    expect(read(`<h1>Welcome, a@example.com</h1><button id="key">Passkey</button>`, "key")).toBe(
+      "a@example.com",
+    );
+    // The same address twice is one account.
+    expect(read(`<h2>a@example.com</h2><form><p>A@EXAMPLE.COM</p></form>`)).toBe("a@example.com");
+  });
+
+  it("reads none for a masked address, two addresses or nothing shown yet", () => {
+    expect(read(`<form><p>a***@example.com</p><button>Passkey</button></form>`)).toBeUndefined();
+    expect(read(`<h1>a@example.com</h1><form><p>b@example.com</p></form>`)).toBeUndefined();
+    expect(read(`<h1>a@example.com</h1><form><p>a***@example.com</p></form>`)).toBeUndefined();
+    expect(read(`<form><p>Choose a method</p><button>Passkey</button></form>`)).toBeUndefined();
+  });
+
+  it("never reads the header, navigation, a live region, an output, a frame or an input value", () => {
+    expect(
+      read(`<header><h1>me@example.com</h1></header><nav><form><p>me@example.com</p></form></nav>
+        <div role="banner"><h2>me@example.com</h2></div><h1>Choose a method</h1>`),
+    ).toBeUndefined();
+    expect(
+      read(`<form><p aria-live="polite">me@example.com</p><output>me@example.com</output>
+        <iframe srcdoc="<p>me@example.com</p>"></iframe>
+        <input type="hidden" name="email" value="me@example.com"><button>Passkey</button></form>`),
+    ).toBeUndefined();
+  });
+
+  it("reads nothing while the page shows a field the person types in, outside its header", () => {
+    expect(
+      read(`<form><h1>me@example.com</h1><input type="email"><button>Passkey</button></form>`),
+    ).toBeUndefined();
+    expect(read(`<h1>me@example.com</h1><div contenteditable>notes</div>`)).toBeUndefined();
+    // A search box in the header, or a read-only identifier field, does not count.
+    expect(
+      read(`<header><input type="search"></header>
+        <form><h1>me@example.com</h1><input type="email" readonly><button>Passkey</button></form>`),
+    ).toBe("me@example.com");
+  });
+
+  it("reads no form when several show and none holds the focus", () => {
+    expect(read(`<form><p>a@example.com</p></form><form><p>Other</p></form>`)).toBeUndefined();
   });
 });

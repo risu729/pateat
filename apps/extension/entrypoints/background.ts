@@ -449,7 +449,14 @@ export default defineBackground(() => {
     return work.finally(() => clearInterval(timer));
   };
   const vaultFields = createVaultFieldSource(connections);
-  const vaultPasskeys = createVaultPasskeySource(connections);
+  // ADR 0028 amendment of 2026-11-17: a page's shown address is compared with usernames.
+  const vaultPasskeys = createVaultPasskeySource(
+    connections,
+    createVaultUsernameSource({
+      ...connections,
+      settingsSyncPending: () => service.settingsSyncPending(),
+    }),
+  );
   // ADR 0084: RP lists of related origins, shared by logins and passkey requests.
   const relatedOrigins = createRelatedOrigins();
   // Automatic vault sync (ADR 0025): a revision check on page events and every five
@@ -718,6 +725,7 @@ export default defineBackground(() => {
         addBrowserSite,
         remember: passkeyProbe.remember,
         loginAccount: login.loginAccount,
+        movedLogin: login.movedLogin,
         requested: login.passkeyRequested,
         answered: passkeyAnswered,
         // ADR 0063: a site that asks every time opens the chooser with no default; so does a
@@ -742,6 +750,8 @@ export default defineBackground(() => {
         remember: rememberPasskey,
         // ADR 0027: a running login's passkey request is answered with its own item.
         loginAccount: login.loginAccount,
+        // ADR 0036 amendment of 2026-11-17: so is one of a login that moved to the page.
+        movedLogin: login.movedLogin,
         // ADR 0029: the login logs whether the page asked for a passkey after a step.
         requested: login.passkeyRequested,
         // ADR 0022: a login whose tab moves to a quiet page after an answer completes.

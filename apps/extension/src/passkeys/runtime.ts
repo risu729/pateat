@@ -4,6 +4,7 @@ import * as v from "valibot";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest, describeInvalidRequest } from "./request";
 import { needsRelatedOrigins } from "./related-origins";
+import { resolveRpId } from "./rp-id";
 import { type PasskeyCandidate } from "./select";
 import { RUNTIME_TIMEOUT_MS, runtimeMessageSchema, type RuntimeResult } from "./wire";
 
@@ -126,6 +127,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       userActivation: boolean;
       focused: boolean;
       path?: string | undefined;
+      account?: string | undefined;
     },
     origin: string,
     context: { documentId: string; tabId: number; incognito: boolean; active: boolean },
@@ -372,11 +374,39 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (conditional) return await waitForLogin(signal);
       await hold(signal);
       // A failed lookup fails closed: the catch below delegates.
-      const login = await abortable(
-        Promise.try(() => options.loginAccount?.(context.tabId, origin, context.documentId)),
+      const login =
+        (await abortable(
+          Promise.try(() => options.loginAccount?.(context.tabId, origin, context.documentId)),
+          signal,
+        )) ?? (await movedItem(signal));
+      return await answer(login, signal);
+    };
+    /**
+     * The item of a running login that moved to this page from another origin of its site,
+     * or from an origin that may use the request's RP ID (ADR 0036 amendment of
+     * 2026-11-17, ADR 0084). The RP's list is read only for an RP ID the login's item holds
+     * a passkey for, so the page never picks a host to fetch from.
+     */
+    const movedItem = async (signal: AbortSignal) => {
+      if (!options.movedLogin) return undefined;
+      const moved = await abortable(
+        Promise.try(() => options.movedLogin!(context.tabId, origin, context.documentId)),
         signal,
       );
-      return await answer(login, signal);
+      if (!moved) return undefined;
+      const item = { connectionId: moved.connectionId, itemId: moved.itemId };
+      const { rpId } = admission.request;
+      if (!moved.sameSite && !resolveRpId(moved.origin, rpId).ok) {
+        const held = await abortable(source.candidates(origin, rpId, signal, item), signal);
+        if (
+          !held?.candidates.some((candidate) => candidate.rpId === rpId) ||
+          !options.relatedOrigins ||
+          !(await abortable(options.relatedOrigins.allows(moved.origin, rpId), signal))
+        )
+          return undefined;
+      }
+      detail.movedLogin = true;
+      return item;
     };
     try {
       const signal = controller.signal;

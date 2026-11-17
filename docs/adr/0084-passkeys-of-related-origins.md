@@ -9,6 +9,12 @@ after the owner reported at 10:11 UTC that a ChatGPT item with a passkey did not
 origin requests delegated), [ADR 0027](0027-per-account-login-routes.md) and
 [ADR 0036](0036-passkey-after-the-identifier.md) (the item's `passkey` fact).
 
+Amended on 2026-11-17 by the owner's option D at 13:50 UTC
+([ADR 0036 amendment](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17)):
+a running login whose tab moved to a page of another site answers that page's passkey
+request with its item when the request's RP ID lists the login's origin, the list read
+as rule 3 reads one, only when the login's item holds a passkey of that RP ID.
+
 Date: 2026-11-04
 
 ## Context

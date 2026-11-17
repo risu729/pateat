@@ -3860,6 +3860,24 @@ even for one match or a site default, with none preselected and the checkbox unt
 where the window cannot open it is handed on as `paused` or `default-unset`, never
 signed unasked. A running login's own requests never open it (below).
 
+A discoverable request the person's click made, that waits for no autofill choice, also
+opens the window instead of signing with the site default when the top page shows
+another matching account
+([ADR 0028 amendment of 2026-11-17](adr/0028-account-chooser-login-pages.md#amendment-2026-11-17-a-passkey-request-on-a-page-that-shows-another-account)).
+`passkey-isolated.js` reads, as the request comes, the rendered text of the form holding
+the focused element (else the only shown form) and the first headings, never the header,
+navigation, footer, frames, outputs, live regions, editable text or input values, and
+nothing while the page shows a field to type text into outside its header
+(`shownPasskeyAccount`). Exactly one unmasked email address there goes with the request,
+once a document. The background compares it, ignoring case, with each matching item's
+login username (read from the crypto Worker as ADR 0080 reads it, where the settings let
+the username be filled) and the user name stored with its passkey. When it fits an item
+other than the default, and no passkey of the default, the window lists the fitting
+passkeys first, then the default; where it cannot open, the request is handed on as
+`page-account`. The address and usernames stay in the extension; `passkey.request` logs
+only `pageAccount`. A running or moved login, a request's list of credentials and a site
+whose default counts as unset decide first.
+
 The bridge also wraps `navigator.credentials.create`, but only to refuse one kind of
 registration
 ([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in)).
@@ -3889,6 +3907,19 @@ load after a worker restart, counts against the request's own 10-second budget. 
 cancellation or a settings change also ends that wait and releases the request's vault
 hold; a lookup that finishes later cannot continue to signing. The separate lookup for
 the value-free request report does not delay or change the answer.
+
+When no login runs on the request's origin, a running top-level login whose tab moved to
+that page answers its request that waits for no autofill choice the same way, with its
+own item only
+([ADR 0036 amendment of 2026-11-17](adr/0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17),
+`movedLogin`): the page may hold the login for a passkey (`passkeyPageFits`: the request
+came at most 30 seconds after the login's last effect step, or within 30 seconds of the
+holding page's earlier request), and the page is another origin of the login's site or
+the request's RP ID is one the login's origin may use, by itself or by the RP's list
+(ADR 0084), read only when the login's item holds a passkey of that RP ID. A login that
+ended, settled, is watched or only fills does not count, and `conditional` requests
+still wait for their own document's login. `passkey.request` logs `movedLogin` for such
+a request.
 
 ### Passkey requests Pateat hands on or answers differently
 

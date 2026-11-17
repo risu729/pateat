@@ -1437,6 +1437,13 @@ holds:
   origin had not ended. The request then went to the browser or another passkey
   provider, such as the Bitwarden extension, which may show its own prompt during that
   login;
+- `movedLogin` when the request was answered, or handed on as `login-item-*`, for a
+  running login whose tab moved to the page from another origin
+  ([ADR 0036 amendment of 2026-11-17](adr/0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17));
+- `pageAccount` `other` when the page showed another matching account than the site
+  default, so the chooser asked with that account first; where the window could not
+  open, the reason is `page-account`
+  ([ADR 0028 amendment of 2026-11-17](adr/0028-account-chooser-login-pages.md#amendment-2026-11-17-a-passkey-request-on-a-page-that-shows-another-account));
 - for the `invalid-request` reason, `invalid`: the request member that broke Pateat's
   bounds (`challenge`, `rp-id`, `allow-credentials`, `allow-credentials.id`,
   `allow-credentials.type`, `allow-credentials.transports`, `user-verification`,

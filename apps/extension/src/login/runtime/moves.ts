@@ -445,6 +445,46 @@ export function passkeyPageFits(
 }
 
 /**
+ * The running top-level login of a tab whose page moved to `pageOrigin`, another origin,
+ * when the passkey request of `documentId` just made there may hold it
+ * (`passkeyPageFits`): at most `SITE_MOVE_MS` after the login's last effect step, or
+ * within that of the request or answer of the page already holding it (ADR 0036
+ * amendment of 2026-11-17, owner's option D). A login that ended, settled or is watched,
+ * or that only fills, is no such login; nor is one whose own origin is `pageOrigin`, which
+ * `recordFor` finds. `sameSite` says whether `pageOrigin` is another origin of the login's
+ * site; the caller checks a page of another site against the request's RP ID (ADR 0084).
+ */
+export async function movedLogin(
+  rt: Runtime,
+  tabId: number,
+  pageOrigin: string,
+  documentId: string,
+): Promise<
+  { connectionId: string; itemId: string; origin: string; sameSite: boolean } | undefined
+> {
+  await rt.vars.loaded;
+  const record = tabAttempt(rt, tabId);
+  if (
+    !record ||
+    terminal(record) ||
+    record.settled === true ||
+    record.state === "watching" ||
+    record.fillOnly ||
+    record.signInFill ||
+    record.ssoChild !== undefined ||
+    record.account.origin === pageOrigin ||
+    !passkeyPageFits(rt, record, { tabId, frameId: 0, documentId, origin: pageOrigin }, pageOrigin)
+  )
+    return undefined;
+  return {
+    connectionId: record.account.connectionId,
+    itemId: record.account.itemId,
+    origin: record.account.origin,
+    sameSite: loginMoveFits(record.document.origin, pageOrigin, false),
+  };
+}
+
+/**
  * The last effect step of a top-level login whose tab moved to `siteOrigin`, a page of any
  * site, if that page is to be read for a passkey request that would hold it
  * (`passkeyPageFits`) when nothing else decides the move: delivered at most
