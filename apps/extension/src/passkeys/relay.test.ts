@@ -69,6 +69,21 @@ describe("isolated passkey relay", () => {
     ]);
   });
 
+  it("passes on the page's word on whether it used an assertion, unacknowledged (ADR 0034)", async () => {
+    const { scope, posted } = fakeWindow();
+    const send = vi.fn(async () => ({ ok: true }));
+    installPasskeyRelay(send);
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "delivered", id, delivered: false });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(send).toHaveBeenCalledWith({
+      version: 1,
+      type: "passkey.delivered",
+      operationId: id,
+      delivered: false,
+    });
+    expect(posted).toHaveLength(1);
+  });
+
   it("passes on a failure after the chooser window's wait ran out", async () => {
     const { scope, posted } = fakeWindow();
     installPasskeyRelay(vi.fn(async () => ({ kind: "not-allowed" })));

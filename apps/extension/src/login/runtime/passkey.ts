@@ -346,33 +346,68 @@ function shownPath(url: string | undefined, origin: string): string | undefined 
   return parsed?.origin === origin ? observedPath(parsed.pathname) : undefined;
 }
 
+/** A path as a request's is compared: one trailing `/` does not count. */
+const comparable = (path: string) =>
+  path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+
 /**
- * Whether a waiting request is still its page's own: its tab still shows the path it came
- * on. A single-page site that moves in place to another route can leave the request of
- * the page it left waiting, for an autofill field that is gone, so no browser would
- * answer it; answered, the page acts on it where it is now, as OpenAI's sign-in submitted
- * its method selection page, which has no action (#1670). Such a request is handed on
- * (`page-moved`) and never answered (ADR 0034 amendment of 2026-11-17).
+ * Whether a waiting request came on `path`, a path its document shows; reads nothing.
+ * The path stands in for the autofill field the request was made for (ADR 0034 amendment
+ * of 2026-11-17).
  */
-export async function onItsPath(parked: ParkedRequest): Promise<boolean> {
+export function cameOn(parked: ParkedRequest, path: string | undefined): boolean {
+  return (
+    parked.path !== undefined && path !== undefined && comparable(parked.path) === comparable(path)
+  );
+}
+
+/** The newest conditional request of a top document still waiting that came on `path`. */
+export function parkedOn(
+  rt: Runtime,
+  document: { tabId: number; documentId: string },
+  path: string,
+): ParkedRequest | undefined {
+  let found: ParkedRequest | undefined;
+  for (const parked of rt.parkedRequests)
+    if (
+      parked.tabId === document.tabId &&
+      parked.documentId === document.documentId &&
+      cameOn(parked, path)
+    )
+      found = parked;
+  return found;
+}
+
+/**
+ * Hands a waiting request on unless it is still its page's own: its tab still shows the
+ * path it came on. A single-page site that moves in place to another route can leave the
+ * request of the page it left waiting, for an autofill field that is gone, so no browser
+ * would answer it; answered, the page acts on it where it is now, as OpenAI's sign-in
+ * submitted its method selection page, which has no action (#1670). Such a request is
+ * handed on as `page-moved`, or as `page-unknown` when either path could not be read, and
+ * never answered (ADR 0034 amendment of 2026-11-17). Returns whether it still waits there.
+ */
+export async function handOnIfMoved(parked: ParkedRequest): Promise<boolean> {
   const tab = await browser.tabs.get(parked.tabId).catch(() => undefined);
   const shown = shownPath(tab?.url, parked.origin);
-  if (parked.path !== undefined && shown === parked.path) return true;
-  parked.settle({ kind: "delegate", reason: "page-moved" });
+  if (cameOn(parked, shown)) return true;
+  parked.settle({
+    kind: "delegate",
+    reason: parked.path === undefined || shown === undefined ? "page-unknown" : "page-moved",
+  });
   return false;
 }
 
 /**
  * The newest conditional request of a top document still waiting on the path its tab
- * shows (`onItsPath`); a newer one that its page moved away from is handed on first.
+ * shows (`handOnIfMoved`); a newer one that its page moved away from is handed on first.
  */
-export async function pageRequest(
+export async function requestOnItsPath(
   rt: Runtime,
   document: { tabId: number; documentId: string },
 ): Promise<ParkedRequest | undefined> {
   for (let parked = parkedFor(rt, document); parked; parked = parkedFor(rt, document))
-    // eslint-disable-next-line no-await-in-loop
-    if ((await onItsPath(parked)) && rt.parkedRequests.has(parked)) return parked;
+    if ((await handOnIfMoved(parked)) && rt.parkedRequests.has(parked)) return parked;
   return undefined;
 }
 
@@ -396,9 +431,16 @@ export async function conditionalRequest(
     incognito?: boolean;
   },
 ): Promise<ConditionalDecision> {
-  // The page the request came from, read first (ADR 0034 amendment of 2026-11-17).
+  // The page the request came from, read first; a request that waits again after a failed
+  // answer keeps the path it first came on (ADR 0034 amendment of 2026-11-17).
   const tab = await browser.tabs.get(input.tabId).catch(() => undefined);
-  const path = shownPath(tab?.url, input.origin);
+  let first = rt.requestPaths.get(input.signal);
+  if (!first) {
+    const shown = shownPath(tab?.url, input.origin);
+    first = shown === undefined ? {} : { path: shown };
+    rt.requestPaths.set(input.signal, first);
+  }
+  const { path } = first;
   await rt.vars.loaded;
   await rt.vars.sessionLoaded;
   // A paused site's own request goes to the browser at once (ADR 0062).
@@ -583,7 +625,8 @@ export async function switchToPasskey(rt: Runtime, run: Execution): Promise<bool
   };
   if (!fits() || !parkedFor(rt, run.live.document)) return false;
   // A request its page moved away from in place is handed on instead.
-  if (!(await pageRequest(rt, run.live.document)) || !current(rt, run) || !fits()) return false;
+  if (!(await requestOnItsPath(rt, run.live.document)) || !current(rt, run) || !fits())
+    return false;
   await change(
     rt,
     run,
@@ -608,14 +651,14 @@ export async function switchToPasskey(rt: Runtime, run: Execution): Promise<bool
 export async function answerRequest(rt: Runtime, run: Execution): Promise<void> {
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   const ready = () => current(rt, run) && run.metadata.state === "ready";
-  let parked = await pageRequest(rt, run.live.document);
+  let parked = await requestOnItsPath(rt, run.live.document);
   // A page may cancel its request and ask again, as when its form renders once more.
   for (const until = Date.now() + REQUEST_WAIT_MS; !parked && Date.now() < until;) {
     // eslint-disable-next-line no-await-in-loop
     await sleep(100);
     if (!ready()) return;
     // eslint-disable-next-line no-await-in-loop
-    parked = await pageRequest(rt, run.live.document);
+    parked = await requestOnItsPath(rt, run.live.document);
   }
   if (!ready()) return;
   if (!parked) {
@@ -671,7 +714,7 @@ export async function answerRequest(rt: Runtime, run: Execution): Promise<void> 
   const target = parked;
   // The bridge says whether the assertion went back; a request that went away meanwhile,
   // or whose page moved in place since it was found, was never answered.
-  let gone = !(await onItsPath(target));
+  let gone = !(await handOnIfMoved(target));
   const signed =
     !gone &&
     (await new Promise<boolean>((resolve) => {

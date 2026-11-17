@@ -388,4 +388,119 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(request.decided()).toEqual({ kind: "withhold" });
     expect(executed()).toEqual([]);
   });
+  describe("a request its page moved away from in place (ADR 0034 amendment of 2026-11-17)", () => {
+    /** The site's router moves the tab in place to `path`, as `history.pushState` does. */
+    const moveTo = (path: string) => {
+      fake.state.tabUrls[1] = `${origin}${path}`;
+      fake.state.observedPath = path;
+    };
+    it("is handed on, never answered, when the page moves while its form is filled", async () => {
+      const { h, report } = start();
+      let request: ReturnType<typeof ask> | undefined;
+      // The page asks while its form is being filled, then moves to another route of the
+      // same document without cancelling the request (#1670).
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind !== "fill" || request) return;
+        request = ask(h);
+        await flush();
+        moveTo("/challenge");
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(request?.decided()).toBeDefined());
+      expect(request!.decided()).toEqual({ kind: "delegate", reason: "page-moved" });
+      await vi.waitFor(() => expect(status()?.[0]?.["state"]).not.toBe("ready"));
+      expect(status()![0]).toMatchObject({ route: "password", submissions: 1 });
+      expect(routeChanges(report)).toEqual([]);
+    });
+    /** A login whose recipe starts on the page the site moves to. */
+    const startThere = () => {
+      const challenge = parseLoginRecipe({
+        ...recipe,
+        id: "synthetic-challenge",
+        steps: recipe.steps.map((step) => ({ ...step, path: "/auth_challenge" })),
+      });
+      const started = start(challenge);
+      started.h.recipes.starts.mockResolvedValue([
+        { path: "/auth_challenge", steps: [challenge.steps[0]!] },
+      ]);
+      return started;
+    };
+    it("keeps the path a request first came on when it waits again", async () => {
+      vi.useFakeTimers();
+      const { h, report } = startThere();
+      const input = {
+        tabId: 1,
+        origin,
+        documentId: "synthetic-document",
+        signal: new AbortController().signal,
+      };
+      // No login starts while it first waits on the sign-in page.
+      const first = h.login.conditionalRequest(input);
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(await first).toEqual({ kind: "delegate", reason: "no-login" });
+      // The page moves in place; the same request waits again, as the bridge passes it
+      // on after a failed answer, and a login starts on the page it moved to.
+      moveTo("/auth_challenge");
+      fake.state.pageUrl = `${origin}/auth_challenge`;
+      let again: ConditionalDecision | undefined;
+      void h.login.conditionalRequest(input).then((value) => (again = value));
+      await flush();
+      signsInOnClick();
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      expect(again).toEqual({ kind: "delegate", reason: "page-moved" });
+      expect(status()![0]).toMatchObject({ route: "password" });
+      expect(routeChanges(report)).toEqual([]);
+    });
+    it("leaves a new login on the page it moved to on the password route", async () => {
+      const { h, report } = startThere();
+      // The sign-in page's own request waits while the site moves in place to its method
+      // selection page, where a login then starts.
+      const request = ask(h);
+      await flush();
+      moveTo("/auth_challenge");
+      fake.state.pageUrl = `${origin}/auth_challenge`;
+      signsInOnClick();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+      );
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "page-moved" });
+      expect(clicks("login")).toBe(1);
+      expect(routeChanges(report)).toEqual([]);
+    });
+    it("is handed on as page-unknown when its tab's path could not be read", async () => {
+      const { h, report } = start();
+      // The tab already shows another origin, so the request's path is unknown.
+      fake.state.tabUrls[1] = "https://elsewhere.example/signin";
+      const request = ask(h);
+      await flush();
+      fake.state.tabUrls[1] = `${origin}/signin`;
+      signsInOnClick();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+      );
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "page-unknown" });
+      expect(routeChanges(report)).toEqual([]);
+    });
+    it("is handed on when the page moves as the answer goes out", async () => {
+      const { h, report } = start();
+      const request = ask(h);
+      await flush();
+      // The page moves after the login found the request, just before it answers.
+      const original = h.store.handle.getMockImplementation()!;
+      h.store.handle.mockImplementation(async () => {
+        if (status()?.[0]?.["state"] === "submit-intent") moveTo("/challenge");
+        return original();
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(request.decided()).toBeDefined());
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "page-moved" });
+      // Never answered, the login falls back to its password as without a request.
+      await vi.waitFor(() => expect(routeChanges(report)).toEqual(["request-missing"]));
+      expect(status()![0]).toMatchObject({ route: "password" });
+    });
+  });
 });

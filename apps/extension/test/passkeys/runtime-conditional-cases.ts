@@ -4,6 +4,7 @@ import {
   type ConditionalDecision,
   type PasskeyItem,
 } from "../../src/passkeys/runtime";
+import { PAGE_DELIVERY_WAIT_MS } from "../../src/passkeys/wire";
 import type { RuntimeFixtures, RuntimeGet } from "./runtime-context";
 
 type ConditionalInput = {
@@ -190,7 +191,8 @@ export function registerConditionalCases({
       // The budget runs only once the login answers.
       timeoutMs: () => 50,
     });
-    const pending = runtime.handle(conditionalGet(), sender());
+    const operationId = crypto.randomUUID();
+    const pending = runtime.handle(conditionalGet(operationId), sender());
     await vi.waitFor(() => expect(waiting).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(hold).not.toHaveBeenCalled();
@@ -200,6 +202,16 @@ export function registerConditionalCases({
       kind: "assertion",
       assertion: { credentialId: "CCCC" },
     });
+    // The login and the tab hear of it once the page says it used the assertion.
+    expect(signed).not.toHaveBeenCalled();
+    expect(answeredTab).not.toHaveBeenCalled();
+    expect(report).not.toHaveBeenCalled();
+    expect(
+      await runtime.handle(
+        { version: 1, type: "passkey.delivered", operationId, delivered: true },
+        sender(),
+      ),
+    ).toEqual({ ok: true });
     expect(signed.mock.calls).toEqual([[true]]);
     expect(backing.candidates).toHaveBeenCalledWith(
       origin,
@@ -207,7 +219,7 @@ export function registerConditionalCases({
       expect.any(AbortSignal),
       loginItem,
     );
-    expect(events).toEqual(["hold", "answered", "leave"]);
+    expect(events).toEqual(["hold", "leave", "answered"]);
     // The login's item signed it.
     // A login's answer is not a sign-in Pateat made by itself.
     expect(answeredTab).toHaveBeenCalledWith(
@@ -220,6 +232,78 @@ export function registerConditionalCases({
     expect(report).toHaveBeenLastCalledWith(
       expect.objectContaining({ outcome: "assertion", mediation: "conditional" }),
     );
+    expect(report.mock.lastCall![0]).not.toHaveProperty("dropped");
+  });
+
+  it("tells the login its answer was not used when the page dropped it (ADR 0034)", async () => {
+    const report = vi.fn();
+    const answeredTab = vi.fn();
+    const { conditional, waiting } = decisions();
+    const runtime = createPasskeyRuntime(source(), {
+      extensionId,
+      report,
+      conditional,
+      answered: answeredTab,
+    });
+    const operationId = crypto.randomUUID();
+    const pending = runtime.handle(conditionalGet(operationId), sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    const signed = vi.fn();
+    waiting[0]!.decide({ kind: "answer", item: loginItem, answered: signed });
+    expect(await pending).toMatchObject({ kind: "assertion" });
+    // Another document's word changes nothing.
+    expect(
+      await runtime.handle(
+        { version: 1, type: "passkey.delivered", operationId, delivered: true },
+        sender({ documentId: "document-b" }),
+      ),
+    ).toEqual({ ok: false });
+    expect(signed).not.toHaveBeenCalled();
+    // Its page moved in place to another path before the assertion came back.
+    expect(
+      await runtime.handle(
+        { version: 1, type: "passkey.delivered", operationId, delivered: false },
+        sender(),
+      ),
+    ).toEqual({ ok: true });
+    expect(signed.mock.calls).toEqual([[false]]);
+    expect(answeredTab).not.toHaveBeenCalled();
+    expect(report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ outcome: "assertion", dropped: true, mediation: "conditional" }),
+    );
+    // Told once.
+    expect(
+      await runtime.handle(
+        { version: 1, type: "passkey.delivered", operationId, delivered: true },
+        sender(),
+      ),
+    ).toEqual({ ok: false });
+    expect(signed.mock.calls).toEqual([[false]]);
+  });
+
+  it("counts a login's answer as used once the page stays silent past its bound", async () => {
+    const answeredTab = vi.fn();
+    const { conditional, waiting } = decisions();
+    const runtime = createPasskeyRuntime(source(), {
+      extensionId,
+      conditional,
+      answered: answeredTab,
+    });
+    const pending = runtime.handle(conditionalGet(), sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    const signed = vi.fn();
+    vi.useFakeTimers();
+    try {
+      waiting[0]!.decide({ kind: "answer", item: loginItem, answered: signed });
+      expect(await pending).toMatchObject({ kind: "assertion" });
+      await vi.advanceTimersByTimeAsync(PAGE_DELIVERY_WAIT_MS - 1);
+      expect(signed).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(signed.mock.calls).toEqual([[true]]);
+      expect(answeredTab).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for the login again when its item cannot answer, and never answers twice", async () => {
@@ -301,7 +385,8 @@ export function registerConditionalCases({
   it("is not cancelled by a settings change while it waits", async () => {
     const { conditional, waiting } = decisions();
     const runtime = createPasskeyRuntime(source(), { extensionId, conditional });
-    const pending = runtime.handle(conditionalGet(), sender());
+    const operationId = crypto.randomUUID();
+    const pending = runtime.handle(conditionalGet(operationId), sender());
     await vi.waitFor(() => expect(waiting).toHaveLength(1));
     runtime.settingsChanged();
     await tick();
@@ -309,6 +394,10 @@ export function registerConditionalCases({
     const signed = vi.fn();
     waiting[0]!.decide({ kind: "answer", item: loginItem, answered: signed });
     expect(await pending).toMatchObject({ kind: "assertion" });
+    await runtime.handle(
+      { version: 1, type: "passkey.delivered", operationId, delivered: true },
+      sender(),
+    );
     expect(signed.mock.calls).toEqual([[true]]);
   });
 

@@ -1374,14 +1374,15 @@ holds:
   minutes of waiting for that login or for a pick while its tab asks for an account) and
   the delegate `reason`. Any request of a hostname listed under "Sites whose passkey
   requests go to the browser" on the settings page is handed on first, as `browser-site`
-  ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23).
-  A conditional request is handed on as `no-recipe` (no recipe for the site),
-  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
-  or `no-pick` (the popup offered its page an ordinary choice of accounts, outside an
-  ask, with an item that holds a passkey, and nothing was picked within four minutes),
-  as `page-moved` when its page moved in place to another path before a login answered
-  it, and at once as `paused` while automatic login of its site is paused
-  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23). A
+  conditional request is handed on as `no-recipe` (no recipe for the site), `no-login`
+  (no login of its page started), `login-ended` (the login did not sign in) or `no-pick`
+  (the popup offered its page an ordinary choice of accounts, outside an ask, with an
+  item that holds a passkey, and nothing was picked within four minutes), as
+  `page-moved` when its page moved in place to another path before a login answered it,
+  as `page-unknown` when the path it came on or its tab's path could not be read (a
+  failed tab read, or another origin), and at once as `paused` while automatic login of
+  its site is paused ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
   ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
   mediation that names its credentials, in a tab whose Pateat login of the origin signed
   in with no logout detected since, is a re-verification while signed in and is handed
@@ -1431,6 +1432,9 @@ holds:
 - `answerFailed`: why the login's item could not answer a conditional request the login
   gave it (such as `login-item-no-credential`); the login then falls back to the
   password;
+- `dropped` when the page dropped a login's assertion because it had moved in place to
+  another path since it asked; the login counts the answer as not signed
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md#amendment-a-request-its-page-moved-away-from-2026-11-17));
 - `duringLogin` when a delegated request came in while a Pateat login of the tab and
   origin had not ended. The request then went to the browser or another passkey
   provider, such as the Bitwarden extension, which may show its own prompt during that

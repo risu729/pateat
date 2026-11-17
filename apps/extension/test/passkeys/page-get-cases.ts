@@ -243,5 +243,54 @@ export function registerPageGetCases({
     expect(credential.id).toBe("AQID");
     expect(Object.getPrototypeOf(credential)).toBe(page.prototypes.credential);
     expect(credential.toJSON()).toMatchObject({ id: "AQID", type: "public-key" });
+    // Only a conditional request's answer is reported back.
+    expect(page.posted.map((message) => message.type)).toEqual(["get"]);
+  });
+
+  it("uses a conditional request's assertion on the path it asked on and says so (ADR 0034)", async () => {
+    const page = fakePage(answer({ kind: "assertion", assertion: syntheticAssertion }));
+    // One trailing `/` does not count as a move.
+    const result = page.container.get({ publicKey, mediation: "conditional" });
+    page.location.pathname = "/sign-in/";
+    const credential = (await result) as { id: string };
+    expect(credential.id).toBe("AQID");
+    expect(page.nativeGet).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const id = page.posted[0]!.id;
+    expect(page.posted.slice(1)).toEqual([
+      { channel: PAGE_CHANNEL, type: "delivered", id, delivered: true },
+    ]);
+  });
+
+  it("drops a conditional request's assertion that came back after its page moved in place (ADR 0034)", async () => {
+    const page = fakePage((message) =>
+      message.type === "get" ? [{ type: "ack", id: message.id }] : [],
+    );
+    const options = { publicKey, mediation: "conditional" };
+    const result = page.container.get(options);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const id = page.posted[0]!.id;
+    // The site's router moves to another path; then a login's answer arrives.
+    page.location.pathname = "/challenge";
+    page.post({
+      channel: PAGE_CHANNEL,
+      type: "result",
+      id,
+      result: { kind: "assertion", assertion: syntheticAssertion },
+    });
+    await expect(result).resolves.toBe("native");
+    expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(page.posted.slice(1)).toEqual([
+      { channel: PAGE_CHANNEL, type: "delivered", id, delivered: false },
+    ]);
   });
 }
+
+const syntheticAssertion = {
+  credentialId: "AQID",
+  clientDataJSON: "e30",
+  authenticatorData: "AA",
+  signature: "MAA",
+  userHandle: null,
+};

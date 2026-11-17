@@ -69,6 +69,11 @@ export type After<TCandidate> = {
   silent?: true;
   /** "Always for this site" was chosen: the hostname joins the browser's sites (ADR 0007). */
   browserSite?: true;
+  /**
+   * A login's answer: told whether the page used the assertion, once it says so
+   * (ADR 0034 amendment of 2026-11-17).
+   */
+  loginAnswered?: (signed: boolean) => void;
 };
 
 /** Opens Pateat's chooser window for one request (ADR 0021) and settles when it is answered. */
@@ -144,6 +149,11 @@ export interface PasskeyRequestReport {
    * then waited for that login again (ADR 0034).
    */
   readonly answerFailed?: string;
+  /**
+   * The page dropped a login's assertion: its page had moved in place to another path
+   * since it asked (ADR 0034 amendment of 2026-11-17).
+   */
+  readonly dropped?: boolean;
   /**
    * A delegated request came while a login of the tab and origin had not ended, so another
    * provider, such as the Bitwarden extension, may have shown its prompt during that login.

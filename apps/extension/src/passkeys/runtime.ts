@@ -5,7 +5,12 @@ import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest, describeInvalidRequest } from "./request";
 import { needsRelatedOrigins } from "./related-origins";
 import { type PasskeyCandidate } from "./select";
-import { RUNTIME_TIMEOUT_MS, runtimeMessageSchema, type RuntimeResult } from "./wire";
+import {
+  PAGE_DELIVERY_WAIT_MS,
+  RUNTIME_TIMEOUT_MS,
+  runtimeMessageSchema,
+  type RuntimeResult,
+} from "./wire";
 
 import { createPasskeyAnswer, PagePermissionRefusal } from "./runtime-answer";
 import {
@@ -58,6 +63,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
    * cancel that arrives meanwhile is kept here, so it is not lost.
    */
   const reading = new Map<string, { documentId: string; cancelled: boolean; related?: true }>();
+  /**
+   * By operation: a login's answer handed back to its page, waiting for the page's word on
+   * whether it used it (`passkey.delivered`, ADR 0034 amendment of 2026-11-17).
+   */
+  const deliveries = new Map<string, { documentId: string; done(delivered: boolean): void }>();
   /**
    * The settings changed: requests not yet before the person stop. A save of only a choice
    * (`CHOICE_ONLY_CAUSES`), as the chooser's own "Always for this site", stops none.
@@ -319,10 +329,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         detail.cause = step;
         result = { kind: "delegate", reason: "assertion-failed" };
       }
-      const signed = result.kind === "assertion";
-      answered(signed);
+      // An assertion's login is told once the page says whether it used it (`deliveries`).
+      if (result.kind === "assertion") return result;
+      answered(false);
       answered = undefined;
-      if (signed || signal.aborted) return result;
+      if (signal.aborted) return result;
       // The login takes its password route instead; the request waits for that login
       // again, which never answers it twice.
       detail.answerFailed = result.kind === "delegate" ? result.reason : result.kind;
@@ -360,6 +371,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       const result = await lookUp(signal);
       // Whatever the lookup decided, a listed hostname's request is handed on as such.
       await unlisted(signal);
+      if (answered) after.loginAnswered = answered;
+      answered = undefined;
       return result;
     } catch (error) {
       answered?.(false);
@@ -424,6 +437,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         operation.controller.abort();
         return { ok: true };
       }
+      if (command.type === "passkey.delivered") {
+        const delivery = deliveries.get(command.operationId);
+        if (!delivery || delivery.documentId !== sender.documentId) return { ok: false };
+        delivery.done(command.delivered);
+        return { ok: true };
+      }
       const documentId = sender.documentId!;
       answering.set(documentId, (answering.get(documentId) ?? 0) + 1);
       try {
@@ -456,17 +475,21 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           detail,
           after,
         );
-        if (result.kind === "assertion" && detail.rpId !== undefined && after.signed)
-          try {
-            options.answered?.(sender.tab!.id!, origin, detail.rpId, after.signed, {
-              ...(after.silent ? { silent: true } : {}),
-              incognito: sender.tab?.incognito === true,
-              // senderOrigin() accepted only a top document with an ID.
-              documentId: sender.documentId!,
-            });
-          } catch {
-            // Never changes the answer.
-          }
+        const noteAnswered = () => {
+          if (result.kind === "assertion" && detail.rpId !== undefined && after.signed)
+            try {
+              options.answered?.(sender.tab!.id!, origin, detail.rpId, after.signed, {
+                ...(after.silent ? { silent: true } : {}),
+                incognito: sender.tab?.incognito === true,
+                // senderOrigin() accepted only a top document with an ID.
+                documentId: sender.documentId!,
+              });
+            } catch {
+              // Never changes the answer.
+            }
+        };
+        const told = result.kind === "assertion" ? after.loginAnswered : undefined;
+        if (!told) noteAnswered();
         const remembered = after.remember;
         const mediation = mediationOf(request);
         if (mediation) detail.mediation = mediation;
@@ -496,9 +519,28 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
             // A report must never change the answer.
           }
         };
+        if (told) {
+          // A login's answer counts once the page says it used the assertion, or once
+          // `PAGE_DELIVERY_WAIT_MS` passes without its word; a page that moved in place since
+          // it asked drops it (ADR 0034 amendment of 2026-11-17).
+          const delivery = {
+            documentId,
+            done(delivered: boolean) {
+              if (deliveries.get(command.operationId) !== delivery) return;
+              deliveries.delete(command.operationId);
+              clearTimeout(timer);
+              told(delivered);
+              if (delivered) noteAnswered();
+              else detail.dropped = true;
+              report();
+            },
+          };
+          const timer = setTimeout(() => delivery.done(true), PAGE_DELIVERY_WAIT_MS);
+          deliveries.set(command.operationId, delivery);
+        }
         // A delegated request is reported once the login read as it came in is known, after
         // the reply is on its way.
-        if (result.kind === "delegate") void loginAtEntry.then(report);
+        else if (result.kind === "delegate") void loginAtEntry.then(report);
         else report();
         return result;
       } finally {

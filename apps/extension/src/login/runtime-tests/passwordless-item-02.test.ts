@@ -841,10 +841,36 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, submissions: 1 });
       expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
     });
+    it("hands on, its submission unspent, a request whose page moved just before the answer", async () => {
+      vi.useFakeTimers();
+      let decided: (() => ConditionalDecision | undefined) | undefined;
+      const { h } = begin("/verify", (login) => {
+        fake.state.tabUrls[1] = `${origin}/verify`;
+        decided = ask(login);
+      });
+      // The stop found the request on its path; the page moves while the stop checks its
+      // settings once more, before the answer is recorded.
+      const original = h.store.handle.getMockImplementation()!;
+      let atStop = 0;
+      h.store.handle.mockImplementation(async () => {
+        if (reachedStop() && status()?.[0]?.["state"] === "ready" && ++atStop === 2) {
+          fake.state.tabUrls[1] = `${origin}/challenge`;
+          fake.state.observedPath = "/challenge";
+        }
+        return original();
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => decided?.() !== undefined);
+      expect(decided!()).toEqual({ kind: "delegate", reason: "page-moved" });
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, submissions: 1 });
+    });
     it("holds the answered page while it stays on the path the answer was given on", async () => {
       vi.useFakeTimers();
       let decided: (() => ConditionalDecision | undefined) | undefined;
       const { h } = begin("/verify", (login) => {
+        // The tab shows the page the request came on (ADR 0034 amendment of 2026-11-17).
+        fake.state.tabUrls[1] = `${origin}/verify`;
         decided = ask(login);
       });
       // The page has something to describe, so it is not taken for one still loading.

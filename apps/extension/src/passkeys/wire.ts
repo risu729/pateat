@@ -12,6 +12,11 @@ export const PAGE_TIMEOUT_MS = 15_000;
 export const RELAY_HEARTBEAT_MS = 5_000;
 /** Without an acknowledgement from the isolated relay, the wrapper delegates after this. */
 export const RELAY_ACK_TIMEOUT_MS = 1_000;
+/**
+ * How long a login's answer to a conditional request waits for the page to say whether it
+ * used the assertion; past it, the answer counts as used (ADR 0034 amendment of 2026-11-17).
+ */
+export const PAGE_DELIVERY_WAIT_MS = 5_000;
 /** Background budget for credential lookup and signing before delegating to the browser. */
 export const RUNTIME_TIMEOUT_MS = 10_000;
 /** Longest a chooser window keeps a request open (ADR 0021). */
@@ -64,6 +69,16 @@ export const pageRequestSchema = v.variant("type", [
     request: v.unknown(),
   }),
   v.strictObject({ channel: v.literal(PAGE_CHANNEL), type: v.literal("cancel"), id: operationId }),
+  /**
+   * Whether the page used the assertion of a conditional request: one that came back after
+   * its page moved in place to another path is dropped (ADR 0034 amendment of 2026-11-17).
+   */
+  v.strictObject({
+    channel: v.literal(PAGE_CHANNEL),
+    type: v.literal("delivered"),
+    id: operationId,
+    delivered: v.boolean(),
+  }),
 ]);
 
 export const runtimeResultSchema = v.variant("kind", [
@@ -126,6 +141,12 @@ export const runtimeMessageSchema = v.variant("type", [
     focused: v.boolean(),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("passkey.cancel"), operationId }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("passkey.delivered"),
+    operationId,
+    delivered: v.boolean(),
+  }),
 ]);
 
 /** A bridged `navigator.credentials.create` request, which the background only checks. */

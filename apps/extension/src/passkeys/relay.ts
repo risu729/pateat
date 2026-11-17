@@ -78,6 +78,15 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
       cancel(message.id);
       return;
     }
+    if (message.type === "delivered") {
+      void relay({
+        version: 1,
+        type: "passkey.delivered",
+        operationId: message.id,
+        delivered: message.delivered,
+      }).catch(() => {});
+      return;
+    }
     acknowledge(message.id);
     if (!withinBound(message.request)) {
       reply(message.id, { kind: "delegate", reason: "invalid-request" });

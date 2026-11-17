@@ -32,13 +32,15 @@ function fakePage(
   // The wrapper reads only each class's prototype.
   const PublicKeyCredential = { prototype: { kind: "credential" } };
   const AuthenticatorAssertionResponse = { prototype: { kind: "response" } };
+  // A single-page site moves in place by changing this.
+  const location = { origin, pathname: "/sign-in" };
   const scope: Record<string, unknown> & { postMessage(data: unknown): void } = {
     navigator: { credentials: container },
     PublicKeyCredential,
     AuthenticatorAssertionResponse,
     AbortSignal,
     DOMException,
-    location: { origin },
+    location,
     addEventListener: (_type: string, listener: (event: unknown) => void) =>
       listeners.push(listener),
     postMessage(data: unknown) {
@@ -46,7 +48,7 @@ function fakePage(
       queueMicrotask(() => {
         for (const listener of listeners) listener({ source: scope, origin, data: copy });
         if (copy.channel !== PAGE_CHANNEL) return;
-        if (copy.type === "get" || copy.type === "create" || copy.type === "cancel") {
+        if (["get", "create", "cancel", "delivered"].includes(copy.type)) {
           posted.push(copy);
           for (const reply of relay(copy)) scope.postMessage({ channel: PAGE_CHANNEL, ...reply });
         }
@@ -60,6 +62,7 @@ function fakePage(
     nativeGet,
     nativeCreate,
     posted,
+    location,
     prototypes: { credential: PublicKeyCredential.prototype },
     post: (data: unknown) => scope.postMessage(data),
     /** Listens to the page's messages after the wrapper's own listener. */
