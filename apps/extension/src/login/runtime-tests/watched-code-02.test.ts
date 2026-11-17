@@ -210,7 +210,8 @@ describe("an authenticator app's code page the person reaches in a new document"
     const { h, report, generation } = start(async (...args) => {
       args[4]?.();
       const { path } = args[3] as { path: string };
-      // The push page's choice is the site's own app's code: the service keeps no handler.
+      // The push page's "use a one-time code in your app" is the site's own app, not an
+      // authenticator: the judge learns no handler there.
       if (path === "/push") return { verdict: "challenge" };
       if (path === "/options") return { verdict: "challenge", recipe: chosen };
       return { verdict: "challenge", recipe: coded };
@@ -228,6 +229,7 @@ describe("an authenticator app's code page the person reaches in a new document"
     // A watched login presses no button the judge learned there.
     expect(clicks("Authenticator app")).toBe(0);
     expect(status()![0]).toMatchObject({ state: "watching" });
+    // The service now serves revision 2, which has no totp handler, so the code page is judged.
     h.recipes.recipe.mockResolvedValue(chosen);
     // The person chooses the authenticator app: its code page, in a new document.
     open("/otp", true);
@@ -237,9 +239,11 @@ describe("an authenticator app's code page the person reaches in a new document"
     expect(codeFills()).toHaveLength(1);
     expect(handlerReports(report)).toContainEqual([1, "totp", "entered"]);
     await until(() => clicks("verify") === 1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(codeFills()).toHaveLength(1);
   });
 
-  it("types the code with the handler a later login already has, with no model call", async () => {
+  it("types the code with the handler a later login already has, without judging the code page", async () => {
     vi.useFakeTimers();
     const { h, report, generation } = start(async (...args) => {
       args[4]?.();
@@ -257,7 +261,11 @@ describe("an authenticator app's code page the person reaches in a new document"
     await h.hello({ documentId: "otp" }, false);
     await until(() => codeFills().length > 0);
     expect(generation.judge).toHaveBeenCalledTimes(judged);
+    expect(judgedPaths(generation)).not.toContain("/otp");
     expect(codeFills()).toHaveLength(1);
     expect(handlerReports(report)).toContainEqual([1, "totp", "entered"]);
+    await until(() => clicks("verify") === 1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(codeFills()).toHaveLength(1);
   });
 });
