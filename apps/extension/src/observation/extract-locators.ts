@@ -235,9 +235,10 @@ function namesOnly(
  * link whose text is the person's nickname still has a locator, while a handle or name the
  * page shows (`/taro_y` beside "@taro_y") is not used. A handle the page never shows can still pass,
  * which the judge must refuse. With `names`, a native button none of those name is located
- * by its accessible name (`buttonNameTarget`), else by its text within the sign-in form
- * (`passwordFormTextTarget`), before an ID another load may change, as a field's visible
- * name is.
+ * by its accessible name (`buttonNameTarget`), before an ID another load may change, as a
+ * field's visible name is. With `formText`, a native button that nothing else names, not
+ * even inside its shadow hosts (`chainedTarget`), is located by its text within the
+ * sign-in form (`passwordFormTextTarget`), still before such an ID.
  */
 export function locate(
   element: Element,
@@ -251,6 +252,7 @@ export function locate(
     roles = false,
     hidden = false,
     names = false,
+    formText = false,
     paths,
   }: {
     redactAttributes?: boolean;
@@ -261,6 +263,7 @@ export function locate(
     roles?: boolean;
     hidden?: boolean;
     names?: boolean;
+    formText?: boolean;
     paths?: ReadonlySet<string>;
   } = {},
 ): LoginMarkerTarget | undefined {
@@ -288,8 +291,9 @@ export function locate(
   return (
     (paths ? pathTarget(element, index, paths) : undefined) ??
     contentTarget(element, index, links, labels, roles, hidden) ??
-    (names ? (buttonNameTarget(element, index) ?? passwordFormTextTarget(element)) : undefined) ??
+    (names ? buttonNameTarget(element, index) : undefined) ??
     chainedTarget(element, { redactAttributes, tokens, labels, hidden }) ??
+    (formText ? passwordFormTextTarget(element) : undefined) ??
     demoted
   );
 }

@@ -107,6 +107,27 @@ describe("a click on a button named by its text within the sign-in form", () => 
     expect(header).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["retyped", (input: HTMLInputElement) => (input.type = "text")],
+    ["hidden", (input: HTMLInputElement) => (input.hidden = true)],
+  ])("presses nothing in another form when the filled form's password is %s", async (_, change) => {
+    // Another sign-in form whose password shows only later.
+    const { header, submitted } = await page(
+      `<form id="other"><input id="later" type="password" hidden>
+          <button type="submit">Sign in</button></form>`,
+    );
+    change(document.querySelector<HTMLInputElement>("#password")!);
+    document.querySelector<HTMLInputElement>("#later")!.hidden = false;
+    expect(await execute("click")).toMatchObject({
+      ok: false,
+      reason: "structural-mismatch",
+      detail: "target-missing",
+      mutation: "none",
+    });
+    expect(submitted).not.toHaveBeenCalled();
+    expect(header).not.toHaveBeenCalled();
+  });
+
   it("presses nothing when a second sign-in form shows the text too", async () => {
     const { header, submitted } = await page(
       `<form><input type="password"><button type="submit">Sign in</button></form>`,

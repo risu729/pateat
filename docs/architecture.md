@@ -3366,12 +3366,10 @@ a second sign-up button outside the form repeats, so nothing named it alone and 
 page was incomplete (`unlocated-button`) and never generated in the owner's Chrome
 (2026-11-12, [#1491](https://github.com/risu729/pateat/issues/1491)); since 2026-11-17
 it is left out (agent change, local tests and a live extraction of the page in cloud
-Chromium). Such a button that a locator names is still described, and since the
-`password-form-text` locator (below) Kuroneko Members' is, by its text within the
-sign-in form, as its copy sits outside every form; the rule still leaves out one that
-another button of a sign-in form repeats. The executor
-compares strings and acts only when exactly one element matches; more than one is a
-structural mismatch. It
+Chromium). Such a button that a locator names is still described; it never gets the
+`password-form-text` locator (below), which would offer it as the form's action. The
+executor compares strings and acts only when exactly one element matches; more than one
+is a structural mismatch. It
 clicks buttons, image buttons and script buttons (not a disabled button, nor a script
 button with `aria-disabled="true"`, nor a control that is or sits inside an `inert`
 element; the extractor still describes a control `inert` itself, as a disabled button,
@@ -3533,10 +3531,12 @@ sign-in form (agent change, 2026-11-17,
 (a `<button>`, or an `<input>` of type `submit`, `button` or `image`) whose text, as a
 text locator reads it, equals the value and whose form also holds a shown password input
 not marked `new-password`, as a `password-form-name` locator's form. The extractor gives
-it to a login-form native button only after its `id`, `name`, test attributes, text and
-accessible name, and before an `id` another load may change, when the executor's lookup
-returns exactly that button and redaction leaves the text unchanged. United's password
-step (2026-11-17, [#1684](https://github.com/risu729/pateat/issues/1684)) shows
+it to a login-form native button as its last locator, after its `id`, `name`, test
+attributes, text, accessible name and a locator `within` its shadow hosts, and before
+an `id` another load may change, when the executor's lookup returns exactly that button
+and redaction leaves the text unchanged; a `type="button"` button that a located native
+submit precedes is left out instead (above). United's password step (2026-11-17,
+[#1684](https://github.com/risu729/pateat/issues/1684)) shows
 `<button type="submit">Sign in</button>` in the form beside the password, without an
 `id` or `aria-label`, while the site header's nav shows
 `<button type="button" id="loginButton" aria-label="Sign in">Sign in</button>`, so
@@ -3545,7 +3545,9 @@ forms that both show the text, or two such buttons in one form, stay ambiguous. 
 contract refuses it everywhere but a route step's click, a `password` handler's button
 included, and never with `press: "enter"`; the observation allows it on a button only,
 and the plan, entry, account-list and logout checks refuse it anywhere else. The click
-finds exactly one element or fails `target-missing`.
+finds exactly one element, in a form that holds an input the attempt filled, or fails
+`target-missing`, so a password hidden or retyped before the click (another sign-in
+form's button then being the only match) presses nothing.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button such

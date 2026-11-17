@@ -560,12 +560,12 @@ export function registerLoginCandidates({
     expect(observe().complete).toBe(false);
   });
 
-  it("leaves out a form's text button without a locator beside its located submit (#1491)", () => {
+  it("leaves out a form's text button without a locator beside its located submit, as Kuroneko Members' sign-up button", () => {
     const signUp = `<button type="button">Sign up (free)</button>`;
-    // A second copy in the form, so not even its text within the sign-in form names it.
     const form = (submit: string, extra = "") =>
       `<form><input id="u" autocomplete="username"><input id="p" type="password">
-        ${submit}${signUp}${extra}<p>Not a member?</p>${signUp}</form>`;
+        ${submit}${signUp}${extra}</form>
+      <aside><h2>Not a member?</h2>${signUp}</aside>`;
     page(
       form(
         `<button type="submit" id="go">Log in</button>`,
@@ -601,7 +601,17 @@ export function registerLoginCandidates({
     }
     const unlocated = { ok: true, gap: "unlocated-button" };
     // Without a shown native submit button it may be the form's script-run submit, so it
-    // still marks the form incomplete.
+    // is not left out: in a form with a password its text within the sign-in form names it
+    // (ADR 0072 amendment of 2026-11-17), and without a locator it marks the form
+    // incomplete.
+    const named = (text: string, note = "") => {
+      const result = extractLoginObservation(document);
+      expect(result, note).toMatchObject({ ok: true, observation: { complete: true } });
+      expect(
+        result.ok && result.observation.candidates.map(({ target }) => target),
+        note,
+      ).toContainEqual({ by: "password-form-text", value: text });
+    };
     for (const submit of [
       "",
       `<button type="button" id="go">Log in</button>`,
@@ -609,29 +619,37 @@ export function registerLoginCandidates({
       `<button type="submit" id="go" style="display:none">Log in</button>`,
     ]) {
       page(form(submit));
-      expect(extractLoginObservation(document), submit).toMatchObject(unlocated);
+      named("Sign up (free)", submit);
     }
+    // A second copy in the form leaves it without any locator.
+    page(
+      `<form><input id="u" autocomplete="username"><input id="p" type="password">
+        ${signUp}${signUp}</form>`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
     // A located submit of another form does not count.
     page(
       `<form><input id="q"><button id="find">Search</button></form>${form(`<button type="button" id="go">Log in</button>`)}`,
     );
-    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    named("Sign up (free)");
     // Nor does one of the same form before its sign-in fields, as a search box's in a form
     // that wraps the whole page: the script-run "Log in" after the fields is the sign-in's.
     page(
       `<form><header><input id="q"><input type="submit" id="find" value="Search"></header>
         <main><input id="u" autocomplete="username"><input id="p" type="password">
-        <button type="button">Log in</button><button type="button">Log in</button></main></form>`,
+        <button type="button">Log in</button></main></form>
+      <aside><button type="button">Log in</button></aside>`,
     );
-    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    named("Log in");
     // Nor one that follows another field after the sign-in fields, as a search block's
     // between the password and the script-run "Log in".
     page(
       `<form><input id="u" autocomplete="username"><input id="p" type="password">
         <div><input id="q"><input type="submit" id="find" value="Search"></div>
-        <button type="button">Log in</button><button type="button">Log in</button></form>`,
+        <button type="button">Log in</button></form>
+      <aside><button type="button">Log in</button></aside>`,
     );
-    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    named("Log in");
     // Without a password field the submit follows the last account field instead.
     page(
       `<form><input id="u" type="email"><button type="submit" id="go">Next</button>
@@ -646,10 +664,10 @@ export function registerLoginCandidates({
     // Nor one after the button.
     page(
       `<form><input id="u" autocomplete="username"><input id="p" type="password">
-        <button type="button">Log in</button><button type="button">Log in</button>
-        <button type="submit" id="go">Go</button></form>`,
+        <button type="button">Log in</button><button type="submit" id="go">Go</button></form>
+      <aside><button type="button">Log in</button></aside>`,
     );
-    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    named("Log in");
     // Outside a login form such a button still leaves its whole form out.
     page(
       `<form><input id="q"><button type="submit" id="find">Search</button>${signUp}</form>
@@ -662,19 +680,6 @@ export function registerLoginCandidates({
       "p",
       "go",
     ]);
-    // Kuroneko Members' own copy sits outside every form, so its text within the sign-in
-    // form names the form's button (ADR 0072 amendment of 2026-11-17).
-    page(
-      `<form><input id="u" autocomplete="username"><input id="p" type="password">
-        <button type="submit" id="go">Log in</button>${signUp}</form>
-      <aside><h2>Not a member?</h2>${signUp}</aside>`,
-    );
-    observation = observe();
-    expect(observation.complete).toBe(true);
-    expect(observation.candidates.at(-1)?.target).toEqual({
-      by: "password-form-text",
-      value: "Sign up (free)",
-    });
   });
 
   it("judges completeness by the login form and leaves out other flawed forms", () => {
@@ -802,7 +807,7 @@ export function registerLoginCandidates({
         ${submit}<button id="switch-account-button">Switch accounts</button>
       </form></div></div></main><div><input type="text" name="cobrowse.pin"></div>`;
     page(`${header}${step()}`);
-    const observation = observe();
+    let observation = observe();
     expect(observation.complete).toBe(true);
     expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
       ["button", { by: "id", value: "loginButton" }],
@@ -842,6 +847,32 @@ export function registerLoginCandidates({
         <button>Sign in</button></form>`,
     );
     expect(observe().complete).toBe(true);
+    // A header button that a `form` attribute ties to the sign-in form is the form's too.
+    page(
+      `${header.replace('type="button"', 'type="button" form="login"')}${step().replace("<form>", '<form id="login">')}`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // Text that redaction would change never becomes a locator, as one holding an email.
+    const email = "Continue as taro@example.com";
+    page(
+      `<header><nav><button type="button">${email}</button></nav></header>
+      ${step(`<button type="submit">${email}</button>`)}`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // A button in a shadow tree inside the form is the form's, and a copy in another
+    // shadow tree outside it is not.
+    page(
+      `<header><x-nav id="nav"></x-nav></header><form><input id="p" type="password">
+        <x-submit></x-submit></form>`,
+    );
+    shadow("#nav", `<button type="button">Sign in</button>`);
+    shadow("x-submit", `<button type="submit">Sign in</button>`);
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.at(-1)?.target).toEqual({
+      by: "password-form-text",
+      value: "Sign in",
+    });
   });
 
   it("describes a pointer link without href as the login's button (IIJmio, 2026-10-23)", () => {

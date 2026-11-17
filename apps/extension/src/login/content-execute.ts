@@ -874,6 +874,14 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
         ? inputsOf(form, document)
         : queryAll<HTMLInputElement>(document, "input");
       const fills = context.filled;
+      // A button named by its text within the sign-in form is pressed only in a form this
+      // attempt filled, never another's that became the only match, as when the filled
+      // form's password was hidden or retyped (ADR 0072 amendment of 2026-11-17).
+      if (
+        step.target.by === "password-form-text" &&
+        !(form && formInputs.some((input) => fills.has(input)))
+      )
+        return fail("structural-mismatch", "target-missing");
       const choices = context.chosen;
       const passwordsBefore = context.shownBefore;
       // The next fills are checked against the next click.

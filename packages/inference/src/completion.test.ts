@@ -270,6 +270,26 @@ describe("password button on a page that asks how to verify (ADR 0048)", () => {
       );
     });
   });
+
+  it("drops a button named by its text within the sign-in form (ADR 0072 amendment of 2026-11-17)", async () => {
+    const button = {
+      id: "form-text",
+      role: "button",
+      target: { by: "password-form-text", value: "Password" },
+      label: "Password",
+      group: "f1",
+    };
+    const page = { ...request, observation: { ...choice, candidates: [button] } };
+    const outcomes = await Promise.all(
+      [{ passwordButton: "form-text" }, { passkeyButton: "form-text" }].map((named) =>
+        judgeReturning({ decision: "challenge", ...named }).judge(page),
+      ),
+    );
+    for (const outcome of outcomes)
+      expect(outcome).toEqual(
+        expect.objectContaining({ status: "ok", value: { decision: "challenge" } }),
+      );
+  });
 });
 
 describe("optional page after the sign-in (ADR 0065)", () => {

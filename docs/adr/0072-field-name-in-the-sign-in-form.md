@@ -99,14 +99,14 @@ Status: an agent's choice, made while fixing
 
 United's sign-in (`https://www.united.com/en/us/account/profile`, a single-page app that
 shows both steps on that path) asks for the email, then shows a form with the email as
-text, `<input id="password" type="password">` and
-`<button type="submit">Sign in</button>`, which has no `id`, `name`, test attribute or
-`aria-label`. The site header's nav shows
-`<button type="button" id="loginButton" aria-label="Sign in">Sign in</button>` at the
-same time (the owner's Chrome, 2026-11-17). Neither the text nor the accessible-name
-locator ([ADR 0048](0048-password-method-button.md)) names the submit alone, so the
-password step was incomplete (`recipe.generate` `skipped` `incomplete-observation`
-`unlocated-button`) and the password was never filled.
+text, `<input id="password" type="password">` and a `<button type="submit">` reading
+"Sign in" with no `id` and no `aria-label`. On 2026-11-17 the log of that step read
+`recipe.generate` `skipped` `incomplete-observation` `unlocated-button`, and a check of
+the page reported a second shown button reading exactly "Sign in":
+`button#loginButton` (`type="button"`, `aria-label="Sign in"`) in the site header's
+navigation, outside every form. Neither the text nor the accessible-name locator
+([ADR 0048](0048-password-method-button.md)) names the submit alone, so the password
+step was incomplete and the password was never filled.
 
 ### Decision
 
@@ -116,10 +116,15 @@ password step was incomplete (`recipe.generate` `skipped` `incomplete-observatio
    a `text` locator reads it, equals the value and whose form owner holds a shown
    password input not marked `new-password` (the form a `password-form-name` locator
    looks in), the one such button. The value follows the `text` locator's rule.
-2. **When the extractor gives it.** Only to a login form's native button, after its
-   `id`, `name`, test attributes, text and accessible name, and before an `id` another
-   load may change; only when the executor's lookup returns exactly that button and
-   redaction leaves the text unchanged.
+2. **When the extractor gives it.** Only to a login form's native button, as its last
+   locator: after its `id`, `name`, test attributes, text, accessible name and a
+   locator `within` its shadow hosts ([ADR 0070](0070-shadow-roots-as-page-content.md)),
+   and only before an `id` another load may change; only when the executor's lookup
+   returns exactly that button and redaction leaves the text unchanged. A
+   `type="button"` button with text that a located native submit precedes, which the
+   extractor leaves out without a locator
+   ([#1491](https://github.com/risu729/pateat/issues/1491)), never gets it, so it is
+   still left out rather than offered as the form's action.
 3. **Where.** A route step's click alone, never with `press: "enter"`: the observation
    schema refuses it on a candidate that is not a button, the recipe schema refuses it
    on every other element (a `password` handler's button included, unlike an accessible
@@ -127,7 +132,9 @@ password step was incomplete (`recipe.generate` `skipped` `incomplete-observatio
    nothing there), and the plan's account switch, the entry, account-list and logout
    checks refuse it.
 4. **Execution.** As for every locator, the click acts only when exactly one element
-   matches; otherwise it fails `target-missing` and presses nothing.
+   matches, and only when that button's form holds an input this attempt filled;
+   otherwise it fails `target-missing` and presses nothing, so another sign-in form's
+   button that became the only match is never pressed.
 5. **Deployment.** As for the field locator (decision 4 of this ADR): the service
    accepts the locator before an extension that sends it.
 
@@ -138,8 +145,10 @@ password step was incomplete (`recipe.generate` `skipped` `incomplete-observatio
   tried on the live site).
 - Two sign-in forms that both show the text, or two such buttons in one form, stay
   ambiguous, and the page stays incomplete.
-- A page that renames the button, removes the password input before the click or marks
-  it `new-password` breaks the recipe, which is then generated again.
+- A page that renames the button, removes the password input, hides it or retypes it
+  (as a show-password toggle switching it to `type="text"`) before the click, or marks
+  it `new-password`, breaks the recipe: the click fails `target-missing`, and the recipe
+  is then generated again.
 
 ### Alternatives
 
