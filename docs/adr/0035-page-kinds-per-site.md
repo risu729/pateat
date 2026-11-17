@@ -583,12 +583,14 @@ agent's choices, not confirmed by the owner:
   on the same path; closing the window ends the press (`closed`). As for a login's
   window, a closed window leaves the page to the person: the tab's own login does not
   fill that document on that path automatically afterwards either.
-- A value Pateat itself put into the input, which nobody edited since, may be replaced
-  by a later press, also with another account; a value the person typed, or the page
-  put there, also after Pateat's, is kept. To tell them apart, the content script keeps
-  a salted digest of each value it wrote, in its own memory only, and compares it with
-  the input's value. A login's own automatic confirmation fill still keeps every value,
-  including one a press put in.
+- A later press, also with another account, may replace a value Pateat itself wrote
+  into the input, unless trusted input events show that the person, or another
+  extension, edited it since; such an input is kept without its value being read. A
+  value already there that Pateat did not write is kept. The content script keeps only
+  which inputs it wrote, never a value or anything derived from one, so a value a page
+  script sets without an event after Pateat's is not seen and may be replaced. A
+  login's own automatic confirmation fill still keeps every value, including one a
+  press put in.
 - The scope is the selected document: the top page, or a frame whose picked account
   matches the tab's top page as well (the frame rule of
   [ADR 0086](0086-logins-in-frames-like-top-pages.md)). The press ends when that page,
@@ -600,9 +602,14 @@ agent's choices, not confirmed by the owner:
   without `manual: true`, and only the pressed document is asked to announce the
   result. A returned `confirm` or `unclear` recipe then fills with the picked account.
   Any other result ends the press (`not-a-verification-page`), and the pressed document
-  starts no login, also with a returned `sign-in` recipe, while it stays on that path
-  (`login.refused` with `not-a-verification-page`): a press never leads to a login that
-  presses buttons. Other pages on that path follow the returned recipe as usual.
+  starts no login, also with a returned `sign-in` recipe, while it stays on that path:
+  a press never leads to a login that presses buttons. Its announcements there are
+  answered as watching, before SSO admission, so no SSO entry is pressed either. The
+  press's generation claim, kept in the session store with the other claims, holds the
+  document, so the hold outlasts a worker restart; it goes once the document moves to
+  another path, and with the tab's page as the other claims do. The person's own
+  **Log in now** or popup account pick for that document still logs in. Other pages on
+  that path follow the returned recipe as usual.
 - A `confirm` page without a recipe that shows only a password form is not offered
   **Fill**: **Log in now** sends it once through its own generation, and once that comes
   back `confirm`, the popup offers **Fill** on the page.

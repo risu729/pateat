@@ -100,7 +100,6 @@ function harness(entry = record()) {
       claims: [],
       work: new Map(),
       picks: new Map(),
-      held: new Map(),
       queue: Promise.resolve(),
     },
     settings: {

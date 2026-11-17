@@ -96,6 +96,7 @@ test("hiding This page keeps the one-time login available and its pending status
       return { ok: true, state: "generating" };
     }),
     cancel: vi.fn<ManualClient["cancel"]>().mockResolvedValue({ ok: true }),
+    fill: vi.fn<ManualClient["fill"]>(),
   };
   const h = await mount({ ...createDefaultSettings(), popupPageSection: false }, manual);
   await expect
@@ -124,6 +125,7 @@ test("a web page without a sign-in form is not asked to reload", async () => {
     }),
     start: vi.fn<ManualClient["start"]>(),
     cancel: vi.fn<ManualClient["cancel"]>(),
+    fill: vi.fn<ManualClient["fill"]>(),
   };
   await mount(createDefaultSettings(), manual);
   await expect.element(page.getByText("No sign-in form was found on this page.")).toBeVisible();

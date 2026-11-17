@@ -605,7 +605,7 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
           }
           // Mark uncertainty before calling into DOM/page code, including a throwing setter.
           mutated = true;
-          noteFillWrite(window, input, value.value);
+          noteFillWrite(window, input);
           if (
             !context.shownBefore &&
             (!context.submitsTaken || writableInputs.every((other) => !other.value))

@@ -214,15 +214,21 @@ test("the person's Fill replaces only a value Pateat put in that nobody edited s
   expect(input("password").value).toBe("Person-typed-synthetic!");
 });
 
-test("the person's Fill keeps a value the page set after Pateat's own", async () => {
+test("the person's Fill tells Pateat's own value only by trusted edits, never by the value", async () => {
   await install('<label>Password<input id="password" type="password"></label>');
   const press = (attemptId: string, value: string) =>
     fill("password", { attemptId, slot: "password", secret: "password", value });
   expect(await press("confirm:pick:first", "Synthetic-first!")).toMatchObject({ ok: true });
-  // The page's script replaces the value without an event, as a framework's reset may.
+  // A page script that replaces the value without a trusted event is not seen, so a later
+  // press may replace that value: the known limit of a guard that reads no value.
   input("password").value = "Page-later-synthetic!";
   expect(await press("confirm:pick:second", "Synthetic-second!")).toMatchObject({ ok: true });
-  expect(input("password").value).toBe("Page-later-synthetic!");
+  expect(input("password").value).toBe("Synthetic-second!");
+  // A trusted edit is seen, and no press replaces it.
+  await userEvent.type(input("password"), "-edited");
+  const edited = input("password").value;
+  expect(await press("confirm:pick:third", "Synthetic-third!")).toMatchObject({ ok: true });
+  expect(input("password").value).toBe(edited);
 });
 
 test.each([

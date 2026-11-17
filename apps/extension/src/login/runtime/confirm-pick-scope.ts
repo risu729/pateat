@@ -85,20 +85,6 @@ export function endConfirmPick(
   };
 }
 
-const heldKey = (live: LiveDocument) => `${live.document.tabId} ${live.document.documentId}`;
-
-/**
- * The press sent this document's page for generation: whatever comes back, the document
- * starts no login on that path, so a press never leads to a login that presses buttons.
- */
-export function holdPressed(rt: Runtime, live: LiveDocument): void {
-  rt.confirmFill.held.set(heldKey(live), live.path);
-}
-
-/** Whether a press's generation holds this document on its current path. */
-export const pressHeld = (rt: Runtime, live: LiveDocument): boolean =>
-  rt.confirmFill.held.get(heldKey(live)) === live.path;
-
 /** Whether the tab holds a press that has not ended. */
 export const confirmPickPending = (rt: Runtime, tabId: number): boolean =>
   rt.confirmFill.picks.get(tabId)?.active === true;

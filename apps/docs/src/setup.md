@@ -213,11 +213,12 @@ its secret answer when the page asks for one, and presses nothing. It works on a
 site and in a private window too, and asks for the master password when the item
 requires it. An embedded form is filled only with an account that also matches the page
 around it. A value you typed stays; a value Pateat filled earlier may be replaced with
-the account you choose now. Pateat does not ask the AI to look at a page that already
-has a recipe again. A page that asks for a secret answer and has no recipe yet is
-described once to make one, under the normal limits and costs, and is filled only if it
-comes back as a verification page; otherwise Pateat leaves that page to you. **Fill**
-remembers no account and changes no setting; press it again to fill again.
+the account you choose now, also when a page script changed it without an edit. Pateat
+does not ask the AI to look at a page that already has a recipe again. A page that asks
+for a secret answer and has no recipe yet is described once to make one, under the
+normal limits and costs, and is filled only if it comes back as a verification page;
+otherwise Pateat leaves that page to you. **Fill** remembers no account and changes no
+setting; press it again to fill again.
 
 A new verification page may be described to make a recipe, even when filling is off. A
 restarted extension worker does not replay an uncertain fill; a reloaded page is a new

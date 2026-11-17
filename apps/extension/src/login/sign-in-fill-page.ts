@@ -31,7 +31,8 @@ export const confirmPickOperation = (operation: { attemptId: string }): boolean 
  * autofill on page load fills only empty password fields (`onlyEmptyFields`), a sign-in
  * fill keeps a password already in its input. A confirmation fill keeps any value already
  * there (ADR 0035 delivery 3), except that the person's own **Fill** replaces a value
- * Pateat put there that nobody edited since, and keeps every other (amended 2026-11-17).
+ * Pateat wrote unless trusted input events show it was edited since; an edited input is
+ * kept without reading its value (amended 2026-11-17).
  */
 export function keepsValue(
   window: Window,
@@ -39,7 +40,10 @@ export function keepsValue(
   input: Element & { value: string },
   secret: string | undefined,
 ): boolean {
-  if (confirmPickOperation(operation)) return input.value !== "" && !fillWrote(window, input);
+  if (confirmPickOperation(operation)) {
+    if (!fillUntouched(window, input)) return true;
+    return !fillWrote(window, input) && input.value !== "";
+  }
   if (confirmOperation(operation)) return input.value !== "";
   return (
     (secret === "password" || (input instanceof HTMLInputElement && input.type === "password")) &&

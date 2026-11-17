@@ -4,6 +4,7 @@ import {
   type LoginOperation,
   type LoginRecipe,
   loginDocumentSchema,
+  sameLoginDocument,
 } from "@pateat/contracts";
 import { storage } from "wxt/utils/storage";
 import type { LiveDocument } from "./types";
@@ -74,11 +75,6 @@ export function createConfirmState() {
     work: new Map<number, ConfirmWork>(),
     /** Each tab's latest **Fill** press from the popup, in memory only. */
     picks: new Map<number, ConfirmPick>(),
-    /**
-     * `tabId documentId` to the path a **Fill** press sent for generation: that document
-     * starts no login there while it stays on that path, in memory only.
-     */
-    held: new Map<string, string>(),
     /**
      * `tabId documentId` to how its fill on `path` ended, in memory only; `declined` when
      * the person closed its master password window.
@@ -192,6 +188,37 @@ export const confirmationGenerationKey = (id: string, live: LiveDocument) =>
 export const hasConfirmClaim = (rt: Runtime, key: string): boolean =>
   rt.confirmFill.claims.some((entry) => entry.key === key);
 
+/**
+ * The generation claim of a **Fill** press (amended 2026-11-17): one per document and
+ * path, whichever press sent it. Kept in the session store with the other claims, it also
+ * holds that document from starting a login on that path, across a worker restart.
+ */
+export const pressGenerationKey = (live: LiveDocument) => confirmationGenerationKey("pick", live);
+
+const PRESS_PREFIX = '["generation","pick",';
+
+/** Drops the press holds of `live`'s document on the paths it left. */
+export function releasePressHolds(rt: Runtime, live: LiveDocument): void {
+  const left = (key: string) => {
+    if (!key.startsWith(PRESS_PREFIX)) return false;
+    try {
+      const [, , document, path] = JSON.parse(key) as [string, string, unknown, string];
+      const parsed = v.safeParse(loginDocumentSchema, document);
+      return (
+        parsed.success && sameLoginDocument(parsed.output, live.document) && path !== live.path
+      );
+    } catch {
+      return false;
+    }
+  };
+  if (!rt.confirmFill.claims.some((entry) => left(entry.key))) return;
+  update(rt, (state) => {
+    const before = state.claims.length;
+    state.claims = state.claims.filter((entry) => !left(entry.key));
+    return state.claims.length !== before;
+  });
+}
+
 /** Claim before any read/delivery; an unknown acknowledgement is never replayed. */
 export async function claimConfirm(rt: Runtime, work: ConfirmWork, key: string): Promise<boolean> {
   const state = rt.confirmFill;
@@ -257,7 +284,6 @@ const dropDocuments = (rt: Runtime, keep: (key: string) => boolean, declined = f
   const kept = declined ? gone.filter(([, outcome]) => outcome.declined).slice(-DECLINED_KEPT) : [];
   for (const [key] of gone) if (!kept.some(([other]) => other === key)) outcomes.delete(key);
   for (const key of verified.keys()) if (!keep(key)) verified.delete(key);
-  for (const key of rt.confirmFill.held.keys()) if (!keep(key)) rt.confirmFill.held.delete(key);
 };
 
 export function forgetConfirmTab(rt: Runtime, tabId: number): void {

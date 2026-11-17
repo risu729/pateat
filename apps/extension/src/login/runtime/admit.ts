@@ -59,7 +59,7 @@ import {
 } from "./confirm-state";
 import { startsFor } from "./generation-scope";
 import { confirmPickWaits } from "./confirm-pick-scope";
-import { admitConfirm } from "./confirm-admit";
+import { admitConfirm, pressHold } from "./confirm-admit";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
 import { manualAuthorizationCurrent } from "./manual-scope";
@@ -636,6 +636,10 @@ export async function admit(
       undefined,
       !(await loginRelated(rt, ctx.document.tabId, ctx.document.frameId, ctx.document.origin)),
     );
+
+  // A page a **Fill** press sent for generation starts no login, SSO included (ADR 0035).
+  const pressed = await pressHold(rt, ctx);
+  if (pressed) return pressed;
 
   const sso = await ssoAdmit(rt, ctx);
   if (sso) return sso;

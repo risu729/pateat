@@ -98,11 +98,11 @@ export function manualReason(reason: string | undefined, t: TFunction, fill = fa
     case "no-vault-match":
     case "incomplete-observation":
     case "unreachable":
-      if (fill)
-        return t(
-          "The page could not be checked, so nothing was filled. Check Diagnostics for availability or limits, then try later.",
-        );
-      return t("The login could not start. Check Diagnostics for the reason, then try again.");
+      return fill
+        ? t(
+            "The page could not be checked, so nothing was filled. Check Diagnostics for availability or limits, then try later.",
+          )
+        : t("The login could not start. Check Diagnostics for the reason, then try again.");
     default:
       return fill
         ? t("Nothing was filled. Check Diagnostics for the reason, then try again.")
