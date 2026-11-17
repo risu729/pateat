@@ -36,8 +36,8 @@ export const manualJa = {
   "Cancel this login": "このログインをキャンセル",
   "Cancelled. Nothing will start from this request.":
     "キャンセルしました。この操作からログインが始まることはありません。",
-  "This page asks you to verify while signed in. Fill enters the chosen account's password once; Pateat presses no button.":
-    "ログイン中の本人確認のページです。「入力」を押すと、選んだアカウントのパスワードを 1 回だけ入力します。ボタンは押しません。",
+  "This page asks you to verify while signed in. Fill enters the chosen account's password once, or its secret answer when the page asks for one; Pateat presses no button.":
+    "ログイン中の本人確認のページです。「入力」を押すと、選んだアカウントのパスワード（ページが秘密の質問の答えを求めるときはその答え）を 1 回だけ入力します。ボタンは押しません。",
   "Account to fill": "入力するアカウント",
   "Filling this page…": "このページに入力しています…",
   "Checking the page before filling it…": "入力する前にページを確認しています…",
@@ -53,4 +53,10 @@ export const manualJa = {
     "このページは本人確認のページと判定されなかったため、何も入力しませんでした。",
   "Filling stopped. Check the page, vault and settings, then try again.":
     "入力を中止しました。ページ、保管庫、設定を確認してから、もう一度お試しください。",
+  "Filling took too long, so nothing was filled. Press Fill again.":
+    "入力に時間がかかりすぎたため、何も入力しませんでした。もう一度「入力」を押してください。",
+  "The page could not be checked, so nothing was filled. Check Diagnostics for availability or limits, then try later.":
+    "ページを確認できなかったため、何も入力しませんでした。診断で利用状況や制限を確認し、時間をおいてお試しください。",
+  "Nothing was filled. Check Diagnostics for the reason, then try again.":
+    "何も入力しませんでした。診断で理由を確認してから、もう一度お試しください。",
 };

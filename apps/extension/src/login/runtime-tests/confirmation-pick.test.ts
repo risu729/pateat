@@ -3,14 +3,12 @@
 // recipe fields once, and nothing is pressed or sent to a model for a page with a recipe.
 import * as v from "valibot";
 import { describe, expect, it, vi } from "vitest";
-import { parseLoginRecipe, type LocalSettings } from "@pateat/contracts";
+import { parseLoginRecipe } from "@pateat/contracts";
 import { manualOfferResponseSchema } from "../manual-wire";
-import type { LoginGeneration } from "../runtime/deps";
-import type { LoginReport } from "../runtime/report";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
-const { confirmationFixture } = await import("./confirmation-fixture");
+const { pickFixture } = await import("./confirmation-pick-fixture");
 const {
   harness,
   recipe,
@@ -19,7 +17,6 @@ const {
   otherItemId,
   connectionId,
   sender,
-  target,
   uriMatch,
   popup,
   stored,
@@ -29,73 +26,16 @@ const {
   configure,
   announce,
   settled,
-  liveDefault,
   shownHello,
   setPause,
-} = confirmationFixture(fake);
-type H = ReturnType<typeof harness>;
-
-function generation() {
-  const answer = Promise.withResolvers<Awaited<ReturnType<LoginGeneration["generate"]>>>();
-  const service = {
-    available: vi.fn<LoginGeneration["available"]>(async () => true),
-    generate: vi.fn<LoginGeneration["generate"]>(async (_request, sent) => {
-      sent?.();
-      return answer.promise;
-    }),
-    generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
-    judge: vi.fn<LoginGeneration["judge"]>(),
-    slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
-  };
-  return { service, answer };
-}
-
-/** Both items match every page of the site. */
-const both = async (_connection: string, url: string) => ({
-  ok: true as const,
-  data: uriMatch({
-    targetOrigin: new URL(url).origin,
-    candidates: [
-      { itemId, matches: [{ uriIndex: 0, match: 0 }] },
-      { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
-    ],
-  }),
-});
-
-/** A tab whose site Pateat did not log in to, with both items matching its pages. */
-function start(settings: Partial<LocalSettings> = {}, live: Parameters<typeof harness>[1] = {}) {
-  const reports: LoginReport[] = [];
-  const h = harness(
-    // Both items are eligible on the site; the default is the first.
-    { siteDefaults: [liveDefault()], ...settings },
-    { uris: both, ...live, report: (entry) => reports.push(entry) },
-  );
-  return { h, reports };
-}
-const offers = async (h: H) =>
-  v.parse(
-    manualOfferResponseSchema,
-    await h.login.handle({ version: 1, type: "login.manual.get", tabId: 1 }, popup),
-  );
-async function press(h: H, item = otherItemId, frameId = 0, requestId = "fill-press") {
-  const offered = await offers(h);
-  if (!offered.ok) throw new Error("No page");
-  const selected = offered.targets.find((entry) => entry.document.frameId === frameId);
-  if (!selected) throw new Error(`No target in frame ${frameId}: ${JSON.stringify(offered)}`);
-  return h.login.handle(
-    {
-      version: 1,
-      type: "login.confirm.fill",
-      requestId,
-      document: selected.document,
-      scope: selected.scope,
-      connectionId,
-      itemId: item,
-    },
-    popup,
-  );
-}
-const clicks = () => executes().filter((entry) => entry.operation.step.kind === "click");
+  startsOf,
+  generation,
+  start,
+  offers,
+  press,
+  clicks,
+  secretAnswer,
+} = pickFixture(fake);
 
 describe("the popup's Fill on a verification page", () => {
   it.each(["confirm", "unclear"] as const)(
@@ -277,6 +217,8 @@ describe("the popup's Fill on a verification page", () => {
     "fills a frame only with an account that matches its top page (%s)",
     async (scenario) => {
       const portal = `${origin}/portal`;
+      // Whether the vault's items no longer match the top page, after the popup's offer.
+      let mismatch = false;
       const { h } = start(
         {},
         {
@@ -285,7 +227,7 @@ describe("the popup's Fill on a verification page", () => {
             data: uriMatch({
               targetOrigin: new URL(url).origin,
               candidates:
-                scenario === "top-not-matched" && new URL(url).pathname === "/portal"
+                mismatch && new URL(url).pathname === "/portal"
                   ? []
                   : [
                       { itemId, matches: [{ uriIndex: 0, match: 0 }] },
@@ -299,7 +241,7 @@ describe("the popup's Fill on a verification page", () => {
         const originalHandle = h.store.handle.getMockImplementation()!;
         h.store.handle.mockImplementation(async () => {
           const response = await originalHandle();
-          if (response.ok)
+          if (response.ok && mismatch)
             for (const item of response.catalog.connections[0]!.items) item.allowedOrigins = [];
           return response;
         });
@@ -320,14 +262,31 @@ describe("the popup's Fill on a verification page", () => {
       fake.state.onReconnect = () => announce(h, frame);
       const offered = await offers(h);
       const framed = offered.ok && offered.targets.find((entry) => entry.document.frameId === 3);
-      if (scenario === "top-not-matched") {
-        // The frame's account does not match the top page: the frame is not offered, and a
-        // press is refused before any vault read.
-        expect(framed).toBeFalsy();
+      expect(framed).toMatchObject({ fill: true });
+      if (scenario === "top-not-matched" && framed) {
+        // The accounts stop matching the top page: the frame is no longer offered, and a
+        // press sent with the earlier offer is refused before any vault read.
+        mismatch = true;
+        const again = await offers(h);
+        expect(again.ok && again.targets.some((entry) => entry.document.frameId === 3)).toBe(false);
+        const forged = await h.login.handle(
+          {
+            version: 1,
+            type: "login.confirm.fill",
+            requestId: "forged-press",
+            document: framed.document,
+            scope: framed.scope,
+            connectionId,
+            itemId: otherItemId,
+          },
+          popup,
+        );
+        expect(forged).toEqual({ ok: false, reason: "not-a-candidate" });
+        await settled(h);
         expect(h.fields).not.toHaveBeenCalled();
+        expect(confirmations()).toEqual([]);
         return;
       }
-      expect(framed).toMatchObject({ fill: true });
       expect(await press(h, otherItemId, 3)).toMatchObject({ ok: true });
       await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
       await settled(h);
@@ -384,40 +343,6 @@ describe("the popup's Fill on a verification page", () => {
 });
 
 describe("Fill on a page without a recipe", () => {
-  /** A secret-answer page without a recipe, as the content script reports one. */
-  function secretAnswer(h: H) {
-    h.recipes.recipe.mockResolvedValue(undefined);
-    h.recipes.routes.mockResolvedValue([]);
-    h.recipes.starts.mockResolvedValue([]);
-    fake.state.pageUrl = `${origin}/confirm`;
-    fake.state.observedPath = "/confirm";
-    fake.state.present = new Set(["password", "login"]);
-    fake.state.extracted["login"] = {
-      ok: true,
-      observation: {
-        version: 1,
-        origin,
-        path: "/confirm",
-        language: "en",
-        complete: true,
-        candidates: [
-          { id: "password", role: "password", target: target("password") },
-          { id: "login", role: "button", target: target("login"), label: "Confirm" },
-        ],
-      },
-    };
-    return (from: Record<string, unknown> = {}) =>
-      h.login.handle(
-        {
-          version: 1,
-          type: "login.document.ready",
-          token: "synthetic-token",
-          unoffered: { path: "/confirm", why: "text-answer" },
-        },
-        sender({ documentId: "confirmation-document", ...from }),
-      );
-  }
-
   it.each(["confirm", "sign-in"] as const)(
     "sends the page once and fills only a %s result as a verification",
     async (kind) => {
@@ -429,14 +354,28 @@ describe("Fill on a page without a recipe", () => {
       expect(await offers(h)).toMatchObject({
         targets: [expect.objectContaining({ fill: true })],
       });
-      fake.state.onReconnect = () => announce(h);
+      // The page announces with its first step ready, as a sign-in form's page does.
+      const ready = () => h.hello({ documentId: "confirmation-document" });
+      fake.state.onReconnect = kind === "confirm" ? () => announce(h) : ready;
       expect(await press(h)).toMatchObject({ ok: true, state: "generating" });
       await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
       expect(service.generate.mock.calls[0]![0].manual).toBeUndefined();
       expect(h.fields).not.toHaveBeenCalled();
+      // The same page in another tab, not pressed, is not asked to announce the result.
+      fake.state.reconnects.length = 0;
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          unoffered: { path: "/confirm", why: "text-answer" },
+        },
+        sender({ documentId: "other-tab-document", tab: { id: 2, incognito: false } }),
+      );
       const generated = parseLoginRecipe({ ...cached(), pageKind: kind });
       h.recipes.routes.mockResolvedValue([generated]);
-      if (kind !== "sign-in") h.recipes.recipe.mockResolvedValue(generated);
+      h.recipes.recipe.mockResolvedValue(generated);
+      if (kind === "sign-in") h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
       answer.resolve({ outcome: "recipe", recipe: generated });
       if (kind === "confirm") {
         await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
@@ -449,8 +388,16 @@ describe("Fill on a page without a recipe", () => {
             fill: { state: "blocked", reason: "not-a-verification-page" },
           }),
         );
+        // The pressed document starts no login on this path, also with its sign-in form
+        // ready and a default account: a press never leads to a login that presses.
+        expect(await ready()).toMatchObject({ ok: false, reason: "not-a-verification-page" });
+        await settled(h);
         expect(confirmations()).toEqual([]);
+        expect(clicks()).toEqual([]);
+        expect(executes()).toEqual([]);
+        expect(stored() ?? []).toEqual([]);
       }
+      expect(fake.state.reconnects.map((entry) => entry.tabId)).not.toContain(2);
       expect(service.generate).toHaveBeenCalledTimes(1);
     },
   );

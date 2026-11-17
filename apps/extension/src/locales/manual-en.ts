@@ -36,8 +36,8 @@ export const manualEn = {
   "Cancelled. Nothing will start from this request.":
     "Cancelled. Nothing will start from this request.",
   // **Fill** on a verification page (ADR 0035, amended 2026-11-17).
-  "This page asks you to verify while signed in. Fill enters the chosen account's password once; Pateat presses no button.":
-    "This page asks you to verify while signed in. Fill enters the chosen account's password once; Pateat presses no button.",
+  "This page asks you to verify while signed in. Fill enters the chosen account's password once, or its secret answer when the page asks for one; Pateat presses no button.":
+    "This page asks you to verify while signed in. Fill enters the chosen account's password once, or its secret answer when the page asks for one; Pateat presses no button.",
   "Account to fill": "Account to fill",
   "Filling this page…": "Filling this page…",
   "Checking the page before filling it…": "Checking the page before filling it…",
@@ -53,4 +53,10 @@ export const manualEn = {
     "This page was not recognized as a verification page, so nothing was filled.",
   "Filling stopped. Check the page, vault and settings, then try again.":
     "Filling stopped. Check the page, vault and settings, then try again.",
+  "Filling took too long, so nothing was filled. Press Fill again.":
+    "Filling took too long, so nothing was filled. Press Fill again.",
+  "The page could not be checked, so nothing was filled. Check Diagnostics for availability or limits, then try later.":
+    "The page could not be checked, so nothing was filled. Check Diagnostics for availability or limits, then try later.",
+  "Nothing was filled. Check Diagnostics for the reason, then try again.":
+    "Nothing was filled. Check Diagnostics for the reason, then try again.",
 };

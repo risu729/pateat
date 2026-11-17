@@ -23,7 +23,13 @@ import { confirmAccount, confirmCurrent } from "./confirm-scope";
 import { fillConfirmation, type ConfirmFillEnd } from "./confirm-fill";
 import { confirmEnded, noteConfirmFill, settleConfirmFill } from "./not-started";
 import { manualPending } from "./manual-scope";
-import { confirmPickFor, endConfirmPick, type ConfirmPick } from "./confirm-pick-scope";
+import {
+  confirmPickFor,
+  endConfirmPick,
+  holdPressed,
+  pressHeld,
+  type ConfirmPick,
+} from "./confirm-pick-scope";
 import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
 import type { LoginRecipe } from "@pateat/contracts";
@@ -62,6 +68,13 @@ export async function admitConfirm(rt: Runtime, ctx: AdmitContext): Promise<Read
     const picked = await admitConfirmPick(rt, ctx, pick);
     if (picked) return picked;
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+  }
+  // A page a press sent for generation that did not come back as a verification starts no
+  // login while its document stays on that path, also with a sign-in recipe.
+  if (pressHeld(rt, ctx.live)) {
+    const confirm = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    if (!confirm) return ctx.refuse("not-a-verification-page");
   }
   const parent = ctx.recorded;
   if (!parent || !hasConfirmAuthentication(rt, parent) || manualPending(rt, ctx.live)) return;
@@ -137,6 +150,9 @@ async function admitConfirmPick(
   const recipe = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
   if (confirmPickFor(rt, ctx.live) !== pick) return undefined;
+  // The press's own work is still running, as while its page is sent: it goes on.
+  if (rt.confirmFill.work.get(tabId)?.pick === pick)
+    return answer(rt, ctx, recipe ? "confirm-fill" : "generating");
   const generationKey = confirmationGenerationKey(pick.id, ctx.live);
   // Sent once already: a page that came back as anything but a verification is not one.
   if (!recipe && (pick.generated || hasConfirmClaim(rt, generationKey)))
@@ -161,6 +177,7 @@ async function admitConfirmPick(
     if (confirmPickFor(rt, ctx.live) !== pick || confirmBusy(rt, tabId))
       return refuse("login-running");
     pick.generated = true;
+    holdPressed(rt, ctx.live);
   }
   const visit = recipe && confirmPage(rt, ctx.live, recipe);
   if (visit) noteConfirmFill(rt, ctx.live, ctx.shown, visit, "pick");
@@ -232,6 +249,8 @@ function runConfirmWork(
         await publish(rt, ctx.live);
         await generateFor(rt, ctx.live, scope, undefined, undefined, false, undefined, {
           current: async () => Boolean(await confirmAccount(rt, work)),
+          // A press's result reaches only the pressed document, never another tab's page.
+          only: work.pick !== undefined,
           reconnect: () => {
             reconnected = true;
             finish();

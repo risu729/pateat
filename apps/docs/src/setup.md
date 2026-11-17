@@ -208,15 +208,16 @@ leaves that page to you.
 On a verification page Pateat did not log you in to, such as after you signed in
 yourself, the popup shows **Fill** instead of **Log in now** while
 **Verification while signed in** is **Fill only**. Choose one of the page's matching
-accounts and press **Fill**: Pateat fills that account's password into the page once and
-presses nothing. It works on a paused site and in a private window too, and asks for the
-master password when the item requires it. An embedded form is filled only with an
-account that also matches the page around it. A value you typed stays; a value Pateat
-filled earlier may be replaced with the account you choose now. Pateat does not ask the
-AI to look at a page that already has a recipe again. A page that asks for a secret
-answer and has no recipe yet is described once to make one, under the normal limits and
-costs, and is filled only if it comes back as a verification page. **Fill** remembers no
-account and changes no setting; press it again to fill again.
+accounts and press **Fill**: Pateat fills that account's password into the page once, or
+its secret answer when the page asks for one, and presses nothing. It works on a paused
+site and in a private window too, and asks for the master password when the item
+requires it. An embedded form is filled only with an account that also matches the page
+around it. A value you typed stays; a value Pateat filled earlier may be replaced with
+the account you choose now. Pateat does not ask the AI to look at a page that already
+has a recipe again. A page that asks for a secret answer and has no recipe yet is
+described once to make one, under the normal limits and costs, and is filled only if it
+comes back as a verification page; otherwise Pateat leaves that page to you. **Fill**
+remembers no account and changes no setting; press it again to fill again.
 
 A new verification page may be described to make a recipe, even when filling is off. A
 restarted extension worker does not replay an uncertain fill; a reloaded page is a new

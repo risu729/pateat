@@ -11,7 +11,7 @@ import { siteCandidates } from "./choice-save";
 import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
 import { confirmBusy } from "./confirm-state";
-import { confirmRecipeOn } from "./generation-scope";
+import { confirmRecipeOn, offersGeneration } from "./generation-scope";
 import { pagePermission } from "./page-permission";
 import { fingerprint, pageRefusal } from "./manual";
 import {
@@ -25,8 +25,9 @@ import type { Runtime } from "./state";
 
 /**
  * Whether the popup offers **Fill** on this document instead of **Log in now**: its path
- * has a `confirm` or `unclear` recipe, or, without one, it asks for a secret answer, and
- * verification filling is not `off` for its site or profile.
+ * has a `confirm` or `unclear` recipe, or, without one, it asks for a secret answer and
+ * could be sent for generation now, and verification filling is not `off` for its site or
+ * profile.
  */
 export async function confirmFillPage(
   rt: Runtime,
@@ -35,8 +36,8 @@ export async function confirmFillPage(
 ): Promise<boolean> {
   if (pagePermission(snapshot.snapshot.settings, live.url, "confirm").permission !== "fill")
     return false;
-  if (live.textAnswer) return true;
-  return (await confirmRecipeOn(rt, live.document.origin, live.path)) !== undefined;
+  if ((await confirmRecipeOn(rt, live.document.origin, live.path)) !== undefined) return true;
+  return live.textAnswer === true && (await offersGeneration(rt, live)) === true;
 }
 
 /** What holds the tab from a press: any login, account switch or other fill there. */
@@ -135,7 +136,12 @@ export async function confirmPickStart(
     endConfirmPick(
       pick,
       "blocked",
-      page?.state === "denied" && page.reason ? page.reason : "not-started",
+      page?.state !== "denied" || !page.reason
+        ? "not-started"
+        : // A login that took the tab meanwhile is told as running, as before the press.
+          page.reason === "tab-busy"
+          ? "login-running"
+          : page.reason,
     );
   }
   const { state, reason } = pick.status;

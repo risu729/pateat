@@ -75,6 +75,11 @@ export function createConfirmState() {
     /** Each tab's latest **Fill** press from the popup, in memory only. */
     picks: new Map<number, ConfirmPick>(),
     /**
+     * `tabId documentId` to the path a **Fill** press sent for generation: that document
+     * starts no login there while it stays on that path, in memory only.
+     */
+    held: new Map<string, string>(),
+    /**
      * `tabId documentId` to how its fill on `path` ended, in memory only; `declined` when
      * the person closed its master password window.
      */
@@ -252,6 +257,7 @@ const dropDocuments = (rt: Runtime, keep: (key: string) => boolean, declined = f
   const kept = declined ? gone.filter(([, outcome]) => outcome.declined).slice(-DECLINED_KEPT) : [];
   for (const [key] of gone) if (!kept.some(([other]) => other === key)) outcomes.delete(key);
   for (const key of verified.keys()) if (!keep(key)) verified.delete(key);
+  for (const key of rt.confirmFill.held.keys()) if (!keep(key)) rt.confirmFill.held.delete(key);
 };
 
 export function forgetConfirmTab(rt: Runtime, tabId: number): void {

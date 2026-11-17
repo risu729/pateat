@@ -12,7 +12,7 @@ import { siteAccountOptions } from "../options/site-policy";
 export type { ManualClient } from "../login/manual-wire";
 
 /** Explain blockers without exposing internal refusal codes in the popup. */
-export function manualReason(reason: string | undefined, t: TFunction): string {
+export function manualReason(reason: string | undefined, t: TFunction, fill = false): string {
   switch (reason) {
     case "vault-unavailable":
     case "connection-locked":
@@ -68,13 +68,19 @@ export function manualReason(reason: string | undefined, t: TFunction): string {
     case "token-exchange-failed":
     case "spending-limit":
     case "rate-limited":
-      return t(
-        "The page cannot be checked again right now. Check Diagnostics for availability or limits, then try later.",
-      );
+      return fill
+        ? t(
+            "The page could not be checked, so nothing was filled. Check Diagnostics for availability or limits, then try later.",
+          )
+        : t(
+            "The page cannot be checked again right now. Check Diagnostics for availability or limits, then try later.",
+          );
     case "timed-out":
-      return t(
-        "Preparing this login took too long. Nothing else will start from this request. Try again.",
-      );
+      return fill
+        ? t("Filling took too long, so nothing was filled. Press Fill again.")
+        : t(
+            "Preparing this login took too long. Nothing else will start from this request. Try again.",
+          );
     case "master-password-reprompt":
       return t("Enter the master password in Pateat's window to continue this login.");
     case "closed":
@@ -87,8 +93,20 @@ export function manualReason(reason: string | undefined, t: TFunction): string {
       return t("This page was not recognized as a verification page, so nothing was filled.");
     case "confirm-fill-stopped":
       return t("Filling stopped. Check the page, vault and settings, then try again.");
-    default:
+    // A press whose page was not sent for generation (`generationSkip`).
+    case "not-sent":
+    case "no-vault-match":
+    case "incomplete-observation":
+    case "unreachable":
+      if (fill)
+        return t(
+          "The page could not be checked, so nothing was filled. Check Diagnostics for availability or limits, then try later.",
+        );
       return t("The login could not start. Check Diagnostics for the reason, then try again.");
+    default:
+      return fill
+        ? t("Nothing was filled. Check Diagnostics for the reason, then try again.")
+        : t("The login could not start. Check Diagnostics for the reason, then try again.");
   }
 }
 
@@ -112,7 +130,7 @@ export function fillStatusText(status: ConfirmFillStatus, t: TFunction): string 
         "Nothing was filled, as the fields already have values. Press the page's button yourself when ready.",
       );
     case "blocked":
-      return manualReason(status.reason, t);
+      return manualReason(status.reason, t, true);
   }
 }
 
@@ -311,7 +329,7 @@ export function ManualLogin({
         <p className="popup-muted popup-reason">
           {filling
             ? t(
-                "This page asks you to verify while signed in. Fill enters the chosen account's password once; Pateat presses no button.",
+                "This page asks you to verify while signed in. Fill enters the chosen account's password once, or its secret answer when the page asks for one; Pateat presses no button.",
               )
             : t("Try once with a matching account. Automatic login settings stay the same.")}
         </p>
@@ -382,7 +400,7 @@ export function ManualLogin({
           : press && (fillRunning(press) || !failure)
             ? fillStatusText(press, t)
             : reason || offer.isError
-              ? manualReason(reason, t)
+              ? manualReason(reason, t, filling)
               : undefined}
       </output>
       {manualPreparing && found?.status?.reason === "master-password-reprompt" && (

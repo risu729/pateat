@@ -214,6 +214,17 @@ test("the person's Fill replaces only a value Pateat put in that nobody edited s
   expect(input("password").value).toBe("Person-typed-synthetic!");
 });
 
+test("the person's Fill keeps a value the page set after Pateat's own", async () => {
+  await install('<label>Password<input id="password" type="password"></label>');
+  const press = (attemptId: string, value: string) =>
+    fill("password", { attemptId, slot: "password", secret: "password", value });
+  expect(await press("confirm:pick:first", "Synthetic-first!")).toMatchObject({ ok: true });
+  // The page's script replaces the value without an event, as a framework's reset may.
+  input("password").value = "Page-later-synthetic!";
+  expect(await press("confirm:pick:second", "Synthetic-second!")).toMatchObject({ ok: true });
+  expect(input("password").value).toBe("Page-later-synthetic!");
+});
+
 test.each([
   ["the page put there", '<input id="password" type="password" value="Page-synthetic!">'],
   ["the person typed", '<input id="password" type="password">'],
