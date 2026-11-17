@@ -30,8 +30,8 @@ boundary as of 2026-10-10. No Bitwarden endorsement or trademark grant is implie
 ## Build and installation
 
 For the Pateat revision accompanying an artifact, install the tools pinned in
-`mise.toml` and `mise.lock`, then run `mise run install` and
-`mise run //apps/extension:build`. The independent synthetic test variant is built by
+`mise.toml` and `mise.lock`, then run `mise run //apps/extension:build`, which installs
+the frozen dependencies first. The independent synthetic test variant is built by
 `mise run //apps/extension:build:probe`. See [development](development.md) for checks
 and the installed-Chrome probe setup. Chrome's developer-mode Load unpacked action can
 load the emitted extension directory; no private signing key is required to run a

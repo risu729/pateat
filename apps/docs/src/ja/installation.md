@@ -36,7 +36,6 @@ Pateat の拡張機能 ID はマニフェストの鍵で固定されているの
 
 ```sh
 mise install
-mise run install
 mise run //apps/extension:build
 ```
 

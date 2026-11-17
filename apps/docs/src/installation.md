@@ -73,7 +73,6 @@ Building needs [mise](https://mise.jdx.dev/) and Git. In a clone of the
 
 ```sh
 mise install
-mise run install
 mise run //apps/extension:build
 ```
 

@@ -1,4 +1,4 @@
-name: Set up mise and dependencies
+name: Set up mise
 description: Install the locked mise tools, optionally with the test browser. The first mise run or mise exec installs the frozen workspace dependencies.
 inputs:
   cache:
