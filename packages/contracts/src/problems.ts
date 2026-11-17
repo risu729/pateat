@@ -418,8 +418,21 @@ export const PROBLEM_INFO_LINES = {
   "login.refused": "any",
   "login.entry": ["refused"],
   // A page handler Pateat did not run, so a code or button left to the person is told
-  // apart from one Pateat filled (#1381).
-  "login.handler": ["not-shown", "shown-again", "missing-fact", "code-used", "no-room"],
+  // apart from one Pateat filled (#1381), and a `detail` handler that filled nothing, so
+  // a personal-detail page left to the person is told apart from one never entered.
+  "login.handler": [
+    "not-shown",
+    "shown-again",
+    "missing-fact",
+    "code-used",
+    "no-room",
+    "detail-unlinked",
+    "detail-reprompt",
+    "detail-manual",
+    "detail-unreadable",
+    "detail-unavailable",
+    "detail-unfit",
+  ],
   "recipe.generate": ["skipped", "abstained", "unavailable"],
 } as const satisfies Partial<Record<ProblemEventName, "any" | readonly string[]>>;
 
