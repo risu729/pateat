@@ -329,7 +329,15 @@ describe("local SSO method chooser", () => {
       const abort = new AbortController();
       h.input.signal = abort.signal;
       const id = await result(h);
-      if (change === "settings") h.saved.snapshot.revision += 1;
+      if (change === "settings") {
+        // The site's sign-in pages set to fill only: a revision the receipt depends on.
+        h.saved.snapshot.revision += 1;
+        h.saved.snapshot.settings.pagePermissionDefaults = {
+          "sign-in": "fill",
+          confirm: "fill",
+          "personal-details": "fill",
+        };
+      }
       if (change === "catalog")
         h.saved.catalog.connections[1]!.snapshotId = "b0000000-0000-4000-8000-000000000002";
       if (change === "document") h.setCurrent(false);

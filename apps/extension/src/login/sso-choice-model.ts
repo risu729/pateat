@@ -19,6 +19,13 @@ export type SsoChoiceInput = {
   /** The account is already chosen by the account chooser; methods never select an account. */
   document: LoginDocument;
   account: LoginAccount;
+  /** Whether the tab is a private window, whose pausing the offer depends on. */
+  incognito?: boolean;
+  /**
+   * The settings the coordinator chose the account and admitted the page under; a read of
+   * the request's own that changes what it reads ends the request (`settings-changed`).
+   */
+  basis?: Saved;
   native: { passkey: boolean; password: boolean };
   /** Explicit choices remain per offer; they never change a site or IdP default. */
   automatic?: boolean;

@@ -924,17 +924,20 @@ login, an open offer (a login's account choice being saved, a binding review, a
 confirmation, a detail fill from the popup or a vault passkey picked in the chooser) or
 a write authorized under an older revision stays authorized while every later revision
 in the kept history has one of these causes (`CHOICE_ONLY_CAUSES`, `onlyChoicesSince`).
-So do an SSO flow, its offer, its validate fence and its saved choices, and two reads a
-confirmation compares, which then agree apart from their settings. A later write that
-such work makes, as an account choice or a binding review, checks this inside the
-settings queue and applies to what the queue holds; the removal of refused links and a
-chosen browser site expect no revision at all. The settings store itself stays exact,
-since a settings sync merges from an older read and would undo such a choice; a sync
-conflict merges again. A revision older than the history, without a recorded cause,
-ends what it authorized as any other change does. Saving such a choice stops no running
-login or passkey request, but it is uploaded, counted and logged (`settings.changed`) as
-any other save. A chosen browser site whose write failed stays chosen in memory and is
-written again with the next settings write.
+So do an SSO flow's validate fence and its saved choices, and two reads a confirmation
+compares, which then agree apart from their settings. An SSO flow and an open SSO method
+offer go further: they stay over a revision of any cause that leaves what they read as
+it was
+([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read)).
+A later write that such work makes, as an account choice or a binding review, checks
+this inside the settings queue and applies to what the queue holds; the removal of
+refused links and a chosen browser site expect no revision at all. The settings store
+itself stays exact, since a settings sync merges from an older read and would undo such
+a choice; a sync conflict merges again. A revision older than the history, without a
+recorded cause, ends what it authorized as any other change does. Saving such a choice
+stops no running login or passkey request, but it is uploaded, counted and logged
+(`settings.changed`) as any other save. A chosen browser site whose write failed stays
+chosen in memory and is written again with the next settings write.
 
 ### Settings that stay on the device
 
@@ -4853,8 +4856,11 @@ A saved mapping is validated directly at every use; discovery runs only for an u
 method or when the person asks, and a mapping this device cannot resolve can still be
 removed, here in the popup or from any browser on the service's Vaults page, which
 lists every mapping by item ID. Popup choices are memory-only, bounded to ten minutes
-and withdrawn on cancellation, a settings change other than a choice-only revision, a
-catalog change behind the offer's accounts, and a new document or path in the offer's
+and withdrawn on cancellation, a settings change of what the offer reads (its site
+account and its selected and mapped IdP accounts, the rules and saved defaults of the
+site and those IdP origins, and private-window pausing; amended on 2026-11-17 by
+[ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read)),
+a catalog change behind the offer's accounts, and a new document or path in the offer's
 own frame or the top frame. An SSO route validates its own method
 and refuses another mapped method on the same IdP account, even through different
 connections; a native route needs no SSO method. A URL-form choice names one of at most

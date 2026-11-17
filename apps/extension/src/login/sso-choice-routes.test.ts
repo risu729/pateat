@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_SSO_MAPPINGS, type SsoMapping } from "@pateat/contracts";
+import { MAX_SSO_MAPPINGS, type SettingsSnapshot, type SsoMapping } from "@pateat/contracts";
 import {
   evidence,
   idpOrigin,
@@ -38,6 +38,43 @@ const saved = (number = 1, itemId = targetItem, site = sourceItem): SsoMapping =
   idp: { ...account(targetItem, itemId), origin: idpOrigin },
 });
 const unknownItem = "a0000000-0000-4000-8000-000000000099";
+type Settings = SettingsSnapshot["settings"];
+/** Changes that leave everything an offer on the fixture's site reads as it was. */
+const unrelated = (settings: Settings): Partial<Settings> => ({
+  // Another site's account choice and rules, as another tab or device saves them.
+  siteDefaults: [
+    ...settings.siteDefaults,
+    { origin: "https://elsewhere.example.test", ...account(sourceItem, sourceItem) },
+  ],
+  excludedSites: [
+    ...settings.excludedSites,
+    { hostname: "elsewhere.example.test", includeSubdomains: false },
+  ],
+  theme: "dark",
+});
+/** Changes of what an offer on the fixture's site, with its mapped IdP, reads. */
+const relevant = {
+  "the site's default": (settings: Settings): Partial<Settings> => ({
+    siteDefaults: [
+      ...settings.siteDefaults,
+      { origin: "https://site.example.test", ...account(targetItem, targetItem) },
+    ],
+  }),
+  "the sign-in page permission": (): Partial<Settings> => ({
+    pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" },
+  }),
+  "the IdP's site rules": (settings: Settings): Partial<Settings> => ({
+    excludedSites: [
+      ...settings.excludedSites,
+      { hostname: "idp.example.test", includeSubdomains: false },
+    ],
+  }),
+  "the IdP account's policy": (settings: Settings): Partial<Settings> => ({
+    accountPolicies: settings.accountPolicies.map((entry) =>
+      entry.userId === targetItem ? { ...entry, enabled: false } : entry,
+    ),
+  }),
+};
 const otherSite = "a0000000-0000-4000-8000-000000000098";
 const two = [
   { method: { number: 1 }, automatic: true, form: "bracket" as const, label: "One" },
@@ -382,23 +419,43 @@ describe("open offers and SSO mapping revisions (ADR 0085)", () => {
     expect(h.records()).toEqual([saved(2)]);
   });
   it.each([
-    ["keeps", "passkey-browser-site" as const, true],
-    ["withdraws", "account-choice" as const, false],
-  ])("%s an open offer after a revision of cause %s", async (_name, cause, kept) => {
-    const h = start();
-    await h.request();
-    expect(await h.choose("mapping")).toEqual({ ok: true });
-    await h.updateSettings(undefined, cause, (snapshot) => snapshot);
-    const offer = await h.controller.get(7);
-    if (kept) expect(offer.ok).toBe(true);
-    else expect(offer).toEqual({ ok: false, reason: "scope-changed" });
-  });
-  it("withdraws an open offer after a revision whose cause is not recorded", async () => {
+    "passkey-browser-site",
+    "account-choice",
+    "service-sync",
+    "automatic-vault-sync",
+  ] as const)(
+    "keeps an open offer after a revision of cause %s that changes nothing it reads",
+    async (cause) => {
+      const h = start();
+      await h.request();
+      expect(await h.choose("mapping")).toEqual({ ok: true });
+      await h.updateSettings(undefined, cause, (snapshot) => ({
+        ...snapshot,
+        settings: { ...snapshot.settings, ...unrelated(snapshot.settings) },
+      }));
+      expect(await h.controller.get(7)).toMatchObject({ ok: true, offer: {} });
+    },
+  );
+  it("keeps an open offer after a revision whose cause is not recorded and that changes nothing it reads", async () => {
     const h = start();
     await h.request();
     h.saved.snapshot.revision += 1;
-    expect(await h.controller.get(7)).toEqual({ ok: false, reason: "scope-changed" });
+    expect(await h.controller.get(7)).toMatchObject({ ok: true, offer: {} });
   });
+  it.each(Object.keys(relevant) as (keyof typeof relevant)[])(
+    "withdraws an open offer after a revision that changes %s",
+    async (change) => {
+      const h = start();
+      const pending = await h.request();
+      expect(await h.choose("mapping")).toEqual({ ok: true });
+      await h.updateSettings(undefined, "service-sync", (snapshot) => ({
+        ...snapshot,
+        settings: { ...snapshot.settings, ...relevant[change](snapshot.settings) },
+      }));
+      expect(await h.controller.get(7)).toEqual({ ok: false, reason: "scope-changed" });
+      expect(await pending.result).toEqual({ ok: false, reason: "scope-changed" });
+    },
+  );
 });
 
 describe("native routes need no SSO method", () => {
@@ -487,6 +544,57 @@ describe("offer scope", () => {
     const pending = await requesting;
     expect(await pending.result).toEqual({ ok: false, reason: "settings-changed" });
   });
+  it.each([
+    ["keeps", "nothing it reads", unrelated],
+    ["withdraws", "the sign-in page permission", relevant["the sign-in page permission"]],
+  ] as const)("%s an open offer over a settings change of %s", async (_name, _what, change) => {
+    const h = start();
+    const pending = await h.request();
+    expect(await h.choose("mapping")).toEqual({ ok: true });
+    await h.updateSettings(undefined, "service-sync", (snapshot) => ({
+      ...snapshot,
+      settings: { ...snapshot.settings, ...change(snapshot.settings) },
+    }));
+    await h.controller.settingsChanged();
+    if (change === unrelated) {
+      expect(await h.controller.get(7)).toMatchObject({ ok: true, offer: { id: pending.offerId } });
+      return;
+    }
+    expect(await pending.result).toEqual({ ok: false, reason: "settings-changed" });
+    expect(await h.controller.get(7)).toEqual({ ok: true });
+  });
+  it.each([
+    ["keeps", "nothing it reads", unrelated],
+    ["withdraws", "the sign-in page permission", relevant["the sign-in page permission"]],
+  ] as const)(
+    "a request reads the settings again after a change during its read, and %s its offer over %s",
+    async (_name, _what, change) => {
+      const h = start();
+      const held = Promise.withResolvers<Awaited<ReturnType<typeof h.readSettings>>>();
+      // The read was answered before the change landed.
+      const before = structuredClone(h.saved);
+      h.readSettings.mockReturnValueOnce(held.promise);
+      const requesting = h.request();
+      await h.updateSettings(undefined, "service-sync", (snapshot) => ({
+        ...snapshot,
+        settings: { ...snapshot.settings, ...change(snapshot.settings) },
+      }));
+      const checked = h.controller.settingsChanged();
+      held.resolve(before);
+      const pending = await requesting;
+      await checked;
+      if (change === unrelated) {
+        expect(await h.controller.get(7)).toMatchObject({
+          ok: true,
+          offer: { id: pending.offerId },
+        });
+        // Built on the newer settings, so its next check keeps it.
+        expect(await h.choose("mapping")).toEqual({ ok: true });
+        return;
+      }
+      expect(await pending.result).toEqual({ ok: false, reason: "settings-changed" });
+    },
+  );
   it("no popup choice runs before the automatic decision settles", async () => {
     const h = start();
     h.setRecords([saved()]);

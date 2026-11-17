@@ -14,6 +14,8 @@ execution. Also amended by the
 [label-only generation implementation](#amendment-2026-11-12-label-only-declarative-route-generation),
 and on 2026-11-16 by the owner's decision that
 [SSO mappings sync with the settings](#amendment-2026-11-16-sso-mappings-sync-with-the-settings).
+Amended on 2026-11-17 by an agent's fix that
+[keeps an open method offer over settings it does not read](#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read).
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
 no separate provider and username fields or JSON. The selection and validation rules
@@ -505,3 +507,43 @@ within that decision.
   for months may still hold one. So nothing prunes a mapping by account. The service's
   Vaults page lists every mapping by item ID, says when no vault settings name its
   account, and removes one, which needs no vault; the popup removes one on its site.
+
+## Amendment 2026-11-17: an open offer outlasts settings it does not read
+
+Chosen by an agent to fix
+[#1687](https://github.com/risu729/pateat/issues/1687), not confirmed by the owner. On
+`flow.idp.hashicorp.com`, a URL-form method waiting for the person's mapping and entry
+ended with `settings-changed` a few seconds after each page load, with no vault edit in
+between: every settings change, synced from the service or saved on the device, withdrew
+every open method offer, and an offer's own checks withdrew it after any revision whose
+cause was not choice-only. A sync of another site's account choice, the theme or a vault
+check therefore ended the choice the person was about to answer.
+
+- **What an offer reads.** An open offer, its receipt and a request still reading the
+  settings now depend on what they read, as an SSO flow already does
+  (`ssoScopeDependencies`): the site account's eligibility, item and connection, and
+  that of each method's selected IdP account and of the IdP account each saved mapping
+  named when the offer was made; the sign-in page permission, site rules and
+  master-password asks of the site and of those IdP origins; the saved defaults of the
+  site and of those IdP origins, which the flow that follows reads too, so an offer no
+  longer outlives an IdP default that would end the flow at its start; and
+  private-window pausing. A mapping refused for its IdP account's settings therefore
+  ends its offer once the person changes those settings, and the next sign-in tries
+  it again. The site item's mappings stay the offer's own copy, as above, and the
+  catalog is still compared as a whole. The passkey policy is not among them: only a
+  passkey assertion reads it, at signing time.
+- **A settings change.** It withdraws only the offers whose dependencies changed, with
+  `settings-changed`; any other offer stays open and is checked against the new
+  settings. A request whose settings read a change outran reads them again, ends with
+  `settings-changed` when the newer read changes what it reads, and otherwise builds its
+  offer from the newer read.
+- **The coordinator's own read.** The coordinator chooses the site account and admits
+  the page under its own settings read, before it requests the method choice. It hands
+  that read to the request, which ends with `settings-changed` when its own read
+  changes what it reads, so a change between the two reads cannot leave a native
+  route on an account the newer settings would not choose.
+- **Revisions.** An offer no longer compares revision causes (`onlyChoicesSince`): a
+  revision of any cause, or one whose cause the history no longer holds, keeps it
+  unless it changed what the offer reads. Running logins and the other work fenced on
+  a settings revision keep the rules of the
+  [amendment of 2026-11-16](#amendment-2026-11-16-sso-mappings-sync-with-the-settings).

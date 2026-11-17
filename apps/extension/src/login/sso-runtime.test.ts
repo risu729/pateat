@@ -72,7 +72,15 @@ it.each(["settings", "vault", "path", "document", "tab-close", "tab-path"] as co
   "the real login runtime withdraws an outstanding method offer on %s changes",
   async (change) => {
     const { fixture, runtime, fields, announce, pending } = await setup();
-    if (change === "settings") runtime.settingsChanged("saved");
+    if (change === "settings") {
+      // The offer's own site excluded, as a settings page save or a sync writes it.
+      fixture.saved.snapshot.revision += 1;
+      fixture.saved.snapshot.settings.excludedSites.push({
+        hostname: new URL(origin).hostname,
+        includeSubdomains: false,
+      });
+      runtime.settingsChanged("saved");
+    }
     if (change === "vault") {
       fixture.saved.catalog.connections[1]!.state = "locked";
       await runtime.vaultStateMayChange();
@@ -85,7 +93,10 @@ it.each(["settings", "vault", "path", "document", "tab-close", "tab-path"] as co
     if (change === "tab-close") for (const listener of fake.state.removed) listener(7);
     if (change === "tab-path")
       await runtime.tabLoaded({ id: 7, url: `${origin}/elsewhere` } as never);
-    expect((await pending.result).ok).toBe(false);
+    expect(await pending.result).toMatchObject({
+      ok: false,
+      ...(change === "settings" ? { reason: "settings-changed" } : {}),
+    });
     expect(await runtime.ssoChoices!.get(7)).toEqual({ ok: true });
     expect(fields).not.toHaveBeenCalled();
     expect(fake.state.messages.some((message) => message.type === "login.execute")).toBe(false);
@@ -101,6 +112,42 @@ it.each(["a vault status read", "a new query", "a new fragment"] as const)(
       await runtime.tabLoaded({ id: 7, url: `${origin}/ready?step=2` } as never);
     if (change === "a new fragment")
       await runtime.tabLoaded({ id: 7, url: `${origin}/ready#details` } as never);
+    expect(await runtime.ssoChoices!.get(7)).toMatchObject({
+      ok: true,
+      offer: { id: pending.offerId },
+    });
+    fixture.controller.invalidateAll();
+    runtime.ssoChoices!.invalidateAll();
+  },
+);
+it.each(["synced", "saved"] as const)(
+  "the real login runtime keeps the method offer over %s settings that change nothing it reads",
+  async (source) => {
+    const { fixture, runtime, pending } = await setup();
+    let ended = false;
+    void pending.result.then(() => {
+      ended = true;
+      return undefined;
+    });
+    // Another site's account choice and the theme, as a sync from the service applies them.
+    fixture.saved.snapshot.revision += 1;
+    fixture.saved.snapshot.changes = [
+      { revision: fixture.saved.snapshot.revision, cause: "service-sync" },
+    ];
+    fixture.saved.snapshot.settings.siteDefaults.push({
+      origin: "https://elsewhere.example.test",
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: account.itemId,
+      itemId: account.itemId,
+    });
+    fixture.saved.snapshot.settings.theme = "dark";
+    const checked = vi.spyOn(runtime.ssoChoices!, "settingsChanged");
+    runtime.settingsChanged(source);
+    // The offer was checked against the settings the change wrote, and kept.
+    expect(checked).toHaveBeenCalledTimes(1);
+    await checked.mock.results[0]!.value;
+    expect(ended).toBe(false);
     expect(await runtime.ssoChoices!.get(7)).toMatchObject({
       ok: true,
       offer: { id: pending.offerId },

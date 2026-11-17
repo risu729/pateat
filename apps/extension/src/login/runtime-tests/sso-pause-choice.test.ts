@@ -389,3 +389,18 @@ describe("a pause requested while an actual SSO method chooser is pending", () =
     },
   );
 });
+
+describe("the method choice a page's SSO login requests", () => {
+  it.each([true, false])(
+    "carries the tab's private window (%s) and the settings the login was admitted under",
+    async (incognito) => {
+      const h = await harness(
+        createLoginPauses({ getValue: async () => null, setValue: async () => undefined }),
+      );
+      const request = vi.spyOn(h.rt.ssoChoices!, "request");
+      void offerSso(h.rt, { ...h.ctx, incognito } as AdmitContext);
+      await vi.waitFor(() => expect(request).toHaveBeenCalled());
+      expect(request).toHaveBeenCalledWith(expect.objectContaining({ incognito, basis: h.saved }));
+    },
+  );
+});
