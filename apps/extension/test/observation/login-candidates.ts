@@ -560,6 +560,55 @@ export function registerLoginCandidates({
     expect(observe().complete).toBe(false);
   });
 
+  it("leaves out a form's text button without a locator beside its located submit, as Kuroneko Members' sign-up button", () => {
+    const signUp = `<button type="button">Sign up (free)</button>`;
+    const form = (submit: string, extra = "") =>
+      `<form><input id="u" autocomplete="username"><input id="p" type="password">
+        ${submit}${signUp}${extra}</form>
+      <aside><h2>Not a member?</h2>${signUp}</aside>`;
+    page(
+      form(
+        `<button type="submit" id="go">Log in</button>`,
+        `<button type="button">Log in with Yahoo</button>`,
+      ),
+    );
+    let observation = observe();
+    expect(observation.complete).toBe(true);
+    // A located one is still described.
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "go",
+      "Log in with Yahoo",
+    ]);
+    // A `<button>` without a type submits its form too, and so does a submit input.
+    for (const submit of [`<button>Log in</button>`, `<input type="submit" value="Log in">`]) {
+      page(form(submit));
+      observation = observe();
+      expect(observation.complete, submit).toBe(true);
+      expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+        "u",
+        "p",
+        "Log in",
+      ]);
+    }
+    // Without a native submit button, or with one that is not located itself, it may be
+    // the form's script-run submit, so it still marks the form incomplete.
+    for (const submit of [
+      "",
+      `<button type="button" id="go">Log in</button>`,
+      `<button type="submit"><svg width="16" height="16"></svg></button>`,
+    ]) {
+      page(form(submit));
+      expect(observe().complete, submit).toBe(false);
+    }
+    // A located submit of another form does not count.
+    page(
+      `<form><input id="q"><button id="find">Search</button></form>${form(`<button type="button" id="go">Log in</button>`)}`,
+    );
+    expect(observe().complete).toBe(false);
+  });
+
   it("judges completeness by the login form and leaves out other flawed forms", () => {
     const login = `<form id="f"><input id="u"><input id="p" type="password"><button id="go">Log in</button></form>`;
     const targets = () => observe().candidates.map((candidate) => candidate.target.value);
