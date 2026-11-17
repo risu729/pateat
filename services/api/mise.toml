@@ -6,7 +6,7 @@ run = "node ../../node_modules/cf/bin/cf build --mode production"
 
 [tasks.typecheck]
 depends = [":build"]
-run = ["tsc -p tsconfig.json", "tsc -p web/tsconfig.json"]
+run = ["tsc", "tsc -p web/tsconfig.json"]
 
 [tasks.test]
 description = "Run Worker tests against local Miniflare D1 with committed migrations."

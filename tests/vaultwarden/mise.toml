@@ -1,7 +1,7 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
 [tasks.typecheck]
-run = "tsc --noEmit -p tsconfig.json"
+run = "tsc"
 
 [tasks.test]
 description = "Seed a synthetic Vaultwarden server in Docker and read it back with the Bitwarden package."

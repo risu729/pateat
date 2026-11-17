@@ -1,7 +1,7 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
 [tasks.typecheck]
-run = "tsc --noEmit -p tsconfig.json"
+run = "tsc"
 
 [tasks.test]
 description = "Exercise settings components with a synthetic client in Chromium."
