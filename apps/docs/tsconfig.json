@@ -1,11 +1,7 @@
 {
   "extends": "@risu729/tsconfigs/bundler",
   "compilerOptions": {
-    "types": ["node", "vite/client"],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noEmit": true,
-    "skipLibCheck": true
+    "types": ["node", "vite/client"]
   },
   "include": [".vitepress/**/*.ts", "cloudflare.config.ts", "vite.config.ts"]
 }

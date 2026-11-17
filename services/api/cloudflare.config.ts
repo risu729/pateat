@@ -39,14 +39,16 @@ export default defineConfig({
       }),
     },
     // Every request reaches the Worker first, so no built file skips the Access check.
-    assets: { runWorkerFirst: true, htmlHandling: "none", notFoundHandling: "none" },
+    assets: { runWorkerFirst: true, htmlHandling: "none" },
     // The only public host. Routine releases reconcile this declaration and the
     // other trigger settings from the tested build (docs/delivery.md).
     domains: ["pateat.takuk.me"],
-    workersDev: false,
+    // Set explicitly: for an unset value cf sends no preview setting at deploy
+    // (getSubdomainValues) and leaves it to the API.
     previewUrls: false,
     observability: {
       enabled: true,
+      // Set explicitly: cf omits an unset rate, and its default is set by the API.
       headSamplingRate: 1,
       redactQueryString: true,
       // Groups thrown errors, 5xx responses and console.error lines into the dashboard's

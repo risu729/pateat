@@ -28,7 +28,7 @@ run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome --mode pro
 
 [tasks.typecheck]
 depends = [":prepare"]
-run = "tsc --noEmit -p tsconfig.json"
+run = "tsc"
 
 [tasks."test:connections"]
 depends = [":prepare"]

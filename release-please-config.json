@@ -8,7 +8,6 @@
       "release-type": "node",
       "initial-version": "0.1.0",
       "package-name": "pateat",
-      "changelog-path": "CHANGELOG.md",
       "draft": true,
       "force-tag-creation": true,
       "exclude-paths": ["services", "apps/docs", "docs", "tests"],

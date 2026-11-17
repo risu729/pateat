@@ -4,7 +4,6 @@ exclude = ["node_modules", "CHANGELOG.md", "**/.wxt", "**/.output", "**/.cloudfl
 [MD013]
 line_length = 88
 code_blocks = false
-tables = false
 reflow = true
 
 [per-file-ignores]

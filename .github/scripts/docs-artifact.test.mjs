@@ -45,7 +45,6 @@ test("docs output refuses executable Workers, bundled modules, bindings, wrong r
     const worker = {
       name: "pateat-docs",
       assets: { notFoundHandling: "404-page" },
-      workersDev: false,
       previewUrls: false,
       triggers: [
         { pattern: "pateat.takuk.me/docs", zone: "e5f785a1c55a37a4b7c65ee832002237" },

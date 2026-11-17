@@ -27,7 +27,7 @@ depends = [":build"]
 run = "node node_modules/vitepress/bin/vitepress.js preview"
 
 [tasks.typecheck]
-run = "tsc --noEmit -p tsconfig.json"
+run = "tsc"
 
 [tasks.test]
 description = "Build the docs website and check every local link in the built pages."

@@ -3,7 +3,6 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "Bundler",
     "lib": [
       "ES2022",
       "ES2023.Array",
@@ -12,11 +11,7 @@
       "ESNext.TypedArrays",
       "ESNext.Temporal"
     ],
-    "types": ["node", "@cloudflare/vitest-plugin/types"],
-    "strict": true,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "allowImportingTsExtensions": true
+    "types": ["node", "@cloudflare/vitest-plugin/types"]
   },
   "include": ["src", "test", "smoke", "*.config.ts", "worker-runtime.ts", ".cloudflare/types"],
   "exclude": ["test/fixtures"]
