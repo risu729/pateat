@@ -2845,7 +2845,9 @@ worker (`apps/extension/src/service/problems.ts`) sends the local log's `warn` a
 (`PROBLEM_INFO_LINES`: every `login.refused`, a `refused` `login.entry`, a
 `login.handler` that was `not-shown`, `shown-again`, `missing-fact`, `code-used`,
 `no-room`, or, for a `detail` handler that filled nothing, `detail-unlinked`,
-`detail-reprompt`, `detail-manual`, `detail-unreadable` or `detail-unavailable`, and a `recipe.generate` that was `skipped`, `abstained` or `unavailable`),
+`detail-reprompt`, `detail-manual`, `detail-unreadable`, `detail-unavailable` or
+`detail-unfit`, and a `recipe.generate` that was `skipped`, `abstained` or
+`unavailable`),
 except passkey reports (`LOCAL_ONLY_EVENTS`) and the lines of a fill-only login of a tab
 that asks, which carry `fillOnly` (`LOCAL_ONLY_FLAG`: `login.start`, `login.attempt`,
 `login.exception`), to `POST /v1/device/problems`, oldest first and each once, 5 seconds

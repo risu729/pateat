@@ -234,7 +234,8 @@ local log. Now:
   (for `moved`, the page it moved to), and each is logged once.
 - `login.handler` lines with outcome `not-shown`, `shown-again`, `missing-fact`,
   `code-used` or `no-room` are did-nothing lines (`PROBLEM_INFO_LINES`) and go to the
-  service. `entered` and the `detail-*` outcomes stay local, as before.
+  service. `entered` and the `detail-*` outcomes stay local, as before (the amendment of
+  2026-11-17 sends those of a `detail` handler that filled nothing).
 
 ## Amendment: a personal detail left to the person (2026-11-17)
 
@@ -244,8 +245,9 @@ in a test browser entered the `detail` handler and offered one. The service coul
 tell which: a `detail` handler left to the person ends the login `challenge` exactly as a
 page whose handler was never entered, and its `detail-*` outcome stayed in the local log.
 Now a `login.handler` line with outcome `detail-unlinked`, `detail-reprompt`,
-`detail-manual`, `detail-unreadable` or `detail-unavailable`, each a `detail` handler
-that filled nothing, is a did-nothing line (`PROBLEM_INFO_LINES`) and goes to the service.
+`detail-manual`, `detail-unreadable`, `detail-unavailable` or `detail-unfit`, each a
+`detail` handler that filled nothing, is a did-nothing line (`PROBLEM_INFO_LINES`) and
+goes to the service.
 `entered` and the outcomes after a fill (`detail-saved`, `detail-not-saved`,
 `detail-forgotten`, `detail-kept`) stay local. The line carries the same fields as the
 other `login.handler` lines, codes and counts only; the upload allowlist is unchanged.

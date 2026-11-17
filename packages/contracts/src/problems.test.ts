@@ -174,6 +174,7 @@ describe("problem report contract (ADR 0066)", () => {
       "detail-manual",
       "detail-unreadable",
       "detail-unavailable",
+      "detail-unfit",
     ])
       expect(accepts(problemReportSchema, info("login.handler", { kind: "detail", outcome }))).toBe(
         true,

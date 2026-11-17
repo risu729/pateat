@@ -431,6 +431,7 @@ export const PROBLEM_INFO_LINES = {
     "detail-manual",
     "detail-unreadable",
     "detail-unavailable",
+    "detail-unfit",
   ],
   "recipe.generate": ["skipped", "abstained", "unavailable"],
 } as const satisfies Partial<Record<ProblemEventName, "any" | readonly string[]>>;
