@@ -6,6 +6,7 @@ import {
 import type { TargetCheck, TargetRequirement, TargetState } from "../login/wire";
 import { presence, presenceMiss } from "../observation/extract";
 import { authenticatorChoice } from "./authenticator-choice";
+import { codeFieldSource } from "./code-source";
 import { visible } from "./code-submission";
 import { autocompleteTokens, findTargets } from "./targets";
 import { closestAcross } from "./shadow";
@@ -129,8 +130,10 @@ const byName = (target: LoginMarkerTarget) => target.by === "accessible-name";
  * input of a kind Pateat fills other than a code input, or such an input shown; with
  * `described-writable` or `described-clickable`, a writable input or a clickable button
  * that is also visible as the page's description reads it; with `password-choice`, a shown
- * control that names the password choice, {@link passwordChoice}, ADR 0048); without
- * it, or with `present`, any one element counts. A target named by its accessible name may
+ * control that names the password choice, {@link passwordChoice}, ADR 0048; with
+ * `totp-code`, a writable input whose page does not say its code was sent,
+ * {@link codeFieldSource}, ADR 0027 amendment of 2026-11-17); without it, or with
+ * `present`, any one element counts. A target named by its accessible name may
  * be a link to a fragment of its own document, which counts as clickable. `links` and
  * `hidden` are {@link findTargets}'s options.
  */
@@ -157,7 +160,8 @@ export function targetState(
     (require === "input" && !signInInput(element)) ||
     (require === "shown-input" && !(signInInput(element) && shown)) ||
     (require === "password-choice" && !passwordChoice(element, { fragment })) ||
-    (require === "authenticator-choice" && !authenticatorChoice(element))
+    (require === "authenticator-choice" && !authenticatorChoice(element)) ||
+    (require === "totp-code" && !(writable(element) && codeFieldSource(element) !== "sent"))
     ? "unusable"
     : "unique";
 }
@@ -169,8 +173,8 @@ export function targetState(
  * (`hidden-attr`) or not rendered otherwise (`not-rendered`), then one it sees that is
  * disabled, read-only or no such control (`not-writable`, `not-clickable`); then, for a
  * `described-…` requirement, the first reason the page's description does not see it
- * ({@link presenceMiss}). Never any text or
- * value of the page.
+ * ({@link presenceMiss}); for `totp-code`, a writable input whose page says its code was
+ * sent (`code-sent`). Never any text or value of the page.
  */
 export function targetCheck(
   document: Document,
@@ -185,7 +189,10 @@ export function targetCheck(
   const [element] = found;
   const fragment = byName(target);
   const writing =
-    require === "writable" || require === "described-writable" || require === "settable";
+    require === "writable" ||
+    require === "described-writable" ||
+    require === "settable" ||
+    require === "totp-code";
   const clicking = require === "clickable" || require === "described-clickable";
   // The input and button tests require the content script's visibility first: an element
   // it does not see is named by why, apart from one that shows but takes no input.
@@ -194,6 +201,7 @@ export function targetCheck(
   if (writing && !(require === "settable" ? settable(element) : writable(element)))
     return "not-writable";
   if (clicking && !clickable(element, { fragment })) return "not-clickable";
+  if (require === "totp-code") return "code-sent";
   if (
     (require === "described-writable" || require === "described-clickable") &&
     element instanceof HTMLElement

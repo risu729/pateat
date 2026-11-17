@@ -10,7 +10,7 @@ import {
 } from "../page/shadow";
 import { openModals, renderedText, shown } from "../page/text";
 import { landmarks, visible } from "./extract-controls";
-import { rawLimit, observedText } from "./extract-text";
+import { rawLimit, observedText, visibleText } from "./extract-text";
 import { idList, liveRegions } from "./extract-labels";
 
 const nearDepth = 6;
@@ -69,6 +69,48 @@ export function nearCodeTexts(
     return element ? [element] : [];
   });
   return nearTexts([field], keep, errors);
+}
+
+/** Headings, as the page's outline and assistive technology read them. */
+const headingElements = "h1, h2, h3, h4, h5, h6, [role~='heading' i]";
+
+/** Headings read for the code field's own part of the page. */
+const maxPartHeadings = 3;
+
+/**
+ * The shown headings of a code field's own part of the page, the first three in page
+ * order, normalized and redacted as the observation's headings (`visibleText`) but not
+ * cut, for the login to tell where its code comes from (ADR 0027 amendment of
+ * 2026-11-17); they are never sent or logged. The part is the open modal dialog that
+ * holds the field, else the field's nearest parent, within six parents and never the
+ * body or above, that shows a heading, bounded as {@link nearCodeTexts} bounds its texts:
+ * no parent that holds another shown field to type in, so a sign-in form's heading beside
+ * the code is not the code's. A heading inside a live region is left out, as the
+ * observation's near texts leave out such text.
+ */
+export function nearCodeHeadings(field: HTMLElement): string[] {
+  const read = (area: Element) =>
+    queryAll(area, headingElements)
+      .filter((heading) => !closestAcross(heading, liveRegions))
+      .flatMap((heading) => {
+        const text = visibleText(heading);
+        return text ? [text] : [];
+      })
+      .slice(0, maxPartHeadings);
+  const modal = openModals(field.ownerDocument).find((open) => containsAcross(open, field));
+  if (modal) return read(modal);
+  let area = composedParent(field);
+  for (let depth = 0; area && depth < nearDepth; depth += 1, area = composedParent(area)) {
+    if (
+      area === field.ownerDocument.body ||
+      area === field.ownerDocument.documentElement ||
+      otherEntryField(area, field)
+    )
+      break;
+    const headings = read(area);
+    if (headings.length) return headings;
+  }
+  return [];
 }
 
 /**

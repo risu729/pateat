@@ -28,10 +28,12 @@ import type { Runtime } from "./state";
  * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).
  * Several shown: the first not yet entered whose fact the item has, a `passkey` handler
  * before a `totp` handler, as the routes put the passkey first and it types nothing. A
- * `totp` handler is never entered by a login that already types a code, and needs the
- * item's code field (`codeFieldOf`). Returns whether the attempt moved on: to the handler's
- * steps, or to `challenge` when no shown handler qualifies or the attempt's budget has
- * no room for it. At a login's stop before its item's missing password (`stop`, ADR
+ * `totp` handler is never entered by a login that already types a code, needs the
+ * item's code field (`codeFieldOf`), and is never entered on a page whose words around
+ * its code field say the code was sent, by email, SMS or otherwise (`totp-code`, ADR 0027
+ * amendment of 2026-11-17): such a page is a handler miss logged `code-sent`. Returns
+ * whether the attempt moved on: to the handler's steps, or to `challenge` when no shown
+ * handler qualifies or the attempt's budget has no room for it. At a login's stop before its item's missing password (`stop`, ADR
  * 0036), only a `passkey` handler is entered, before the stop step, and the login ends
  * there with `stop.end` instead. A `password` handler goes first, and only for a login
  * that types its password and has not filled it yet; one shown but refused ends the login
@@ -49,10 +51,10 @@ export async function enterHandler(
   path: string,
   stop?: { end: () => Promise<void> },
 ): Promise<boolean | "held"> {
-  // A fresh handler's elements must be usable: its code field a shown writable input and
-  // its button shown, enabled or not, as a Verify button disabled until the code is typed
-  // is; so a hidden code input rendered with the sign-in form never stands for a code
-  // page. The click step itself waits for the button to be enabled. A `totp` handler whose
+  // A fresh handler's elements must be usable: its code field a shown writable input, on
+  // a page that does not say its code was sent, and its button shown, enabled or not, as
+  // a Verify button disabled until the code is typed is; so a hidden code input rendered
+  // with the sign-in form never stands for a code page. The click step itself waits for the button to be enabled. A `totp` handler whose
   // button is also a route step's on this path, as in a form that asks for the code after
   // the password, needs every fill field of the route there gone: while one shows, the
   // page is still the sign-in page. A handler that already ran counts as shown again
@@ -158,7 +160,10 @@ export async function enterHandler(
           ...(ran
             ? targets.map(() => (index === held ? ("shown" as const) : ("present" as const)))
             : handler.kind === "totp"
-              ? (["writable", "shown"] as const).slice(0, targets.length)
+              ? // Its code field writable on a page whose words do not say the code was
+                // sent, so an emailed code's page on the same path never takes the TOTP
+                // (ADR 0027 amendment of 2026-11-17), and its button shown.
+                (["totp-code", "shown"] as const).slice(0, targets.length)
               : handler.kind === "detail"
                 ? // Its inputs present, as a choice page may disable all but one, and its
                   // button shown (ADR 0061).
