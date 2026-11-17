@@ -22,7 +22,10 @@ export interface LocalFieldMetadata {
   readonly kind: "text" | "hidden" | "boolean" | "linked" | "otp" | "unsupported";
   /** The built-in field a Linked field reads, when the provider defines it. */
   readonly linkedFieldId?: string;
-  /** Set on the login username, password or TOTP field when the item holds no value for it. */
+  /**
+   * Set on the login username, password or TOTP field, or a card's or an identity's own
+   * field, when the item holds no value for it.
+   */
   readonly empty?: true;
   /**
    * Set on a Text or Hidden custom field whose value is shaped like a TOTP key
