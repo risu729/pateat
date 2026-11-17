@@ -58,7 +58,7 @@ import {
   leaveConfirmDocuments,
 } from "./confirm-state";
 import { startsFor } from "./generation-scope";
-import { confirmPickWaits } from "./confirm-pick-scope";
+import { confirmPickFor, confirmPickWaits } from "./confirm-pick-scope";
 import { admitConfirm, pressHold } from "./confirm-admit";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
@@ -640,7 +640,9 @@ export async function admit(
   // A page a **Fill** press sent for generation starts no login, SSO included (ADR 0035).
   // A login the tab's move ends below still ends first, so the hold answers after it.
   const pressed = await pressHold(rt, ctx);
-  if (!pressed) {
+  // Nor does SSO admission take the announcement a press asked for: the press is admitted
+  // with the tab's record (`admitConfirm`), also after a move ended a login.
+  if (!pressed && !confirmPickFor(rt, ctx.live)) {
     const sso = await ssoAdmit(rt, ctx);
     if (sso) return sso;
     const offeredSso = await offerSso(rt, ctx);

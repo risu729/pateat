@@ -616,6 +616,13 @@ agent's choices, not confirmed by the owner:
   one of the page's frames that the page's move ends has ended. A generation that got
   no answer (failed, unavailable or skipped) ends the press with its own reason, leaves
   no claim and holds nothing, so a later press may send the page again.
+- The announcement a press asks for is never taken by SSO admission: while the press
+  waits for its document, that document skips SSO admission and the press is admitted
+  with the tab's record. Announcements without a press keep SSO admission as before.
+- Known limit: a worker restart while a press's page is being generated keeps the
+  press's claim with no answer recorded. That document stays held on that path, and a
+  later press there is refused as `not-a-verification-page`, until the document moves
+  to another path or the tab shows another page.
 - A `confirm` page without a recipe that shows only a password form is not offered
   **Fill**: **Log in now** sends it once through its own generation, and once that comes
   back `confirm`, the popup offers **Fill** on the page.

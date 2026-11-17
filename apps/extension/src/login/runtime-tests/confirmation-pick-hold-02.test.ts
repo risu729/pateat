@@ -27,6 +27,9 @@ const {
   secretAnswer,
   ready,
   heldPage,
+  configure,
+  announce,
+  otherItemId,
 } = pickFixture(fake);
 
 type Answer = Awaited<ReturnType<LoginGeneration["generate"]>>;
@@ -44,6 +47,25 @@ const fillOffered = async (h: Awaited<ReturnType<typeof heldPage>>) => {
   const offered = await offers(h);
   return offered.ok && offered.targets.some((entry) => entry.fill === true);
 };
+
+describe("a Fill press on a site whose default item signs in through SSO", () => {
+  it("fills without SSO admission taking its page's announcement", async () => {
+    const describeSso = vi.fn(async () => ({ ok: false as const, reason: "synthetic-sso" }));
+    const sso = { describe: describeSso, candidates: vi.fn(), validate: vi.fn() } as never;
+    const { h } = start({}, { sso, custom: [{ name: "SSO", kind: "text" }] });
+    configure(h);
+    // The page's own announcement is admitted as before this press.
+    await announce(h);
+    const before = describeSso.mock.calls.length;
+    fake.state.onReconnect = () => announce(h);
+    expect(await press(h, otherItemId)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    await settled(h);
+    expect(describeSso).toHaveBeenCalledTimes(before);
+    expect(await offers(h)).toMatchObject({ fill: { state: "filled" } });
+    expect(clicks()).toEqual([]);
+  });
+});
 
 describe("a page a Fill press sent for generation", () => {
   it("is held before SSO is offered, so no SSO entry is looked for there", async () => {

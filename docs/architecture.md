@@ -4764,13 +4764,15 @@ has ended that login (`pressHold` in
 **Log in now** or account pick names the document. The press's generation claim in
 `session:pateat.confirm-fills.v1` holds it, so the hold outlasts a worker restart; it is
 dropped once the document moves to another path. A generation that got no answer drops
-the claim instead, so a later press may send the page again. In the page, a press
-replaces a value Pateat itself wrote unless trusted input events show it was edited
-since (`fillWrote` in `apps/extension/src/page/fill-edits.ts`, which keeps only which
-inputs were written and reads no value); a value a page script sets without an event is
-not seen and may be replaced. Every other nonempty value is kept, and a login's own
-confirmation fill keeps every value as before. A master password window the person
-closed for a press leaves that document's path to them, also for the tab's own login.
+the claim instead, so a later press may send the page again. While a press waits for its
+document, that document skips SSO admission, so SSO never takes the press's
+announcement. In the page, a press replaces a value Pateat itself wrote unless trusted
+input events show it was edited since (`fillWrote` in
+`apps/extension/src/page/fill-edits.ts`, which keeps only which inputs were written and
+reads no value); a value a page script sets without an event is not seen and may be
+replaced. Every other nonempty value is kept, and a login's own confirmation fill keeps
+every value as before. A master password window the person closed for a press leaves
+that document's path to them, also for the tab's own login.
 
 ## Local SSO choice boundary
 
