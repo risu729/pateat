@@ -120,7 +120,7 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
       if (
         input.allowCredentials &&
         !input.conditional &&
-        (await passkeyReverification(rt, input.tabId, input.origin))
+        (await passkeyReverification(rt, input.tabId, input.origin, input.documentId))
       ) {
         const confirm = pagePermission(snapshot.snapshot.settings, input.origin, "confirm");
         return confirm.permission !== "fill" ? "confirm-off" : "confirm-fill";
@@ -161,9 +161,10 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
      * out and sets the alarm for the next one (ADR 0022, amended 2026-11-03).
      */
     siteWaitDue: () => endSiteWaits(rt),
-    loginAccount: (tabId: number, siteOrigin: string) => loginAccount(rt, tabId, siteOrigin),
-    passkeyReverification: (tabId: number, siteOrigin: string) =>
-      passkeyReverification(rt, tabId, siteOrigin),
+    loginAccount: (tabId: number, siteOrigin: string, documentId?: string) =>
+      loginAccount(rt, tabId, siteOrigin, documentId),
+    passkeyReverification: (tabId: number, siteOrigin: string, documentId?: string) =>
+      passkeyReverification(rt, tabId, siteOrigin, documentId),
     passkeyRequested: (tabId: number, siteOrigin: string) =>
       passkeyRequested(rt, tabId, siteOrigin),
     passkeyAnswered: (

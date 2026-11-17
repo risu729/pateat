@@ -181,4 +181,29 @@ describe("a passkey request waiting for its tab's login records", () => {
     );
     expect(backing.sign).not.toHaveBeenCalled();
   });
+
+  it("names the requesting document to the re-verification and login lookups", async () => {
+    const backing = source();
+    const reverification = vi.fn(async () => false);
+    const loginAccount = vi.fn(async () => login);
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      loginAccount,
+      reverification,
+      hold: async () => () => undefined,
+    });
+    const message = get();
+    message.request.allowCredentials = [{ type: "public-key", id: "AQID" }] as never;
+    await runtime.handle(message, sender);
+    // The document a login just completed in asks for its second factor (ADR 0029,
+    // amended 2026-11-17), which only the document tells apart from a re-verification.
+    expect(reverification).toHaveBeenCalledWith(7, origin, "synthetic-document");
+    expect(loginAccount).toHaveBeenCalledWith(7, origin, "synthetic-document");
+    expect(backing.candidates).toHaveBeenCalledWith(
+      origin,
+      "example.com",
+      expect.anything(),
+      login,
+    );
+  });
 });

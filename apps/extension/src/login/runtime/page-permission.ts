@@ -7,6 +7,7 @@ import {
 } from "@pateat/contracts";
 import { terminal } from "./attempt-state";
 import { recordFor } from "./hold";
+import { secondFactorAfterCompletion } from "./passkey";
 import type { Runtime } from "./state";
 
 /**
@@ -44,8 +45,9 @@ export function signInPermission(
 
 /**
  * Whether the person picked an account in the popup for this document, or for a login
- * that pick started and that still runs as a normal login: only then does a page set to
- * fill only log in with presses (ADR 0035). Stale popup state grants nothing.
+ * that pick started and that still runs as a normal login, or that just completed in this
+ * document, whose second factor it asks for (ADR 0029, amended 2026-11-17): only then does
+ * a page set to fill only log in with presses (ADR 0035). Stale popup state grants nothing.
  */
 export function explicitlyPicked(
   rt: Runtime,
@@ -55,5 +57,9 @@ export function explicitlyPicked(
   if (!pick || pick.site || pick.origin !== document.origin) return false;
   if (pick.attemptId === undefined) return pick.documentId === document.documentId;
   const record = recordFor(rt, document.tabId, document.origin);
-  return record?.id === pick.attemptId && !record.signInFill && !terminal(record);
+  return (
+    record?.id === pick.attemptId &&
+    !record.signInFill &&
+    (!terminal(record) || secondFactorAfterCompletion(rt, record, document.documentId))
+  );
 }

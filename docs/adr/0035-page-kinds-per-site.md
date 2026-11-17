@@ -134,7 +134,9 @@ origin finished with no logout detected since, is `confirm` (owner, 21:29 UTC). 
 answer completes the verification as a press would, and Pateat never presses on a
 `confirm` page (derived from that rule, not asked separately). The same request after a
 login made in another tab or before a browser restart cannot be told apart and is
-answered as today.
+answered as today. A request of the document the login completed in, within 30 seconds
+of the completion, is the login's second factor instead and is answered with its item
+([ADR 0029, amended 2026-11-17](0029-local-sign-in-state.md#amendment-a-second-factor-after-an-early-completion-2026-11-17)).
 
 ### Fill only (`sign-in` set to `fill`)
 

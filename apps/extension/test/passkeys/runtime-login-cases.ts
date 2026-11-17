@@ -37,7 +37,7 @@ export function registerDuringLoginCases({
       kind: "assertion",
       assertion: { credentialId: "CCCC" },
     });
-    expect(loginAccount).toHaveBeenCalledWith(7, origin);
+    expect(loginAccount).toHaveBeenCalledWith(7, origin, "document-a");
     expect(backing.candidates).toHaveBeenCalledWith(
       origin,
       "example.com",
