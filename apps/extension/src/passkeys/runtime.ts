@@ -344,7 +344,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         admission.request.allowCredentialIds.length > 0 &&
         options.reverification &&
         (await abortable(
-          options.reverification(context.tabId, origin, admission.request.rpId),
+          options.reverification(context.tabId, origin, admission.request.rpId, context.documentId),
           signal,
         ))
       )
@@ -353,7 +353,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       await hold(signal);
       // A failed lookup fails closed: the catch below delegates.
       const login = await abortable(
-        Promise.try(() => options.loginAccount?.(context.tabId, origin)),
+        Promise.try(() => options.loginAccount?.(context.tabId, origin, context.documentId)),
         signal,
       );
       return await answer(login, signal);
@@ -433,7 +433,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         const { request } = command;
         // Read as the request comes in, for the report only; the answer never waits for it.
         const loginAtEntry = Promise.try(() =>
-          options.loginAccount?.(sender.tab!.id!, origin),
+          options.loginAccount?.(sender.tab!.id!, origin, documentId),
         ).catch(() => undefined);
         if (
           !(typeof request === "object" && request !== null && "mediation" in request) ||

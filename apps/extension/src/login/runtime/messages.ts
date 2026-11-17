@@ -78,7 +78,7 @@ import { frameKey, choiceKey } from "./steps";
 import { ready } from "./generation";
 import { destinationRefusal, accountDestinationRefusal } from "./plan";
 import { allowed } from "./plan-2";
-import { reviewRequests } from "./passkey";
+import { reviewRequests, secondFactorAfterCompletion } from "./passkey";
 import { armSiteWait, quietly, scopes } from "./session-store";
 import { leaveConfirm } from "./markers";
 import { rejectedElsewhere, recordFor } from "./hold";
@@ -831,16 +831,21 @@ export async function active(rt: Runtime): Promise<boolean> {
  * that login's requests with this item only (ADR 0027). A login runs while its record,
  * in memory or read back from storage after a worker restart, is neither authenticated
  * nor blocked, its result has not settled as unknown since it last moved on, and it is
- * not watched (ADR 0027).
+ * not watched (ADR 0027). A request of `documentId` that asks for the second factor of a
+ * login that just completed in that document is that login's too (ADR 0029, amended
+ * 2026-11-17).
  */
 export async function loginAccount(
   rt: Runtime,
   tabId: number,
   siteOrigin: string,
+  documentId?: string,
 ): Promise<{ connectionId: string; itemId: string } | undefined> {
   await rt.vars.loaded;
   const metadata = recordFor(rt, tabId, siteOrigin);
-  return metadata && !terminal(metadata) && !idle(metadata)
+  return metadata &&
+    ((!terminal(metadata) && !idle(metadata)) ||
+      secondFactorAfterCompletion(rt, metadata, documentId))
     ? { connectionId: metadata.account.connectionId, itemId: metadata.account.itemId }
     : undefined;
 }

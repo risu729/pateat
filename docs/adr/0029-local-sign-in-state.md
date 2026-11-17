@@ -104,6 +104,15 @@ Amended on 2026-11-08 (owner, 02:58 UTC: no rule split by sign-in method): an un
 page completes either route only once the attempt's credential went back; see
 [the amendment below](#amendment-an-undecided-page-completes-only-after-the-credential-2026-11-08).
 
+Amended on 2026-11-17 (owner, 13:57 UTC: Cloudflare's security key fell back to the
+Bitwarden chooser, 「直して」): a passkey request of the document a login completed in,
+within the correction's 30 seconds, is that login's second factor and is answered with
+its item; see
+[the amendment below](#amendment-a-second-factor-after-an-early-completion-2026-11-17).
+This replaces one of the agent's choices of the 2026-11-03 amendment and narrows the
+passkey re-verification of
+[ADR 0035](0035-page-kinds-per-site.md#passkey-re-verification).
+
 Date: 2026-10-12
 
 ## Context
@@ -769,7 +778,9 @@ The agent's choices, not part of the card:
   before.
 - A second factor that the same document asks for after the early completion, as a code
   field shown after a header that already named the account, is left to the person: the
-  login has completed, so no handler runs there.
+  login has completed, so no handler runs there. Replaced for a passkey request on
+  2026-11-17; see
+  [the amendment below](#amendment-a-second-factor-after-an-early-completion-2026-11-17).
 - The correction needs the recipe's first step on its own path, as the login's start
   page showed it. A site that answers in the same document with a later step and an
   error, or with the form on another path, is not corrected; such a page is a logout as
@@ -1047,3 +1058,42 @@ neither is judged again on each login nor answers the other's. The device's own 
   take the one row in turn, a model call on each login whose page has no handler, as an
   item without a TOTP leaves Luma's authenticator page), and comparing the whole
   description (any changing text would do the same).
+
+## Amendment: a second factor after an early completion (2026-11-17)
+
+Context: on `dash.cloudflare.com` at 13:55:29 UTC on 2026-11-17 (build f955756), the
+owner's login submitted the password and Cloudflare showed `/two-factor` as a new
+document, which asks for a security key. The recipe's signed-in marker was already shown
+there, so the login completed `authenticated` at once (the 2026-11-03 amendment), with
+no `login.state` or `recipe.judge` line. The page's security-key request came 0.6 s
+later and named its credentials, so it was read as a re-verification after Pateat's
+login in the tab ([ADR 0035](0035-page-kinds-per-site.md#passkey-re-verification)) and
+handed to Bitwarden (`passkey.request` `delegate`, reason `confirm-fill`). The same
+happened at 13:56:37 UTC from Cloudflare's profile list (build 36a5362). The owner asked
+at 13:57 UTC for it to be fixed:
+「cloudflareでログインしたんだけど、なぜかbwのパスキー選択画面に
+フォールバックする。直して」. [ADR 0027](0027-per-account-login-routes.md) already
+decided that a security key asked for as the second factor signs in with no human action
+(owner, 2026-10-11 12:52 UTC).
+
+Decision:
+
+- A passkey request outside conditional mediation that names its credentials, from the
+  same document a login of its tab and origin completed in, less than
+  `RESULT_CORRECTION_MS` (30 seconds) after the completion, is that login's second
+  factor, not a re-verification. It is answered with the login's item only, as during
+  the login (ADR 0027): `loginAccount` names the item for it, and
+  `passkeyReverification` does not count it (`secondFactorAfterCompletion` in
+  `apps/extension/src/login/runtime/passkey.ts`). Without a matching passkey in that
+  item it is handed on as a running login's would be (`login-item-…`).
+- The time of the completion is the stored record's last change, as for the correction;
+  "the same document" is the record's document, as for the correction. A request of
+  another document, or after the 30 seconds, is a re-verification as before.
+- The login stays completed: its record, the login record sent to the service and the
+  account choice are not changed, and nothing is judged again. Only who answers the
+  request changes.
+
+Not chosen (the agent's): withholding the early completion on a page that may still ask
+for a second factor (that would need a wait for a request that may never come, which
+[ADR 0082](0082-waits-on-signals.md) rules out), and turning the login back to running
+(it would undo the account choice and the record already sent).

@@ -14,13 +14,14 @@ import { recordFor } from "./hold";
 import { countSignIn } from "./relogin";
 import { terminal, idle } from "./attempt-state";
 import { type LiveDocument, type ParkedRequest, type Execution } from "./types";
-import { frameKey } from "./steps";
+import { frameKey, recordKey } from "./steps";
 import {
   PASSKEY_SIGNED_IN,
   PASSKEY_SIGN_IN_MS,
   REQUEST_START_WAIT_MS,
   REQUEST_PARK_MS,
   REQUEST_WAIT_MS,
+  RESULT_CORRECTION_MS,
 } from "./constants";
 import {
   credentialMoveFits,
@@ -48,16 +49,52 @@ import type { Runtime } from "./state";
  * Whether a passkey request naming its credentials in this tab is a re-verification while
  * signed in (ADR 0035): the tab's Pateat login of the origin signed in, and its first step
  * did not show again since, which forgets the record as a logout (ADR 0062). A login made
- * in another tab or before a browser restart is not known here.
+ * in another tab or before a browser restart is not known here. A request of the document
+ * the login completed in, soon after, is that login's second factor instead
+ * (`secondFactorAfterCompletion`).
  */
 export async function passkeyReverification(
   rt: Runtime,
   tabId: number,
   siteOrigin: string,
+  documentId?: string,
 ): Promise<boolean> {
   await rt.vars.loaded;
   const metadata = recordFor(rt, tabId, siteOrigin);
-  return metadata?.state === "authenticated" && !metadata.fillOnly;
+  return (
+    metadata?.state === "authenticated" &&
+    !metadata.fillOnly &&
+    !secondFactorAfterCompletion(rt, metadata, documentId)
+  );
+}
+
+/**
+ * Whether a passkey request of `documentId` asks for the second factor of the tab's login
+ * that completed in that same document less than `RESULT_CORRECTION_MS` ago (ADR 0029,
+ * amended 2026-11-17): the login's result is read at once, so a signed-in marker or the
+ * username shown on the page that asks for a security key after the password completes
+ * it before the page's request comes. Such a request is answered with the login's own
+ * item, as during the login (ADR 0027), not handed on as a re-verification (ADR 0035).
+ * The time is the stored record's last change, which its completion was.
+ */
+export function secondFactorAfterCompletion(
+  rt: Runtime,
+  metadata: LoginAttemptMetadata,
+  documentId: string | undefined,
+  now = Date.now(),
+): boolean {
+  if (
+    documentId === undefined ||
+    metadata.state !== "authenticated" ||
+    metadata.fillOnly ||
+    metadata.document.documentId !== documentId
+  )
+    return false;
+  const stored = rt.persisted.get(recordKey(metadata.document.tabId, metadata.account.origin));
+  if (stored?.id !== metadata.id || stored.changedAt === undefined) return false;
+  const age = now - stored.changedAt;
+  // A clock set back counts nothing.
+  return age >= 0 && age < RESULT_CORRECTION_MS;
 }
 
 /** The passkey bridge saw a request of this tab's top document (ADR 0029: S5). */
