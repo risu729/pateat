@@ -3867,19 +3867,26 @@ another matching account
 `passkey-isolated.js` reads, as the request comes, the rendered text of the form holding
 the focused element (else the only shown form) and the first headings, never the header,
 navigation, footer, frames, outputs, live regions, editable text or input values, and
-nothing while the page shows a field to type text into outside its header
-(`shownPasskeyAccount`). Exactly one unmasked email address there goes with the request,
-once a document. The background compares it, ignoring case, with each matching item's
+nothing while the page shows a field to type text into outside its header and
+navigation (`shownPasskeyAccount`). Exactly one unmasked email address there goes with
+the request. The document's first address found is kept and goes again with each later
+such request of the document, never read again, so a click after a closed chooser is
+held to it and the page cannot try another. The background compares it, ignoring case,
+with each matching item's
 login username (read from the crypto Worker as ADR 0080 reads it, where the settings let
 the username be filled) and the user name stored with its passkey. When it fits an item
 other than the default, and no passkey of the default, the window lists the fitting
 passkeys first, then the default; where it cannot open, the request is handed on as
 `page-account`. The address and usernames stay in the extension; `passkey.request` logs
-only `pageAccount`. A running login of the request's origin, a request's list of
-credentials and a site whose default counts as unset decide first. A moved login (below)
-is held to the same display: when the address fits a matching item and no passkey of the
-moved login's item, the window lists the fitting passkeys first, then the moved login's,
-then the rest, and where it cannot open the request is handed on as `page-account`.
+only `pageAccount`. The order is: a running login of the request's origin; then a
+request's list of credentials; then a site whose default counts as unset; then the
+page's display; then the site default. A moved login (below) takes the site default's
+place in the last four: a list naming only other items' passkeys is handed on as
+`login-item-no-credential`; a site whose default counts as unset opens the window with
+the moved login's passkeys first; the page's display, when the address fits a matching
+item and no passkey of the moved login's item, opens it with the fitting passkeys first,
+then the moved login's, then the rest, handed on as `page-account` where it cannot open;
+otherwise the moved login's item answers.
 
 The bridge also wraps `navigator.credentials.create`, but only to refuse one kind of
 registration
@@ -3913,18 +3920,24 @@ the value-free request report does not delay or change the answer.
 
 When no login runs on the request's origin, a running top-level login whose tab moved to
 that page answers its request that waits for no autofill choice the same way, with its
-own item only
+own item
 ([ADR 0036 amendment of 2026-11-17](adr/0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17),
 `movedLogin`): the page may hold the login for a passkey (`passkeyPageFits`: the request
 came at most 30 seconds after the login's last effect step, or within 30 seconds of the
-holding page's earlier request), and the page is another origin of the login's site or
-the request's RP ID is one the login's origin may use, by itself or by the RP's list
-(ADR 0084), read only when the login's item holds a passkey of that RP ID. A login that
-ended, settled, is watched or only fills does not count, and `conditional` requests
-still wait for their own document's login. When the click's page shows another matching
-account than the moved login's, as above, the window opens instead of signing, so a
-moved login never signs in as another account than the page shows. `passkey.request`
-logs `movedLogin` for such a request.
+holding page's earlier request or of an answer given there since), and the page is
+another origin of the login's site or the request's RP ID is one the login's origin may
+use, by itself or by the RP's list (ADR 0084), read only when the login's item holds a
+passkey of that RP ID. On another origin of the site, or for an RP ID the login's origin
+may use by itself, an item without a passkey the request accepts hands the request on
+(`login-item-no-credential`); on another site such an item fetches no list and the
+request is no moved login's, so the rules as without a login apply. Only a login still
+running counts, not one that ended, settled, is watched or only fills: that is a page
+that asks as it loads, while the login still checks the page it moved to (a few
+seconds, after which a page showing nothing of a sign-in ends it `left-origin`); a
+request during that check holds the login on the page. `conditional` requests still
+wait for their own document's login. The order above holds it to a site whose default
+counts as unset and to the page's display, so a moved login never signs in as another
+account than the page shows. `passkey.request` logs `movedLogin` for such a request.
 
 ### Passkey requests Pateat hands on or answers differently
 

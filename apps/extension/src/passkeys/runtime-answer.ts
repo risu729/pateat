@@ -64,10 +64,10 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
   ): Promise<RuntimeResult> => {
     setStep("passkey-lookup");
     // Whether the site treats its default as unset (ADR 0062, ADR 0063), read alongside the
-    // lookup so the deadline runs as without it; asked only without a login, and a failed
-    // read counts as not unset.
+    // lookup so the deadline runs as without it; asked without a login or for one that moved
+    // to the page, and a failed read counts as not unset.
     const unsetRead =
-      !login && options.defaultUnset !== undefined
+      (!login || moved) && options.defaultUnset !== undefined
         ? Promise.try(() => options.defaultUnset!(origin, context.incognito)).catch(
             () => false as const,
           )
@@ -102,13 +102,17 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     const selection: typeof found = unset
       ? { kind: "delegate", reason: "ambiguous-credential" }
       : found;
+    // A login that moved to such a site asks too, its own item first (ADR 0036 amendment of
+    // 2026-11-17), as a site whose default counts as unset never signs unasked.
+    const movedAsks = moved && unset;
     // The page shows another matching account than the site default (ADR 0028 amendment of
     // 2026-11-17): the person's own discoverable request, with no login of the tab and a
     // default in force, opens the chooser with that account first instead of signing with
     // the default. A running login of the page's origin, a list of credentials and a site
     // without a default in force (`selection` is no credential then) come first. A login
     // that moved to the page is held to the page's account as the default is (ADR 0036
-    // amendment of 2026-11-17), so every matching passkey is looked up for it.
+    // amendment of 2026-11-17), so every matching passkey is looked up for it; a site whose
+    // default counts as unset asks first then too.
     const account =
       message.userActivation &&
       request.conditional !== true &&
@@ -120,11 +124,11 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
       entries.filter((entry) => entry.counter === 0);
     const ownIds = new Set(accepted.map((entry) => entry.credentialId));
     const everyMatch =
-      account !== undefined && login && moved
+      (account !== undefined || movedAsks) && login && moved
         ? await abortable(source.candidates(origin, request.rpId, signal), signal)
         : undefined;
     const shownFirst =
-      account === undefined
+      account === undefined || unset
         ? []
         : !login && selection.kind === "credential" && selection.credential.preferred === true
           ? await abortable(shownAccountFirst(account, usable(accepted), usernames), signal)
@@ -141,8 +145,9 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
             : [];
     const pageOther = shownFirst.length > 0;
     if (pageOther) detail.pageAccount = "other";
-    // What the chooser offers then: for a moved login, every match, its own item second.
-    const pool = pageOther && everyMatch ? everyMatch : candidates;
+    // What the chooser offers then: for a moved login, every match, its own item after the
+    // page's account, or first on a site whose default counts as unset.
+    const pool = (pageOther || movedAsks) && everyMatch ? everyMatch : candidates;
     const choices = pool === candidates ? accepted : matchingPasskeys(request, pool.candidates);
     const anchor = (entry: TCandidate) =>
       pool === candidates ? entry.preferred === true : ownIds.has(entry.credentialId);
@@ -227,7 +232,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     }
     // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
     // never signs in as another account.
-    else if (login && selection.kind === "delegate" && !pageOther)
+    else if (login && selection.kind === "delegate" && !pageOther && !movedAsks)
       return { kind: "delegate", reason: `login-item-${selection.reason}` };
     else {
       // Only passkeys Pateat can sign with are offered: the account the page shows first,
@@ -237,7 +242,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
       const offered =
         reprompt && selection.kind === "credential"
           ? [selection.credential]
-          : usable(choices).sort((a, b) => (unset ? 0 : rank(a) - rank(b)));
+          : usable(choices).sort((a, b) => (unset && !moved ? 0 : rank(a) - rank(b)));
       const asksPassword = offered.some((entry) => entry.reprompt === true);
       // A paused site is handed on rather than signed without a choice (ADR 0062).
       // Nor is the default when the page shows another account: never signed unasked.

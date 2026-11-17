@@ -91,7 +91,7 @@ describe("isolated passkey relay", () => {
     expect(sent[2]).not.toHaveProperty("path");
   });
 
-  it("reads the page's account at a click until it finds one, and sends it once (ADR 0028)", async () => {
+  it("reads the page's account at a click until it finds one, then keeps sending that one (ADR 0028)", async () => {
     const { scope } = fakeWindow();
     const send = vi.fn(async (_message: unknown) => ({ kind: "delegate", reason: "x" }));
     const shown: (string | undefined)[] = [undefined, "a@example.com", "b@example.com"];
@@ -101,7 +101,7 @@ describe("isolated passkey relay", () => {
       vi.stubGlobal("navigator", { userActivation: { isActive: click } });
       scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id: operationId, request });
     };
-    const ids = [0, 1, 2, 3, 4].map((at) => `00000000-0000-4000-8000-00000000000${at}`);
+    const ids = [0, 1, 2, 3, 4, 5].map((at) => `00000000-0000-4000-8000-00000000000${at}`);
     // Neither a request without a click nor an autofill request reads the page.
     ask(ids[0]!, { challenge: "AA" }, false);
     ask(ids[1]!, { challenge: "AA", mediation: "conditional" });
@@ -109,15 +109,18 @@ describe("isolated passkey relay", () => {
     // Nothing shown yet: read again at the next click, which finds an address.
     ask(ids[2]!, { challenge: "AA" });
     ask(ids[3]!, { challenge: "AA" });
-    // Sent once, so the document's next click reads nothing.
+    // A click after a chooser the person closed carries the same address, never read again,
+    // so the page cannot swap in another; an autofill request still carries none.
     ask(ids[4]!, { challenge: "AA" });
-    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(5));
+    ask(ids[5]!, { challenge: "AA", mediation: "conditional" });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(6));
     expect(readAccount).toHaveBeenCalledTimes(2);
     const sent = send.mock.calls.map(([message]) => message as Record<string, unknown>);
     expect(sent.map((message) => message["account"])).toEqual([
       undefined,
       undefined,
       undefined,
+      "a@example.com",
       "a@example.com",
       undefined,
     ]);

@@ -92,7 +92,9 @@ describe("the passkey request of a page a login moved to", () => {
       origin,
       sameSite: true,
     });
-    // A login of the page's own origin is found as a running login instead.
+    // A login of the page's own origin is found as a running login instead, even when that
+    // origin asked too.
+    h.login.passkeyRequested(1, origin);
     expect(await h.login.movedLogin(1, origin, "auth-document")).toBeUndefined();
   });
 
@@ -113,6 +115,55 @@ describe("the passkey request of a page a login moved to", () => {
     await vi.advanceTimersByTimeAsync(31_000);
     h.login.passkeyRequested(1, auth);
     expect(await h.login.movedLogin(1, auth, "auth-document")).toBeUndefined();
+  });
+
+  it("is the login's when the page announced itself first, while the move is still checked", async () => {
+    const h = await moved();
+    const auth = "https://auth.login.example";
+    fake.state.tabUrls[1] = `${auth}/passkey`;
+    let result: unknown;
+    void h
+      .hello({ documentId: "auth-document", url: `${auth}/passkey` }, false)
+      .then((value) => (result = value));
+    // The page asks as it loads, a second after its announcement, before the login's check
+    // of the move (a few seconds) ends it.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(result).toBeUndefined();
+    expect(status()![0]).toMatchObject({ state: "submit-intent" });
+    h.login.passkeyRequested(1, auth);
+    expect(await h.login.movedLogin(1, auth, "auth-document")).toEqual({
+      ...item,
+      origin,
+      sameSite: true,
+    });
+    // The page then holds the login while its request is answered, so the login neither
+    // ends nor starts again there.
+    await until(() => result !== undefined);
+    expect(result).toEqual({ ok: false, reason: "stale-document" });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(status()![0]).toMatchObject({ state: "submit-intent" });
+  });
+
+  it("completes on the next quiet page after its item answered there", async () => {
+    const h = await moved();
+    const auth = "https://auth.login.example";
+    h.login.passkeyRequested(1, auth);
+    expect(await h.login.movedLogin(1, auth, "auth-document")).toMatchObject(item);
+    const visit = async (url: string, documentId: string) => {
+      fake.state.tabUrls[1] = url;
+      let result: unknown;
+      void h.hello({ documentId, url }, false).then((value) => (result = value));
+      await until(() => result !== undefined);
+      return result;
+    };
+    expect(await visit(`${auth}/passkey`, "auth-document")).toEqual({
+      ok: false,
+      reason: "stale-document",
+    });
+    h.login.passkeyAnswered(1, auth, "login.example", item);
+    await visit(`${origin}/callback`, "callback-document");
+    await until(() => status()![0]!["state"] === "authenticated");
+    expect(status()![0]).toMatchObject({ state: "authenticated", outcome: "authenticated" });
   });
 
   it("is not a login's that ended on the page before the request", async () => {

@@ -743,10 +743,10 @@ compares the address the top page shows:
    `<address>`, frames, `<output>`, live regions or editable text, and never an input's
    value (#932). The page shows an account only when that text holds exactly one email
    address, unmasked; a masked one, or two different ones, show none.
-2. **Compared once.** The document's requests are read until one finds such an address;
-   that request carries it to the background, and no later request of the document
-   carries one, so a page cannot try one address after another. Nothing shown yet means
-   the rules as before.
+2. **One address a document.** The document's requests are read until one finds such an
+   address. That first address is kept and goes with that request and with each later
+   such request of the document, which never read the page again, so a page cannot try
+   one address after another. Nothing shown yet means the rules as before.
 3. **Compared in the extension.** The background compares the address, ignoring case,
    with the login username of each matching passkey's item (read from the crypto Worker
    as ADR 0080 reads it, only where the settings let the item's username be filled) and
@@ -758,12 +758,22 @@ compares the address the top page shows:
    the rest. Nothing is signed without a choice. Where the window cannot open (a private
    window, a background tab, too little of the request's time left), the request is
    handed on as `page-account`, never signed with the default.
-5. **Precedence.** A login of the page's origin running in the tab answers with its
-   item, whatever the page shows; then a request's list of credentials decides; then a
-   site whose default counts as unset (paused, ADR 0062, or asking every time, ADR 0063)
-   asks as before; then the page's display; then a login that moved to the page
-   ([ADR 0036 amendment of 2026-11-17](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17));
-   then the site default.
+5. **Precedence.** In this order:
+   1. A login of the page's origin running in the tab answers with its item, whatever
+      the page shows (ADR 0027).
+   2. A request's list of credentials decides.
+   3. A site whose default counts as unset (paused, ADR 0062, or asking every time,
+      ADR 0063) asks as before.
+   4. The page's display, as above.
+   5. The site default answers.
+
+   A login that moved to the page
+   ([ADR 0036 amendment of 2026-11-17](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17))
+   takes the site default's place in steps 2 to 5 (an agent's choice, below): a list
+   naming only other items' passkeys is handed on as `login-item-no-credential`; a site
+   whose default counts as unset opens the chooser with the moved login's passkeys
+   first; the page's display opens it with the fitting passkeys first, then the moved
+   login's; otherwise its item answers.
 
 The agent's choices, not confirmed by the owner:
 
@@ -779,6 +789,15 @@ The agent's choices, not confirmed by the owner:
 - The document is read at each such request until an address is found ("read once per
   document" read as "compared once per document"), so a request made before the page
   showed its account does not use up the document's comparison.
+- "Compared once per document" is refined to "one address per document": the first
+  address found is kept and sent again with each later click's request of the document.
+  Sending it only once would let the next click, after the person closed the chooser,
+  sign in with the site default unasked, as in #1670. Only that first address is ever
+  sent, so the page still cannot try different ones.
+- A login that moved to the page is held to steps 2 to 5 of rule 5 as the site default
+  is, so it never signs in with another account than the one the page shows, and a site
+  whose default counts as unset asks for it too
+  ([ADR 0036 amendment of 2026-11-17](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17)).
 - The item's username counts where the passkey's stored user name does not name the
   address, and the reverse; a username that cannot be read compares nothing.
 - With no site default, or several items that fit, the chooser opens as before, with

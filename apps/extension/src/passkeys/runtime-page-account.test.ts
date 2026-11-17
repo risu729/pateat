@@ -309,6 +309,55 @@ describe("a login that moved to the page from another origin (ADR 0036, 2026-11-
     expect(chooser.choose).toHaveBeenCalledTimes(3);
   });
 
+  it("asks with its own item first on a site whose default counts as unset (ADR 0062, ADR 0063)", async () => {
+    const movedC = () => ({ ...moved(true), itemId: "item-c" });
+    const chooser = choosing();
+    const defaultUnset = vi.fn((): true | "paused" => true);
+    const runtime = createPasskeyRuntime(vault(), {
+      extensionId,
+      chooser,
+      defaultUnset,
+      movedLogin: movedC,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject(signedWith("CCCC"));
+    expect(defaultUnset).toHaveBeenCalledWith(origin, false);
+    // Its own item first, then the rest; no default is marked on such a site.
+    expect(chooser.choose.mock.calls[0]![0].entries).toEqual([
+      { item: "OpenAI" },
+      { item: "OpenAI", userName: "a@example.com" },
+      { item: "OpenAI", userName: "b@example.com" },
+    ]);
+    // Such a site decides before the page's display.
+    await runtime.handle(get({ account: "a@example.com" }), sender());
+    expect(chooser.choose.mock.calls[1]![0].entries[0]).toEqual({ item: "OpenAI" });
+    // A paused site where the window cannot open is handed on, never signed unasked.
+    defaultUnset.mockReturnValue("paused");
+    expect(await runtime.handle(get({ focused: false }), sender())).toEqual({
+      kind: "delegate",
+      reason: "paused",
+    });
+    expect(chooser.choose).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands on a list of credentials that names only other items' passkeys", async () => {
+    const chooser = choosing();
+    const runtime = createPasskeyRuntime(vault(), {
+      extensionId,
+      chooser,
+      movedLogin: () => moved(true),
+    });
+    expect(
+      await runtime.handle(
+        get(
+          { account: "b@example.com" },
+          { allowCredentials: [{ type: "public-key", id: "BBBB" }] },
+        ),
+        sender(),
+      ),
+    ).toEqual({ kind: "delegate", reason: "login-item-no-credential" });
+    expect(chooser.choose).not.toHaveBeenCalled();
+  });
+
   it("ranks after a running login of this origin", async () => {
     const movedLogin = vi.fn(() => moved(true));
     const here = createPasskeyRuntime(vault(), {

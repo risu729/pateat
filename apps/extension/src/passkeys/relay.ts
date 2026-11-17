@@ -50,16 +50,17 @@ function withinBound(request: unknown): boolean {
  *
  * `readAccount` reads the address the page shows as its account (ADR 0028 amendment of
  * 2026-11-17). It is read for a request the person's click made that waits for no autofill
- * choice, as it comes and without waiting, until it finds one; that one goes with its
- * request, and no later request of the document carries one, so it is compared at most once
- * a document.
+ * choice, as it comes and without waiting, until it finds one. That first one is kept and
+ * goes with each such request of the document, never read again, so after a chooser the
+ * person closed, the next click is held to the same address, and the page can never offer
+ * another one to compare.
  */
 export function installPasskeyRelay(
   send: Send,
   alive: () => boolean = () => true,
   readAccount?: () => string | undefined,
 ): () => void {
-  let accountSent = false;
+  let accountFound: string | undefined;
   // A synchronous throw, such as from an invalidated extension context, still settles.
   const relay = (message: unknown) => Promise.try(() => send(message));
   // Cleanup snapshots the keys because cancel and settle delete entries from this map.
@@ -137,19 +138,18 @@ export function installPasskeyRelay(
     const relayed = typeof path === "string" && path.length <= MAX_PATH_CHARACTERS ? { path } : {};
     const mediation = (message.request as { mediation?: unknown } | null)?.mediation;
     let account: string | undefined;
-    if (readAccount && !accountSent && userActivation && mediation !== "conditional") {
-      try {
-        account = readAccount();
-      } catch {
-        account = undefined;
+    if (readAccount && userActivation && mediation !== "conditional") {
+      if (accountFound === undefined) {
+        let read: unknown;
+        try {
+          read = readAccount();
+        } catch {
+          read = undefined;
+        }
+        if (typeof read === "string" && read.length >= 3 && read.length <= MAX_ACCOUNT_CHARACTERS)
+          accountFound = read;
       }
-      if (
-        typeof account === "string" &&
-        account.length >= 3 &&
-        account.length <= MAX_ACCOUNT_CHARACTERS
-      )
-        accountSent = true;
-      else account = undefined;
+      account = accountFound;
     }
     void relay({
       version: 1,

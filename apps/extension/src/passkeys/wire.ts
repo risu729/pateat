@@ -137,8 +137,9 @@ export const runtimeMessageSchema = v.variant("type", [
     path: v.optional(v.pipe(v.string(), v.maxLength(MAX_PATH_CHARACTERS))),
     /**
      * The one unmasked email address the top page's form and headings showed as the
-     * person clicked, at most once a document; compared with the matching items' usernames
-     * in the background only (ADR 0028 amendment of 2026-11-17).
+     * person clicked, the document's first one found, sent again with its later clicks;
+     * compared with the matching items' usernames in the background only (ADR 0028
+     * amendment of 2026-11-17).
      */
     account: v.optional(v.pipe(v.string(), v.minLength(3), v.maxLength(MAX_ACCOUNT_CHARACTERS))),
   }),

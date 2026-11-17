@@ -404,9 +404,10 @@ because only a login of the requesting origin answered (ADR 0027, and "the login
 does not answer a passkey request there" in [Account lists](#account-lists) above).
 
 Now a passkey request that waits for no autofill choice, on the top page a running
-login's tab moved to, is answered with that login's item only, as a running login's own
-request is (ADR 0027: never the site default or the chooser; when the item holds no
-single signable match, the request is handed on as `login-item-*`), when:
+login's tab moved to, is answered with that login's item, as a running login's own
+request is (ADR 0027: not the site default; when the item holds no single signable
+match, the request is handed on as `login-item-*`), except where the agent's choices
+below open the chooser, when:
 
 - no login runs on the page's own origin in the tab (that login answers first);
 - the page may hold the login while it answers a passkey (`passkeyPageFits`, ADR 0022):
@@ -429,26 +430,46 @@ The agent's choices, not confirmed by the owner:
   page's display decides there instead
   ([ADR 0028 amendment of 2026-11-17](0028-account-chooser-login-pages.md#amendment-2026-11-17-a-passkey-request-on-a-page-that-shows-another-account)).
   Answering for an ended login could sign in with its item after the person typed
-  another account.
+  another account. So this answers a page that asks as it loads, or soon after: the
+  login checks the page it moved to for a few seconds and ends `left-origin` when that
+  page shows nothing of a sign-in and has made no request. A request that comes during
+  that check holds the login on the page, as a page that asked before announcing itself
+  does; a request after it finds no running login.
 - "Within 30 seconds" is read as the hold of a moved page already reads it: from the
   login's last effect step to the request, not from the move.
 - A page of another site counts only through the RP's list for the request's RP ID, read
   only when the login's item holds a passkey of that RP ID, so a page never picks a host
   for Pateat to fetch from (ADR 0084 rule 3). A login's origin that may use the RP ID by
-  itself counts without a list.
+  itself counts without a list. The two differ for an item without a passkey there:
+  - On another origin of the login's site, or for an RP ID the login's origin may use by
+    itself, the request is the login's even when its item holds no passkey the request
+    accepts, and it is handed on as `login-item-no-credential` (unless the page's
+    display opens the chooser, below), never answered with the site default.
+  - On a page of another site, where only the RP's list could relate the two, an item
+    without a passkey of that RP ID makes no list be fetched and the request is no moved
+    login's: the rules as without a login decide (the site default, or the chooser).
 - An autofill (`conditional`) request is unchanged: it still waits for the login of its
   own document (ADR 0034), and the checks of
   [ADR 0034's amendment of 2026-11-17](0034-answer-page-passkey-requests.md#amendment-a-request-its-page-moved-away-from-2026-11-17)
   still apply to it.
-- Such an answer ranks before the site default, and the request's list of credentials
-  narrows it as for any login. It is held to the page's display as the site default is
-  ([ADR 0028 amendment of 2026-11-17](0028-account-chooser-login-pages.md#amendment-2026-11-17-a-passkey-request-on-a-page-that-shows-another-account)):
-  when a click's discoverable request comes from a page whose one unmasked address fits
-  another matching item and no passkey of the moved login's item, the chooser opens with
-  the passkeys that fit the address first, then the login's item, then the rest, and
-  where it cannot open the request is handed on as `page-account`. This holds also when
-  the login's item has no passkey there. Pateat then never signs in with another account
-  than the one the page shows. The address may fit the site default too; the default
-  then comes first. A login running on the page's own origin stays as ADR 0027 says,
-  whatever the page shows.
+- Such a login takes the site default's place, in this order, the same as rule 5 of
+  [ADR 0028's amendment of 2026-11-17](0028-account-chooser-login-pages.md#amendment-2026-11-17-a-passkey-request-on-a-page-that-shows-another-account):
+  1. A login running on the page's own origin answers first and stays as ADR 0027 says,
+     whatever the page shows.
+  2. A request's list of credentials narrows the moved login's item as for any login: a
+     list that names only other items' passkeys is handed on as
+     `login-item-no-credential`.
+  3. On a site whose default counts as unset (paused, ADR 0062, or asking every time,
+     ADR 0063), the chooser opens with the moved login's passkeys first, then every
+     other matching passkey, as such a site never signs unasked; where it cannot open,
+     the request is handed on as `paused` or `default-unset`.
+  4. The page's display: when a click's discoverable request comes from a page whose one
+     unmasked address fits a matching item and no passkey of the moved login's item, the
+     chooser opens with the passkeys that fit the address first, then the login's item,
+     then the rest, and where it cannot open the request is handed on as `page-account`.
+     This holds also when the login's item has no passkey there. Pateat then never signs
+     in with another account than the one the page shows. The address may fit the site
+     default too; the default then comes first.
+  5. Otherwise the moved login's item answers, or the request is handed on as
+     `login-item-*`.
 - `passkey.request` logs `movedLogin` for such a request.
