@@ -121,8 +121,10 @@ describe("passkey activity fences for manual login handoff", () => {
       policy: () => policy,
       conditional,
     });
-    const input = { ...request(), request: { ...request().request, mediation: "conditional" } };
-    const pending = runtime.handle(input, sender);
+    const pending = runtime.handle(
+      { ...request(), request: { ...request().request, mediation: "conditional" } },
+      sender,
+    );
     await vi.waitFor(() => expect(conditional).toHaveBeenCalledTimes(1));
     expect(runtime.active("document-a")).toBe(false);
     const answered = vi.fn();
@@ -135,19 +137,8 @@ describe("passkey activity fences for manual login handoff", () => {
     expect(runtime.active("document-a")).toBe(true);
     signing.resolve(signature());
     expect(await pending).toMatchObject({ kind: "assertion" });
-    expect(runtime.active("document-a")).toBe(false);
-    // The login hears of it once the page says it used the assertion.
-    expect(answered).not.toHaveBeenCalled();
-    await runtime.handle(
-      {
-        version: 1,
-        type: "passkey.delivered",
-        operationId: input.operationId,
-        delivered: true,
-      },
-      sender,
-    );
     expect(answered.mock.calls).toEqual([[true]]);
+    expect(runtime.active("document-a")).toBe(false);
   });
 
   it("still counts another request of the document while a conditional one waits", async () => {

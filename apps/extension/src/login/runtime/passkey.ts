@@ -346,6 +346,23 @@ function shownPath(url: string | undefined, origin: string): string | undefined 
   return parsed?.origin === origin ? observedPath(parsed.pathname) : undefined;
 }
 
+/**
+ * The path a conditional request's page gave as it asked, as observations carry it, when it
+ * is a path at all; the tab's committed URL can lag a move made just before the request.
+ */
+function askedPath(path: string | undefined): string | undefined {
+  if (path === undefined || !path.startsWith("/") || path.startsWith("//")) return undefined;
+  return URL.parse(path, "https://path.invalid")?.pathname === path
+    ? observedPath(path)
+    : undefined;
+}
+
+/** The path a waiting request's tab shows now, if it can be read on its origin. */
+async function tabPath(parked: ParkedRequest): Promise<string | undefined> {
+  const tab = await browser.tabs.get(parked.tabId).catch(() => undefined);
+  return shownPath(tab?.url, parked.origin);
+}
+
 /** A path as a request's is compared: one trailing `/` does not count. */
 const comparable = (path: string) =>
   path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
@@ -388,8 +405,7 @@ export function parkedOn(
  * never answered (ADR 0034 amendment of 2026-11-17). Returns whether it still waits there.
  */
 export async function handOnIfMoved(parked: ParkedRequest): Promise<boolean> {
-  const tab = await browser.tabs.get(parked.tabId).catch(() => undefined);
-  const shown = shownPath(tab?.url, parked.origin);
+  const shown = await tabPath(parked);
   if (cameOn(parked, shown)) return true;
   parked.settle({
     kind: "delegate",
@@ -429,14 +445,17 @@ export async function conditionalRequest(
     signal: AbortSignal;
     /** Whether the tab is incognito, as the request's sender says (ADR 0062). */
     incognito?: boolean;
+    /** The page's own path as it asked, unchecked (ADR 0034 amendment of 2026-11-17). */
+    path?: string;
   },
 ): Promise<ConditionalDecision> {
-  // The page the request came from, read first; a request that waits again after a failed
-  // answer keeps the path it first came on (ADR 0034 amendment of 2026-11-17).
+  // The path the request came on: the page's own, else its tab's, read first; a request
+  // that waits again after a failed answer keeps the path it first came on (ADR 0034
+  // amendment of 2026-11-17).
   const tab = await browser.tabs.get(input.tabId).catch(() => undefined);
   let first = rt.requestPaths.get(input.signal);
   if (!first) {
-    const shown = shownPath(tab?.url, input.origin);
+    const shown = askedPath(input.path) ?? shownPath(tab?.url, input.origin);
     first = shown === undefined ? {} : { path: shown };
     rt.requestPaths.set(input.signal, first);
   }
@@ -473,7 +492,12 @@ export async function conditionalRequest(
       settle(decision) {
         if (!rt.parkedRequests.delete(parked)) return false;
         input.signal.removeEventListener("abort", onAbort);
-        resolve(decision);
+        // An answer is checked once more right before its assertion leaves.
+        resolve(
+          decision.kind === "answer"
+            ? { ...decision, stillOnPath: async () => cameOn(parked, await tabPath(parked)) }
+            : decision,
+        );
         return true;
       },
     };

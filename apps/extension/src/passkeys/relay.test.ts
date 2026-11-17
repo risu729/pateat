@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installPasskeyRelay } from "./relay";
-import { PAGE_CHANNEL, RELAY_HEARTBEAT_MS } from "./wire";
+import { MAX_PATH_CHARACTERS, PAGE_CHANNEL, RELAY_HEARTBEAT_MS } from "./wire";
 
 const origin = "https://login.example.com";
 const id = "00000000-0000-4000-8000-000000000000";
@@ -69,19 +69,26 @@ describe("isolated passkey relay", () => {
     ]);
   });
 
-  it("passes on the page's word on whether it used an assertion, unacknowledged (ADR 0034)", async () => {
-    const { scope, posted } = fakeWindow();
-    const send = vi.fn(async () => ({ ok: true }));
+  it("passes on the path a conditional request was made on, unless it is too long (ADR 0034)", async () => {
+    const { scope } = fakeWindow();
+    const send = vi.fn(async (_message: unknown) => ({ kind: "withheld" }));
     installPasskeyRelay(send);
-    scope.postMessage({ channel: PAGE_CHANNEL, type: "delivered", id, delivered: false });
-    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-    expect(send).toHaveBeenCalledWith({
-      version: 1,
-      type: "passkey.delivered",
-      operationId: id,
-      delivered: false,
-    });
-    expect(posted).toHaveLength(1);
+    const ask = (path: unknown, operationId: string) =>
+      scope.postMessage({
+        channel: PAGE_CHANNEL,
+        type: "get",
+        id: operationId,
+        request: { challenge: "AA" },
+        path,
+      });
+    ask("/sign-in", id);
+    ask("/".repeat(MAX_PATH_CHARACTERS + 1), "00000000-0000-4000-8000-000000000001");
+    ask(7, "00000000-0000-4000-8000-000000000002");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(3));
+    const sent = send.mock.calls.map(([message]) => message as Record<string, unknown>);
+    expect(sent[0]).toMatchObject({ type: "passkey.get", operationId: id, path: "/sign-in" });
+    expect(sent[1]).not.toHaveProperty("path");
+    expect(sent[2]).not.toHaveProperty("path");
   });
 
   it("passes on a failure after the chooser window's wait ran out", async () => {

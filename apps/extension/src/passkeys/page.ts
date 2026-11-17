@@ -350,13 +350,14 @@ export function installPasskeyPage(scope: PageScope = window): void {
    * the relay falls silent or `limit` passes, or as `aborted` when the caller's signal aborts.
    */
   const ask = (
-    id: string,
     type: "get" | "create",
     request: BridgedGetRequest | BridgedCreateRequest,
     signal: AbortSignal | undefined,
     limit: number | undefined,
-  ) =>
-    new Promise<PageResult | { kind: "aborted" }>((resolve) => {
+    path?: string,
+  ) => {
+    const id = newId();
+    return new Promise<PageResult | { kind: "aborted" }>((resolve) => {
       const finish = (outcome: PageResult | { kind: "aborted" }) => {
         if (!pending.delete(id)) return;
         clearTimeout(timer);
@@ -383,8 +384,9 @@ export function installPasskeyPage(scope: PageScope = window): void {
         },
       });
       signal?.addEventListener("abort", onAbort, { once: true });
-      post({ channel: PAGE_CHANNEL, type, id, request });
+      post({ channel: PAGE_CHANNEL, type, id, request, ...(path === undefined ? {} : { path }) });
     });
+  };
 
   /** The caller's genuine signal, `null` for anything else, which the browser handles. */
   const signalOf = (options: unknown): AbortSignal | undefined | null => {
@@ -408,16 +410,15 @@ export function installPasskeyPage(scope: PageScope = window): void {
     // A conditional request may wait for a login of the page for as long as the relay
     // answers (ADR 0034).
     const conditional = request.mediation === "conditional";
-    // The path a conditional request came on stands in for its autofill field (ADR 0034
-    // amendment of 2026-11-17).
+    // The path a conditional request is made on stands in for its autofill field; the
+    // background keeps it as the request's (ADR 0034 amendment of 2026-11-17).
     const askedOn = conditional ? scope.location.pathname : undefined;
-    const id = newId();
     const result = await ask(
-      id,
       "get",
       request,
       signal,
       conditional ? undefined : PAGE_MAX_WAIT_MS,
+      askedOn,
     );
     if (result.kind === "aborted") throw signal?.reason;
     // A Pateat login signed the page in: the request stays pending until the page aborts
@@ -432,22 +433,16 @@ export function installPasskeyPage(scope: PageScope = window): void {
     // Chrome's own rejection when its prompt times out or is dismissed.
     if (result.kind === "not-allowed")
       throw new DOMExceptionClass(NOT_ALLOWED_MESSAGE, "NotAllowedError");
-    if (result.kind === "assertion") {
-      // An assertion for a conditional request whose page then moved in place to another
-      // path is dropped: its autofill field is gone, so no browser would answer it there,
-      // and the page would act on it where it is now (#1670).
-      const moved = askedOn !== undefined && !samePath(askedOn, scope.location.pathname);
-      let credential: Credential | undefined;
+    // An assertion for a conditional request whose page then moved in place to another
+    // path is dropped: its autofill field is gone, so no browser would answer it there,
+    // and the page would act on it where it is now (#1670).
+    const moved = askedOn !== undefined && !samePath(askedOn, scope.location.pathname);
+    if (result.kind === "assertion" && !moved) {
       try {
-        if (!moved)
-          credential = toCredential(result.assertion, credentialPrototype, responsePrototype);
+        return toCredential(result.assertion, credentialPrototype, responsePrototype);
       } catch {
         // A malformed relay result is not a credential; let the browser answer instead.
       }
-      // The background hears whether the page used it, so a login counts only that.
-      if (conditional)
-        post({ channel: PAGE_CHANNEL, type: "delivered", id, delivered: credential !== undefined });
-      if (credential) return credential;
     }
     return delegate();
   });
@@ -467,7 +462,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
         }
         const signal = signalOf(options);
         if (!request || signal === null || signal?.aborted) return delegate();
-        const result = await ask(newId(), "create", request, signal, PAGE_CREATE_MAX_WAIT_MS);
+        const result = await ask("create", request, signal, PAGE_CREATE_MAX_WAIT_MS);
         // The browser rejects an aborted request with its reason; a provider may only listen.
         if (result.kind === "aborted") throw signal?.reason;
         // Chrome's own rejection of a dismissed prompt.

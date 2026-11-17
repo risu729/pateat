@@ -556,7 +556,6 @@ export const LOG_EVENTS = {
       duringLogin: "flag",
       paused: "flag",
       answerFailed: "code",
-      dropped: "flag",
       cause: "code",
       invalid: "code",
       invalidLength: "count",

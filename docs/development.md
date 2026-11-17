@@ -1379,9 +1379,10 @@ holds:
   (no login of its page started), `login-ended` (the login did not sign in) or `no-pick`
   (the popup offered its page an ordinary choice of accounts, outside an ask, with an
   item that holds a passkey, and nothing was picked within four minutes), as
-  `page-moved` when its page moved in place to another path before a login answered it,
-  as `page-unknown` when the path it came on or its tab's path could not be read (a
-  failed tab read, or another origin), and at once as `paused` while automatic login of
+  `page-moved` when its page moved in place to another path before a login's answer
+  left, including while the assertion was signed, as `page-unknown` when the path it
+  came on or its tab's path could not be read (a failed tab read, or another origin),
+  and at once as `paused` while automatic login of
   its site is paused ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
   ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
   mediation that names its credentials, in a tab whose Pateat login of the origin signed
@@ -1432,9 +1433,6 @@ holds:
 - `answerFailed`: why the login's item could not answer a conditional request the login
   gave it (such as `login-item-no-credential`); the login then falls back to the
   password;
-- `dropped` when the page dropped a login's assertion because it had moved in place to
-  another path since it asked; the login counts the answer as not signed
-  ([ADR 0034](adr/0034-answer-page-passkey-requests.md#amendment-a-request-its-page-moved-away-from-2026-11-17));
 - `duringLogin` when a delegated request came in while a Pateat login of the tab and
   origin had not ended. The request then went to the browser or another passkey
   provider, such as the Bitwarden extension, which may show its own prompt during that

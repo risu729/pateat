@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  MAX_PATH_CHARACTERS,
   MAX_REQUEST_CHARACTERS,
   PAGE_CHANNEL,
   RELAY_HEARTBEAT_MS,
@@ -78,15 +79,6 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
       cancel(message.id);
       return;
     }
-    if (message.type === "delivered") {
-      void relay({
-        version: 1,
-        type: "passkey.delivered",
-        operationId: message.id,
-        delivered: message.delivered,
-      }).catch(() => {});
-      return;
-    }
     acknowledge(message.id);
     if (!withinBound(message.request)) {
       reply(message.id, { kind: "delegate", reason: "invalid-request" });
@@ -128,6 +120,9 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
     const userActivation = navigator.userActivation?.isActive === true;
     // A hidden or background document never gets a window, as Chrome's own UI needs focus.
     const focused = document.visibilityState === "visible" && document.hasFocus();
+    // A path the background could not take is left out; it then reads the tab's.
+    const { path } = message;
+    const relayed = typeof path === "string" && path.length <= MAX_PATH_CHARACTERS ? { path } : {};
     void relay({
       version: 1,
       type: "passkey.get",
@@ -135,6 +130,7 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
       request: message.request,
       userActivation,
       focused,
+      ...relayed,
     }).then(
       (response) => {
         const result = v.safeParse(runtimeResultSchema, response);

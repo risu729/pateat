@@ -25,7 +25,7 @@ export interface BackgroundAreas {
   chooser(request: unknown, sender: Sender): Promise<unknown> | undefined;
   login(request: unknown, sender: Sender): Promise<unknown>;
   passkeyCreate(request: unknown, sender: Sender): Promise<unknown>;
-  /** `passkey.get`, `passkey.cancel` and `passkey.delivered`. */
+  /** `passkey.get` and `passkey.cancel`. */
   passkeys(request: unknown, sender: Sender): Promise<unknown>;
   /** Probe build only. */
   setupProbe?: ((request: unknown) => Promise<unknown>) | undefined;

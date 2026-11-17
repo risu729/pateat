@@ -48,7 +48,7 @@ function fakePage(
       queueMicrotask(() => {
         for (const listener of listeners) listener({ source: scope, origin, data: copy });
         if (copy.channel !== PAGE_CHANNEL) return;
-        if (["get", "create", "cancel", "delivered"].includes(copy.type)) {
+        if (copy.type === "get" || copy.type === "create" || copy.type === "cancel") {
           posted.push(copy);
           for (const reply of relay(copy)) scope.postMessage({ channel: PAGE_CHANNEL, ...reply });
         }

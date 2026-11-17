@@ -58,8 +58,10 @@ that login again (rule 5).
 Amended on 2026-11-17 (agent fix under the owner's policy of 2026-10-12 13:58 UTC, not
 yet confirmed by the owner;
 [the amendment below](#amendment-a-request-its-page-moved-away-from-2026-11-17)): a
-request is answered only while its tab still shows the path it came on, and is handed on
-as `page-moved` otherwise; this narrows ADR 0036 rule 4.
+request is answered only while its tab still shows the path it came on, checked again
+right before its assertion leaves, and is handed on as `page-moved` otherwise, or as
+`page-unknown` when a path could not be read; Pateat's page script also drops an
+assertion that comes back after its page's path changed. This narrows ADR 0036 rule 4.
 
 Date: 2026-10-12
 
@@ -331,11 +333,13 @@ change. Which request OpenAI's page made is not proven: the uploaded logs hold n
 An agent change, as a general rule (ADR 0033), not confirmed by the owner:
 
 - The path stands in for the autofill field the request was made for, which Pateat
-  cannot see: a conditional request records the path its tab showed when it first came,
-  read from the tab's committed URL, which follows a same-document move
-  (`history.pushState`) where a sender's URL does not, as observations carry it
-  (`observedPath`). A request that waits again after a failed answer keeps that first
-  path. One trailing `/` does not count.
+  cannot see: a conditional request records the path its page showed when it first came.
+  Pateat's page script sends `location.pathname` with the request, and the background
+  redacts it as observations carry a path (`observedPath`); when the page sent none, or
+  one that is not a path, the tab's committed URL stands in, which follows a
+  same-document move (`history.pushState`) where a sender's URL does not, but can lag a
+  move made just before the request. A request that waits again after a failed answer
+  keeps that first path. One trailing `/` does not count.
 - A new login takes the `passkey` route for the page's own request (rule 3) only when a
   request came on the path the login starts on. The `passkey` route, the switch to it,
   and a stop of ADR 0036 take only a waiting request whose tab still shows its path, and
@@ -347,14 +351,14 @@ An agent change, as a general rule (ADR 0033), not confirmed by the owner:
   stays, the `passkey` route falls back as `request-missing`, and a stop ends
   `challenge` as `password-empty`. A request the page makes on the route it moved to is
   answered as before.
-- The page closes the race that remains after that check, while the vault is read and
-  the assertion signed: Pateat's page script keeps the path (`location.pathname`) a
-  conditional request was made on, and drops an assertion that comes back after the
-  path changed, handing the request to the browser instead. It tells the background
-  whether it used the assertion (`passkey.delivered`), and the login counts its answer
-  only then: a dropped one is not signed, and the `passkey.request` line says
-  `dropped`. Without the page's word within `PAGE_DELIVERY_WAIT_MS` (5 seconds) the
-  answer counts as used, as before this change.
+- The vault is read and the assertion signed after that check, so the background reads
+  the tab's path once more right before the assertion leaves, as it reads the page's
+  permission again then: a request whose page moved meanwhile is handed on as
+  `page-moved`, and its login is told it was not answered and falls back as
+  `answer-failed`. What remains after that, the trip to the page, the page itself
+  closes: Pateat's page script drops an assertion for a conditional request that comes
+  back after `location.pathname` changed, handing the request to the browser instead.
+  The background does not learn of that drop.
 - A site whose route after the email keeps the email page's request and offers it in a
   field of its own is not answered there any more; the browser or another provider gets
   the request. Rule 7's case for answering, a request a person could pick from an

@@ -87,7 +87,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
   }
   const ask = (
     h: ReturnType<typeof harness>,
-    change: Partial<{ tabId: number; origin: string; documentId: string }> = {},
+    change: Partial<{ tabId: number; origin: string; documentId: string; path: string }> = {},
   ) => {
     const controller = new AbortController();
     let decided: ConditionalDecision | undefined;
@@ -470,12 +470,18 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect(clicks("login")).toBe(1);
       expect(routeChanges(report)).toEqual([]);
     });
-    it("is handed on as page-unknown when its tab's path could not be read", async () => {
+    it.each([
+      ["its tab showed another origin as it asked", () => undefined],
+      ["its tab could not be read as it asked", () => "reject" as const],
+    ])("is handed on as page-unknown when %s, without a path of its own", async (_, how) => {
       const { h, report } = start();
-      // The tab already shows another origin, so the request's path is unknown.
       fake.state.tabUrls[1] = "https://elsewhere.example/signin";
+      const tabs = fake.browser.tabs as { get: (id: number) => Promise<unknown> };
+      const reading = tabs.get;
+      if (how() === "reject") tabs.get = async () => Promise.reject(new Error("No tab"));
       const request = ask(h);
       await flush();
+      tabs.get = reading;
       fake.state.tabUrls[1] = `${origin}/signin`;
       signsInOnClick();
       expect(await h.hello()).toEqual({ ok: true });
@@ -484,6 +490,47 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       );
       expect(request.decided()).toEqual({ kind: "delegate", reason: "page-unknown" });
       expect(routeChanges(report)).toEqual([]);
+    });
+    it("takes the page's own path, one trailing / aside, on the passkey route", async () => {
+      const { h } = start();
+      // The page asked on "/signin/"; the login starts on "/signin".
+      const request = ask(h, { path: "/signin/" });
+      await flush();
+      expect(await h.hello()).toEqual({ ok: true });
+      answerOf(await request.decision);
+      expect(status()![0]).toMatchObject({ route: "passkey" });
+      expect(executed()).toEqual([]);
+    });
+    it("takes the page's own path when the tab's URL has not caught up with its move", async () => {
+      const { h } = startThere();
+      // The site moves with history.pushState and asks at once, before the tab's
+      // committed URL follows; a login then starts on the page it moved to.
+      const request = ask(h, { path: "/auth_challenge" });
+      await flush();
+      moveTo("/auth_challenge");
+      fake.state.pageUrl = `${origin}/auth_challenge`;
+      expect(await h.hello()).toEqual({ ok: true });
+      const answer = answerOf(await request.decision);
+      expect(status()![0]).toMatchObject({ route: "passkey" });
+      expect(await answer.stillOnPath!()).toBe(true);
+    });
+    it("tells the bridge the page moved once the assertion is signed, and falls back", async () => {
+      const { h, report } = start();
+      const request = ask(h, { path: "/signin" });
+      await flush();
+      expect(await h.hello()).toEqual({ ok: true });
+      const answer = answerOf(await request.decision);
+      // The page moves in place while the vault signs; the bridge asks before the
+      // assertion leaves, hands the request on and tells the login it was not answered.
+      fake.state.tabUrls[1] = `${origin}/challenge`;
+      expect(await answer.stillOnPath!()).toBe(false);
+      fake.state.tabUrls[1] = `${origin}/signin`;
+      signsInOnClick();
+      answer.answered(false);
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+      );
+      expect(routeChanges(report)).toEqual(["answer-failed"]);
     });
     it("is handed on when the page moves as the answer goes out", async () => {
       const { h, report } = start();

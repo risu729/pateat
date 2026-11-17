@@ -181,6 +181,8 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
       signal: AbortSignal;
       /** Whether the tab is incognito, as the request's sender says (ADR 0062). */
       incognito?: boolean;
+      /** The page's own path as it asked, unchecked (ADR 0034). */
+      path?: string;
     }) => conditionalRequest(rt, input),
     /**
      * Whether a passkey request of the origin treats the saved default as unset (ADR 0063):
