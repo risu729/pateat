@@ -165,8 +165,9 @@ export const vaultCatalogSchema = v.strictObject({
               /** The built-in field a Linked field reads, when the provider defines it. */
               linkedFieldId: v.optional(identifier),
               /**
-               * Set on the built-in username, password or TOTP field when the item holds no
-               * value for it (ADR 0016, ADR 0027); the catalog never carries the value itself.
+               * Set on the built-in username, password or TOTP field, or a card's or an
+               * identity's own field, when the item holds no value for it (ADR 0016, ADR 0027,
+               * ADR 0061); the catalog never carries the value itself.
                */
               empty: v.optional(v.literal(true)),
               /**

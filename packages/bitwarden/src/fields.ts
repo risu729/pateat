@@ -22,7 +22,10 @@ export interface LocalFieldMetadata {
   readonly kind: "text" | "hidden" | "boolean" | "linked" | "otp" | "unsupported";
   /** The built-in field a Linked field reads, when the provider defines it. */
   readonly linkedFieldId?: string;
-  /** Set on the login username, password or TOTP field when the item holds no value for it. */
+  /**
+   * Set on the login username, password or TOTP field, or a card's or an identity's own
+   * field, when the item holds no value for it.
+   */
   readonly empty?: true;
   /**
    * Set on a Text or Hidden custom field whose value is shaped like a TOTP key
@@ -218,10 +221,24 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
       add("login.password", "Password", "hidden", undefined, !item.login?.password);
       add("login.totp-code", "Verification code", "otp", undefined, !item.login?.totp);
     }
-    if (item.type === 3) for (const key of cardFields) add(`card.${key}`, key, "text");
+    // Value-free flags too: whether a card's or an identity's own field holds a value, so a
+    // personal detail is never offered from an empty one (ADR 0061).
+    if (item.type === 3)
+      for (const key of cardFields)
+        add(`card.${key}`, key, "text", undefined, !item.card?.[key]?.trim());
     if (item.type === 4) {
-      for (const key of identityFields) add(`identity.${key}`, key, "text");
-      add("identity.fullName", "Full name", "text");
+      const identity = item.identity;
+      for (const key of identityFields)
+        add(`identity.${key}`, key, "text", undefined, !identity?.[key]?.trim());
+      add(
+        "identity.fullName",
+        "Full name",
+        "text",
+        undefined,
+        !(["title", "firstName", "middleName", "lastName"] as const).some((key) =>
+          identity?.[key]?.trim(),
+        ),
+      );
     }
     const custom = new Map<string, number>();
     item.fields?.forEach((field, index) => {

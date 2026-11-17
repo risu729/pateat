@@ -41,6 +41,9 @@ Amended on 2026-11-11 by the owner (12:46 UTC, on My Digital Connect's phone num
 page): the popup proposes an identity item's fields before any other item's
 ([Guess, propose, confirm](#guess-propose-confirm)).
 
+Clarified on 2026-11-17 by an agent: an identity's or a card's own field that holds no
+value is no candidate ([Guess, propose, confirm](#guess-propose-confirm)).
+
 Clarified on 2026-11-12 by an agent: a split-date select option whose text or value
 starts with a minus sign says a negative number
 ([clarification](#clarification-signed-select-option-numbers-2026-11-12)). Such text
@@ -532,7 +535,10 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    and those whose expiry month and year are both allowed for `card-expiry`; Text or
    Hidden custom fields named as a PIN, of the login item or a card item, for `pin`. A
    link reads only such a field, so a link edited elsewhere never types another custom
-   field, such as a PIN into a member ID's input, into the page. An identity item's
+   field, such as a PIN into a member ID's input, into the page. An identity's or a
+   card's own field that holds no value is no candidate, and a link to one reads
+   nothing, so an identity without a phone number is never proposed first (agent,
+   2026-11-17, after My Digital Connect's Fill read an empty one). An identity item's
    fields come first, since an identity holds the person's own details (owner,
    2026-11-11 12:46 UTC). Then, among identity items and among the rest, an item whose
    name holds a run of three or more ASCII letters or digits found in the page's host
