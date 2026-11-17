@@ -49,7 +49,7 @@ export const observed = `input, select, textarea, button, a, ${scriptControls}`;
  * when it is hidden or moved before the page's start, where trap inputs usually go.
  * A control transparent only while it or an ancestor fades in from opacity 0 counts as
  * opaque, as `shown` does (2026-10-17), and so does a fillable input transparent only
- * under its own shown label (2026-10-23).
+ * under its own shown label (2026-10-23) or laid over boxes drawn for it (2026-11-17).
  */
 export function presence(element: HTMLElement): "visible" | "faint" | "absent" {
   const miss = presenceMiss(element);

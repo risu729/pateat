@@ -262,7 +262,13 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   owner decision), a fillable input transparent only under its own `<label>`, which
   holds it and shows text opaque, also counts as visible: a floating label that reveals
   the input on focus, as Airbnb's email input; the official Bitwarden extension reads
-  only the input's own opacity. An input marked `new-password` or
+  only the input's own opacity. Since 2026-11-17 (agent fix, not an owner decision), so
+  does a fillable input, enabled, not read-only and in the tab order, at opacity 0 of
+  its own whose parent shows, that a click at its centre lands on while it is in the
+  viewport and that lies over elements beside it holding no control and none of its
+  labels, as Luma's code input over six digit boxes
+  ([#1655](https://github.com/risu729/pateat/issues/1655)); the official Bitwarden
+  extension leaves such an input out. An input marked `new-password` or
   `one-time-code`, and every input of a form that holds one, never counts: a sign-up,
   password change or code form is not continued, and a code page is judged, which may
   add a `totp` handler (ADR 0027). Any other page is judged as before. The email input
