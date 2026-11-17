@@ -89,3 +89,64 @@ the page was incomplete (`unlocated-field`).
 - **The visible name from the table cell before the input.** "username:" is not tied to
   the input by markup, and guessing nearby text names the wrong field on other pages.
 - **Keep it as is.** The page stays incomplete and is never generated.
+
+## Amendment: a button named by its text within the sign-in form (2026-11-17)
+
+Status: an agent's choice, made while fixing
+[#1684](https://github.com/risu729/pateat/issues/1684); not yet decided by the owner.
+
+### Context
+
+United's sign-in (`https://www.united.com/en/us/account/profile`, a single-page app that
+shows both steps on that path) asks for the email, then shows a form with the email as
+text, `<input id="password" type="password">` and
+`<button type="submit">Sign in</button>`, which has no `id`, `name`, test attribute or
+`aria-label`. The site header's nav shows
+`<button type="button" id="loginButton" aria-label="Sign in">Sign in</button>` at the
+same time (the owner's Chrome, 2026-11-17). Neither the text nor the accessible-name
+locator ([ADR 0048](0048-password-method-button.md)) names the submit alone, so the
+password step was incomplete (`recipe.generate` `skipped` `incomplete-observation`
+`unlocated-button`) and the password was never filled.
+
+### Decision
+
+1. **The locator.** A route step's click may name its button as
+   `{ "by": "password-form-text", "value": "Sign in" }`: among the shown native buttons
+   (a `<button>`, or an `<input>` of type `submit`, `button` or `image`) whose text, as
+   a `text` locator reads it, equals the value and whose form owner holds a shown
+   password input not marked `new-password` (the form a `password-form-name` locator
+   looks in), the one such button. The value follows the `text` locator's rule.
+2. **When the extractor gives it.** Only to a login form's native button, after its
+   `id`, `name`, test attributes, text and accessible name, and before an `id` another
+   load may change; only when the executor's lookup returns exactly that button and
+   redaction leaves the text unchanged.
+3. **Where.** A route step's click alone, never with `press: "enter"`: the observation
+   schema refuses it on a candidate that is not a button, the recipe schema refuses it
+   on every other element (a `password` handler's button included, unlike an accessible
+   name, as the handler's word check reads the text a page sent and this locator adds
+   nothing there), and the plan's account switch, the entry, account-list and logout
+   checks refuse it.
+4. **Execution.** As for every locator, the click acts only when exactly one element
+   matches; otherwise it fails `target-missing` and presses nothing.
+5. **Deployment.** As for the field locator (decision 4 of this ADR): the service
+   accepts the locator before an extension that sends it.
+
+### Consequences
+
+- United's password step is described completely, with the submit as
+  `{ by: "password-form-text", value: "Sign in" }` (a DOM fixture of that step; not yet
+  tried on the live site).
+- Two sign-in forms that both show the text, or two such buttons in one form, stay
+  ambiguous, and the page stays incomplete.
+- A page that renames the button, removes the password input before the click or marks
+  it `new-password` breaks the recipe, which is then generated again.
+
+### Alternatives
+
+- **Leave the submit out** as an icon button or a form's `type="button"` text button is
+  left out: the recipe would have no button to press, and Enter in the password field
+  ([ADR 0064](0064-enter-in-a-form-without-a-button.md)) refuses a default button that
+  was already shown.
+- **Make the page-wide `text` locator prefer a login form's button**: it changes what
+  every stored text locator matches, so a recipe made before could press another button.
+- **`within` for forms**: a form often has no `id` or `name` to name it by, as United's.

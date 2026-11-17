@@ -29,7 +29,14 @@ type ListControl = {
   candidate: string;
   target: Exclude<
     LoginTarget,
-    { by: "autocomplete" | "label" | "accessible-name" | "password-form-name" }
+    {
+      by:
+        | "autocomplete"
+        | "label"
+        | "accessible-name"
+        | "password-form-name"
+        | "password-form-text";
+    }
   >;
 };
 /** An account list whose named controls passed {@link validateAccountList}. */
@@ -60,7 +67,8 @@ export type AccountListRejection =
  * control must be a button or link of the page, not hold account text and not be the
  * other control. A list whose accounts are all shown beside buttons needs a named
  * control. Its locator is never `autocomplete` or `label`, which name only inputs, nor
- * `accessible-name`, which names only a `password` handler's button or a route step's click.
+ * `accessible-name`, which names only a `password` handler's button or a route step's click,
+ * nor `password-form-text`, which names only a route step's click.
  */
 export function validateAccountList(
   observation: LoginObservation,

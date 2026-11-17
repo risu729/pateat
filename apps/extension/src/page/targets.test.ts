@@ -69,6 +69,31 @@ describe("findTargets", () => {
     ]);
   });
 
+  it("matches a native button by its text only in a sign-in form (ADR 0072, 2026-11-17)", () => {
+    const target = { by: "password-form-text", value: "Sign in" } as const;
+    page(
+      `<nav><button id="nav" type="button" aria-label="Sign in">Sign in</button></nav>
+      <form><input type="password"><button id="a">Sign in</button>
+        <input id="b" type="submit" value="Sign in"><button id="c" hidden>Sign in</button>
+        <a id="d" href="#" role="button">Sign in</a><div id="e" role="button">Sign in</div></form>
+      <form><input type="password" autocomplete="new-password"><button id="f">Sign in</button></form>
+      <form><input type="password" hidden><button id="g">Sign in</button></form>`,
+    );
+    // Shown native buttons of a form with a shown password not for a new one, never a
+    // script link or role button; the caller rejects the two rather than picking one.
+    expect(ids(findTargets(document, target))).toEqual(["a", "b"]);
+    // A hidden form's password counts for a lookup that counts hidden copies.
+    expect(ids(findTargets(document, target, { hidden: true }))).toEqual(["a", "b", "g"]);
+    document.querySelector("#b")!.remove();
+    expect(ids(findTargets(document, target))).toEqual(["a"]);
+    // A button only associated with the form from outside it counts as the form's.
+    page(
+      `<form id="login"><input type="password"></form><button id="x" form="login">Sign in</button>
+      <button id="y">Sign in</button>`,
+    );
+    expect(ids(findTargets(document, target))).toEqual(["x"]);
+  });
+
   it("matches links to the page's own origin by their exact path, never script links", () => {
     page(
       `<a id="a" href="/my?tab=1#top">A</a><a id="b" href="/my/">B</a>

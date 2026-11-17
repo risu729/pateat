@@ -97,7 +97,10 @@ const shownAmong = (found: Element[], hidden: boolean) =>
  * whose {@link fieldName} equals the value (ADR 0037); a hidden input never does. An
  * `accessible-name` locator matches the shown controls, buttons, script buttons and links
  * to a fragment of their own document, whose {@link controlName} equals the value (ADR
- * 0048 amendment of 2026-10-19), never a field and never a hidden control. When an
+ * 0048 amendment of 2026-10-19), never a field and never a hidden control. A
+ * `password-form-text` locator matches the shown native buttons whose {@link buttonText}
+ * equals the value and whose form holds a shown password input not marked `new-password`
+ * ({@link signInForm}, ADR 0072 amendment of 2026-11-17). When an
  * attribute or `autocomplete` locator names several elements, only the visible ones count,
  * unless `hidden` asks for every one (`shownAmong`, ADR 0037). A
  * signed-in marker's `href` locator matches the links whose {@link linkPath} equals the
@@ -136,6 +139,14 @@ export function findTargets(
       ),
       hidden,
     );
+  // Shown native buttons only, as `buttonText` reads none of a hidden one.
+  if (target.by === "password-form-text")
+    return queryAll(document, "button, input").filter(
+      (element) =>
+        isButton(element) &&
+        buttonText(element) === target.value &&
+        signInForm(formOf(element), hidden),
+    );
   if (target.by === "accessible-name")
     return queryAll(document, namedControls).filter(
       (element) => controlName(element) === target.value,
@@ -151,7 +162,7 @@ export function findTargets(
 /** A locator that may look inside the hosts its `within` names. */
 type ScopedTarget = Exclude<
   LoginMarkerTarget,
-  { by: "href" | "text" | "accessible-name" | "password-form-name" }
+  { by: "href" | "text" | "accessible-name" | "password-form-name" | "password-form-text" }
 >;
 
 /**
@@ -208,7 +219,8 @@ const formAround = (element: Element): HTMLFormElement | null =>
 
 /**
  * Whether `form` holds a shown password input not marked `new-password`, the form a
- * `password-form-name` locator looks in (ADR 0072); with `hidden`, a hidden one counts
+ * `password-form-name` or `password-form-text` locator looks in (ADR 0072 and its
+ * amendment of 2026-11-17); with `hidden`, a hidden one counts
  * too, so a signed-in marker's missing elements (ADR 0029) still see a hidden form's copy.
  */
 function signInForm(form: HTMLFormElement | null, hidden: boolean): boolean {

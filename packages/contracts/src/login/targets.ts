@@ -166,6 +166,19 @@ export const loginPasswordFormNameTargetSchema = v.strictObject({
   value: loginAttributeTargetSchema.options[0].entries.value,
 });
 /**
+ * A button locator by its text within the sign-in form (ADR 0072 amendment of
+ * 2026-11-17): the one shown native button (`<button>`, or an `<input>` of type `submit`,
+ * `button` or `image`) whose text, as a text locator reads it, equals the value and whose
+ * form also holds a shown password input not marked `new-password`, as United's "Sign in"
+ * submit beside the password, whose site header shows another "Sign in" button. It names
+ * a route step's click only, for a login form's button that neither its text nor its
+ * accessible name names alone in the whole page.
+ */
+export const loginPasswordFormTextTargetSchema = v.strictObject({
+  by: v.literal("password-form-text"),
+  value: loginTextTargetSchema.entries.value,
+});
+/**
  * A locator a fill names its field by: an attribute one, the field's visible name, or its
  * name within the sign-in form.
  */
@@ -177,7 +190,7 @@ export const loginFieldTargetSchema = v.variant("by", [
 /**
  * An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. A recipe
  * uses an accessible-name locator only for a `password` handler's button or a route step's
- * click.
+ * click, and a button's text within the sign-in form only for a route step's click.
  */
 export const loginTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
@@ -185,6 +198,7 @@ export const loginTargetSchema = v.variant("by", [
   loginLabelTargetSchema,
   loginAccessibleNameTargetSchema,
   loginPasswordFormNameTargetSchema,
+  loginPasswordFormTextTargetSchema,
 ]);
 /**
  * A signed-in marker's link locator (ADR 0029): the one `<a href>` link to the page's own
@@ -284,7 +298,9 @@ export const loginStepSchema = v.variant("kind", [
     v.check(
       (step) =>
         step.press === undefined ||
-        (step.target.by !== "text" && step.target.by !== "accessible-name"),
+        (step.target.by !== "text" &&
+          step.target.by !== "accessible-name" &&
+          step.target.by !== "password-form-text"),
       "Enter is pressed in a field",
     ),
   ),
@@ -320,12 +336,13 @@ export const isLoginTarget = (target: LoginMarkerTarget): target is LoginTarget 
  * Whether a locator may name any route step's element, or a handler's other than a
  * `password` handler's button: neither a link's path (ADR 0029) nor an accessible name
  * (ADR 0048 amendment of 2026-10-19), which a route step's click alone may also use
- * (ADR 0048 amendment of 2026-10-23).
+ * (ADR 0048 amendment of 2026-10-23), nor a button's text within the sign-in form, which
+ * only a route step's click uses (ADR 0072 amendment of 2026-11-17).
  */
 export const isStepTarget = (
   target: LoginMarkerTarget,
-): target is Exclude<LoginTarget, { by: "accessible-name" }> =>
-  target.by !== "href" && target.by !== "accessible-name";
+): target is Exclude<LoginTarget, { by: "accessible-name" | "password-form-text" }> =>
+  target.by !== "href" && target.by !== "accessible-name" && target.by !== "password-form-text";
 /** Whether two locators name the same element: the same kind and value, in the same hosts. */
 export const sameLoginTarget = (left: LoginMarkerTarget, right: LoginMarkerTarget) =>
   left.by === right.by &&

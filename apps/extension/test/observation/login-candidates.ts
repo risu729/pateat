@@ -560,12 +560,12 @@ export function registerLoginCandidates({
     expect(observe().complete).toBe(false);
   });
 
-  it("leaves out a form's text button without a locator beside its located submit, as Kuroneko Members' sign-up button", () => {
+  it("leaves out a form's text button without a locator beside its located submit (#1491)", () => {
     const signUp = `<button type="button">Sign up (free)</button>`;
+    // A second copy in the form, so not even its text within the sign-in form names it.
     const form = (submit: string, extra = "") =>
       `<form><input id="u" autocomplete="username"><input id="p" type="password">
-        ${submit}${signUp}${extra}</form>
-      <aside><h2>Not a member?</h2>${signUp}</aside>`;
+        ${submit}${signUp}${extra}<p>Not a member?</p>${signUp}</form>`;
     page(
       form(
         `<button type="submit" id="go">Log in</button>`,
@@ -621,8 +621,7 @@ export function registerLoginCandidates({
     page(
       `<form><header><input id="q"><input type="submit" id="find" value="Search"></header>
         <main><input id="u" autocomplete="username"><input id="p" type="password">
-        <button type="button">Log in</button></main></form>
-      <aside><button type="button">Log in</button></aside>`,
+        <button type="button">Log in</button><button type="button">Log in</button></main></form>`,
     );
     expect(extractLoginObservation(document)).toMatchObject(unlocated);
     // Nor one that follows another field after the sign-in fields, as a search block's
@@ -630,8 +629,7 @@ export function registerLoginCandidates({
     page(
       `<form><input id="u" autocomplete="username"><input id="p" type="password">
         <div><input id="q"><input type="submit" id="find" value="Search"></div>
-        <button type="button">Log in</button></form>
-      <aside><button type="button">Log in</button></aside>`,
+        <button type="button">Log in</button><button type="button">Log in</button></form>`,
     );
     expect(extractLoginObservation(document)).toMatchObject(unlocated);
     // Without a password field the submit follows the last account field instead.
@@ -648,8 +646,8 @@ export function registerLoginCandidates({
     // Nor one after the button.
     page(
       `<form><input id="u" autocomplete="username"><input id="p" type="password">
-        <button type="button">Log in</button><button type="submit" id="go">Go</button></form>
-      <aside><button type="button">Log in</button></aside>`,
+        <button type="button">Log in</button><button type="button">Log in</button>
+        <button type="submit" id="go">Go</button></form>`,
     );
     expect(extractLoginObservation(document)).toMatchObject(unlocated);
     // Outside a login form such a button still leaves its whole form out.
@@ -664,6 +662,19 @@ export function registerLoginCandidates({
       "p",
       "go",
     ]);
+    // Kuroneko Members' own copy sits outside every form, so its text within the sign-in
+    // form names the form's button (ADR 0072 amendment of 2026-11-17).
+    page(
+      `<form><input id="u" autocomplete="username"><input id="p" type="password">
+        <button type="submit" id="go">Log in</button>${signUp}</form>
+      <aside><h2>Not a member?</h2>${signUp}</aside>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.at(-1)?.target).toEqual({
+      by: "password-form-text",
+      value: "Sign up (free)",
+    });
   });
 
   it("judges completeness by the login form and leaves out other flawed forms", () => {
@@ -771,6 +782,66 @@ export function registerLoginCandidates({
       { by: "autocomplete", value: "current-password" },
       { by: "text", value: "login" },
     ]);
+  });
+
+  it("names a submit by its text in the sign-in form when the header repeats it (United, #1684)", () => {
+    // United's password step (2026-11-17): the header's nav shows another "Sign in" button,
+    // so neither the text nor the accessible name names the form's submit alone.
+    const header = `<header><nav><button type="button" id="loginButton" aria-label="Sign in">Sign in</button></nav></header>`;
+    const step = (submit = `<button type="submit">Sign in</button>`) =>
+      `<main><div><div><form><p>t***@example.com</p>
+        <div class="atm-c-textfield"><label for="password">Password</label>
+          <div class="atm-c-textfield__body"><input id="password" name="password" type="password"
+            autocomplete="section-credentials current-password"><button type="button"
+            style="width:16px;height:16px;padding:0;border:0"><span><svg role="img"
+            aria-label="Show password" width="16" height="16"><title>Show password</title>
+            </svg></span></button></div></div>
+        <a href="/forgot" target="_blank">Forgot password?</a>
+        <label><input type="checkbox" name="rememberMe"> Remember me</label>
+        <button type="button">Click to View more information</button>
+        ${submit}<button id="switch-account-button">Switch accounts</button>
+      </form></div></div></main><div><input type="text" name="cobrowse.pin"></div>`;
+    page(`${header}${step()}`);
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
+      ["button", { by: "id", value: "loginButton" }],
+      ["password", { by: "id", value: "password" }],
+      ["link", { by: "text", value: "Forgot password?" }],
+      ["checkbox", { by: "name", value: "rememberMe" }],
+      ["button", { by: "text", value: "Click to View more information" }],
+      ["button", { by: "password-form-text", value: "Sign in" }],
+      ["button", { by: "id", value: "switch-account-button" }],
+      ["text", { by: "name", value: "cobrowse.pin" }],
+    ]);
+    // The executor's lookup finds the form's submit alone, never the header's button.
+    expect(findTargets(document, { by: "password-form-text", value: "Sign in" })).toEqual([
+      document.querySelector("button[type=submit]"),
+    ]);
+    // Unique text or an accessible name of its own still comes first.
+    page(step());
+    expect(observe().candidates.map(({ target }) => target)).toContainEqual({
+      by: "text",
+      value: "Sign in",
+    });
+    page(`${header}${step(`<button type="submit" aria-label="Continue">Sign in</button>`)}`);
+    expect(observe().candidates.map(({ target }) => target)).toContainEqual({
+      by: "accessible-name",
+      value: "Continue",
+    });
+    const unlocated = { ok: true, gap: "unlocated-button" };
+    // Two sign-in forms that both show it stay ambiguous, and so does a second such
+    // button in the same form.
+    page(`${header}${step()}<form><input id="p2" type="password"><button>Sign in</button></form>`);
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    page(`${header}${step(`<button type="submit">Sign in</button><button>Sign in</button>`)}`);
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // A sign-up form's copy, beside a `new-password` input, never counts against it.
+    page(
+      `${header}${step()}<form><input id="n" type="password" autocomplete="new-password">
+        <button>Sign in</button></form>`,
+    );
+    expect(observe().complete).toBe(true);
   });
 
   it("describes a pointer link without href as the login's button (IIJmio, 2026-10-23)", () => {

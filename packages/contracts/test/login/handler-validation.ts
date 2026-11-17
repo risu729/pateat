@@ -191,6 +191,56 @@ export function registerPasswordHandler({
         ).toBe(false);
       });
 
+      it("names a route step's click by its text within the sign-in form alone (ADR 0072 amendment of 2026-11-17)", () => {
+        const base = recipe();
+        const formText = { by: "password-form-text", value: "Sign in" } as const;
+        const steps = base.steps.map((step, index) =>
+          index === 1 ? { ...step, target: formText } : step,
+        );
+        expect(parseLoginRecipe({ ...base, steps }).steps[1]).toMatchObject({
+          kind: "click",
+          target: formText,
+        });
+        // Its value takes the text locator's form.
+        for (const value of ["", " Sign in", "Sign  in", "x".repeat(121)])
+          expect(v.safeParse(loginTargetSchema, { ...formText, value }).success).toBe(false);
+        // Enter is pressed in a field, never on a button named so.
+        expect(
+          parses({
+            ...base,
+            steps: base.steps.map((step, index) =>
+              index === 1 ? { ...step, target: formText, press: "enter" } : step,
+            ),
+          }),
+        ).toBe(false);
+        for (const value of [
+          { ...base, passkey: { path: "/identity", target: formText } },
+          { ...base, completion: [{ target: formText }] },
+          { ...base, completion: [{ target: { by: "id", value: "out" } }, { target: formText }] },
+          { ...base, completion: [{ target: { by: "id", value: "out" }, absent: [formText] }] },
+          { ...base, rejection: formText },
+          { ...base, accountSwitch: formText },
+          // Unlike an accessible name, never a password handler's button either.
+          withHandlers([password("/identity", formText)]),
+          withHandlers([passkeyHandler("/webauthn", formText)]),
+          {
+            ...base,
+            steps: [
+              { kind: "assert", path: "/identity", target: formText, present: true },
+              ...base.steps,
+            ],
+          },
+          {
+            ...base,
+            steps: [
+              { kind: "fill", path: "/identity", fields: [{ slot: "branch", target: formText }] },
+              ...base.steps.slice(1),
+            ],
+          },
+        ])
+          expect(parses(value)).toBe(false);
+      });
+
       it("is never an entry's or a list control's locator", () => {
         expect(
           v.safeParse(loginEntryRecipeSchema, {

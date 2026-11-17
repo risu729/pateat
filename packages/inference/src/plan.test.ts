@@ -11,6 +11,7 @@ import {
   customSlotNames,
   slotAccepts,
   slotAcceptsOn,
+  validateEntry,
   validateGeneratedPage,
   validatePagePlan,
   type GeneratedPagePlan,
@@ -251,6 +252,45 @@ describe("an accessible-name locator (ADR 0048 amendments)", () => {
         action,
         accountSwitch: "other",
       }),
+    ).toEqual({ ok: false, reason: "incompatible-role" });
+  });
+});
+
+describe("a button's text within the sign-in form (ADR 0072 amendment of 2026-11-17)", () => {
+  const formText = { by: "password-form-text", value: "Sign in" } as const;
+  const fields = [
+    { slot: "username", candidate: "user" },
+    { slot: "password", candidate: "password" },
+  ];
+
+  it("names the plan's click", () => {
+    const page = {
+      ...observation,
+      candidates: observation.candidates.map((entry) =>
+        entry.id === "login" ? { ...entry, target: formText } : entry,
+      ),
+    };
+    const result = validatePagePlan(page, slots, { fields, action });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan.steps.at(-1)).toEqual({
+      kind: "click",
+      path: observation.path,
+      target: formText,
+      purpose: "submit",
+    });
+  });
+
+  it("never names the account switch or an entry", () => {
+    const other: Candidate = { id: "other", role: "button", target: formText };
+    expect(
+      validatePagePlan({ ...observation, candidates: [...observation.candidates, other] }, slots, {
+        fields,
+        action,
+        accountSwitch: "other",
+      }),
+    ).toEqual({ ok: false, reason: "incompatible-role" });
+    expect(
+      validateEntry({ candidates: [{ id: "x", role: "button", target: formText }] }, "x"),
     ).toEqual({ ok: false, reason: "incompatible-role" });
   });
 });

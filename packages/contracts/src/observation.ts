@@ -299,13 +299,16 @@ export const loginObservationSchema = v.pipe(
   ),
   // A signed-in page's description offers one for a button that may go on to the password
   // (ADR 0048 amendment of 2026-10-19), and a login page's for a login form's button that
-  // nothing else names alone (ADR 0048 amendment of 2026-10-23).
+  // nothing else names alone (ADR 0048 amendment of 2026-10-23), by its text within the
+  // sign-in form after its accessible name (ADR 0072 amendment of 2026-11-17).
   v.check(
     (observation) =>
       observation.candidates.every(
-        ({ role, target }) => target.by !== "accessible-name" || role === "button",
+        ({ role, target }) =>
+          (target.by !== "accessible-name" && target.by !== "password-form-text") ||
+          role === "button",
       ),
-    "Accessible-name locators apply only to buttons",
+    "Accessible-name and password-form text locators apply only to buttons",
   ),
 );
 
