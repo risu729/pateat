@@ -56,7 +56,12 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
   setStep: (step: PasskeyStopCause) => void;
   resetTimer: (remaining: () => number) => void;
 }) {
-  return async (login: PasskeyItem | undefined, signal: AbortSignal): Promise<RuntimeResult> => {
+  return async (
+    login: PasskeyItem | undefined,
+    signal: AbortSignal,
+    /** `login` moved to the page from another origin (ADR 0036 amendment of 2026-11-17). */
+    moved = false,
+  ): Promise<RuntimeResult> => {
     setStep("passkey-lookup");
     // Whether the site treats its default as unset (ADR 0062, ADR 0063), read alongside the
     // lookup so the deadline runs as without it; asked only without a login, and a failed
@@ -100,27 +105,47 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     // The page shows another matching account than the site default (ADR 0028 amendment of
     // 2026-11-17): the person's own discoverable request, with no login of the tab and a
     // default in force, opens the chooser with that account first instead of signing with
-    // the default. A running login, a list of credentials and a site without a default in
-    // force (`selection` is no credential then) come first.
-    const shownFirst =
-      !login &&
-      message.account !== undefined &&
+    // the default. A running login of the page's origin, a list of credentials and a site
+    // without a default in force (`selection` is no credential then) come first. A login
+    // that moved to the page is held to the page's account as the default is (ADR 0036
+    // amendment of 2026-11-17), so every matching passkey is looked up for it.
+    const account =
       message.userActivation &&
       request.conditional !== true &&
-      request.allowCredentialIds.length === 0 &&
-      selection.kind === "credential" &&
-      selection.credential.preferred === true
-        ? await abortable(
-            shownAccountFirst(
-              message.account,
-              accepted.filter((entry) => entry.counter === 0),
-              source.loginUsernames?.bind(source),
-            ),
-            signal,
-          )
-        : [];
+      request.allowCredentialIds.length === 0
+        ? message.account
+        : undefined;
+    const usernames = source.loginUsernames?.bind(source);
+    const usable = (entries: readonly TCandidate[]) =>
+      entries.filter((entry) => entry.counter === 0);
+    const ownIds = new Set(accepted.map((entry) => entry.credentialId));
+    const everyMatch =
+      account !== undefined && login && moved
+        ? await abortable(source.candidates(origin, request.rpId, signal), signal)
+        : undefined;
+    const shownFirst =
+      account === undefined
+        ? []
+        : !login && selection.kind === "credential" && selection.credential.preferred === true
+          ? await abortable(shownAccountFirst(account, usable(accepted), usernames), signal)
+          : everyMatch
+            ? await abortable(
+                shownAccountFirst(
+                  account,
+                  usable(matchingPasskeys(request, everyMatch.candidates)),
+                  usernames,
+                  (entry) => ownIds.has(entry.credentialId),
+                ),
+                signal,
+              )
+            : [];
     const pageOther = shownFirst.length > 0;
     if (pageOther) detail.pageAccount = "other";
+    // What the chooser offers then: for a moved login, every match, its own item second.
+    const pool = pageOther && everyMatch ? everyMatch : candidates;
+    const choices = pool === candidates ? accepted : matchingPasskeys(request, pool.candidates);
+    const anchor = (entry: TCandidate) =>
+      pool === candidates ? entry.preferred === true : ownIds.has(entry.credentialId);
     // The page's permission is read before signing, and again before an assertion leaves.
     const refused = async () => {
       const refusal = await abortable(
@@ -202,20 +227,17 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     }
     // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
     // never signs in as another account.
-    else if (login && selection.kind === "delegate")
+    else if (login && selection.kind === "delegate" && !pageOther)
       return { kind: "delegate", reason: `login-item-${selection.reason}` };
     else {
       // Only passkeys Pateat can sign with are offered: the account the page shows first,
-      // then the site default. Fewer than two is not a choice, except where the default
-      // counts as unset or the one asks for the master password.
-      const rank = (entry: TCandidate) =>
-        shownFirst.includes(entry) ? 0 : entry.preferred === true ? 1 : 2;
+      // then the site default, or the moved login's item. Fewer than two is not a choice,
+      // except where the default counts as unset or the one asks for the master password.
+      const rank = (entry: TCandidate) => (shownFirst.includes(entry) ? 0 : anchor(entry) ? 1 : 2);
       const offered =
         reprompt && selection.kind === "credential"
           ? [selection.credential]
-          : accepted
-              .filter((entry) => entry.counter === 0)
-              .sort((a, b) => (unset ? 0 : rank(a) - rank(b)));
+          : usable(choices).sort((a, b) => (unset ? 0 : rank(a) - rank(b)));
       const asksPassword = offered.some((entry) => entry.reprompt === true);
       // A paused site is handed on rather than signed without a choice (ADR 0062).
       // Nor is the default when the page shows another account: never signed unasked.
@@ -226,14 +248,13 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
           : unset
             ? ({ kind: "delegate", reason: paused ? "paused" : "default-unset" } as const)
             : ({ kind: "delegate", reason: "ambiguous-credential" } as const);
-      if (selection.kind === "delegate") {
+      if (selection.kind === "delegate" && !pageOther) {
         if (unset ? offered.length === 0 : selection.reason !== "ambiguous-credential")
           return unset ? declined : selection;
         if (offered.length < 2 && !unset) return selection;
       }
       // An unsearched item might hold the passkey the person wants.
-      if (!candidates.complete && !reprompt)
-        return { kind: "delegate", reason: "vault-incomplete" };
+      if (!pool.complete && !reprompt) return { kind: "delegate", reason: "vault-incomplete" };
       const verifier = source.verifyMasterPassword?.bind(source);
       const remaining = received + chooserWaitMs(request.timeoutMs) - Date.now();
       if (
@@ -267,8 +288,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
           ...(asksPassword && verifier
             ? { verify: (index: number, password: string) => verifier(offered[index]!, password) }
             : {}),
-          replacesDefault:
-            candidates.siteDefault !== undefined && candidates.siteDefault !== "unset",
+          replacesDefault: pool.siteDefault !== undefined && pool.siteDefault !== "unset",
           ...(paused ? { paused: true } : {}),
           signal,
         }),

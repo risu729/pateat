@@ -440,6 +440,15 @@ The agent's choices, not confirmed by the owner:
   own document (ADR 0034), and the checks of
   [ADR 0034's amendment of 2026-11-17](0034-answer-page-passkey-requests.md#amendment-a-request-its-page-moved-away-from-2026-11-17)
   still apply to it.
-- Such an answer ranks with a running login's: before the page's display and the site
-  default; the request's list of credentials narrows it as for any login.
+- Such an answer ranks before the site default, and the request's list of credentials
+  narrows it as for any login. It is held to the page's display as the site default is
+  ([ADR 0028 amendment of 2026-11-17](0028-account-chooser-login-pages.md#amendment-2026-11-17-a-passkey-request-on-a-page-that-shows-another-account)):
+  when a click's discoverable request comes from a page whose one unmasked address fits
+  another matching item and no passkey of the moved login's item, the chooser opens with
+  the passkeys that fit the address first, then the login's item, then the rest, and
+  where it cannot open the request is handed on as `page-account`. This holds also when
+  the login's item has no passkey there. Pateat then never signs in with another account
+  than the one the page shows. The address may fit the site default too; the default
+  then comes first. A login running on the page's own origin stays as ADR 0027 says,
+  whatever the page shows.
 - `passkey.request` logs `movedLogin` for such a request.

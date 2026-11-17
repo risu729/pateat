@@ -758,12 +758,12 @@ compares the address the top page shows:
    the rest. Nothing is signed without a choice. Where the window cannot open (a private
    window, a background tab, too little of the request's time left), the request is
    handed on as `page-account`, never signed with the default.
-5. **Precedence.** A login of the page's origin running in the tab, and a login that
-   moved to the page
-   ([ADR 0036 amendment of 2026-11-17](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17)),
-   answer with their item; then a request's list of credentials decides; then a site
-   whose default counts as unset (paused, ADR 0062, or asking every time, ADR 0063) asks
-   as before; then the page's display; then the site default.
+5. **Precedence.** A login of the page's origin running in the tab answers with its
+   item, whatever the page shows; then a request's list of credentials decides; then a
+   site whose default counts as unset (paused, ADR 0062, or asking every time, ADR 0063)
+   asks as before; then the page's display; then a login that moved to the page
+   ([ADR 0036 amendment of 2026-11-17](0036-passkey-after-the-identifier.md#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17));
+   then the site default.
 
 The agent's choices, not confirmed by the owner:
 

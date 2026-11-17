@@ -3875,8 +3875,11 @@ the username be filled) and the user name stored with its passkey. When it fits 
 other than the default, and no passkey of the default, the window lists the fitting
 passkeys first, then the default; where it cannot open, the request is handed on as
 `page-account`. The address and usernames stay in the extension; `passkey.request` logs
-only `pageAccount`. A running or moved login, a request's list of credentials and a site
-whose default counts as unset decide first.
+only `pageAccount`. A running login of the request's origin, a request's list of
+credentials and a site whose default counts as unset decide first. A moved login (below)
+is held to the same display: when the address fits a matching item and no passkey of the
+moved login's item, the window lists the fitting passkeys first, then the moved login's,
+then the rest, and where it cannot open the request is handed on as `page-account`.
 
 The bridge also wraps `navigator.credentials.create`, but only to refuse one kind of
 registration
@@ -3918,8 +3921,10 @@ holding page's earlier request), and the page is another origin of the login's s
 the request's RP ID is one the login's origin may use, by itself or by the RP's list
 (ADR 0084), read only when the login's item holds a passkey of that RP ID. A login that
 ended, settled, is watched or only fills does not count, and `conditional` requests
-still wait for their own document's login. `passkey.request` logs `movedLogin` for such
-a request.
+still wait for their own document's login. When the click's page shows another matching
+account than the moved login's, as above, the window opens instead of signing, so a
+moved login never signs in as another account than the page shows. `passkey.request`
+logs `movedLogin` for such a request.
 
 ### Passkey requests Pateat hands on or answers differently
 

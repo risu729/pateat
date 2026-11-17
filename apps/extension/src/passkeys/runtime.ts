@@ -374,12 +374,13 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (conditional) return await waitForLogin(signal);
       await hold(signal);
       // A failed lookup fails closed: the catch below delegates.
-      const login =
-        (await abortable(
-          Promise.try(() => options.loginAccount?.(context.tabId, origin, context.documentId)),
-          signal,
-        )) ?? (await movedItem(signal));
-      return await answer(login, signal);
+      const login = await abortable(
+        Promise.try(() => options.loginAccount?.(context.tabId, origin, context.documentId)),
+        signal,
+      );
+      if (login) return await answer(login, signal);
+      const moved = await movedItem(signal);
+      return await answer(moved, signal, moved !== undefined);
     };
     /**
      * The item of a running login that moved to this page from another origin of its site,

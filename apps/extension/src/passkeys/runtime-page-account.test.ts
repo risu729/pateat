@@ -251,14 +251,66 @@ describe("a login that moved to the page from another origin (ADR 0036, 2026-11-
     expect(allows).not.toHaveBeenCalled();
   });
 
-  it("ranks with the running login: before the page's display, after a login of this origin", async () => {
+  it("answers with its item when the page shows the login's own account", async () => {
     const chooser = choosing();
-    const movedLogin = vi.fn(() => moved(true));
-    const shown = createPasskeyRuntime(vault(), { extensionId, chooser, movedLogin });
-    expect(await shown.handle(get({ account: "c@example.com" }), sender())).toMatchObject(
+    const shown = createPasskeyRuntime(vault(), {
+      extensionId,
+      chooser,
+      movedLogin: () => moved(true),
+    });
+    expect(await shown.handle(get({ account: "a@example.com" }), sender())).toMatchObject(
       signedWith("AAAA"),
     );
     expect(chooser.choose).not.toHaveBeenCalled();
+  });
+
+  it("asks, never signing unasked, when the page shows another account than the login's", async () => {
+    // The moved login is C's; the page shows A's address, then B's, the site default's.
+    const movedC = () => ({ ...moved(true), itemId: "item-c" });
+    const chooser = choosing();
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(vault(), {
+      extensionId,
+      chooser,
+      report,
+      movedLogin: movedC,
+    });
+    expect(await runtime.handle(get({ account: "a@example.com" }), sender())).toMatchObject(
+      signedWith("AAAA"),
+    );
+    // The shown account first, then the login's own item, then the rest.
+    expect(chooser.choose.mock.calls[0]![0].entries).toEqual([
+      { item: "OpenAI", userName: "a@example.com" },
+      { item: "OpenAI" },
+      { item: "OpenAI", userName: "b@example.com", preferred: true },
+    ]);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ movedLogin: true, pageAccount: "other" }),
+    );
+    await runtime.handle(get({ account: "b@example.com" }), sender());
+    expect(chooser.choose.mock.calls[1]![0].entries.map((entry) => entry.userName)).toEqual([
+      "b@example.com",
+      undefined,
+      "a@example.com",
+    ]);
+    // Where the window cannot open, the request is handed on.
+    expect(
+      await runtime.handle(get({ account: "a@example.com", focused: false }), sender()),
+    ).toEqual({ kind: "delegate", reason: "page-account" });
+    // A login whose item holds no passkey here is not answered for either.
+    const empty = createPasskeyRuntime(vault({}, [accountA, accountB]), {
+      extensionId,
+      chooser,
+      movedLogin: movedC,
+    });
+    expect(await empty.handle(get({ account: "a@example.com" }), sender())).toMatchObject(
+      signedWith("AAAA"),
+    );
+    expect(chooser.choose).toHaveBeenCalledTimes(3);
+  });
+
+  it("ranks after a running login of this origin", async () => {
+    const movedLogin = vi.fn(() => moved(true));
     const here = createPasskeyRuntime(vault(), {
       extensionId,
       movedLogin,

@@ -317,7 +317,9 @@ shows the email address of another of those accounts instead, and no other addre
 Pateat opens its passkey window with that account first and signs in only once you
 choose. When a Pateat login moves on to another page of the same site, or to a site that
 shares its passkeys, such as from `chatgpt.com` to `auth.openai.com`, a passkey request
-there within 30 seconds is answered with the login's own account.
+there within 30 seconds is answered with the login's own account. If that page's form or
+heading shows another of your accounts instead, Pateat opens its passkey window with
+that account first, then the login's.
 
 With **Auto**, when you log out of a site yourself, Pateat logs in again on the next
 login page, with the account it would use for an automatic login. To stay logged out,
