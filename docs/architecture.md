@@ -3238,7 +3238,8 @@ token, a fillable input's visible name
 ([ADR 0037](adr/0037-fields-by-visible-name.md), below) or its `name` within the
 sign-in form ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md), below), a
 `password` handler's or a route click's button's accessible name (ADR 0048's
-amendments, below), or, for a click or a state check only, a button's text:
+amendments, below), a route click's button's text within the sign-in form (ADR 0072's
+amendment, below), or, for a click or a state check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
 without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
 `<input type="image">` whose `alt` equals the value after whitespace is collapsed (owner
@@ -3365,9 +3366,10 @@ a second sign-up button outside the form repeats, so nothing named it alone and 
 page was incomplete (`unlocated-button`) and never generated in the owner's Chrome
 (2026-11-12, [#1491](https://github.com/risu729/pateat/issues/1491)); since 2026-11-17
 it is left out (agent change, local tests and a live extraction of the page in cloud
-Chromium). Such a button that a locator names is still described. The executor
-compares strings and acts only when exactly one element matches; more than one is a
-structural mismatch. It
+Chromium). Such a button that a locator names is still described; it never gets the
+`password-form-text` locator (below), which would offer it as the form's action. The
+executor compares strings and acts only when exactly one element matches; more than one
+is a structural mismatch. It
 clicks buttons, image buttons and script buttons (not a disabled button, nor a script
 button with `aria-disabled="true"`, nor a control that is or sits inside an `inert`
 element; the extractor still describes a control `inert` itself, as a disabled button,
@@ -3521,6 +3523,31 @@ presses only a native button, never a script button or a fragment link. Amazon.c
 sign-in submit, an `<input type="submit">` without a `value` labelled by an
 `aria-hidden` 「次に進む」 beside it, is named this way: the text of an element that
 `aria-labelledby` names is read even when its own `aria-hidden="true"` hides it.
+
+A route step's click may also name a login form's native button by its text within the
+sign-in form (agent change, 2026-11-17,
+[ADR 0072's amendment](adr/0072-field-name-in-the-sign-in-form.md#amendment-a-button-named-by-its-text-within-the-sign-in-form-2026-11-17)):
+`{ "by": "password-form-text", "value": "Sign in" }` names the one shown native button
+(a `<button>`, or an `<input>` of type `submit`, `button` or `image`) whose text, as a
+text locator reads it, equals the value and whose form also holds a shown password input
+not marked `new-password`, as a `password-form-name` locator's form. The extractor gives
+it to a login-form native button as its last locator, after its `id`, `name`, test
+attributes, text, accessible name and a locator `within` its shadow hosts, and before
+an `id` another load may change, when the executor's lookup returns exactly that button
+and redaction leaves the text unchanged; a `type="button"` button that a located native
+submit precedes is left out instead (above). United's password step (2026-11-17,
+[#1684](https://github.com/risu729/pateat/issues/1684)) shows
+`<button type="submit">Sign in</button>` in the form beside the password, without an
+`id` or `aria-label`, while the site header's nav shows
+`<button type="button" id="loginButton" aria-label="Sign in">Sign in</button>`, so
+the submit had no locator and the page was incomplete (`unlocated-button`). Two sign-in
+forms that both show the text, or two such buttons in one form, stay ambiguous. The
+contract refuses it everywhere but a route step's click, a `password` handler's button
+included, and never with `press: "enter"`; the observation allows it on a button only,
+and the plan, entry, account-list and logout checks refuse it anywhere else. The click
+finds exactly one element, in a form that holds an input the attempt filled, or fails
+`target-missing`, so a password hidden or retyped before the click (another sign-in
+form's button then being the only match) presses nothing.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button such

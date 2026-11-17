@@ -236,7 +236,9 @@ function namesOnly(
  * page shows (`/taro_y` beside "@taro_y") is not used. A handle the page never shows can still pass,
  * which the judge must refuse. With `names`, a native button none of those name is located
  * by its accessible name (`buttonNameTarget`), before an ID another load may change, as a
- * field's visible name is.
+ * field's visible name is. With `formText`, a native button that nothing else names, not
+ * even inside its shadow hosts (`chainedTarget`), is located by its text within the
+ * sign-in form (`passwordFormTextTarget`), still before such an ID.
  */
 export function locate(
   element: Element,
@@ -250,6 +252,7 @@ export function locate(
     roles = false,
     hidden = false,
     names = false,
+    formText = false,
     paths,
   }: {
     redactAttributes?: boolean;
@@ -260,6 +263,7 @@ export function locate(
     roles?: boolean;
     hidden?: boolean;
     names?: boolean;
+    formText?: boolean;
     paths?: ReadonlySet<string>;
   } = {},
 ): LoginMarkerTarget | undefined {
@@ -289,6 +293,7 @@ export function locate(
     contentTarget(element, index, links, labels, roles, hidden) ??
     (names ? buttonNameTarget(element, index) : undefined) ??
     chainedTarget(element, { redactAttributes, tokens, labels, hidden }) ??
+    (formText ? passwordFormTextTarget(element) : undefined) ??
     demoted
   );
 }
@@ -614,6 +619,24 @@ function buttonNameTarget(element: Element, index: LocatorIndex): LoginTarget | 
     return undefined;
   const target = { by: "accessible-name" as const, value: name };
   return v.is(loginTargetSchema, target) ? target : undefined;
+}
+
+/**
+ * The `password-form-text` locator of a login form's native button that neither its text
+ * nor its accessible name names alone in the whole page (ADR 0072 amendment of
+ * 2026-11-17): its {@link buttonText}, when the executor finds it alone by that text
+ * among the shown native buttons of forms holding a shown password input not marked
+ * `new-password`, as United's "Sign in" submit beside the password, whose site header
+ * shows another "Sign in" button. Text that redaction would change is never used.
+ */
+function passwordFormTextTarget(element: Element): LoginTarget | undefined {
+  if (!isButton(element)) return undefined;
+  const text = buttonText(element);
+  if (text === undefined || observedText(text) !== text) return undefined;
+  const target = { by: "password-form-text" as const, value: text };
+  if (!v.is(loginTargetSchema, target)) return undefined;
+  const found = findTargets(element.ownerDocument, target);
+  return found.length === 1 && found[0] === element ? target : undefined;
 }
 
 /** True for a path with a segment that may carry a token (`tokenSegment`). */

@@ -363,10 +363,12 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   // candidates need distinct targets and the login's own control needs that text more.
   let unlocated = false;
   // A login form's native button that nothing else names alone is named by its accessible
-  // name, which a route step's click may press (ADR 0048 amendment of 2026-10-23).
+  // name, which a route step's click may press (ADR 0048 amendment of 2026-10-23), or
+  // with `formText` by its text within the sign-in form (ADR 0072 amendment of
+  // 2026-11-17).
   const located = (
     entries: typeof required,
-    { optional = false, near = false, names = false } = {},
+    { optional = false, near = false, names = false, formText = false } = {},
   ) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, {
@@ -378,6 +380,7 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
           entry.draft.role === "link" ||
           (entry.form !== null && loginForms.has(entry.form)),
         names: names && entry.draft.role === "button" && loginForms.has(entry.form),
+        formText: formText && entry.draft.role === "button" && loginForms.has(entry.form),
       });
       if (!target) unlocated = true;
       if (!target && !optional) flaw(entry.form, unlocatedGap(entry.draft.role));
@@ -387,8 +390,7 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
     entries.filter((entry) => !flawed.has(entry.form) || loginForms.has(entry.form));
   const kept = (entries: typeof required, options?: { optional: boolean }) =>
     keep(located(entries, options));
-  const requiredFound = located(required, { names: true });
-  const plainButtonsFound = located(plainButtons, { optional: true, names: true });
+  const requiredFound = located(required, { names: true, formText: true });
   const locatedSubmits = requiredFound.filter((entry) => submits(entry.draft.element));
   // Each form's fillable fields, in the order the page shows them.
   const formFields = new Map<HTMLFormElement | null, Element[]>();
@@ -420,6 +422,11 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
         ),
     );
   };
+  // Such a button after a located submit is left out rather than named by its text within
+  // the sign-in form, which would offer it as the form's action (#1491).
+  const plainButtonsFound = plainButtons.flatMap((entry) =>
+    located([entry], { optional: true, names: true, formText: !locatedSubmitBefore(entry) }),
+  );
   for (const entry of plainButtons)
     if (
       !locatedSubmitBefore(entry) &&

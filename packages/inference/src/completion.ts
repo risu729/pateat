@@ -722,7 +722,8 @@ export function createCompletionJudge(config: StructuredRoleConfig) {
         );
         if (draft.decision === "challenge") {
           // Only a `password` handler's button may be named by its accessible name (ADR 0048
-          // amendment of 2026-10-19).
+          // amendment of 2026-10-19), and no handler's by its text within the sign-in form
+          // (ADR 0072 amendment of 2026-11-17).
           const buttonOf = (id: string | undefined) =>
             page.candidates.find((candidate) => candidate.id === id && candidate.role === "button")
               ?.target;
@@ -731,7 +732,11 @@ export function createCompletionJudge(config: StructuredRoleConfig) {
           const authenticatorTarget = buttonOf(draft.authenticatorButton);
           const passkey = passkeyTarget && isStepTarget(passkeyTarget) ? passkeyTarget : undefined;
           const password =
-            passwordTarget && isLoginTarget(passwordTarget) ? passwordTarget : undefined;
+            passwordTarget &&
+            isLoginTarget(passwordTarget) &&
+            passwordTarget.by !== "password-form-text"
+              ? passwordTarget
+              : undefined;
           const authenticator =
             authenticatorTarget && isStepTarget(authenticatorTarget)
               ? authenticatorTarget

@@ -77,6 +77,7 @@ export {
   loginLabelTargetSchema,
   loginAccessibleNameTargetSchema,
   loginPasswordFormNameTargetSchema,
+  loginPasswordFormTextTargetSchema,
   loginFieldTargetSchema,
   loginTargetSchema,
   loginLinkTargetSchema,

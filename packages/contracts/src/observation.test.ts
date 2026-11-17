@@ -82,6 +82,13 @@ describe("observation contract", () => {
     expect(parse({ ...base, candidates: [candidate, { ...button, target: named }] })).toBe(true);
     expect(parse({ ...base, candidates: [candidate, { ...link, target: named }] })).toBe(false);
     expect(parse({ ...base, candidates: [{ ...candidate, target: named }, button] })).toBe(false);
+    // So does a button's text within the sign-in form (ADR 0072 amendment of 2026-11-17).
+    const formText = { by: "password-form-text", value: "Sign in" };
+    expect(parse({ ...base, candidates: [candidate, { ...button, target: formText }] })).toBe(true);
+    expect(parse({ ...base, candidates: [candidate, { ...link, target: formText }] })).toBe(false);
+    expect(parse({ ...base, candidates: [{ ...candidate, target: formText }, button] })).toBe(
+      false,
+    );
     expect(parse({ ...base, path: "/login?next=/" })).toBe(false);
     expect(parse({ ...base, origin: "https://shop.example.test/login" })).toBe(false);
     expect(parse({ ...base, html: "<form></form>" })).toBe(false);

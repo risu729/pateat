@@ -560,6 +560,24 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
       ].some((target) => target.by === "accessible-name"),
     "Only a password handler's button or a click step is named by its accessible name",
   ],
+  // A button named by its text within the sign-in form is only ever a route step's click
+  // (ADR 0072 amendment of 2026-11-17), never a `password` handler's button either.
+  [
+    (recipe) =>
+      ![
+        ...variantsOf(recipe).flatMap((variant) =>
+          variant.steps.flatMap((step) =>
+            step.kind === "fill" || step.kind === "click" ? [] : [step.target],
+          ),
+        ),
+        ...(recipe.passkey ? [recipe.passkey.target] : []),
+        ...(recipe.completion ?? []).flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
+        ...(recipe.rejection ? [recipe.rejection] : []),
+        ...(recipe.accountSwitch ? [recipe.accountSwitch] : []),
+        ...(recipe.handlers ?? []).flatMap(handlerTargets),
+      ].some((target) => target.by === "password-form-text"),
+    "Only a click step is named by its text within the sign-in form",
+  ],
   // The passkey route starts on the start page, beside the password route.
   [
     (recipe) => !recipe.passkey || recipe.passkey.path === recipe.steps[0]!.path,
