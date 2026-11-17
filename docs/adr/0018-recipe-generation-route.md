@@ -263,9 +263,10 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   holds it and shows text opaque, also counts as visible: a floating label that reveals
   the input on focus, as Airbnb's email input; the official Bitwarden extension reads
   only the input's own opacity. Since 2026-11-17 (agent fix, not an owner decision), so
-  does a fillable input, enabled and not read-only, at opacity 0 of its own whose parent
-  shows, that a click at its centre lands on and that lies over elements beside it
-  holding no control, as Luma's code input over six digit boxes
+  does a fillable input, enabled, not read-only and in the tab order, at opacity 0 of
+  its own whose parent shows, that a click at its centre lands on while it is in the
+  viewport and that lies over elements beside it holding no control and none of its
+  labels, as Luma's code input over six digit boxes
   ([#1655](https://github.com/risu729/pateat/issues/1655)); the official Bitwarden
   extension leaves such an input out. An input marked `new-password` or
   `one-time-code`, and every input of a form that holds one, never counts: a sign-up,

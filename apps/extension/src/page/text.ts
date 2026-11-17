@@ -245,29 +245,36 @@ function revealedByLabel(element: Element): boolean {
   });
 }
 
-/**
- * Whether `element` is a fillable input at opacity 0 of its own laid over boxes its page
- * draws for it: its parent shows at full opacity, it is the element a click at its centre
- * lands on, and an element beside it under the same parent shows within its box. A code
- * input drawn as one box per digit often works this way: Luma's two-factor page keeps its
- * one `one-time-code` input at opacity 0 over six `aria-hidden` digit boxes, and the
- * person's click and keys go to that input (cloud Chromium, 2026-11-17, #1655). The boxes
- * hold no control: a trap at opacity 0 sits beside the form's fields, under other elements
- * or over other controls, as SBI新生銀行's disabled pair over its real fields. A disabled
- * or read-only input, and one under a transparent ancestor, is not one. The official
- * Bitwarden extension reads the input's own opacity, so it leaves such an input out.
- */
 const controlSelector = "input, select, textarea, button";
 
+/**
+ * Whether `element` is a fillable input at opacity 0 of its own laid over boxes its page
+ * draws for it: its parent shows at full opacity, it is in the tab order, it is the element
+ * a click at its centre lands on, and an element beside it under the same parent shows
+ * within its box, holding no control and none of its labels. A code input drawn as one
+ * box per digit often works this way: Luma's two-factor page keeps its one
+ * `one-time-code` input at opacity 0 over six empty `aria-hidden` digit boxes, and the
+ * person's click and keys go to that input (cloud Chromium, 2026-11-17, #1655). A trap at
+ * opacity 0 sits beside the form's fields, under other elements, over other controls, as
+ * SBI新生銀行's disabled pair over its real fields, or over its own label, or is left out
+ * of the tab order. A disabled or read-only input, and one under a transparent ancestor,
+ * is not one. The click is tested where the input is now, so one outside the viewport, or
+ * under a layer that covers the page, is not one until it shows. The official Bitwarden
+ * extension reads the input's own opacity, so it leaves such an input out.
+ */
 function overDrawnBoxes(element: Element): boolean {
   if (!(element instanceof HTMLInputElement) || !fieldInputTypes.has(element.type)) return false;
   const view = element.ownerDocument.defaultView;
   const parent = composedParent(element);
+  // Its siblings: in a shadow root it sits in directly, that root's children.
+  const siblings = nodeProperty(element, "parentNode");
   if (
     !view ||
     !parent ||
+    !(siblings instanceof Element || siblings instanceof ShadowRoot) ||
     element.disabled ||
     element.readOnly ||
+    element.tabIndex < 0 ||
     Number(view.getComputedStyle(element).opacity) !== 0 ||
     !Element.prototype.checkVisibility.call(parent, visibility(true))
   )
@@ -279,15 +286,19 @@ function overDrawnBoxes(element: Element): boolean {
   if (!(tree instanceof Document || tree instanceof ShadowRoot)) return false;
   if (tree.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) !== element)
     return false;
-  return [...elementProperty(parent, "children")].some((sibling) => {
+  const labels = [...(element.labels ?? [])];
+  const children =
+    siblings instanceof ShadowRoot ? siblings.children : elementProperty(siblings, "children");
+  return [...children].some((sibling) => {
     if (
       sibling === element ||
-      sibling.matches(controlSelector) ||
-      sibling.querySelector(controlSelector) !== null ||
+      Element.prototype.matches.call(sibling, controlSelector) ||
+      Element.prototype.querySelector.call(sibling, controlSelector) !== null ||
+      labels.some((label) => Element.prototype.contains.call(sibling, label)) ||
       !Element.prototype.checkVisibility.call(sibling, visibility(true))
     )
       return false;
-    const drawn = sibling.getBoundingClientRect();
+    const drawn = Element.prototype.getBoundingClientRect.call(sibling);
     const width = Math.min(drawn.right, box.right) - Math.max(drawn.left, box.left);
     const height = Math.min(drawn.bottom, box.bottom) - Math.max(drawn.top, box.top);
     return width >= 2 && height >= 2;

@@ -2,7 +2,7 @@ import type { LoginObservation } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import { findTargets } from "../../src/page/targets";
 import { targetState } from "../../src/page/target-state";
-import { extractLoginObservation } from "../../src/observation/extract";
+import { extractLoginObservation, presence } from "../../src/observation/extract";
 import type { ObservationTestContext } from "./context";
 
 export function registerLoginVisibility({
@@ -164,9 +164,12 @@ export function registerLoginVisibility({
     });
     const state = () => targetState(document, { by: "id", value: "code" }, "described-writable");
     expect(state()).toBe("unique");
+    const input = () => document.querySelector<HTMLInputElement>("#code")!;
+    expect(presence(input())).toBe("visible");
     // A transparent input under a transparent parent, under another element at its
-    // centre, beside its boxes rather than over them, over other controls, disabled,
-    // read-only, or with nothing drawn under it is still faint, as a trap.
+    // centre, beside its boxes rather than over them, over other controls or its own
+    // label, disabled, read-only, out of the tab order, or with nothing drawn under it is
+    // still faint, as a trap.
     for (const html of [
       widget("", ";opacity:0"),
       widget("", "", `<div style="position:absolute;inset:0;background:white"></div>`),
@@ -175,13 +178,24 @@ export function registerLoginVisibility({
       widget("", "", "", `<div style="width:320px"><input id="a"></div>`),
       widget(`" disabled x="`),
       widget(`" readonly x="`),
+      widget(`" tabindex="-1" x="`),
+      widget("", "", "", `<label for="code" style="width:320px">Leave this blank</label>`),
       widget("", "", "", ""),
     ]) {
       page(html);
+      expect(presence(input()), html).toBe("faint");
       const result = extractLoginObservation();
       expect(result.ok && result.observation.complete, html).toBe(false);
       expect(state(), html).toBe("unusable");
     }
+    // A widget whose shadow root holds the input beside its boxes.
+    page(`<div id="host" style="display:block;width:320px;height:44px"></div>`);
+    const root = shadow(
+      "#host",
+      `<style>:host{position:relative;display:flex;gap:8px}</style>${boxes}
+      <input id="code" type="text" style="position:absolute;inset:0;opacity:0">`,
+    );
+    expect(presence(root.querySelector<HTMLInputElement>("#code")!)).toBe("visible");
   });
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
     const gap = (html: string, inShadow?: string) => {
