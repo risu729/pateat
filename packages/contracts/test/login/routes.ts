@@ -421,6 +421,16 @@ export function registerPasswordVariants({
       expect(recipeHasRoute(codeOnly, "password")).toBe(true);
       expect(heldRouteMissing(codeOnly, held, false)).toBe("password");
       expect(heldRouteMissing(codeOnly, { ...held, password: false }, false)).toBeUndefined();
+      // So does one learned where the email and a code are asked for together.
+      const emailCode = parseLoginRecipe(
+        varied({
+          slots: ["username", "totp"],
+          steps: [fill(["username", "totp"]), submit()],
+          alternatives: undefined,
+        }),
+      );
+      expect(recipeHasRoute(emailCode, "password")).toBe(true);
+      expect(heldRouteMissing(emailCode, held, false)).toBe("password");
       // A variant that fills the password, beside the TOTP code or not, is that route.
       const coded = parseLoginRecipe(
         varied({ slots: ["password", "totp"], steps: [fill(["password", "totp"]), submit()] }),

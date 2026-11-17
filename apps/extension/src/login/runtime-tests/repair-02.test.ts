@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { parseLoginRecipe } from "@pateat/contracts";
+import { parseLoginRecipe, type LoginRecipe } from "@pateat/contracts";
 import { createRecipeRepairs } from "../repair";
 import type { LoginReport } from "../runtime/report";
 import type { LoginGeneration } from "../runtime/deps";
@@ -63,6 +63,22 @@ describe("repairing a code layout on a password page for an item without its TOT
       { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
     ],
   });
+  // A layout learned on a page that asks for the email and a code together.
+  const emailCode = parseLoginRecipe({
+    ...codeOnly,
+    slots: ["username", "totp"],
+    steps: [
+      {
+        kind: "fill",
+        path: "/signin",
+        fields: [
+          { slot: "username", target: target("email") },
+          { slot: "totp", target: target("code") },
+        ],
+      },
+      { kind: "click", path: "/signin", target: target("send"), purpose: "submit" },
+    ],
+  });
   const formPage = {
     ok: true,
     observation: {
@@ -78,7 +94,22 @@ describe("repairing a code layout on a password page for an item without its TOT
     },
   };
   const release = vi.fn(async () => undefined);
-  function start() {
+  type Claim = NonNullable<LoginGeneration["claimRepair"]>;
+  /** The service's claim: the first is claimed, and the next ones in 3 days are not due. */
+  function onceClaim(): Claim {
+    let claimed = false;
+    return async () => {
+      if (claimed) return { outcome: "not-due" };
+      claimed = true;
+      return { outcome: "claimed", release };
+    };
+  }
+  function start(
+    options: { layout?: LoginRecipe; claim?: Claim; password?: "empty"; signIn?: boolean } = {},
+  ) {
+    const layout = options.layout ?? codeOnly;
+    // Whether the page shows a writable password input (`login.observe` with `signIn`).
+    fake.state.signIn = { password: options.signIn ?? true };
     const reports: LoginReport[] = [];
     const generation = {
       available: vi.fn<LoginGeneration["available"]>(async () => true),
@@ -89,10 +120,7 @@ describe("repairing a code layout on a password page for an item without its TOT
       generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
-      claimRepair: vi.fn<NonNullable<LoginGeneration["claimRepair"]>>(async () => ({
-        outcome: "claimed",
-        release,
-      })),
+      claimRepair: vi.fn<Claim>(options.claim ?? (async () => ({ outcome: "claimed", release }))),
     };
     const h = harness(
       {
@@ -114,35 +142,41 @@ describe("repairing a code layout on a password page for an item without its TOT
         uris: async () => ({ ok: true as const, data: uriMatch() }),
       },
     );
-    // The item holds a password, and its TOTP field is empty.
+    // The item's TOTP field is empty, and so is its password with `password: "empty"`.
     const original = h.store.handle.getMockImplementation()!;
     h.store.handle.mockImplementation(async () => {
       const response = await original();
-      if (response.ok)
-        response.catalog.connections[0]!.items[0]!.fields.push({
+      if (response.ok) {
+        const fields = response.catalog.connections[0]!.items[0]!.fields;
+        if (options.password === "empty")
+          for (const field of fields) if (field.id === "login.password") field.empty = true;
+        fields.push({
           id: "login.totp-code",
           label: "Verification code",
           name: null,
           kind: "otp",
           empty: true,
         } as never);
+      }
       return response;
     });
-    h.recipes.recipe.mockResolvedValue(codeOnly);
-    h.recipes.starts.mockResolvedValue(startsOf([codeOnly.steps[0]!]));
+    h.recipes.recipe.mockResolvedValue(layout);
+    h.recipes.starts.mockResolvedValue(startsOf([layout.steps[0]!]));
     return { h, reports, generation };
   }
   const executed = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+  const refusals = (reports: readonly LoginReport[]) =>
+    reports.filter((entry) => entry.type === "refused");
+  const unfits = (reports: readonly LoginReport[]) =>
+    reports.filter((entry) => entry.type === "unfit");
 
   it("sends the page for the password route, and the repaired layout signs in with the password", async () => {
     fake.state.extracted = { login: formPage };
     const { h, reports, generation } = start();
     expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-    await vi.waitFor(() =>
-      expect(reports.filter((entry) => entry.type === "refused")).toHaveLength(1),
-    );
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
     expect(generation.claimRepair).toHaveBeenCalledExactlyOnceWith(generatedId, "password");
-    expect(reports.filter((entry) => entry.type === "unfit")).toMatchObject([
+    expect(unfits(reports)).toMatchObject([
       { route: "password", outcome: "claimed", detail: "no-totp" },
     ]);
     expect(generation.generate).toHaveBeenCalledWith(
@@ -164,5 +198,68 @@ describe("repairing a code layout on a password page for an item without its TOT
       operation: { step: { kind: "fill", fields: [{ slot: "password" }] } },
     });
     expect(generation.claimRepair).toHaveBeenCalledOnce();
+  });
+
+  it("claims a code page that shows a password input once, then finds the repair not due", async () => {
+    // The code page reuses the password field without marking it `one-time-code`, so it
+    // reads as a password page: the first visit spends the recipe's repair, and the
+    // service's claim keeps the next visits in 3 days from another request.
+    fake.state.present = new Set(["password", "send"]);
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ claim: onceClaim() });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({
+      ok: false,
+      reason: "generating",
+    });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(2));
+    expect(generation.claimRepair).toHaveBeenCalledTimes(2);
+    expect(unfits(reports)).toMatchObject([
+      { route: "password", outcome: "claimed", detail: "no-totp" },
+      { route: "password", outcome: "not-due", detail: "no-totp" },
+    ]);
+    expect(generation.generate).toHaveBeenCalledOnce();
+    expect(refusals(reports)).toMatchObject([{ reason: "no-route" }, { reason: "no-route" }]);
+    expect(executed()).toEqual([]);
+  });
+
+  it("claims no repair on a code page whose field is marked one-time-code", async () => {
+    fake.state.present = new Set(["password", "send"]);
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ signIn: false });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(generation.claimRepair).not.toHaveBeenCalled();
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(unfits(reports)).toMatchObject([
+      { route: "password", outcome: "not-due", reason: "no-form", detail: "no-totp" },
+    ]);
+    expect(refusals(reports)).toMatchObject([{ reason: "no-route", detail: "no-totp" }]);
+    expect(executed()).toEqual([]);
+  });
+
+  it("claims no repair of an email and code layout on a page without a password input", async () => {
+    fake.state.present = new Set(["email", "code", "send"]);
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ layout: emailCode, signIn: false });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(generation.claimRepair).not.toHaveBeenCalled();
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(unfits(reports)).toMatchObject([
+      { route: "password", outcome: "not-due", reason: "no-form" },
+    ]);
+    expect(executed()).toEqual([]);
+  });
+
+  it("repairs nothing for an item without a password or a TOTP secret", async () => {
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({ password: "empty" });
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(generation.claimRepair).not.toHaveBeenCalled();
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(unfits(reports)).toEqual([]);
+    expect(executed()).toEqual([]);
   });
 });

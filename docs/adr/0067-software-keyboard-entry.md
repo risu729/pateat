@@ -29,8 +29,10 @@ installed-Chrome or real-site check has been run.
 
 Amended on 2026-11-17 by an agent's choice, not confirmed by the owner
 ([below](#amendment-2026-11-17-a-read-only-field-that-shows-a-value)): a read-only field
-that holds a value the page put there is left out of a login page's and a signed-in
-page's description instead of counting as unfillable.
+that holds a value, not marked for a secret and without a keypad beside it, is left out
+of a login page's and a signed-in page's description instead of counting as
+unfillable, and a member number shown that way is compared with a digits-only username
+before a password-only fill (amends [ADR 0049](0049-start-at-a-later-step.md)).
 
 Date: 2026-10-23
 
@@ -92,7 +94,8 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   without a keypad, as before. Since the
   [2026-11-17 amendment](#amendment-2026-11-17-a-read-only-field-that-shows-a-value), a
   shown, enabled read-only field of a text-like type other than a password that holds a
-  value is left out of the description instead. The keys of every keypad on the page,
+  value is left out of the description instead, unless it is marked for a secret or has
+  a keypad beside it. The keys of every keypad on the page,
   also an optional keyboard beside a writable field and the document's own key groups,
   are left out of the candidates, and their text is never part of a field's label or
   description: a
@@ -234,16 +237,40 @@ a value and opens no picker (no `role="combobox"` and no `aria-haspopup` other t
 `false`). It is left out rather than kept as a candidate that cannot be filled: the
 description has no role for one, no step needs it, and its label could not tell the
 model more than the password field beside it does. This matches the rule for a field a
-continued recipe already fills ([ADR 0018](0018-recipe-generation-route.md)). The
-person cannot have typed its value; only whether it is empty is read, and the value is
-never kept or sent ([#932](https://github.com/risu729/pateat/issues/932)).
+continued recipe already fills ([ADR 0018](0018-recipe-generation-route.md)). Only
+whether it is empty is read: the value is never kept or sent
+([#932](https://github.com/risu729/pateat/issues/932)). A field the page made read-only
+after the person typed in it, as an identifier-first page that keeps the typed email
+above its password, is left out the same way.
 
-Unchanged: an empty read-only field, a disabled, transparent or tiny one, a read-only
-password field (a keypad's field before it is empty, or a masked value), and a picker
-still count as fields that cannot be filled, and a keypad field is described as above.
-On a signed-in page such a field no longer keeps the page from the judge
-(`unfillable-field`), whatever its `autocomplete`; a sign-in field the person can fill
-beside it still counts as one.
+Unchanged: these still count as fields that cannot be filled (`unfillable-field`) on a
+login page and keep a signed-in page from the judge: an empty read-only field; a
+disabled one (a disabled fieldset's too); a transparent or tiny one; a read-only
+password field (a keypad's field before it is empty, or a masked value); a read-only
+field marked `current-password`, `new-password` or `one-time-code`, whatever its type,
+since it holds a secret; a read-only field beside its own software keyboard (found as
+the keypad search above finds it), which is described as a keypad field when it is
+empty and counts as unfillable otherwise; and a picker (`role="combobox"` or an
+`aria-haspopup` other than `false`). Other `autocomplete` tokens do not matter: a
+read-only `username` field that shows a value is left out on a signed-in page too, and
+a sign-in field the person can fill beside it still counts as one.
+
+A login form whose only field is such a value has nothing left to describe: its page is
+refused `no-candidates` (with `d0` in the detail) instead of `unfillable-field`
+([ADR 0016](0016-recipe-generation-trigger.md)), and a signed-in page whose only field
+it is reads as complete, so the judge sees it
+([ADR 0029](0029-local-sign-in-state.md), [ADR 0035](0035-page-kinds-per-site.md)).
+
+The account check before a password-only fill
+([ADR 0049](0049-start-at-a-later-step.md)) compares a member number shown this way:
+`formAccounts` in `apps/extension/src/page/accounts.ts` adds the number of a read-only,
+not hidden, input marked `autocomplete="username"` that holds 4 to 64 digits once its
+spaces and hyphens are removed, and `showsOtherAccount` compares a digits-only username
+with it on a password step, also without its spaces and hyphens. A form that shows
+another member's number then ends `wrong-account` instead of filling this item's
+password. Only the input's own form is read, the value is compared on the device and
+never kept or sent, and a hidden input's number, which may be the site's own user ID,
+is not compared.
 
 Known risk: a read-only field a script sets without being marked as a picker, as a date
 picker with a default date and no ARIA, is left out too, so a recipe generated for its

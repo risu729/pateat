@@ -34,6 +34,13 @@ implemented):
 which the Consequences listed as not fixed. Amended on 2026-11-03 (owner, 11:14 UTC,
 decision card "送信クリックの直前に確認"):
 [a password-only fill no longer waits for the page to settle; the shown account is compared just before the next click](#amendment-2026-11-03-the-shown-account-checked-at-the-click).
+Amended on 2026-11-17 by
+[ADR 0067](0067-software-keyboard-entry.md#amendment-2026-11-17-a-read-only-field-that-shows-a-value)
+(an agent's choice after [#1676](https://github.com/risu729/pateat/issues/1676), not
+confirmed by the owner): on a password step, a digits-only username is also compared
+with the number in a read-only input of the form marked `autocomplete="username"`, as a
+member number shown again above the password, without spaces and hyphens on either
+side, so a form for another member ends `wrong-account`.
 
 Date: 2026-10-18
 

@@ -405,8 +405,8 @@ export function registerSignedInCandidates({
     }
     // Such a read-only field that holds a value the page put there only shows it, as the
     // account's email or member number shown again, so it is left out as on a login page,
-    // and its value is never sent (#1676). A picker's, a disabled one's or a password's
-    // value does not count.
+    // and its value is never sent (#1676): a page whose only field it is is complete. A
+    // picker's, a disabled one's, a password's or a secret's value does not count.
     for (const field of [
       `<input id="f" autocomplete="username" readonly value="1234567890">`,
       `<input id="f" type="email" readonly value="me@example.com">`,
@@ -421,6 +421,9 @@ export function registerSignedInCandidates({
       `<input id="f" autocomplete="username" readonly value="1234567890" role="combobox">`,
       `<input id="f" autocomplete="username" disabled value="1234567890">`,
       `<input id="f" type="password" readonly value="1234567890">`,
+      // A secret's field: a code or a password shown in a read-only text input.
+      `<input id="f" autocomplete="one-time-code" readonly value="123456">`,
+      `<input id="f" autocomplete="current-password" readonly value="1234">`,
     ]) {
       page(`<button id="logout">Sign out</button>${field}`);
       expect(gap(), field).toEqual([false, "unfillable-field"]);

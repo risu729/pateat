@@ -82,7 +82,8 @@ export function fits(shown: string, username: string): boolean {
  * username of digits only, and only when `masked` is set (a password step: a one-time
  * code page usually shows the masked phone number the code went to). The page
  * conflicts only when it shows such identifiers and none of them fits the username; a
- * masked identifier that fits (`m***@example.com`) cannot be told apart.
+ * masked identifier that fits (`m***@example.com`) cannot be told apart. A digits-only
+ * username also fits without its spaces and hyphens (`0000-1234` fits `00001234`).
  */
 export function showsOtherAccount(
   shown: readonly string[],
@@ -90,11 +91,12 @@ export function showsOtherAccount(
   { masked }: { masked: boolean },
 ): boolean {
   const name = accountName(username);
+  const compact = name.includes("@") ? name : name.replace(/[\s-]/gu, "");
   const comparable = comparableAccounts(shown, username, { masked });
   return (
     comparable !== undefined &&
     comparable.length > 0 &&
-    !comparable.some((entry) => fits(entry, name))
+    !comparable.some((entry) => fits(entry, name) || fits(entry, compact))
   );
 }
 
@@ -142,20 +144,32 @@ export function accountText(document: Document, form: HTMLFormElement | null): s
  * from an input for an account identifier the person cannot type into, hidden, read-only
  * or disabled (`:disabled`, including a disabled fieldset): a form for a remembered
  * account may keep the address only there (ADR 0049), and {@link accountText} never
- * includes an input's value. What a person types is never read (#932).
+ * includes an input's value. What a person types is never read (#932). A read-only
+ * input marked `username` that shows a number, as a member number shown again above the
+ * password on a sign-in again (#1676), adds that number without its spaces and hyphens,
+ * which a digits-only username is compared with on a password step: a hidden input's
+ * number, as a site's own user ID, does not.
  */
 export function formAccounts(document: Document, form: HTMLFormElement | null): string[] {
   const identifier = /user|mail|login|account|ident/iu;
-  const submitted = inputsOf(form, document).flatMap((input) =>
-    input.type !== "password" &&
-    (input.type === "hidden" || input.readOnly || input.matches(":disabled")) &&
-    input.value &&
-    (input.type === "email" ||
-      autocompleteTokens(input).some((token) => token === "username" || token === "email") ||
-      identifier.test(`${input.name} ${input.id}`))
-      ? shownAccounts(input.value).filter((entry) => !entry.includes("*"))
-      : [],
-  );
+  const submitted = inputsOf(form, document).flatMap((input) => {
+    if (
+      !(
+        input.type !== "password" &&
+        (input.type === "hidden" || input.readOnly || input.matches(":disabled")) &&
+        input.value &&
+        (input.type === "email" ||
+          autocompleteTokens(input).some((token) => token === "username" || token === "email") ||
+          identifier.test(`${input.name} ${input.id}`))
+      )
+    )
+      return [];
+    const found = shownAccounts(input.value).filter((entry) => !entry.includes("*"));
+    if (found.length || input.type === "hidden" || !input.readOnly) return found;
+    if (!autocompleteTokens(input).includes("username")) return [];
+    const number = accountName(input.value).replace(/[\s-]/gu, "");
+    return /^\d{4,64}$/u.test(number) ? [number] : [];
+  });
   return [...shownAccounts(accountText(document, form)), ...submitted];
 }
 

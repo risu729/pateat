@@ -123,6 +123,38 @@ describe("formAccounts", () => {
       showsOtherAccount(formAccounts(document, form), "me@example.com", { masked: false }),
     ).toBe(true);
   });
+
+  it("compares a member number shown read-only on a sign-in again with a digits username (#1676)", () => {
+    // JAL's member re-login (2026-11-17): the number of the account signed in shows
+    // read-only above the password, which a login fills alone.
+    const page = (shown: string, attributes = `autocomplete="username" readonly`) => {
+      document.body.innerHTML = `<form id="login"><label for="n">JMB会員番号</label>
+        <input type="text" id="n" ${attributes} value="${shown}">
+        <input type="password" id="p" autocomplete="current-password"></form>`;
+      return formAccounts(document, document.getElementById("login") as HTMLFormElement);
+    };
+    const password = { masked: true };
+    // Another account's number stops the password fill for this one.
+    expect(page("1234567890")).toEqual(["1234567890"]);
+    expect(showsOtherAccount(page("1234567890"), "9876543210", password)).toBe(true);
+    // The account's own number, written with spaces or hyphens on either side, does not.
+    expect(showsOtherAccount(page("1234567890"), "1234567890", password)).toBe(false);
+    expect(showsOtherAccount(page("1234 5678 90"), "1234567890", password)).toBe(false);
+    expect(showsOtherAccount(page("1234567890"), "1234-5678-90", password)).toBe(false);
+    // Only on a password step, and never for an email or a letters username.
+    expect(showsOtherAccount(page("1234567890"), "9876543210", { masked: false })).toBe(false);
+    expect(showsOtherAccount(page("1234567890"), "me@example.com", password)).toBe(false);
+    expect(showsOtherAccount(page("1234567890"), "taro99", password)).toBe(false);
+    // A number in a hidden input, as a site's own user ID, or one not marked `username`, or
+    // a value that is no number, adds nothing.
+    expect(page("1234567890", `name="userId" readonly hidden`)).toEqual([]);
+    document.body.innerHTML = `<form id="login"><input type="hidden" name="userId" value="1234567890">
+      <input type="password" id="p"></form>`;
+    expect(formAccounts(document, document.getElementById("login") as HTMLFormElement)).toEqual([]);
+    expect(page("1234567890", `name="account" readonly`)).toEqual([]);
+    expect(page("taro99")).toEqual([]);
+    expect(page("123")).toEqual([]);
+  });
 });
 
 describe("accountText", () => {

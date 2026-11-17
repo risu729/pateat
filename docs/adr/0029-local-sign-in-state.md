@@ -64,8 +64,12 @@ one the re-shown form holds beside a keypad, and an empty read-only password inp
 beside a keypad counts for S2. Amended again on 2026-11-17 by
 [ADR 0067](0067-software-keyboard-entry.md#amendment-2026-11-17-a-read-only-field-that-shows-a-value)
 (an agent's choice, not confirmed by the owner): a judged page's description leaves out
-a read-only field that holds a value the page put there, so it no longer keeps the page
-from the judge as `unfillable-field`.
+a read-only field that holds a value, so it no longer keeps the page from the judge as
+`unfillable-field`; only whether it is empty is read. A signed-in page whose only field
+it is reads as complete, and a login form whose only field it is is refused
+`no-candidates`. A read-only field marked `current-password`, `new-password` or
+`one-time-code`, or beside its own software keyboard, still counts as
+`unfillable-field`.
 
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
 owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe

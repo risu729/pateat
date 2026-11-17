@@ -47,24 +47,14 @@ export function registerLoginKnownFields({
       `<input id="pin" type="password" readonly><div id="pad">${keys("012345678")}</div>`,
       `<input id="pin" type="password" readonly><div id="pad">${keys("ABCDEFGHIJKLMNOPQRSTUVWXY")}</div>`,
       `<input id="pin" type="password" readonly disabled><div id="pad">${keys("0123456789")}</div>`,
+      // A read-only field that holds a value beside a keypad is no keypad field, and its
+      // value may be the keys' doing, so it is not left out as a shown value (#1676).
+      `<input id="day" readonly value="2026-10-23"><input id="pin" type="password" readonly><div id="pad">${keys("0123456789")}</div>`,
     ]) {
       page(`<form>${html}<button id="go" type="button">Log in</button></form>`);
       const result = extractLoginObservation();
       expect(result.ok && result.observation.complete, html).toBe(false);
     }
-    // A read-only field that holds a value, as a date shown again, is no keypad field: it
-    // only shows what the page put there, so it is left out (#1676).
-    page(
-      `<form><input id="day" readonly value="2026-10-23"><input id="pin" type="password" readonly>
-      <div id="pad">${keys("0123456789")}</div><button id="go" type="button">Log in</button></form>`,
-    );
-    expect(observe().complete).toBe(true);
-    expect(
-      summary(observe()).map((candidate) => [candidate.target.value, candidate.keypad]),
-    ).toEqual([
-      ["pin", { by: "id", value: "pad" }],
-      ["go", undefined],
-    ]);
     // A keypad that shares no box with the field but the body belongs to something else.
     page(
       `<form><input id="pin" type="password" readonly><button id="go" type="button">Log in</button></form>
@@ -376,6 +366,60 @@ export function registerLoginKnownFields({
       `<form id="f"><input type="email" id="shown" readonly value="me@example.com"><input type="text" id="code" autocomplete="one-time-code"><button id="go">Verify</button></form>`,
     );
     expect(summary(observe()).map((candidate) => candidate.target.value)).toEqual(["code", "go"]);
+  });
+
+  it("never leaves out a secret's read-only field that holds a value (#1676)", () => {
+    const keys = [..."0123456789"].map((key) => `<input type="button" value="${key}">`).join("");
+    // A PIN typed on the page's keypad into a read-only text field marked for a password,
+    // or into one beside its own keypad with no mark, or a code shown in a field marked
+    // for one: the value may be the secret itself, so the page stays incomplete.
+    for (const field of [
+      `<input id="pin" type="text" autocomplete="current-password" readonly value="12">`,
+      `<input id="pin" type="text" autocomplete="new-password" readonly value="12">`,
+      `<input id="pin" type="text" autocomplete="one-time-code" readonly value="123456">`,
+      `<input id="pin" type="text" readonly value="12">`,
+    ]) {
+      page(
+        `<form id="f"><input id="u">${field}<div id="pad">${keys}</div><button id="go" type="button">Log in</button></form>`,
+      );
+      const result = extractLoginObservation();
+      expect(result.ok && result.observation.complete, field).toBe(false);
+      expect(result.ok && result.gap, field).toBe("unfillable-field");
+    }
+  });
+
+  it("leaves out an email the person typed that the page then made read-only (#1676)", () => {
+    // An identifier-first form that keeps the typed email read-only above the password it
+    // shows next, on the same path: only whether the field is empty is read.
+    page(
+      `<form id="f"><label for="email">Email</label><input type="email" id="email" autocomplete="username">
+      <button id="next" type="button">Next</button></form>`,
+    );
+    const email = document.getElementById("email") as HTMLInputElement;
+    email.value = "typed@example.com";
+    email.readOnly = true;
+    document
+      .getElementById("next")!
+      .insertAdjacentHTML(
+        "beforebegin",
+        `<label for="pw">Password</label><input type="password" id="pw" autocomplete="current-password">`,
+      );
+    const result = extractLoginObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(result.observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "pw",
+      "next",
+    ]);
+    expect(JSON.stringify(result.observation)).not.toContain("typed@example.com");
+  });
+
+  it("finds nothing to describe in a form whose only field shows a value (#1676)", () => {
+    page(
+      `<form id="f"><input type="text" id="member" autocomplete="username" readonly value="1234567890">
+      <button id="go">Continue</button></form>`,
+    );
+    expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 
   it("matches a known field by its name or test ID locator too, exactly (ADR 0018)", () => {

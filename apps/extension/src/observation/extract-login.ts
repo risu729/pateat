@@ -219,7 +219,7 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
         entry.kind === "unsupported" &&
         entry.field &&
         (filled(entry.field) ||
-          shownValue(entry.field) ||
+          shownValue(entry.field, keypads) ||
           (entry.field.matches(":disabled") && presence(entry.field) === "faint"))
       ) &&
       !(

@@ -165,15 +165,24 @@ none of the recipe's `password` variants fills the `password` slot
 (`heldRouteMissing` in `packages/contracts/src/login/routes.ts`), as before for a
 passkey-only recipe. The rest of the trigger is unchanged: every variant was refused
 for the item's facts, and the claim in `pateat.recipe-replacements.v1` still bounds it
-to once per recipe, device and missing route in 3 days. A layout added by the repair
-fills the password, fits the re-login page better than the code layout (its button
-shows and the code page's does not, [ADR 0060](0060-recipe-layouts.md)), and runs for
-the same binding, whose new `password` slot is filled from the item's password
+to once per recipe, device and missing route in 3 days. Such a recipe's repair is
+claimed only while the page shows a visible, writable password input that is not
+marked `new-password` or `one-time-code` and is in no form with such an input (the
+`signIn` answer of `login.observe`, read once in `repairUnfit` before the claim, as a
+passkey-only recipe's page is read for a form). A code page whose field is marked
+`one-time-code`, or one that asks for the email and a code together, has no password
+to learn: it is refused at once, logged `not-due` with `no-form`, and spends no claim.
+A recipe with no `password` variant at all is claimed as before. A layout added by the
+repair fills the password, fits the re-login page better than the code layout (its
+button shows and the code page's does not, [ADR 0060](0060-recipe-layouts.md)), and
+runs for the same binding, whose new `password` slot is filled from the item's password
 ([ADR 0027](0027-per-account-login-routes.md), amended 2026-10-19).
 
 Known cost: when the code page itself starts a new login, as after a sign-in the person
-made by hand, an item with a password and no TOTP secret claims the same repair, so that
-page may be sent to the model once every 3 days per device, as an item with a
+made by hand, and its code field is a plain password input with no `one-time-code`
+mark, as JAL's reuses the password field, the page check cannot tell it from a
+password page. An item with a password and no TOTP secret then claims the same repair,
+so that page may be sent to the model once every 3 days per device, as an item with a
 discoverable passkey already did. An answer equal to the code layout writes nothing
 (ADR 0041 section 3) and the page is refused as before; one that names the code page by
 other locators adds a layout, which may replace the least recently used of three. A
