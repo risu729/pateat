@@ -28,22 +28,22 @@ import type { Runtime } from "./state";
  * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).
  * Several shown: the first not yet entered whose fact the item has, a `passkey` handler
  * before a `totp` handler, as the routes put the passkey first and it types nothing. A
- * `totp` handler is never entered by a login that already types a code, needs the
- * item's code field (`codeFieldOf`), and is never entered on a page whose words around
- * its code field say the code was sent, by email, SMS or otherwise (`totp-code`, ADR 0027
+ * `totp` handler is never entered by a login that already types a code, needs the item's
+ * code field (`codeFieldOf`), and is never entered on a page whose words around its code
+ * field say the code was sent, by email, SMS or otherwise (`totp-code`, ADR 0027
  * amendment of 2026-11-17): such a page is a handler miss logged `code-sent`. Returns
  * whether the attempt moved on: to the handler's steps, or to `challenge` when no shown
- * handler qualifies or the attempt's budget has no room for it. At a login's stop before its item's missing password (`stop`, ADR
- * 0036), only a `passkey` handler is entered, before the stop step, and the login ends
- * there with `stop.end` instead. A `password` handler goes first, and only for a login
- * that types its password and has not filled it yet; one shown but refused ends the login
- * as `challenge` rather than letting another handler beside it be entered (ADR 0048).
- * An `authenticator` handler, which goes on to the code page, comes after a `totp` one,
- * needs what a `totp` handler needs, and is pressed only in the tab's top document on the
- * recipe's own origin by a login that does not only fill (ADR 0081).
- * `held` when the handler whose click this document holds shows again here, before the
- * login settled: the page is held as while its button still shows (ADR 0027), since the
- * button may show again for a moment before the site moves on.
+ * handler qualifies or the attempt's budget has no room for it. At a login's stop before
+ * its item's missing password (`stop`, ADR 0036), only a `passkey` handler is entered,
+ * before the stop step, and the login ends there with `stop.end` instead. A `password`
+ * handler goes first, and only for a login that types its password and has not filled it
+ * yet; one shown but refused ends the login as `challenge` rather than letting another
+ * handler beside it be entered (ADR 0048). An `authenticator` handler, which goes on to
+ * the code page, comes after a `totp` one, needs what a `totp` handler needs, and is
+ * pressed only in the tab's top document on the recipe's own origin by a login that does
+ * not only fill (ADR 0081). `held` when the handler whose click this document holds shows
+ * again here, before the login settled: the page is held as while its button still shows
+ * (ADR 0027), since the button may show again for a moment before the site moves on.
  */
 export async function enterHandler(
   rt: Runtime,
@@ -54,12 +54,13 @@ export async function enterHandler(
   // A fresh handler's elements must be usable: its code field a shown writable input, on
   // a page that does not say its code was sent, and its button shown, enabled or not, as
   // a Verify button disabled until the code is typed is; so a hidden code input rendered
-  // with the sign-in form never stands for a code page. The click step itself waits for the button to be enabled. A `totp` handler whose
-  // button is also a route step's on this path, as in a form that asks for the code after
-  // the password, needs every fill field of the route there gone: while one shows, the
-  // page is still the sign-in page. A handler that already ran counts as shown again
-  // whenever its elements are there, hidden or disabled, so it never runs twice; only in
-  // the document that holds its click is one the page hid gone instead.
+  // with the sign-in form never stands for a code page. The click step itself waits for
+  // the button to be enabled. A `totp` handler whose button is also a route step's on
+  // this path, as in a form that asks for the code after the password, needs every fill
+  // field of the route there gone: while one shows, the page is still the sign-in page. A
+  // handler that already ran counts as shown again whenever its elements are there,
+  // hidden or disabled, so it never runs twice; only in the document that holds its click
+  // is one the page hid gone instead.
   const routeFields = passwordVariants(run.recipe)
     .flatMap((variant) => variant.steps)
     .filter((step) => step.path === path)

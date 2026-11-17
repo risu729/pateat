@@ -1769,17 +1769,19 @@ most 4 handlers, 40 steps and 12 submissions). A `totp` handler whose button is 
 route step's on that path is entered only while none of the route's fill fields there
 shows. A `totp` handler is never entered on a page whose words say its code was sent
 ([ADR 0027 amendment of 2026-11-17](adr/0027-per-account-login-routes.md#amendment-2026-11-17-where-a-code-comes-from);
-its code field's requirement is `totp-code`, a
-writable input whose page `codeSourceOf` in `packages/contracts` does not read as
-`sent`): the content script reads the texts near the code field, as the judged page's
-near texts are read, its `aria-describedby` text and the headings of its part of the
-page (the open modal dialog that holds it, else its nearest parent with a heading and no
-other field to type in), and gives only the class, never the text. English words such as
-"sent", "resend", "email", "SMS", "text message" or "inbox" and Japanese ones such as
-メール, 送信, 届いた or ショートメッセージ say it was sent; "authenticator app", "TOTP",
-認証アプリ or 認証システム name an authenticator app; a page that says both or neither
-reads as neither, and is entered as before. So Luma's emailed code, on the same path and
-in the same input as its authenticator app's code
+its code field's requirement is `totp-code`, a writable input whose page `codeSourceOf`
+in `packages/contracts` does not read as `sent`): the content script reads the texts
+near the code field, as the judged page's near texts are read, the text its
+`aria-describedby` names without the links, buttons and controls in it, and the headings
+of its part of the page (its nearest parent with a heading and no other field to type
+in, inside an open modal dialog at most the dialog itself), and gives only the class,
+never the text. A verb says it was sent: English "sent", "delivered", "emailed",
+"texted", "text message" or "send", "sending" or "resend" with a code, "again" or a way
+after it, and Japanese 送信しました, お送りしました, 再送, 届いた or
+ショートメッセージ; a bare "Send", 送信, "email", "SMS" or メール does not.
+"Authenticator app", "TOTP", 認証アプリ or 認証システム name an authenticator app; a
+page that says both or neither reads as neither, and is entered as before. So Luma's
+emailed code, on the same path and in the same input as its authenticator app's code
 ([#1655](https://github.com/risu729/pateat/issues/1655)), never takes the TOTP. The
 page is then a handler miss logged `code-sent` and the login goes on as on a page with
 no handler. Route steps that fill the `totp` slot are not checked this way. A handler

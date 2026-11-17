@@ -60,7 +60,7 @@ describe("a totp handler's code field (ADR 0027 amendment of 2026-11-17)", () =>
 
   it("reads the heading of the open modal dialog that holds the field", () => {
     document.body.innerHTML = `<h1>Account security</h1>
-      <div role="dialog" aria-modal="true"><h2>Check your email</h2>
+      <div role="dialog" aria-modal="true"><h2>We sent you a code</h2>
         <div><div><div><div><div><div><div><input autocomplete="one-time-code" aria-label="Code"></div></div></div></div></div></div></div>
       </div>`;
     expect(codeFieldSource(field())).toBe("sent");
@@ -77,9 +77,51 @@ describe("a totp handler's code field (ADR 0027 amendment of 2026-11-17)", () =>
   it("leaves out the words of another form's part of the page", () => {
     // A newsletter form beside the code holds its own field: its heading and text are not
     // the code's.
-    document.body.innerHTML = `<main><section><h2>Get our news by email</h2>
-        <p>We send it every week.</p><input type="email" aria-label="Email"></section>
+    document.body.innerHTML = `<main><section><h2>News sent every week</h2>
+        <p>We sent the last one on Monday.</p><input type="email" aria-label="Email"></section>
       <div><p>Enter the code</p><input autocomplete="one-time-code" aria-label="Code"></div></main>`;
+    expect(codeFieldSource(field())).toBeUndefined();
+    expect(targetState(document, code, "totp-code")).toBe("unique");
+  });
+
+  it("leaves links and buttons out of the field's description", () => {
+    document.body.innerHTML = `<p id="h">Enter the code from your app.
+        <a href="#">Send code by SMS instead</a> <button type="button">Send code again</button></p>
+      <div><div><div><div><div><div><div><input autocomplete="one-time-code" aria-describedby="h"></div></div></div></div></div></div></div>`;
+    expect(codeFieldSource(field())).toBeUndefined();
+    expect(targetState(document, code, "totp-code")).toBe("unique");
+  });
+
+  it("leaves a link or a button near the field out, as one that offers another way", () => {
+    document.body.innerHTML = `<form><p>Enter the code from your authenticator app</p>
+      <input autocomplete="one-time-code" aria-label="Code">
+      <a href="#">Send code by SMS instead</a>
+      <button type="button">Send code by SMS instead</button><button>Verify</button></form>`;
+    expect(codeFieldSource(field())).toBe("authenticator");
+    expect(targetState(document, code, "totp-code")).toBe("unique");
+  });
+
+  it("takes no word from a script button that sends the form", () => {
+    document.body.innerHTML = `<div><p>ワンタイムパスワードを入力してください</p>
+      <input autocomplete="one-time-code" aria-label="コード">
+      <div onclick="" tabindex="0" style="cursor:pointer">送信</div></div>`;
+    expect(codeFieldSource(field())).toBeUndefined();
+    expect(targetState(document, code, "totp-code")).toBe("unique");
+  });
+
+  it("reads the nearest heading inside a modal dialog, not the dialog's whole outline", () => {
+    document.body.innerHTML = `<dialog><h2>Code sent to your email</h2>
+        <section><h3>Two-step verification</h3>
+          <div><input autocomplete="one-time-code" aria-label="Code"></div></section></dialog>`;
+    document.querySelector("dialog")!.showModal();
+    expect(codeFieldSource(field())).toBeUndefined();
+    expect(targetState(document, code, "totp-code")).toBe("unique");
+  });
+
+  it("reads no heading in a modal dialog past another form's field", () => {
+    document.body.innerHTML = `<div role="dialog" aria-modal="true"><h2>Sign in</h2>
+        <section><h3>We sent you a sign-in link</h3><input type="email" aria-label="Email"></section>
+        <section><div><input autocomplete="one-time-code" aria-label="Code"></div></section></div>`;
     expect(codeFieldSource(field())).toBeUndefined();
     expect(targetState(document, code, "totp-code")).toBe("unique");
   });
