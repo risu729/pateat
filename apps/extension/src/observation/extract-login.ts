@@ -1,6 +1,13 @@
 import type { LoginTarget, ObservedCandidate } from "@pateat/contracts";
 import { autocompleteTokens, findTargets } from "../page/targets";
-import { closestAcross, composedParent, containsAcross, formOf, readingPage } from "../page/shadow";
+import {
+  closestAcross,
+  composedOrder,
+  composedParent,
+  containsAcross,
+  formOf,
+  readingPage,
+} from "../page/shadow";
 import { redactsPath } from "./path";
 import { buttonText, fieldName, isButton, isScriptButton } from "../page/text";
 import type { ObservationGap, ObservationResult, Draft, Found } from "./extract-types";
@@ -54,6 +61,19 @@ const iconButton = (element: Element, nearFields: (element: Element) => boolean)
 const submits = (element: Element) =>
   (element instanceof HTMLButtonElement && element.type === "submit") ||
   (element instanceof HTMLInputElement && (element.type === "submit" || element.type === "image"));
+
+/**
+ * A `type="button"` button with text inside a login form, which never submits that form
+ * on its own. A script may still make it the form's submit, such as an `<input
+ * type="button" value="Login">`, so one without a locator counts unless a located native
+ * submit button of the form sits between it and the form's last password field (or,
+ * without one, its last account field), with no other fillable field between that field
+ * and the submit (`locatedSubmitBefore`), as Kuroneko Members' ログイン does before its
+ * 新規登録（無料）, whose text a second sign-up button outside the form repeats (seen
+ * 2026-11-12, #1491).
+ */
+const plainFormButton = (element: Element, form: HTMLFormElement | null) =>
+  form !== null && isButton(element) && element.type === "button";
 
 /**
  * Whether an input asks for the account's identifier by its own markup: an email input,
@@ -126,10 +146,11 @@ function loginFormsOf(
  * button of its own (`besideDepth`, `accountField`), such as a passkey button, are kept
  * for each such form when they can be located and never make the observation
  * incomplete. A field or button that cannot be located (other than a script button, an
- * icon button that never submits in a form with another button, a textless button away
- * from the fields outside every form when another button outside every form is located,
- * or a checkbox the page does not require, which is left out) or a control the executor
- * cannot act on marks the observation incomplete when it is in a login form
+ * icon button that never submits in a form with another button, a `type="button"` button
+ * with text in a login form after a located native submit (`plainFormButton`), a textless
+ * button away from the fields outside every form when another button outside every form
+ * is located, or a checkbox the page does not require, which is left out) or a control
+ * the executor cannot act on marks the observation incomplete when it is in a login form
  * (`loginFormsOf`); any other form with one is left out entirely. More than 48
  * candidates mark it incomplete too, and inference rejects an incomplete observation. An
  * incomplete result names its first cause in `loginGaps` order as `gap`, for the log
@@ -230,6 +251,10 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   // Icon buttons follow the same rule, but only in a form that has another button to
   // submit with: an icon-only button may itself be the form's script submit.
   const icons: typeof required = [];
+  // A login form's `type="button"` buttons with text count only without a located native
+  // submit button right after the form's sign-in fields and before them
+  // (`plainFormButton`).
+  const plainButtons: typeof required = [];
   const links: typeof required = [];
   // A checkbox is context only, never checked by a recipe, so one the page does not
   // require, as "Remember me", is left out without a locator; a required one, as an
@@ -325,6 +350,8 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
       checks.push(entry);
     else if (isScriptButton(entry.draft.element)) scripted.push(entry);
     else if (iconButton(entry.draft.element, nearFields)) icons.push(entry);
+    else if (loginForms.has(entry.form) && plainFormButton(entry.draft.element, entry.form))
+      plainButtons.push(entry);
     else required.push(entry);
   }
 
@@ -361,14 +388,54 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   const kept = (entries: typeof required, options?: { optional: boolean }) =>
     keep(located(entries, options));
   const requiredFound = located(required, { names: true });
+  const plainButtonsFound = located(plainButtons, { optional: true, names: true });
+  const locatedSubmits = requiredFound.filter((entry) => submits(entry.draft.element));
+  // Each form's fillable fields, in the order the page shows them.
+  const formFields = new Map<HTMLFormElement | null, Element[]>();
+  for (const entry of found)
+    if (entry.kind === "candidate" && fillTypes[entry.draft.role])
+      formFields.getOrInsertComputed(entry.form, () => []).push(entry.draft.element);
+  for (const fields of formFields.values()) fields.sort(composedOrder);
+  // The sign-in field a submit must follow: the form's last password field, or without
+  // one its last account field (`accountField`).
+  const signInField = (form: HTMLFormElement | null) => {
+    const fields = formFields.get(form) ?? [];
+    const inputs = fields.filter((field) => field instanceof HTMLInputElement);
+    return inputs.findLast((input) => input.type === "password") ?? inputs.findLast(accountField);
+  };
+  // A located native submit of the button's form after that form's sign-in field, with
+  // no other fillable field between them, and before the button, so a search box's
+  // submit before or after the sign-in fields never stands in for it.
+  const locatedSubmitBefore = (entry: (typeof required)[number]) => {
+    const anchor = signInField(entry.form);
+    if (!anchor) return false;
+    const fields = formFields.get(entry.form) ?? [];
+    return locatedSubmits.some(
+      ({ form, draft: { element } }) =>
+        form === entry.form &&
+        composedOrder(anchor, element) < 0 &&
+        composedOrder(element, entry.draft.element) < 0 &&
+        !fields.some(
+          (field) => composedOrder(anchor, field) < 0 && composedOrder(field, element) < 0,
+        ),
+    );
+  };
+  for (const entry of plainButtons)
+    if (
+      !locatedSubmitBefore(entry) &&
+      !plainButtonsFound.some((button) => button.draft === entry.draft)
+    )
+      flaw(entry.form, "unlocated-button");
   const iconsFound = located(icons, { optional: true });
   const submitting = new Set(
-    requiredFound.filter((entry) => entry.draft.role === "button").map((entry) => entry.form),
+    [...requiredFound, ...plainButtonsFound]
+      .filter((entry) => entry.draft.role === "button")
+      .map((entry) => entry.form),
   );
   for (const entry of icons)
     if (!submitting.has(entry.form) && !iconsFound.some((icon) => icon.draft === entry.draft))
       flaw(entry.form, "unlocated-button");
-  const described = keep(requiredFound);
+  const described = keep([...requiredFound, ...plainButtonsFound]);
   for (const [form, causes] of flawed)
     if (loginForms.has(form)) for (const cause of causes) gaps.add(cause);
   if (described.length > maxCandidates) gaps.add("too-many-candidates");

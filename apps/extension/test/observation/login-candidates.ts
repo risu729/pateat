@@ -560,6 +560,112 @@ export function registerLoginCandidates({
     expect(observe().complete).toBe(false);
   });
 
+  it("leaves out a form's text button without a locator beside its located submit, as Kuroneko Members' sign-up button", () => {
+    const signUp = `<button type="button">Sign up (free)</button>`;
+    const form = (submit: string, extra = "") =>
+      `<form><input id="u" autocomplete="username"><input id="p" type="password">
+        ${submit}${signUp}${extra}</form>
+      <aside><h2>Not a member?</h2>${signUp}</aside>`;
+    page(
+      form(
+        `<button type="submit" id="go">Log in</button>`,
+        `<button type="button">Log in with Yahoo</button>`,
+      ),
+    );
+    let observation = observe();
+    expect(observation.complete).toBe(true);
+    // A located one is still described.
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "go",
+      "Log in with Yahoo",
+    ]);
+    // A `<button>` without a type submits its form too, and so does a submit or image
+    // input. A disabled one counts as well: a page often enables it once the fields are
+    // filled, and the description keeps it.
+    for (const [submit, value] of [
+      [`<button>Log in</button>`, "Log in"],
+      [`<input type="submit" value="Log in">`, "Log in"],
+      [`<input type="image" id="go" alt="Log in" style="width:60px;height:20px">`, "go"],
+      [`<button type="submit" id="go" disabled>Log in</button>`, "go"],
+    ]) {
+      page(form(submit!));
+      observation = observe();
+      expect(observation.complete, submit).toBe(true);
+      expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+        "u",
+        "p",
+        value,
+      ]);
+    }
+    const unlocated = { ok: true, gap: "unlocated-button" };
+    // Without a shown native submit button it may be the form's script-run submit, so it
+    // still marks the form incomplete.
+    for (const submit of [
+      "",
+      `<button type="button" id="go">Log in</button>`,
+      `<button type="submit" id="go" hidden>Log in</button>`,
+      `<button type="submit" id="go" style="display:none">Log in</button>`,
+    ]) {
+      page(form(submit));
+      expect(extractLoginObservation(document), submit).toMatchObject(unlocated);
+    }
+    // A located submit of another form does not count.
+    page(
+      `<form><input id="q"><button id="find">Search</button></form>${form(`<button type="button" id="go">Log in</button>`)}`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // Nor does one of the same form before its sign-in fields, as a search box's in a form
+    // that wraps the whole page: the script-run "Log in" after the fields is the sign-in's.
+    page(
+      `<form><header><input id="q"><input type="submit" id="find" value="Search"></header>
+        <main><input id="u" autocomplete="username"><input id="p" type="password">
+        <button type="button">Log in</button></main></form>
+      <aside><button type="button">Log in</button></aside>`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // Nor one that follows another field after the sign-in fields, as a search block's
+    // between the password and the script-run "Log in".
+    page(
+      `<form><input id="u" autocomplete="username"><input id="p" type="password">
+        <div><input id="q"><input type="submit" id="find" value="Search"></div>
+        <button type="button">Log in</button></form>
+      <aside><button type="button">Log in</button></aside>`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // Without a password field the submit follows the last account field instead.
+    page(
+      `<form><input id="u" type="email"><button type="submit" id="go">Next</button>
+        ${signUp}</form><aside>${signUp}</aside>`,
+    );
+    expect(observe().complete).toBe(true);
+    page(
+      `<form><input id="u" type="email"><input id="q">
+        <button type="submit" id="go">Next</button>${signUp}</form><aside>${signUp}</aside>`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // Nor one after the button.
+    page(
+      `<form><input id="u" autocomplete="username"><input id="p" type="password">
+        <button type="button">Log in</button><button type="submit" id="go">Go</button></form>
+      <aside><button type="button">Log in</button></aside>`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject(unlocated);
+    // Outside a login form such a button still leaves its whole form out.
+    page(
+      `<form><input id="q"><button type="submit" id="find">Search</button>${signUp}</form>
+      ${form(`<button type="submit" id="go">Log in</button>`)}`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "go",
+    ]);
+  });
+
   it("judges completeness by the login form and leaves out other flawed forms", () => {
     const login = `<form id="f"><input id="u"><input id="p" type="password"><button id="go">Log in</button></form>`;
     const targets = () => observe().candidates.map((candidate) => candidate.target.value);
