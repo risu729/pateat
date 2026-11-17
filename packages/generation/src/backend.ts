@@ -1,5 +1,6 @@
 import type {
   ChooserBranch,
+  CodeSource,
   DeviceModel,
   DeviceModelCall,
   GenerationUnavailableReason,
@@ -195,7 +196,10 @@ export type GenerationCallResult<T> =
    */
   | { status: "device-call"; call: DeviceModelCall["call"] };
 
-/** The page a judgement is kept for (ADR 0027): one per revision, origin, path and prompt. */
+/**
+ * The page a judgement is kept for (ADR 0027): one per revision, origin, path, prompt and
+ * code source.
+ */
 export type JudgementKey = {
   recipeId: string;
   branch: string;
@@ -203,7 +207,22 @@ export type JudgementKey = {
   origin: string;
   path: string;
   promptVersion: string;
+  /**
+   * Where the code of the page's code field comes from (`judgedCodeSource`): a page of
+   * the path asking for an authenticator app's code and one asking for a code sent to the
+   * person are kept apart, as Luma shows both in one dialog (ADR 0029 amendment of
+   * 2026-11-17); empty for a page without a code field, or whose texts say neither or
+   * both.
+   */
+  codeSource: JudgementCodeSource;
 };
+/** A kept judgement's code source: `codeSourceOf`'s, or empty when it says nothing. */
+export type JudgementCodeSource = CodeSource | "";
+export const judgementCodeSources = [
+  "",
+  "authenticator",
+  "sent",
+] as const satisfies readonly JudgementCodeSource[];
 
 /** A page's kept judgement (ADR 0029). */
 export type KeptJudgement = {

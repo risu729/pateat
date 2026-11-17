@@ -50,6 +50,7 @@ export function d1Backend(
       eq(pageJudgements.origin, key.origin),
       eq(pageJudgements.path, key.path),
       eq(pageJudgements.promptVersion, key.promptVersion),
+      eq(pageJudgements.codeSource, key.codeSource),
     );
   return {
     deviceId,
@@ -177,6 +178,7 @@ export function d1Backend(
               pageJudgements.origin,
               pageJudgements.path,
               pageJudgements.promptVersion,
+              pageJudgements.codeSource,
             ],
             set: { judgedAt: now, verdict: null, inputs },
             // `is not` holds for a row kept without inputs too.

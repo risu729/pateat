@@ -90,6 +90,8 @@ export async function judgeSsoCompletion(
     origin: observation.origin,
     path: observation.path,
     promptVersion,
+    // A return page is judged for a marker only: one with a text field is never judged.
+    codeSource: "",
   };
   // A page of the revision and path is judged once: a later return completes only on a
   // `signed-in` verdict and the marker it taught.

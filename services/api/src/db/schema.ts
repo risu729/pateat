@@ -1,5 +1,6 @@
 import {
   pageJudgementVerdicts,
+  judgementCodeSources,
   recipePages,
   recipeUnitOrigins,
   repairFamilies,
@@ -715,7 +716,7 @@ export const recipeEntryBlocks = sqliteTable(
 );
 
 /**
- * Pages sent to the judge per recipe revision, origin and path (ADR 0027): each is judged
+ * Pages sent to the judge per recipe revision, origin, path and code source (ADR 0027): each is judged
  * at most once across devices and Worker restarts, and a recipe at most 20 times a UTC day.
  */
 export const pageJudgements = sqliteTable(
@@ -743,6 +744,14 @@ export const pageJudgements = sqliteTable(
      * again, as it may now keep a handler the earlier one could not (ADR 0027).
      */
     promptVersion: text("prompt_version").notNull().default(""),
+    /**
+     * Where the code of the page's code field comes from, as its texts say
+     * (`judgedCodeSource`): `authenticator`, `sent`, or empty when they say neither or
+     * both, or the page has no code field. A path that asks for a code sent to the person
+     * and then for an authenticator app's, as Luma's dialog does, keeps a row for each
+     * (ADR 0029 amendment of 2026-11-17).
+     */
+    codeSource: text("code_source", { enum: judgementCodeSources }).notNull().default(""),
     judgedAt: integer("judged_at").notNull(),
     /**
      * The model's verdict once it answered (ADR 0029); empty while the page is being
@@ -766,6 +775,7 @@ export const pageJudgements = sqliteTable(
         table.origin,
         table.path,
         table.promptVersion,
+        table.codeSource,
       ],
     }),
     index("page_judgements_day").on(table.ownerId, table.recipeId, table.judgedAt),
