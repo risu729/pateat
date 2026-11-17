@@ -31,6 +31,7 @@ import {
   describedSchema,
   codeChangedSchema,
   personSubmittedSchema,
+  personStepSchema,
   probeControlSchema,
 } from "../wire";
 import { DEMO_PROBE_ACCOUNT } from "../dummy";
@@ -86,6 +87,7 @@ import { leaveConfirm } from "./markers";
 import { rejectedElsewhere, recordFor } from "./hold";
 import { forgetClosedSites } from "./relogin";
 import type { Runtime } from "./state";
+import { personStepped } from "./passkey-named";
 import { bindingRepairRequestSchema, bindingReviewRequestSchema } from "../binding-review-wire";
 import { popupBindingReview, pickBindingReview, clearBindingReview } from "./binding-review";
 
@@ -278,6 +280,14 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
       sender.documentId === visit.document.documentId
     )
       visit.submitted = true;
+    return undefined;
+  }
+  const step = v.safeParse(personStepSchema, message);
+  if (step.success) {
+    // The person's own sign-in step in the tab's top document (ADR 0034 amendment of
+    // 2026-11-17); a frame's, as a payment provider's form, is none.
+    const document = await identify(rt, sender);
+    if (document) personStepped(rt, document, step.output.path);
     return undefined;
   }
   const moved = v.safeParse(movedSchema, message);
@@ -708,7 +718,7 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   clearTimeout(rt.entryTimers.get(tabId));
   rt.entryTimers.delete(tabId);
   for (const key of rt.entryRefused) if (key.startsWith(`${tabId} `)) rt.entryRefused.delete(key);
-  for (const map of [rt.passkeyRequests, rt.passkeyAnswers])
+  for (const map of [rt.passkeyRequests, rt.passkeyAnswers, rt.personSteps])
     for (const key of map.keys()) if (key.startsWith(`${tabId} `)) map.delete(key);
   void rt.vars.sessionLoaded.then(async () => {
     let changed = rt.pending.delete(tabId);

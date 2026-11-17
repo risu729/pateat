@@ -40,6 +40,7 @@ import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 import type { DetailFillGrant } from "./detail-popup";
 import type { BindingReviewState } from "./binding-review-state";
 import type { ManualStart } from "./manual-scope";
+import type { PersonStep } from "./types";
 
 export function createRuntimeState(settings: SettingsRuntime, options: LoginRuntimeOptions) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
@@ -166,6 +167,13 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       signedIn?: string;
     }
   >();
+
+  /**
+   * By tab and origin: the person's latest own sign-in step in the tab's top document (ADR
+   * 0034 amendment of 2026-11-17), and the next top document of the origin in the tab after
+   * it. Kept in memory only; one named passkey answer uses it up.
+   */
+  const personSteps = new Map<string, PersonStep>();
 
   /**
    * By tab: the page of another origin of the site that a top-level attempt's tab moved to
@@ -504,6 +512,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     signInUrls,
     passkeyRequests,
     passkeyAnswers,
+    personSteps,
     passkeyPages,
     siteMoves,
     moveJudgements,

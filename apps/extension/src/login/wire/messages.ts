@@ -163,6 +163,17 @@ export const personSubmittedSchema = v.strictObject({
   token: id,
 });
 /**
+ * The person's own sign-in step in the tab's top document (ADR 0034 amendment of
+ * 2026-11-17): a form with an identifier or a password input sent by a trusted submit,
+ * Enter or click under transient activation, on `path`. No value or form detail is sent.
+ */
+export const personStepSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.person-step"),
+  token: id,
+  path,
+});
+/**
  * The answer to a hello. `starts` lists the first steps of the origin's recipes; the
  * document announces again with `start` once one of them is ready on the current path. A
  * refused hello carries them, and so does an accepted one of a watched login (ADR 0027).

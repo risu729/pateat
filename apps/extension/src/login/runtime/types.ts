@@ -419,7 +419,26 @@ type ParkedRequest = {
    * which a login of the document may still take `REQUEST_START_WAIT_MS` to start.
    */
   restarted?: number;
+  /**
+   * It names its credentials and no recipe starts on its path: once no login of its tab
+   * runs to answer it, it is answered by the passkey it names instead of being handed on,
+   * when it follows the person's own sign-in step (ADR 0034 amendment of 2026-11-17).
+   */
+  named?: true;
   settle(decision: ConditionalDecision): boolean;
+};
+
+export /**
+ * The person's own sign-in step in a tab's top document (ADR 0034 amendment of
+ * 2026-11-17): a form with an identifier or a password input sent by a trusted submit,
+ * Enter or click under transient activation, on `path` of `documentId`, at `at`. `next` is
+ * the tab's next top document of the origin after it, once one announced or asked.
+ */
+type PersonStep = {
+  documentId: string;
+  path: string;
+  at: number;
+  next?: string;
 };
 
 export /**

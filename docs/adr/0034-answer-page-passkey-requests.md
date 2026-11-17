@@ -72,6 +72,13 @@ origin, with its item. Option A (13:51 UTC,
 a click's discoverable request on a page that shows another matching account than the
 site default opens the chooser with that account first.
 
+Amended on 2026-11-17 by the owner's decision at 18:22 UTC
+([the amendment below](#amendment-a-request-that-names-its-credentials-2026-11-17)):
+rule 2 gets an exception. A `conditional` request that names its credentials, on a path
+where no recipe starts, less than a minute after the person's own sign-in step in its
+tab, and with no login of the tab to answer it, is answered with the one vault passkey
+it names.
+
 Date: 2026-10-12
 
 ## Context
@@ -106,7 +113,10 @@ password when the item has one. The proposal reviewed with the owner is
    starts no login, such as a home, registration or payment page, are handed on as
    before; Pateat never signs in just because a page was visited.
 2. **Pages without a recipe keep delegating** (`no-recipe`). Pateat does not answer a
-   site it has no recipe for, even with one matching item or a site default.
+   site it has no recipe for, even with one matching item or a site default. (Since the
+   [amendment of 2026-11-17](#amendment-a-request-that-names-its-credentials-2026-11-17),
+   a request that names its credentials right after the person's own sign-in step is
+   answered when exactly one vault passkey is named.)
 3. **The passkey goes first.** When the page has asked and the login's item holds a
    discoverable passkey, a login on a recipe without a passkey button takes the
    `passkey` route. That route's one step answers the waiting request with the login's
@@ -384,3 +394,126 @@ An agent change, as a general rule (ADR 0033), not confirmed by the owner:
   also hands its request on, for the same reason: Pateat cannot tell such a rewrite from
   a move to another step. Its passkey then goes to the browser or another provider, as
   on a site Pateat has no recipe for.
+
+## Amendment: a request that names its credentials (2026-11-17)
+
+[#1673](https://github.com/risu729/pateat/issues/1673): Money Forward ID's sign-in
+(`id.moneyforward.com`) asks for the email on `/sign_in` and moves to
+`/sign_in/password` for any address. That page shows no passkey button, but its script
+makes a `conditional` request whose `allowCredentials` names the typed address's
+passkeys. No recipe starts on `/sign_in/password`, so rule 2 handed the request to the
+browser, which held no passkey for the site. An item with only a passkey and no password
+could not sign in there.
+
+The owner's decision of 2026-11-17 at 18:22 UTC, on a decision card: "Money Forward:
+メール入力後にサイトが特定のパスキーを求めたら、Pateat が答えますか" ("When the site
+asks for a specific passkey after the email is entered, does Pateat answer?"), choosing
+"答える(おすすめ)" ("Answer (recommended)"): "求められたパスキーを持つ項目が1つなら、
+Pateatのログイン中でなくてもその項目で答えます。打ったメールのアカウントで入ります。"
+("If one item holds the requested passkey, Pateat answers with that item even when no
+Pateat login runs. It signs in to the account whose email was typed.")
+
+Rule 2 gets one exception: a `conditional` request whose `allowCredentials` is not
+empty, made right after the person's own sign-in step, on that page or the page right
+after it, is answered with the one vault passkey it names, even without a login. Rule 1
+still holds: Pateat never signs in just because a page was visited, and a page's script
+alone never makes the step, within the limit named below.
+
+The details are the agent's choices, not confirmed by the owner:
+
+- **Only where no recipe starts.** The exception covers a request on a path where no
+  login recipe or chooser starts, no later step a login may start at (ADR 0049), no
+  sign-in entry (ADR 0031) and no first page of a recipe generated as `confirm` or
+  `unclear` (ADR 0035). A path that cannot be read, or recipes that cannot be read,
+  count as a recipe's. Everywhere else rules 1 to 7 decide as before.
+- **Only right after the person's own sign-in step.** The card's "after the email is
+  entered" is one signal of its own, the person's sign-in step: the person's own input
+  that sends a form of the tab's top document holding a shown identifier input (an
+  email, a username or a phone number, by its `type` or its `autocomplete`) or password
+  input that holds a value. That input is a trusted `keydown` of Enter whose target is
+  one of the form's inputs, outside an input method's composition (`isComposing`), or a
+  trusted `click` whose composed path holds the form's submit button. The content script
+  reports it. A `submit` event is never read: a page's own `requestSubmit`, or a
+  script's `click()` on a submit button, fires a trusted `submit` in Chromium, also
+  while an earlier click of the person still lends the page its activation. So a
+  script's submit or click, any other key, an Enter that ends a composition, a form
+  whose identifier and password inputs are empty or hidden, and a frame's form, as a
+  payment provider's, are none. Whether the input is empty is read in the page; the
+  report carries the page's path and nothing about the form or its values. Any form with
+  such an input counts, also a newsletter or subscribe form with an email field, as the
+  card's "after the email is entered" reads. The signal has a limit no page check can
+  remove: a page can place its own form's submit button under the person's click, as an
+  invisible one over a cookie banner, and that click then counts. The worker keeps, in
+  memory, the latest step per tab and origin: its document, path and time. A named
+  request qualifies only when the tab's step on its origin was less than
+  `PERSON_STEP_MS` (60 seconds) before the request, and the request comes from that page
+  or the page right after it: the step's document on another path, or the next top
+  document of that origin in the tab after the step (the first that announced, or asked,
+  after it). One answer uses the step up. A step is forgotten when its tab closes, and
+  when read once no request that came within its minute can still wait for it. With no
+  qualifying step the request is handed on as before: as `no-recipe` at once on an
+  origin without any recipe, and as `no-login` where a recipe exists. The page that
+  loaded with the request, a page seen without any action, a step made hours before and
+  a submit of anyone else (the `login.document.submitted` report, which keeps its own
+  use for the page after a sign-in, ADR 0028) all qualify for nothing.
+- **A login comes first, without a set wait.** The request is decided as soon as its
+  page announced on the path it came on with no sign-in to start a login from, its
+  admission over, and no login of its tab runs. The three seconds of rule 5 are only the
+  bound, for a page that does not announce (ADR 0082); the decision then reads nothing
+  more, so the bound holds. A login of its document that ever took it decides it as
+  before; one of another page of the tab that still runs, or is watched for a code, then
+  hands it on as `no-login`.
+- **Exactly one passkey.** The vault, read in full, must hold exactly one passkey the
+  request names, with a zero counter and no Bitwarden re-prompt. Several named passkeys
+  are handed on as `ambiguous-credential`, also two in one item and even when the site
+  default holds one of them: the page names the typed account, so the default never
+  breaks the tie. None is `no-credential`, an unread item is `vault-incomplete` and a
+  nonzero counter is `unsupported-counter`. A re-prompt item is
+  `master-password-reprompt`, since an autofill request never opens the chooser window.
+- **Every guard stays.** A paused site (a timed pause, an exclusion rule, or a private
+  window while automatic login is off there) hands the request on as `paused`. A site
+  that asks every time after a one-time pick (ADR 0063) hands it on as `one-time-pick`.
+  A request on a page set to fill only is handed on as `sign-in-fill`, and one of a
+  hostname chosen "Always for this site" as `browser-site`. The relogin guard (two
+  automatic sign-ins of the site in 10 minutes, ADR 0062) hands it on as
+  `default-unset`, as a site that asks every time does where the request itself gets
+  past the first check. None of these signs without a person, so none opens a chooser.
+- **Re-verification.** After Pateat's login in the tab signed in and no logout was seen
+  (ADR 0035), the request is a re-verification on a `confirm` page. It is handed on as
+  `confirm-fill`, as a click's request that names its credentials is, except on the page
+  that login completed in within 30 seconds of its completion
+  (`secondFactorAfterCompletion`, ADR 0029 amendment of 2026-11-17), which asks for its
+  second factor. This extends that check to `conditional` requests, for this path only.
+  A passkey answer outside a login that signed another page of the tab in, such as this
+  path's own, counts as signed in too, until a page of the tab shows a recipe's first
+  step again, the logout signal that forgets a login's record (ADR 0062). That mark is
+  kept in memory per tab and origin and is lost when the worker restarts. What keeps a
+  re-authentication page hours later from being answered silently is the person's step
+  itself: it must have been made less than a minute before the request, and one answer
+  uses it up.
+- **The page's path.** The checks of the amendment above apply: the tab's path is read
+  again right before the assertion leaves, and a page that moved hands the request on
+  as `page-moved`. Pateat's page script drops an assertion whose page's path changed.
+- **A sign-in Pateat made.** The answer always counts toward the relogin guard, also
+  when the page had a user activation, since an autofill request is no press. The tab's
+  next page is the page after a sign-in (ADR 0028), as for any answer without a login
+  or a choice.
+- **Logs.** `passkey.request` carries the flag `namedCredential` on each request this
+  path decided, answered or handed on, including one handed on as `no-login` because a
+  login of the tab ran or it followed no step of the person, as `no-recipe` on an origin
+  without a recipe, and as `paused` when a pause starts while it waits. A request handed
+  on before its path is read, as `paused` or `one-time-pick` at its first check, or
+  cancelled, carries no flag. It records no credential ID, address or username.
+
+Consequences:
+
+- On Money Forward ID, an address the person types and sends with **Next** signs in with
+  that account's passkey on the password page, also for an item without a password.
+  With automatic login paused there, the request is still handed on as `paused`.
+- A site whose page after the identifier names one passkey of the vault in an autofill
+  request now signs in without a press, where before the browser or another provider
+  showed its suggestion. A site that names several passkeys of the vault still gets
+  the browser's suggestion, and so does a page that names one on load.
+- Verified with unit tests of the passkey runtime and the login runtime, and with
+  Chromium tests of the step's detection; the real site is still to be checked in the
+  owner's Chrome.

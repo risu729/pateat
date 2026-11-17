@@ -326,6 +326,21 @@ its passkey window with the login's account first. Otherwise, if that page's for
 heading shows another of your accounts, the window opens with that account first, then
 the login's.
 
+Some sites ask for the passkey of the account you typed after you enter your email, on a
+page Pateat has no login steps for, without a passkey button. When you sent a form with
+your email, username, phone number or password filled in on that site less than a
+minute before, by clicking its button or pressing Enter in it yourself, the site asks on
+that page or the page right after it, exactly one passkey in your vault is one the site
+asks for there, and no Pateat login is running in the tab, Pateat signs in with that
+passkey's item, even one with no password. Each form you send answers one such request.
+Any form with an email field counts, also a newsletter or subscribe form. A site's page
+can also put its own button where you click, so that a click of yours sends its form.
+A page that asks as soon as you open it, with no form of yours sent just before it,
+still goes to the browser, and so does one in a frame of the page or after a form the
+page sent itself. So does the request when the site names several passkeys of your
+vault, when automatic login is paused or set to ask every time on that site, and when
+Pateat already signed you in there in that tab.
+
 With **Auto**, when you log out of a site yourself, Pateat logs in again on the next
 login page, with the account it would use for an automatic login. To stay logged out,
 pause the site first. If Pateat logged in to a site twice in the last 10 minutes, it

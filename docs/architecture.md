@@ -3854,9 +3854,26 @@ wrappers that other providers, including the official Bitwarden extension, insta
 assigning `get` or `create`, so it answers claimed requests first. A top document's
 conditional request goes to the login runtime, which answers it only through a login of
 that document and otherwise hands it on, or withholds it after that login signed in
-([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A login that stops before its
-item's missing password answers its document's waiting request at its stop, also one
-made after its first submission
+([ADR 0034](adr/0034-answer-page-passkey-requests.md)). The one exception is a
+conditional request that names its credentials on a path where no recipe starts, less
+than `PERSON_STEP_MS` (60 seconds) after the person's own sign-in step, on that page or
+the page right after it. The top document's content script reports that step
+(`login.document.person-step`, its path only) on the person's own input that sends a
+form holding a shown identifier or password input with a value: a trusted Enter keydown
+in one of its inputs outside an input method's composition, or a trusted click whose
+composed path holds its submit button. It reads no `submit` event, since a page's own
+`requestSubmit` fires a trusted one; a page that places its own submit button under the
+person's click, and any form with an email field, such as a newsletter's, still count.
+The worker keeps the latest per tab and origin in memory, and the request must come from
+that document on another path or from the tab's next top document of the origin. Once
+its page announced with no sign-in, or at the three-second bound, and no login of its
+tab runs or is watched, it is answered with the one vault passkey it names, which uses
+the step up. It is handed on when several passkeys or none are named, for an unread item
+or a nonzero counter, on a paused site, one that asks every time or the relogin guard
+holds, and on a re-verification after Pateat's login or its own passkey sign-in in the
+tab (ADR 0034 amendment of 2026-11-17, the owner's decision; its details are the
+agent's). A login that stops before its item's missing password answers its document's
+waiting request at its stop, also one made after its first submission
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Real-extension coexistence
 requires separate compatibility tests.
 

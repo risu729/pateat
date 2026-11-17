@@ -40,6 +40,7 @@ export {
   codeChangedSchema,
   codeWatchReplySchema,
   personSubmittedSchema,
+  personStepSchema,
   readySchema,
   reconnectSchema,
   authorizeSchema,

@@ -33,6 +33,12 @@ export const EXTRACT_RETRY_MS = 1000;
 export const AFTER_SIGN_IN_MS = 60_000;
 
 /**
+ * How long after the person's own sign-in step in a tab a conditional request that names
+ * its credentials still follows it (ADR 0034 amendment of 2026-11-17).
+ */
+export const PERSON_STEP_MS = 60_000;
+
+/**
  * How long after another tab's login of an origin authenticated a list of accounts showing
  * on it is not sent for generation (ADR 0028, owner 2026-10-17).
  */
