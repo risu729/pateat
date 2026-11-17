@@ -364,24 +364,24 @@ delegating work to mise. Avoid recursion between hk check and mise checks.
 
 The automatic custom `aube_workspace` mise deps rule prepares the existing frozen aube
 installation before tasks and `mise exec` when an input changes or `node_modules` is
-missing (the owner allowed mise's experimental features on 2026-10-19;
-[platform features](#platform-features)). Its inputs include `bun.lock`, every declared
-workspace manifest, `aube-workspace.yaml` and `bunfig.toml`, so a dependency or
-install-policy change cannot reuse stale preparation. The built-in aube provider
-requires `aube-lock.yaml`, which this repository does not use.
+missing (the owner allowed mise's experimental features on 2026-10-19; [platform
+features](#platform-features)). Its inputs include `bun.lock`, every declared workspace
+manifest and `aube-workspace.yaml`, so a dependency or install-policy change cannot
+reuse stale preparation. `bunfig.toml` is not an input: aube 2.10.0 never reads it, and
+its `exact = true` only affects how Bun writes versions into `package.json`. The
+built-in aube provider requires `aube-lock.yaml`, which this repository does not use.
 `mise deps --explain aube_workspace` explains freshness; `mise run install` forces a
-repair. CI seeds the same rule explicitly with `mise deps --force aube_workspace`; when
-`CI=true`, the rule runs the existing clean `aube ci` instead of the local frozen
-install. Later tasks reuse that preparation. Deployment retains its existing artifact
-flow. This extends the existing installation policy without changing its package manager
-or lockfile format.
+repair. CI has no separate install step: the first `mise run` or `mise exec` in a job
+finds `node_modules` missing and runs the rule, and when `CI=true` it runs the existing
+clean `aube ci` instead of the local frozen install. Later tasks reuse that preparation.
+Deployment retains its existing artifact flow. This extends the existing installation
+policy without changing its package manager or lockfile format.
 
-Install the pinned tools and frozen dependencies, then use the complete check
-entrypoint:
+Install the pinned tools, then use the complete check entrypoint; its `mise exec`
+installs the frozen dependencies first:
 
 ```sh
 mise install
-mise run install
 mise exec -- hk check --all --no-fail-fast
 ```
 
