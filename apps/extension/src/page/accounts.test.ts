@@ -123,6 +123,65 @@ describe("formAccounts", () => {
       showsOtherAccount(formAccounts(document, form), "me@example.com", { masked: false }),
     ).toBe(true);
   });
+
+  it("compares a member number shown read-only on a sign-in again with a digits username (#1676)", () => {
+    // JAL's member re-login (2026-11-17): the number of the account signed in shows
+    // read-only above the password, which a login fills alone.
+    const page = (shown: string, attributes = `autocomplete="username" readonly`) => {
+      document.body.innerHTML = `<form id="login"><label for="n">JMB会員番号</label>
+        <input type="text" id="n" ${attributes} value="${shown}">
+        <input type="password" id="p" autocomplete="current-password"></form>`;
+      return formAccounts(document, document.getElementById("login") as HTMLFormElement);
+    };
+    const password = { masked: true };
+    // Another account's number stops the password fill for this one.
+    expect(page("1234567890")).toEqual(["1234567890"]);
+    expect(showsOtherAccount(page("1234567890"), "9876543210", password)).toBe(true);
+    // The account's own number, written with spaces or hyphens on either side, does not.
+    expect(showsOtherAccount(page("1234567890"), "1234567890", password)).toBe(false);
+    expect(page("1234 5678 90")).toEqual(["1234567890"]);
+    expect(showsOtherAccount(page("1234 5678 90"), "1234567890", password)).toBe(false);
+    expect(showsOtherAccount(page("1234 5678 90"), "9876543210", password)).toBe(true);
+    expect(showsOtherAccount(page("1234567890"), "1234-5678-90", password)).toBe(false);
+    // Nor with leading zeros on either side, while another number still stops it.
+    expect(showsOtherAccount(page("0001234567"), "1234567", password)).toBe(false);
+    expect(showsOtherAccount(page("1234567"), "0001234567", password)).toBe(false);
+    expect(showsOtherAccount(page("0001234567"), "0001234568", password)).toBe(true);
+    expect(showsOtherAccount(page("0001234567"), "12345670", password)).toBe(true);
+    // Only on a password step, and never for an email or a letters username.
+    expect(showsOtherAccount(page("1234567890"), "9876543210", { masked: false })).toBe(false);
+    expect(showsOtherAccount(page("1234567890"), "me@example.com", password)).toBe(false);
+    expect(showsOtherAccount(page("1234567890"), "taro99", password)).toBe(false);
+    // A number the page does not show, as a site's own user ID, adds nothing: under a
+    // `hidden` attribute, not rendered, off the page or in a hidden input.
+    for (const hidden of [
+      `hidden`,
+      `style="display:none"`,
+      `style="position:absolute;left:-9999px"`,
+    ])
+      expect(page("1234567890", `autocomplete="username" readonly ${hidden}`), hidden).toEqual([]);
+    document.body.innerHTML = `<form id="login"><input type="hidden" name="userId" value="1234567890">
+      <input type="password" id="p"></form>`;
+    expect(formAccounts(document, document.getElementById("login") as HTMLFormElement)).toEqual([]);
+    // Nor does one the person may have typed: a disabled input that is not read-only, the
+    // fill's own target, or one beside a software keyboard whose keys typed it.
+    expect(page("1234567890", `autocomplete="username" disabled`)).toEqual([]);
+    page("1234567890");
+    expect(
+      formAccounts(document, document.getElementById("login") as HTMLFormElement, [
+        document.getElementById("n")!,
+      ]),
+    ).toEqual([]);
+    const keys = [..."0123456789"].map((key) => `<button type="button">${key}</button>`).join("");
+    document.body.innerHTML = `<form id="login"><input type="text" id="n" autocomplete="username"
+      readonly value="1234567890"><div id="pad">${keys}</div>
+      <input type="password" id="p"></form>`;
+    expect(formAccounts(document, document.getElementById("login") as HTMLFormElement)).toEqual([]);
+    // One not marked `username`, or a value that is no number, adds nothing either.
+    expect(page("1234567890", `name="account" readonly`)).toEqual([]);
+    expect(page("taro99")).toEqual([]);
+    expect(page("123")).toEqual([]);
+  });
 });
 
 describe("accountText", () => {

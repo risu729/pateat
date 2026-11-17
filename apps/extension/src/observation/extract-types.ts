@@ -20,7 +20,8 @@ export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-loca
  * the extractor's fixed order, never a page text, attribute value or count.
  *
  * - `unfillable-field`: a fillable field that cannot be filled (faint, read-only
- *   or disabled); on a signed-in page, only one that may be a sign-in field.
+ *   or disabled); on a signed-in page, only one that may be a sign-in field. A read-only
+ *   field that only shows a value the page put there (`shownValue`) is left out instead.
  * - `unsupported-control`: a control the executor cannot act on in a login form, such as
  *   a select, a radio button or a text area.
  * - `unlocated-field`, `unlocated-checkbox`, `unlocated-button`: a field, required checkbox or

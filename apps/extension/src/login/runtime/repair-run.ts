@@ -2,6 +2,7 @@ import * as v from "valibot";
 import {
   handlerTargets,
   loginStepEffect,
+  recipeHasRoute,
   recipeStartSteps,
   type LoginChooserRecipe,
   type LoginRecipe,
@@ -9,7 +10,7 @@ import {
   type LoginEntryRecipe,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { entryCheckResultSchema, loginReadiness, type StartMiss } from "../wire";
+import { entryCheckResultSchema, loginReadiness, observationSchema, type StartMiss } from "../wire";
 import { classifyStartMiss } from "../repair";
 import { type LiveDocument, type Execution, type GenerationMiss } from "./types";
 import { frameKey, rawPath } from "./steps";
@@ -27,6 +28,24 @@ import { vaultMatches, generateEntryFor } from "./entry-press";
 import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
 import type { Runtime } from "./state";
+
+/**
+ * Whether the document shows a visible writable password input that is not marked
+ * `new-password` or `one-time-code` and is in no form with such an input (the `signIn`
+ * answer of `login.observe`, `credentialInputs`); a page that cannot be asked shows none.
+ */
+async function showsPassword(rt: Runtime, live: LiveDocument): Promise<boolean> {
+  const observed = v.safeParse(
+    observationSchema,
+    await send(rt, live, {
+      type: "login.observe",
+      path: live.path,
+      targets: [],
+      signIn: true,
+    }).catch(() => undefined),
+  );
+  return observed.success && observed.output.signIn?.password === true;
+}
 
 /**
  * Sends the start page of a new login's recipe the chosen item cannot run for repair (ADR
@@ -88,8 +107,18 @@ export async function repairUnfit(
   if (rt.documents.get(key) !== live) return;
   const shown = formShows && formShows.success ? formShows.output : undefined;
   const list = shown && !shown.signIn ? shown.list : undefined;
+  // A recipe that has a `password` route but fills no password with it, as a layout
+  // learned on a one-time-code page that shares the sign-in form's path (ADR 0058
+  // amendment of 2026-11-17), is sent only while the page shows a writable password input
+  // outside a code or new-password form: a code page, or one with an email and a code
+  // field, has no password to learn, and would spend the recipe's repair for nothing.
+  const noPassword =
+    refusal.route === "password" &&
+    recipeHasRoute(recipe, "password") &&
+    !(await showsPassword(rt, live));
+  if (rt.documents.get(key) !== live) return;
   const claim: RecipeRepairClaim =
-    formShows && !shown?.signIn && !list
+    (formShows && !shown?.signIn && !list) || noPassword
       ? { outcome: "not-due", reason: "no-form" }
       : await Promise.resolve()
           .then(() => rt.generation!.claimRepair!(recipe.id, refusal.route))

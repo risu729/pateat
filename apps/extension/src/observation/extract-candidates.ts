@@ -164,6 +164,38 @@ export function describe(element: Element, keypads?: Keypads): Found | undefined
   return undefined;
 }
 
+/** The `autocomplete` tokens of a field that takes a secret (`shownValue`). */
+const secretTokens = new Set(["current-password", "new-password", "one-time-code"]);
+
+/**
+ * Whether a field `describe` finds unfillable only shows a value the page put there, as
+ * a sign-in again shows the account's member number above an empty password field
+ * (JAL's re-login, 2026-11-17, #1676): a shown (not faint), enabled, read-only input of a
+ * text-like type other than a password that holds a value, and that opens no picker
+ * (`role="combobox"` or an `aria-haspopup`), as a date picker with a default date does.
+ * No step needs it, so a login page's and a signed-in page's descriptions leave it out
+ * rather than count it as a field that cannot be filled. Only whether its value is empty
+ * is read: the value is never kept or sent (#932). A secret's field still counts: one
+ * marked `current-password`, `new-password` or `one-time-code`, or one beside its own
+ * software keyboard (`keypads`, else `findKeypad`, ADR 0067), whose value the keys may
+ * be typing. So does an empty, disabled, faint or password one, or a picker.
+ */
+export function shownValue(field: HTMLInputElement, keypads?: Keypads): boolean {
+  const popup = field.getAttribute("aria-haspopup")?.trim().toLowerCase();
+  return (
+    field.readOnly &&
+    !field.matches(":disabled") &&
+    field.type !== "password" &&
+    fillTypes[field.type] !== undefined &&
+    field.value !== "" &&
+    !autocompleteTokens(field).some((token) => secretTokens.has(token)) &&
+    !field.matches("[role~='combobox' i]") &&
+    (popup === undefined || popup === "" || popup === "false") &&
+    presence(field) === "visible" &&
+    (keypads ? keypads.of(field) : findKeypad(field.ownerDocument, field)) === undefined
+  );
+}
+
 /** Radio buttons, selects, text areas and the ARIA widgets that stand for them. */
 const answerControls = [
   "input[type='radio' i]",

@@ -27,6 +27,13 @@ key text in a field's label, keys read from the keypad alone, a redrawn keypad, 
 page's own submission, the wait after a press, password and code fields only). No
 installed-Chrome or real-site check has been run.
 
+Amended on 2026-11-17 by an agent's choice, not confirmed by the owner
+([below](#amendment-2026-11-17-a-read-only-field-that-shows-a-value)): a read-only field
+that holds a value, not marked for a secret and without a keypad beside it, is left out
+of a login page's and a signed-in page's description instead of counting as
+unfillable, and a member number shown that way is compared with a digits-only username
+before a fill that writes a secret (amends [ADR 0049](0049-start-at-a-later-step.md)).
+
 Date: 2026-10-23
 
 ## Context
@@ -84,9 +91,14 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   `keypad` set to its own keypad's locator. A read-only field that holds a value, as a
   date or an email address shown again, and a read-only text input, as a search box
   beside an `A`-`Z` filter bar of buttons, stay unfillable, and so does any field
-  without a keypad, as before. The keys of every keypad on the page, also an optional
-  keyboard beside a writable field and the document's own key groups, are left out of
-  the candidates, and their text is never part of a field's label or description: a
+  without a keypad, as before. Since the
+  [2026-11-17 amendment](#amendment-2026-11-17-a-read-only-field-that-shows-a-value), a
+  shown, enabled read-only field of a text-like type other than a password that holds a
+  value is left out of the description instead, unless it is marked for a secret or has
+  a keypad beside it. The keys of every keypad on the page,
+  also an optional keyboard beside a writable field and the document's own key groups,
+  are left out of the candidates, and their text is never part of a field's label or
+  description: a
   label by layout stops at a key, and a `<label>` or the element `aria-labelledby` or
   `aria-describedby` names is read without the keys and keeps the rest of its text. So
   the key labels and their order never reach the service.
@@ -205,3 +217,72 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
 - Reloading the page after a stop that pressed a key: clears the field without the
   person, but a reload may send a posted form again and loses what the page held, so
   the person is told to reload instead.
+
+## Amendment 2026-11-17: a read-only field that shows a value
+
+An agent's choice, not confirmed by the owner, after
+[#1676](https://github.com/risu729/pateat/issues/1676). JAL's member re-login, reached
+while signed in (2026-11-17, build `200756f`), shows the member number in
+`<input type="text" autocomplete="username" readonly>`, filled by the site, above an
+empty `current-password` field. The read-only field made the form incomplete
+(`unfillable-field`), so the page could not be sent for repair and no password layout
+was ever generated for it.
+
+Such a field is information the page shows, not a field Pateat must fill. The login
+page's description (`extractLoginObservation`) and the signed-in page's
+(`extractSignedInObservation`) now leave out a field that `shownValue` in
+`apps/extension/src/observation/extract-candidates.ts` accepts: a shown (not transparent
+or tiny), enabled, read-only input of type `text`, `email`, `tel` or `number` that holds
+a value and opens no picker (no `role="combobox"` and no `aria-haspopup` other than
+`false`). It is left out rather than kept as a candidate that cannot be filled: the
+description has no role for one, no step needs it, and its label could not tell the
+model more than the password field beside it does. This matches the rule for a field a
+continued recipe already fills ([ADR 0018](0018-recipe-generation-route.md)). Only
+whether it is empty is read: the value is never kept or sent
+([#932](https://github.com/risu729/pateat/issues/932)). A field the page made read-only
+after the person typed in it, as an identifier-first page that keeps the typed email
+above its password, is left out the same way.
+
+Unchanged: these still count as fields that cannot be filled (`unfillable-field`) on a
+login page and keep a signed-in page from the judge: an empty read-only field; a
+disabled one (a disabled fieldset's too); a transparent or tiny one; a read-only
+password field (a keypad's field before it is empty, or a masked value); a read-only
+field marked `current-password`, `new-password` or `one-time-code`, whatever its type,
+since it holds a secret; a read-only field beside its own software keyboard (found as
+the keypad search above finds it), which is described as a keypad field when it is
+empty and counts as unfillable otherwise; and a picker (`role="combobox"` or an
+`aria-haspopup` other than `false`). Other `autocomplete` tokens do not matter: a
+read-only `username` field that shows a value is left out on a signed-in page too, and
+a sign-in field the person can fill beside it still counts as one.
+
+A login form whose only field is such a value has nothing left to describe: its page is
+refused `no-candidates` (with `d0` in the detail) instead of `unfillable-field`
+([ADR 0016](0016-recipe-generation-trigger.md)), and a signed-in page whose only field
+it is reads as complete, so the judge sees it
+([ADR 0029](0029-local-sign-in-state.md), [ADR 0035](0035-page-kinds-per-site.md)).
+
+The account check before a fill that writes a secret
+([ADR 0049](0049-start-at-a-later-step.md)) compares a member number shown this way.
+`formAccounts` in `apps/extension/src/page/accounts.ts` adds the number of a read-only
+input marked `autocomplete="username"` that the page shows (`presence` is `visible`: no
+`hidden` attribute, rendered, not moved off the page, not transparent or tiny) and that
+holds 4 to 64 digits once its spaces and hyphens are removed. `showsOtherAccount`
+compares a digits-only username with it, also without spaces and hyphens and without
+leading zeros on either side (`0001234567` is `1234567`), on any step that fills a
+masked secret (`maskedSecret`: a password, Hidden field, PIN, card number or card
+code). A form that shows another member's number then ends `wrong-account` instead of
+filling this item's secret. The input's own form is read, or the whole document for a
+fill outside any form. The value is compared on the device and never kept or sent. A
+number that may not be the account shown is not compared: a hidden input's or a hidden
+or off-page one's (it may be the site's own user ID), a disabled input's that is not
+read-only, one beside a software keyboard (its keys may have typed it), and one in an
+input the fill itself fills.
+
+A bank's re-login that shows the customer number read-only beside a software keyboard
+for the PIN keeps both rules apart: the number is not left out of the description (it
+has a keypad beside it), so the form stays incomplete (`unfillable-field`) and is
+never generated or filled, as before this amendment.
+
+Known risk: a read-only field a script sets without being marked as a picker, as a date
+picker with a default date and no ARIA, is left out too, so a recipe generated for its
+form fills nothing there and the page keeps that default.

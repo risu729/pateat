@@ -218,7 +218,7 @@ export function createContentListener(context: ContentSession) {
         // login's fill does (owner decision, 2026-10-11).
         if (
           username !== undefined &&
-          showsOtherAccount(formAccounts(document, form), username, {
+          showsOtherAccount(formAccounts(document, form, controls as Element[]), username, {
             masked: fields.some((field) => maskedSecret(field.secret)),
           })
         )

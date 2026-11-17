@@ -22,6 +22,7 @@ import {
   describeAll,
   maxSelects,
   describeSelects,
+  shownValue,
 } from "./extract-candidates";
 import { observe, byLandmark } from "./extract-observe";
 
@@ -53,9 +54,11 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * and so does a field that may be a sign-in field
  * (`mayBeSignIn`) but cannot be located or filled. A field that may not, such as a search
  * box with no ID, a password change form's field or a hotel search's read-only date
- * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
- * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
- * sent code, so such a page completes only when the judge answers `signed-in`. Up to
+ * picker, is left out (owner, 2026-10-12, ADR 0029), and so is a read-only field that
+ * holds a value the page put there, whatever it may be (`shownValue`). A disabled one is
+ * left out too, but the result says so (`disabledLeftOut`): it may be a code field
+ * waiting for a timer or a sent code, so such a page completes only when the judge
+ * answers `signed-in`. Up to
  * twelve shown single-choice selects follow the fields as `select`, by their label and
  * `autocomplete` and never their options, located by a lasting attribute or left out, so
  * the judge can name a split birth date's or card expiry date's parts (ADR 0061). A radio
@@ -99,6 +102,9 @@ function describeSignedIn(document: Document): ObservationResult {
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
     if (entry.kind === "unsupported") {
+      // A read-only field that only shows a value the page put there, as the account's
+      // email shown again, is left out as on a login page (`shownValue`).
+      if (entry.field && shownValue(entry.field)) continue;
       // A disabled field may be a code field waiting for a timer or a sent code: one that
       // may not be a sign-in field is left out, but only `signed-in` completes the page.
       if (entry.field && mayBeSignIn(entry.field)) gap ??= "unfillable-field";

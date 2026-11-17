@@ -1,6 +1,8 @@
 import { renderedText, shown as rendered } from "./text";
 import { closestAcross, inputsOf, queryAll } from "./shadow";
 import { autocompleteTokens } from "./targets";
+import { findKeypad } from "./keypad";
+import { presence } from "./presence";
 
 const readLimit = 4000;
 const headingLimit = 8;
@@ -79,10 +81,14 @@ export function fits(shown: string, username: string): boolean {
 /**
  * Whether the page shows another account than `username`. Only identifiers of the
  * username's kind count: email addresses for an email username; masked IDs for a
- * username of digits only, and only when `masked` is set (a password step: a one-time
- * code page usually shows the masked phone number the code went to). The page
+ * username of digits only, and only when `masked` is set (a step that fills a masked
+ * secret, as a password, PIN or card number: a one-time code page usually shows the
+ * masked phone number the code went to). The page
  * conflicts only when it shows such identifiers and none of them fits the username; a
- * masked identifier that fits (`m***@example.com`) cannot be told apart.
+ * masked identifier that fits (`m***@example.com`) cannot be told apart. A digits-only
+ * username also fits without its spaces and hyphens (`0000-1234` fits `00001234`), and
+ * an unmasked number fits it whatever leading zeros either has (`0001234567` fits
+ * `1234567`).
  */
 export function showsOtherAccount(
   shown: readonly string[],
@@ -90,11 +96,17 @@ export function showsOtherAccount(
   { masked }: { masked: boolean },
 ): boolean {
   const name = accountName(username);
+  const compact = name.includes("@") ? name : name.replace(/[\s-]/gu, "");
   const comparable = comparableAccounts(shown, username, { masked });
+  // Two numbers are one account whatever leading zeros either is written with.
+  const number = /^\d+$/u;
+  const unpadded = (value: string) => value.replace(/^0+(?=\d)/u, "");
+  const same = (entry: string) =>
+    number.test(entry) && number.test(compact) && unpadded(entry) === unpadded(compact);
   return (
     comparable !== undefined &&
     comparable.length > 0 &&
-    !comparable.some((entry) => fits(entry, name))
+    !comparable.some((entry) => fits(entry, name) || fits(entry, compact) || same(entry))
   );
 }
 
@@ -142,22 +154,67 @@ export function accountText(document: Document, form: HTMLFormElement | null): s
  * from an input for an account identifier the person cannot type into, hidden, read-only
  * or disabled (`:disabled`, including a disabled fieldset): a form for a remembered
  * account may keep the address only there (ADR 0049), and {@link accountText} never
- * includes an input's value. What a person types is never read (#932).
+ * includes an input's value. What a person types is never read (#932). A read-only
+ * input marked `username` that the page shows (`presence` visible) with a number, as a
+ * member number shown again above the password on a sign-in again (#1676), adds that
+ * number without its spaces and hyphens, which a digits-only username is compared with
+ * on a step that fills a masked secret. A number the page does not show, as a site's own
+ * user ID in a hidden input, one beside a software keyboard (`findKeypad`, ADR 0067),
+ * whose keys may have typed it, and one in an input of `typed` (the fill's own targets)
+ * add nothing.
  */
-export function formAccounts(document: Document, form: HTMLFormElement | null): string[] {
+export function formAccounts(
+  document: Document,
+  form: HTMLFormElement | null,
+  typed: readonly Element[] = [],
+): string[] {
   const identifier = /user|mail|login|account|ident/iu;
-  const submitted = inputsOf(form, document).flatMap((input) =>
-    input.type !== "password" &&
-    (input.type === "hidden" || input.readOnly || input.matches(":disabled")) &&
-    input.value &&
-    (input.type === "email" ||
-      autocompleteTokens(input).some((token) => token === "username" || token === "email") ||
-      identifier.test(`${input.name} ${input.id}`))
-      ? shownAccounts(input.value).filter((entry) => !entry.includes("*"))
-      : [],
-  );
+  const submitted = inputsOf(form, document).flatMap((input) => {
+    if (
+      !(
+        input.type !== "password" &&
+        (input.type === "hidden" || input.readOnly || input.matches(":disabled")) &&
+        input.value &&
+        (input.type === "email" ||
+          autocompleteTokens(input).some((token) => token === "username" || token === "email") ||
+          identifier.test(`${input.name} ${input.id}`))
+      )
+    )
+      return [];
+    const found = shownAccounts(input.value).filter((entry) => !entry.includes("*"));
+    if (found.length || input.type === "hidden" || !input.readOnly) return found;
+    if (
+      !autocompleteTokens(input).includes("username") ||
+      typed.includes(input) ||
+      presence(input) !== "visible" ||
+      findKeypad(document, input) !== undefined
+    )
+      return [];
+    const number = accountName(input.value).replace(/[\s-]/gu, "");
+    return /^\d{4,64}$/u.test(number) ? [number] : [];
+  });
   return [...shownAccounts(accountText(document, form)), ...submitted];
 }
+
+/**
+ * A fill's account check: its form, the inputs it fills (`typed` in {@link formAccounts}),
+ * the item's username and whether it writes a masked secret.
+ */
+interface FillAccount {
+  form: HTMLFormElement | null;
+  inputs: readonly Element[];
+  username: string;
+  masked: boolean;
+}
+
+/** Whether the page shows another account than the fill's ({@link showsOtherAccount}). */
+export const fillShowsOther = (document: Document, fill: FillAccount) =>
+  showsOtherAccount(formAccounts(document, fill.form, fill.inputs), fill.username, fill);
+
+/** Whether the page shows no identifier the fill's username is compared with. */
+export const fillShowsNone = (document: Document, fill: FillAccount) =>
+  comparableAccounts(formAccounts(document, fill.form, fill.inputs), fill.username, fill)
+    ?.length === 0;
 
 /** Where a page's own account is not read: its header, navigation, contacts and echoes. */
 const notShownAccount = [

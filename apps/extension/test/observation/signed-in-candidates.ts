@@ -403,6 +403,40 @@ export function registerSignedInCandidates({
       page(`<button id="logout">Sign out</button>${field}`);
       expect(gap(), field).toEqual([false, "unfillable-field"]);
     }
+    // Such a read-only field that holds a value the page put there only shows it, as the
+    // account's email or member number shown again, so it is left out as on a login page,
+    // and its value is never sent (#1676): a page whose only field it is is complete. A
+    // picker's, a disabled one's, a password's or a secret's value does not count.
+    for (const field of [
+      `<input id="f" autocomplete="username" readonly value="1234567890">`,
+      `<input id="f" type="email" readonly value="me@example.com">`,
+      `<input id="f" type="tel" maxlength="10" readonly value="0312345678">`,
+      // The keypad PIN field below, with no keypad on the page.
+      `<div><input id="f" inputmode="numeric" maxlength="4" readonly value="12"></div>`,
+    ]) {
+      page(`<button id="logout">Sign out</button>${field}`);
+      expect(gap(), field).toEqual([true, undefined]);
+      expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
+      expect(JSON.stringify(signedIn()), field).not.toMatch(/1234567890|me@example|0312345678/u);
+    }
+    for (const field of [
+      `<input id="f" autocomplete="username" readonly value="1234567890" role="combobox">`,
+      `<input id="f" autocomplete="username" disabled value="1234567890">`,
+      `<input id="f" type="password" readonly value="1234567890">`,
+      // A secret's field: a code or a password shown in a read-only text input.
+      `<input id="f" autocomplete="one-time-code" readonly value="123456">`,
+      `<input id="f" autocomplete="current-password" readonly value="1234">`,
+      `<input id="f" autocomplete="new-password" readonly value="1234">`,
+      // A PIN the page's own keypad typed into an unmarked field (`findKeypad`, ADR 0067).
+      `<div><input id="f" inputmode="numeric" maxlength="4" readonly value="12"><div>${[
+        ..."0123456789",
+      ]
+        .map((key) => `<input type="button" value="${key}">`)
+        .join("")}</div></div>`,
+    ]) {
+      page(`<button id="logout">Sign out</button>${field}`);
+      expect(gap(), field).toEqual([false, "unfillable-field"]);
+    }
     // Any other field that cannot be filled is left out: read-only, transparent or tiny.
     // The read-only date picker of a hotel search is the inferred case (アパホテル,
     // 2026-10-12; the log showed only `unfillable-field`).

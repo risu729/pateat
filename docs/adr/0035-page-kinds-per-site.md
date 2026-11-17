@@ -54,6 +54,15 @@ Amended on 2026-11-17 by the agent
 top verification page that a restarted worker does not know to announce again, with a
 bounded wait, so **Fill** shows there.
 
+Amended on 2026-11-17 by
+[ADR 0067](0067-software-keyboard-entry.md#amendment-2026-11-17-a-read-only-field-that-shows-a-value)
+(an agent's choice after [#1676](https://github.com/risu729/pateat/issues/1676), not
+confirmed by the owner): a page's description leaves out a read-only field that shows a
+value, unless it is marked for a secret or has a software keyboard beside it. A login
+form whose only field is such a value is refused `no-candidates`, so no page kind is
+generated for it, and a signed-in page whose only field it is is complete and goes to
+the judge.
+
 Date: 2026-10-12
 
 ## Context
