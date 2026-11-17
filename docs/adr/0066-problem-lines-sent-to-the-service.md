@@ -242,8 +242,9 @@ local log. Now:
 On My Digital Connect (2026-11-17 13:04 UTC), the owner's logins stopped on the phone
 number lightbox and the popup never offered a fill there, while the same page and recipe
 in a test browser entered the `detail` handler and offered one. The service could not
-tell which: a `detail` handler left to the person ends the login `challenge` exactly as a
-page whose handler was never entered, and its `detail-*` outcome stayed in the local log.
+tell which: a `detail` handler left to the person ends the login `challenge` exactly as
+a page whose handler was never entered, and its `detail-*` outcome stayed in the local
+log.
 Now a `login.handler` line with outcome `detail-unlinked`, `detail-reprompt`,
 `detail-manual`, `detail-unreadable`, `detail-unavailable` or `detail-unfit`, each a
 `detail` handler that filled nothing, is a did-nothing line (`PROBLEM_INFO_LINES`) and
