@@ -561,6 +561,17 @@ export const loginTimings = sqliteTable(
     checkMs: integer("check_ms"),
     vaultMs: integer("vault_ms"),
     commandMs: integer("command_ms"),
+    /**
+     * Which sign-in method the login used (ADR 0055 amendment of 2026-11-18): the route it
+     * ran (`password`, `passkey` or `sso`), what it used before it completed and what its
+     * item holds (`loginMethodList`, as `passkey.password` or `none`), and why it did not
+     * use the best of those (`LOGIN_METHOD_WHYS`). Null in rows of devices that sent none,
+     * as before the amendment or after a worker restart.
+     */
+    route: text("route"),
+    used: text("used"),
+    held: text("held"),
+    routeWhy: text("route_why"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [

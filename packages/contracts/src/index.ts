@@ -126,6 +126,7 @@ export * from "./manage-logins";
 export * from "./models";
 export * from "./observation";
 export * from "./pairing";
+export * from "./login-methods";
 export * from "./problems";
 export * from "./password-choice";
 export * from "./authenticator-choice";

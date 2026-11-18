@@ -16,6 +16,7 @@ import {
   type LoginObservation,
   type LoginTarget,
   type SettingsResponse,
+  type LoginMethod,
   onlyChoicesSince,
 } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
@@ -30,6 +31,7 @@ import { withChoice } from "../steps";
 import { hideUsernames, markerProofs, showsMarkers } from "../markers";
 import { openPasswordWindow } from "../master-password";
 import { countRelogin } from "../relogin";
+import { openMethods, type MethodMarks } from "../methods";
 import { ssoCurrent, ssoScope } from "../sso-scope";
 import { ssoPress } from "../sso-effects";
 import { ssoChild, type SsoWork } from "../sso-state";
@@ -499,6 +501,8 @@ export async function beginSso(
   chosen: Choice,
   selection: Extract<SsoResolvedChoice, { kind: "sso" }>,
   observed?: { target: LoginTarget; label: string },
+  /** What the item holds and why the chooser took this method (ADR 0055, amended 2026-11-18). */
+  methods?: { held: readonly LoginMethod[]; marks: MethodMarks },
 ) {
   await rt.sso.loaded;
   if (
@@ -689,6 +693,7 @@ export async function beginSso(
         ...(chosen.pick?.makeDefault ? { replace: true } : {}),
       };
     if (chosen.pick) chosen.pick.attemptId = work.id;
+    if (methods) openMethods(rt, work.id, methods.held, methods.marks, ["sso"]);
     work.phase = "entering-idp";
     await rt.sso.write();
     if (!(await ssoPress(rt, work, ctx.live, target, "rp-entry")))

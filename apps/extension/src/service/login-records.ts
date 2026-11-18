@@ -68,6 +68,15 @@ export function loginRecordOf(
     personMs,
     pageMs,
     ...parts,
+    // Which sign-in method it used, when the login kept them (ADR 0055, amended 2026-11-18).
+    ...(report.methods
+      ? {
+          route: report.methods.route,
+          used: report.methods.used,
+          held: report.methods.held,
+          ...(report.methods.why ? { routeWhy: report.methods.why } : {}),
+        }
+      : {}),
   });
   return parsed.success
     ? { recipeId: found.recipeId, record: parsed.output }

@@ -45,6 +45,10 @@ Pateat service rather than sharing the owner's, so what a device sends goes to a
 its own user runs, and the checkbox above turns it off. Logs still never go from the
 service to a device.
 
+Amended on 2026-11-18 by the owner's choice that each record names the sign-in method
+the login used
+([amendment](#amendment-2026-11-18-which-sign-in-method-a-login-used)).
+
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
 owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a record
 always carries `branch`, which names the layout the login ran (`<key>`, or
@@ -148,6 +152,64 @@ Not confirmed by the owner (the agent's choices): the parts are flat optional fi
 the record and nullable columns of `login_timings`; the contract takes only whole steps
 of 100 ms; the dashboard groups them as its other login parts are, by whether the login
 waited on the service.
+
+## Amendment 2026-11-18: which sign-in method a login used
+
+The owner asked (2026-11-18 01:57 UTC): "if the login item have both password and
+passkey or smth, we need to know which is used in the log (on the server) and treat them
+as potential bugs if password is used instead of passkey". The record named the layout,
+the outcome and the times, but not whether the login signed in with the item's passkey
+or its password, and a login's route alone does not tell it: a login on the `password`
+route answers its page's passkey request with the item too
+([ADR 0027](0027-per-account-login-routes.md) rule 4). On the proposal
+(`designs/login-method-used-log-proposal-ja.md` in the project files), the owner chose
+option A at 02:59 UTC: 「A1. A. 2.
+はい、あとユーザーがルートを変えたのとかはエラーではない。3.
+SSoも出していいと思うが？除外する必要はないでしょ」 (option A; yes to the scope, and a
+route the person changed is not an error; SSO is included too). So the record also
+carries:
+
+- `route`: the route the login ran, `password`, `passkey` or `sso`
+  ([ADR 0085](0085-one-item-for-native-and-sso-login.md)).
+- `used`: what it used before it completed, in the automatic order passkey, SSO,
+  password and joined with dots (`loginMethodList`): `passkey` when the passkey bridge
+  answered its page with the login's own item, `password` when a step submitted the
+  item's password, `sso` for an SSO method's login, as `passkey.password`, or `none`, as
+  for a login that went on with an emailed code alone.
+- `held`: what the item holds the same way: its discoverable passkey for the page
+  (`discoverablePasskey`), an SSO method when the method chooser offered one, and its
+  password.
+- `routeWhy`: when the item holds a passkey or SSO method that ranks above everything
+  the login used (`missedLoginMethod`), why it did not use it (`LOGIN_METHOD_WHYS`):
+  `no-passkey-route`, `request-missing`, `answer-failed`, `sign-in-rejected`,
+  `sign-in-shown`, `passkey-refused`, `later-start` or `unknown`, each of which may be a
+  bug, or `picked`, `fill-only`, `sign-in-fill`, `sso-not-automatic` or `not-answered`
+  (the passkey's own route ended before it answered), which are the
+  person's choice or a setting.
+
+The same login logs a `login.route` warning for a reason that may be a bug, which goes
+to the service as a problem line
+([ADR 0066](0066-problem-lines-sent-to-the-service.md#amendment-a-login-that-passed-over-a-passkey-2026-11-18)).
+
+Not confirmed by the owner (the agent's choices):
+
+- The device keeps these in memory (`apps/extension/src/login/runtime/methods.ts`), as
+  it keeps the parts of a login's own time, so a login that a restarted worker resumed
+  sends none of them. The contract takes `route`, `used` and `held` together or none,
+  and `routeWhy` only with them; the service stores them in nullable `login_timings`
+  columns (migration 0042).
+- `used` counts only what came before the record was sent: a passkey a site asks for
+  after the login completed, as Cloudflare's security key after its password, is not in
+  the record, though it keeps the warning from being logged.
+- The person's pick of a method in the popup is `picked`, whichever method it was; the
+  method chooser's own pick, after the site refused the item's passkey, is
+  `passkey-refused`. A site whose passkeys go to the browser
+  ([ADR 0007](0007-existing-passkey-assertions.md)) and a page where passkeys cannot run
+  read no passkey for the item, so the item holds none there.
+- An item that holds none of these here, as one with only a passkey that is not
+  discoverable, names none of them.
+- A login with no record, such as an item without a password stopping before it
+  ([ADR 0036](0036-passkey-after-the-identifier.md)), still logs its warning.
 
 ## Consequences
 

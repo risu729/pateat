@@ -88,6 +88,29 @@ describe("loginRecordOf", () => {
     expect(loginRecordOf(ended(), BUILD)).not.toHaveProperty("record.startMs");
   });
 
+  it("sends which sign-in method the login used beside its item's, when it kept them", () => {
+    const methods = {
+      route: "password" as const,
+      used: "password",
+      held: "passkey.password",
+      why: "no-passkey-route" as const,
+    };
+    expect(loginRecordOf(ended({ methods }), BUILD)).toMatchObject({
+      record: {
+        route: "password",
+        used: "password",
+        held: "passkey.password",
+        routeWhy: "no-passkey-route",
+      },
+    });
+    const { why: _why, ...passkey } = { ...methods, used: "passkey" };
+    const found = loginRecordOf(ended({ methods: passkey }), BUILD);
+    expect(found).toMatchObject({ record: { route: "password", used: "passkey" } });
+    expect(found).not.toHaveProperty("record.routeWhy");
+    // A login that kept none, as one a restarted worker resumed, sends none.
+    expect(loginRecordOf(ended(), BUILD)).not.toHaveProperty("record.route");
+  });
+
   it("keeps the chooser branch and a listed cause of a blocked login", () => {
     expect(
       loginRecordOf(

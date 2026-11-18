@@ -32,6 +32,10 @@ Amended on 2026-11-17: a `detail` handler that filled nothing is a did-nothing l
 as [the dated amendment](#amendment-a-personal-detail-left-to-the-person-2026-11-17)
 records.
 
+Amended on 2026-11-18: a login that passed over its item's passkey or SSO method logs a
+`login.route` warning, as
+[the dated amendment](#amendment-a-login-that-passed-over-a-passkey-2026-11-18) records.
+
 Date: 2026-10-23
 
 ## Context
@@ -252,3 +256,40 @@ goes to the service.
 `entered` and the outcomes after a fill (`detail-saved`, `detail-not-saved`,
 `detail-forgotten`, `detail-kept`) stay local. The line carries the same fields as the
 other `login.handler` lines, codes and counts only; the upload allowlist is unchanged.
+
+## Amendment: a login that passed over a passkey (2026-11-18)
+
+The owner asked that a login of an item holding both a password and a passkey say which
+it used, and that a password used instead of the passkey be treated as a potential bug
+(2026-11-18 01:57 UTC), and chose option A of the proposal at 02:59 UTC, SSO methods
+included and a route the person changed not counted as an error
+([ADR 0055](0055-login-records-sent-to-the-service.md#amendment-2026-11-18-which-sign-in-method-a-login-used)).
+Now:
+
+- A login whose item holds a passkey or SSO method that ranks above everything it used,
+  for a reason that may be a bug (`no-passkey-route`, `request-missing`,
+  `answer-failed`, `sign-in-rejected`, `sign-in-shown`, `passkey-refused`, `later-start`
+  or `unknown`), logs one `warn` line `login.route`: the origin, recipe and revision,
+  layout, route, the methods it used and its item holds, the reason (`why`) and its
+  outcome. Being `warn`, it goes to the service and lists on `/manage/problems`. The
+  person's pick, a fill-only login, a sign-in fill and an item none of whose SSO methods
+  is automatic log nothing.
+- A login that did not sign in logs it when it ends. One that signed in logs it once a
+  passkey can no longer come as its second factor (`RESULT_CORRECTION_MS`, 30 seconds,
+  the window [ADR 0029](0029-local-sign-in-state.md) gives such a request); a passkey
+  the login's item answers before then leaves it out. The timer bounds a wait for that
+  answer and never holds the login ([ADR 0082](0082-waits-on-signals.md)); the worker
+  stays up for it as for a model call, so a stopped worker does not lose the line.
+- An end that says nothing of the method logs nothing: a cancel, a change of settings,
+  vault or account, a page that left the origin, a wrong or unlisted account
+  (`cancelled`, `policy-changed`, `account-switched`, `wrong-account`,
+  `account-not-listed`, `left-origin`), and a login on the passkey's own route that
+  ended before it answered and never went back to the password (`not-answered`), which
+  its own `login.attempt` line covers. A passkey the item answers counts for the tab's
+  login after the tab moved to another origin too, as it can then
+  ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
+- The line carries no page path: it is logged after the login submitted, which
+  `pathAllowed` never lets leave. Its fields are codes and counts only.
+
+Not confirmed by the owner (the agent's choices): the line's name and fields, the 30
+seconds, and logging it for a login that sends no record.

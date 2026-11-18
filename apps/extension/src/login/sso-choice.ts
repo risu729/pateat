@@ -48,6 +48,8 @@ type Receipt = {
   selection: SsoResolvedChoice;
   /** Only an automatic URL-form choice requires this exact destination again when consumed. */
   entryOrigin?: string;
+  /** The person picked it in the popup, rather than the automatic order (ADR 0085). */
+  picked?: true;
 };
 type Refusal = { reason: string; field?: string };
 type SsoSelection = Extract<SsoChooseRequest["selection"], { kind: "sso" }>;
@@ -226,10 +228,20 @@ export function createSsoChoiceController(options: {
     if (!checked.ok) return refusal(checked);
     return (await current(offer)) ? undefined : { reason: "scope-changed" };
   }
-  function resolve(offer: Offer, selection: SsoResolvedChoice, entryOrigin?: string) {
+  function resolve(
+    offer: Offer,
+    selection: SsoResolvedChoice,
+    entryOrigin?: string,
+    picked?: true,
+  ) {
     if (!retained(offer) || offer.settled) return failure("offer-gone");
     const choiceId = newId();
-    receipts.set(choiceId, { offer, selection, ...(entryOrigin ? { entryOrigin } : {}) });
+    receipts.set(choiceId, {
+      offer,
+      selection,
+      ...(entryOrigin ? { entryOrigin } : {}),
+      ...(picked ? { picked } : {}),
+    });
     finish(offer, { ok: true, choiceId });
     return { ok: true as const };
   }
@@ -420,13 +432,18 @@ export function createSsoChoiceController(options: {
     }
     const label =
       method.label ?? offer.input.entries?.find((entry) => entry.id === selection.entryId)?.label;
-    return resolve(offer, {
-      kind: "sso",
-      source: method.source,
-      selected: chosen,
-      ...(label ? { label } : {}),
-      ...(selection.entryId ? { entryId: selection.entryId } : {}),
-    });
+    return resolve(
+      offer,
+      {
+        kind: "sso",
+        source: method.source,
+        selected: chosen,
+        ...(label ? { label } : {}),
+        ...(selection.entryId ? { entryId: selection.entryId } : {}),
+      },
+      undefined,
+      true,
+    );
   }
   async function choose(request: SsoChooseRequest): Promise<SsoActionResponse> {
     const offer = offers.get(request.tabId);
@@ -439,7 +456,7 @@ export function createSsoChoiceController(options: {
       // A native route needs no SSO method to be mapped or valid (ADR 0085).
       if (selection.kind === "native") {
         if (!offer.input.native[selection.route]) return failure("method-unavailable");
-        return resolve(offer, selection);
+        return resolve(offer, selection, undefined, true);
       }
       const method = methodOf(offer, selection.method.number);
       if (!method) return failure("method-unavailable");
@@ -684,10 +701,14 @@ export function createSsoChoiceController(options: {
         if (!saved?.ok || !matching(saved, offer)) invalidateTab(tabId, "vault-changed");
     },
     /** Rechecks the route and the exact observed URL entry; one use, even on refusal. */
-    async consume(
-      choiceId: string,
-    ): Promise<
-      | { ok: true; document: LoginDocument; account: LoginAccount; selection: SsoResolvedChoice }
+    async consume(choiceId: string): Promise<
+      | {
+          ok: true;
+          document: LoginDocument;
+          account: LoginAccount;
+          selection: SsoResolvedChoice;
+          picked?: true;
+        }
       | { ok: false; reason: string }
     > {
       const receipt = receipts.get(choiceId);
@@ -717,7 +738,13 @@ export function createSsoChoiceController(options: {
       }
       if (!retained(offer)) return failure("scope-changed");
       invalidateTab(offer.input.document.tabId, "consumed");
-      return { ok: true, document: offer.input.document, account: offer.input.account, selection };
+      return {
+        ok: true,
+        document: offer.input.document,
+        account: offer.input.account,
+        selection,
+        ...(receipt.picked ? { picked: receipt.picked } : {}),
+      };
     },
   };
 }

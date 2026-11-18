@@ -524,6 +524,7 @@ export default defineBackground(() => {
     // While a login waits for the site, the worker stays up as for a model call, so the
     // waits kept in memory end it; the alarm covers a worker stopped anyway. A watch ends by
     // the alarm alone, so it keeps no worker up.
+    keepAlive: (work) => void keepAlive(work),
     keepAwake: (awake) => {
       if (!awake) {
         clearInterval(siteWaitAwake);
