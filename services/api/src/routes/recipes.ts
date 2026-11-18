@@ -273,6 +273,10 @@ export const recipeRoutes = new Hono<ApiEnv>()
           checkMs: record.checkMs ?? null,
           vaultMs: record.vaultMs ?? null,
           commandMs: record.commandMs ?? null,
+          route: record.route ?? null,
+          used: record.used ?? null,
+          held: record.held ?? null,
+          routeWhy: record.routeWhy ?? null,
           createdAt: now,
         }),
         // A login on an older revision counts as use of the recipe too, and of the layout it

@@ -55,6 +55,8 @@ describe("local SSO method chooser", () => {
       document,
       account,
       selection: { kind: "sso", source: sourceRef(), selected, label: "Synthetic provider" },
+      // The person picked it, which the login's record names (ADR 0055, amended 2026-11-18).
+      picked: true,
     });
     expect(await h.controller.consume(id)).toEqual({ ok: false, reason: "choice-gone" });
     // The mapping is the only change, saved as its own revision (ADR 0085).
@@ -117,10 +119,13 @@ describe("local SSO method chooser", () => {
       const answer = await pending.result;
       expect(answer.ok).toBe(true);
       if (!answer.ok) return;
-      expect(await h.controller.consume(answer.choiceId)).toMatchObject({
+      const consumed = await h.controller.consume(answer.choiceId);
+      expect(consumed).toMatchObject({
         ok: true,
         selection: route === "sso" ? { kind: "sso" } : { kind: "native", route },
       });
+      // The automatic order, not the person, picked it (ADR 0055, amended 2026-11-18).
+      expect(consumed).not.toHaveProperty("picked");
     },
   );
   it("keeps a numbered alternative explicit and never silently chooses it", async () => {

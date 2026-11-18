@@ -16,6 +16,7 @@ import {
   chooserRoute,
   type ChooserClick,
   type LoginRecipe,
+  sameLoginDocument,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { loginReadiness, type ListMissReport as ListMiss } from "../wire";
@@ -34,6 +35,7 @@ import {
 import { pauseOf } from "./pause";
 import { saveSession, reportAttempt, publish, report, startTiming, save } from "./attempt";
 import { addSpan, openSpans } from "./spans";
+import { dropMethods, openMethods } from "./methods";
 import { clearChoice, offerChoice } from "./choice";
 import { type Readiness, type Execution } from "./types";
 import { listClick, showsNow } from "./markers";
@@ -655,6 +657,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   } else {
     // A new login's plan carries the facts it chose its route with.
     if (!("facts" in plan)) return ctx.refuse("no-route");
+    // A login that starts past the first page's passkey button (ADR 0049), for its record.
+    const pastButton = !!ctx.later && !ctx.later.button && ctx.recipe.passkey !== undefined;
     // An account whose route is the passkey button that shows beside the later step
     // presses it, as on the first page (ADR 0027).
     if (ctx.later?.button && plan.route.route === "passkey") ctx.later = undefined;
@@ -717,6 +721,26 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       { type: "RESOLVE" },
     );
     openSpans(rt, metadata.id);
+    // What the item holds and why the login takes its route, for its record (ADR 0055,
+    // amended 2026-11-18): an SSO method only as the method chooser offered it (ADR 0085).
+    const native = rt.sso.native.get(ctx.document.tabId);
+    const offered = native && sameLoginDocument(native.document, ctx.document) ? native : undefined;
+    openMethods(
+      rt,
+      metadata.id,
+      [
+        ...(plan.facts.discoverablePasskey ? (["passkey"] as const) : []),
+        ...(offered?.methods ? (["sso"] as const) : []),
+        ...(plan.facts.password ? (["password"] as const) : []),
+      ],
+      {
+        ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
+        ...(metadata.signInFill ? { signInFill: true as const } : {}),
+        ...(offered?.picked ? { picked: true as const } : {}),
+        ...(offered?.passkeyRefused ? { passkeyRefused: true as const } : {}),
+        ...(pastButton ? { later: true as const } : {}),
+      },
+    );
     addSpan(rt, metadata.id, "beforeShownMs", beforeShown);
     addSpan(rt, metadata.id, "startMs", admission);
     rt.begunIn.delete(metadata.id);
@@ -775,6 +799,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   }
   const ssoParent = ssoChildOn(rt, ctx.document);
   if (ssoParent && metadata.id !== ssoParent.childId) {
+    // An SSO hop's own login sends no record; its parent names the method.
+    dropMethods(rt, metadata.id);
     if (!registerSsoChild(rt.sso, ssoParent, metadata)) return ctx.refuse("sso-child-changed");
     delete run.choice;
   }

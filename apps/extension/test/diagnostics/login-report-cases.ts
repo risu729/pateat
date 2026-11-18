@@ -235,6 +235,47 @@ export function registerLoginReportCases({ readSummary }: Pick<LogTestContext, "
     vi.restoreAllMocks();
   });
 
+  it("warns of a login that passed over its item's passkey, codes only (ADR 0066)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    log.login({
+      type: "route",
+      tabId: 4,
+      origin: "https://login.example",
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      layout: "1760000000000",
+      route: "password",
+      used: "password",
+      held: "passkey.password",
+      why: "no-passkey-route",
+      outcome: "authenticated",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(1));
+    const [entry] = await log.logger.entries();
+    expect([entry!.event, entry!.level]).toEqual(["login.route", "warn"]);
+    expect(problemLine(entry!)?.fields).toMatchObject({
+      recipe: "synthetic-recipe",
+      recipeRevision: 1,
+      layout: "1760000000000",
+      route: "password",
+      used: "password",
+      held: "passkey.password",
+      why: "no-passkey-route",
+      outcome: "authenticated",
+    });
+    vi.restoreAllMocks();
+  });
+
   it("keeps only a fixed fill cause and field position in uploaded problem lines", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

@@ -6,6 +6,11 @@ import { recipeLayoutKeySchema } from "./login/route-schema";
 import { storedLoginRecipeSchema } from "./login/document-schema";
 import { profileIdSchema } from "./pairing";
 import { localSettingsSchema } from "./settings";
+import {
+  loginHeldMethodsSchema,
+  loginMethodWhySchema,
+  loginUsedMethodsSchema,
+} from "./login-methods";
 
 // Contracts for the optional private settings/recipe service. Synced documents are
 // server-readable policy and recipe metadata; vault values, provider sessions,
@@ -396,10 +401,29 @@ export const loginRecordSchema = v.pipe(
     checkMs: loginPart,
     vaultMs: loginPart,
     commandMs: loginPart,
+    /**
+     * Which sign-in method the login used, beside those its item holds (ADR 0055, amendment
+     * of 2026-11-18): the route it ran (`password`, `passkey` or `sso`), what it used before
+     * it completed (`loginMethodList`, as `passkey`, `password`, `passkey.password` or
+     * `none`), the item's methods, and why it did not use the best of them, when it did
+     * not. All of `route`, `used` and `held`, or none when the device kept none, as for a
+     * login that a restarted worker resumed.
+     */
+    route: v.optional(v.picklist(["password", "passkey", "sso"])),
+    used: v.optional(loginUsedMethodsSchema),
+    held: v.optional(loginHeldMethodsSchema),
+    routeWhy: v.optional(loginMethodWhySchema),
   }),
   v.check(
     (record) => new Set(LOGIN_RECORD_PARTS.map((part) => record[part] === undefined)).size === 1,
     "A login record carries all of its parts or none.",
+  ),
+  v.check(
+    (record) =>
+      new Set([record.route, record.used, record.held].map((field) => field === undefined)).size ===
+        1 &&
+      (record.routeWhy === undefined || record.held !== undefined),
+    "A login record carries its route, used and held methods together, or none.",
   ),
 );
 /**
