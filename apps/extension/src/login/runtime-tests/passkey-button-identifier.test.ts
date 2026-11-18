@@ -69,6 +69,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     fake.state.extracted = {};
     fake.state.signs = undefined;
     fake.state.loaded = true;
+    fake.state.ambiguous = new Set();
   });
   // The path, steps and budgets of both layouts as stored for the site (2026-11-18).
   const SIGN_IN = "/auth/member/oauth";
@@ -368,6 +369,21 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     const { h } = start([form, identifierStep()], discoverable);
     // The click leaves the button showing, as a page still exchanging the passkey does.
     shows(startPage, ["memberId", "CONTINUE", button.value]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
+    expect(status()![0]).toMatchObject({ route: "passkey", layout: FORM });
+  });
+  it("waits on the button's route while the button shows more than once beside the step", async () => {
+    vi.useFakeTimers();
+    const { h } = start([form, identifierStep()], discoverable);
+    shows(startPage, ["memberId", "CONTINUE", button.value]);
+    const shown = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      await shown(message, tabId);
+      fake.state.ambiguous = new Set([button.value]);
+    };
     expect(await h.hello()).toEqual({ ok: true });
     await until(() => executed().length === 1);
     await vi.advanceTimersByTimeAsync(30_000);

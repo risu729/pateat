@@ -286,6 +286,25 @@ export function registerButtonLayouts({
         ),
       ).toThrow(/stops just past/);
     });
+    // A stop or a later start on the button's route is no valid record at all.
+    it.each<[string, Record<string, unknown>]>([
+      ["on the password route", { route: "password", variant: 0 }],
+      ["without a layout", { layout: undefined }],
+      ["past the button's step", { stepIndex: 1 }],
+      ["on a route of more than the button's click", { stepCount: 2 }],
+      ["after a fill", { operationKind: "fill" }],
+      ["before the click's intent", { mutationIntent: undefined }],
+      ["before anything was submitted", { submissions: 0 }],
+      ["after a handler", { handlers: [{ index: 0, start: 1 }] }],
+      ["on a chooser's list", { chooser: { click: "passkey" } }],
+      ["that only fills", { fillOnly: true }],
+      ["that fills for the sign-in", { signInFill: true }],
+    ])("is refused %s, one fact apart from the button's click", (_label, change) => {
+      const before = { ...clicked(), ...change };
+      const after = transitionLoginAttempt(before, event());
+      expect(after.layout).toBe(before["layout"]);
+      expect(after).not.toHaveProperty("passkeyButton");
+    });
     it("is taken from a settled result too while it is not watched", () => {
       const reconciling = transitionLoginAttempt(clicked(), { type: "INTERRUPTED" });
       expect(reconciling.state).toBe("reconciling");
