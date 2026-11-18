@@ -95,6 +95,11 @@ export const LOCAL_ONLY_FIELDS = {
     "checkMs",
     "vaultMs",
     "commandMs",
+    // The sign-in methods of the line where a login ends: the login record and
+    // `login.route` send them (ADR 0066 amendment of 2026-11-18).
+    "used",
+    "held",
+    "why",
   ],
 } as const satisfies Record<string, readonly string[]>;
 
