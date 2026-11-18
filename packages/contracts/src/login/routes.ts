@@ -195,10 +195,12 @@ export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean 
 /**
  * Whether `layout` is the page a click on `button`'s passkey button leads to, where the
  * site asks for the account before its passkey request (ADR 0060 amendment of
- * 2026-11-18): another layout of the same recipe, without a passkey button, alternatives
- * or a passkey-only start, whose route starts on the button's path, fills at least one
- * slot, none of them the `password` or a TOTP code, and ends with an `advance`. A login on
- * the button's route goes on there with that layout's steps (`IDENTIFIER_LAYOUT`).
+ * 2026-11-18): another layout of the same recipe, of its revision or a newer one, without
+ * a passkey button, alternatives, handlers or a passkey-only start, whose route starts on
+ * the button's path, fills at least one slot, none of them the `password` or a TOTP code,
+ * and ends with an `advance`. A login on the button's route goes on there with that
+ * layout's steps (`IDENTIFIER_LAYOUT`); the click, a recipe's budget of at most eight
+ * submissions and one kept for the answer always fit the attempt's cap.
  */
 export function identifierLayoutAfter(button: LoginRecipe, layout: LoginRecipe): boolean {
   const steps = layout.steps;
@@ -212,9 +214,12 @@ export function identifierLayoutAfter(button: LoginRecipe, layout: LoginRecipe):
     layout.origin === button.origin &&
     layout.layout !== undefined &&
     layout.layout !== button.layout &&
+    layout.revision >= button.revision &&
     layout.passkey === undefined &&
     layout.passkeyOnly !== true &&
     layout.alternatives === undefined &&
+    // A watched login never types a code from a handler of that layout.
+    layout.handlers === undefined &&
     steps[0]?.path === button.passkey.path &&
     slots.length > 0 &&
     slots.every((slot) => slot !== "password" && slot !== TOTP_HANDLER_SLOT) &&

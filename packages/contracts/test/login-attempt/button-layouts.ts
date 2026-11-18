@@ -129,6 +129,41 @@ export function registerButtonLayouts({
       ],
       ["has a passkey button of its own", { passkey: { path: "/login", target: id("passkey") } }],
       ["is passkey-only", { passkeyOnly: true }],
+      ["belongs to another origin", { origin: "https://other.example" }],
+      ["is of an older revision", { revision: form.revision - 1 }],
+      [
+        "has alternatives",
+        {
+          alternatives: [
+            {
+              slots: ["email"],
+              steps: [
+                {
+                  kind: "fill",
+                  effect: "prepare",
+                  path: "/login",
+                  fields: [{ slot: "email", target: id("member") }],
+                },
+                { kind: "click", path: "/login", target: id("continue"), purpose: "advance" },
+              ],
+            },
+          ],
+        },
+      ],
+      [
+        "has handlers",
+        {
+          handlers: [
+            {
+              kind: "totp",
+              path: "/login",
+              steps: [
+                { kind: "fill", path: "/login", fields: [{ slot: "totp", target: id("code") }] },
+              ],
+            },
+          ],
+        } as unknown as Partial<LoginRecipe>,
+      ],
     ])("never names a layout that %s", (_label, change) => {
       expect(identifierLayoutAfter(form, { ...step, ...change } as LoginRecipe)).toBe(false);
     });
@@ -208,6 +243,47 @@ export function registerButtonLayouts({
       expect(transitionLoginAttempt(after, { type: "ROUTE", route: "passkey", steps: 1 })).toEqual(
         after,
       );
+    });
+    /** The layout's identifier filled and its Continue in flight. */
+    const continued = () => {
+      let attempt = transitionLoginAttempt(clicked(), event());
+      for (const [operationId, kind, effect] of [
+        ["fill", "fill", "prepare"],
+        ["continue", "click", "advance"],
+      ] as const) {
+        attempt = transitionLoginAttempt(attempt, { type: "PREPARE", operationId, kind, effect });
+        if (kind === "fill") {
+          attempt = transitionLoginAttempt(attempt, { type: "MUTATION_INTENT", operationId });
+          attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId });
+        } else {
+          attempt = transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId });
+          attempt = transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId });
+        }
+      }
+      return attempt;
+    };
+    it("never asks to continue the recipe after the layout's Continue", () => {
+      const after = continued();
+      expect(after).toMatchObject({ stepIndex: 1, operationEffect: "advance", submissions: 2 });
+      const request = { type: "CONTINUING", operationId: "continue" } as const;
+      expect(transitionLoginAttempt(after, request)).toEqual(after);
+      // The same login without the mark would ask.
+      const { passkeyButton: _mark, ...unmarked } = after;
+      expect(transitionLoginAttempt(unmarked, request).continuation).toEqual({
+        operationId: "continue",
+      });
+    });
+    it("keeps its stop just past the layout's steps", () => {
+      const after = transitionLoginAttempt(clicked(), event());
+      expect(() => transitionLoginAttempt({ ...after, stopAt: 1 }, { type: "RESOLVE" })).toThrow(
+        /stops just past/,
+      );
+      expect(() =>
+        transitionLoginAttempt(
+          { ...clicked(), passkeyButton: true },
+          { type: "SUBMITTED", operationId: "button" },
+        ),
+      ).toThrow(/stops just past/);
     });
     it("is taken from a settled result too while it is not watched", () => {
       const reconciling = transitionLoginAttempt(clicked(), { type: "INTERRUPTED" });

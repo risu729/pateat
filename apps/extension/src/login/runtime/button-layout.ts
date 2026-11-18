@@ -29,7 +29,7 @@ export async function buttonLayouts(rt: Runtime, recipe: LoginRecipe): Promise<L
   );
   return candidates
     .map((candidate) => candidate.recipe)
-    .filter((layout) => layout.revision >= recipe.revision && identifierLayoutAfter(recipe, layout))
+    .filter((layout) => identifierLayoutAfter(recipe, layout))
     .sort((left, right) => Number(right.layout) - Number(left.layout));
 }
 
@@ -142,8 +142,10 @@ export async function switchAfterButton(rt: Runtime, run: Execution): Promise<bo
     if (transitionLoginAttempt(metadata, event).layout !== layout.layout) continue;
     // The recipe is replaced before the record that names its layout is written.
     run.recipe = layout;
-    // A choice found for this login is saved once it signs in, as on the button's route.
+    // The account's choice is saved for the layout the login signs in on, as after any
+    // layout switch (ADR 0060).
     if (plan.choice && !run.bindingRepair) run.choice = plan.choice;
+    else delete run.choice;
     delete run.heldClick;
     delete run.inPlace;
     delete run.siblingsInPlace;

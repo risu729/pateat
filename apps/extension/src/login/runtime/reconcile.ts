@@ -29,7 +29,7 @@ import {
 } from "./attempt-state";
 import { inPlaceNext, stepTargets, markerProof, recordKey, documentKey } from "./steps";
 import { sampleSignedIn, notJudged, learn } from "./judge";
-import { fallBack, parkedFor, bridgeAnswer, reviewRequests } from "./passkey";
+import { fallBack, parkedFor, bridgeAnswer, reviewRequests, buttonFallsBack } from "./passkey";
 import { switchLayout, continueOn } from "./continuation";
 import { listOf, listReadiness } from "./markers";
 import { enterHandler } from "./handlers";
@@ -352,6 +352,10 @@ export async function reconcile(
         if (run.heldClick === run.metadata.stepIndex && run.metadata.settled !== true)
           return "held";
         if (clicked.path === inFlight.step.path) {
+          if (buttonFallsBack(rt, run)) {
+            await fallBack(rt, run, "request-missing");
+            return undefined;
+          }
           await change(rt, run, {
             type: "OBSERVED",
             result: "challenge",
@@ -453,6 +457,13 @@ export async function reconcile(
       result: state.decision === "signed-in" ? "authenticated" : "credential-rejected",
       document: run.live.document,
     });
+    return undefined;
+  }
+  // A passkey button taken only for the layout asking for the account it may lead to,
+  // which led to another page, goes back to its password variant before that page is
+  // judged (ADR 0060 amendment of 2026-11-18).
+  if (buttonFallsBack(rt, run)) {
+    await fallBack(rt, run, "request-missing");
     return undefined;
   }
   // A sign-in page after the final advance is never judged: the judge cannot learn

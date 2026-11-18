@@ -503,6 +503,8 @@ export async function planFor(
      * the popup logs in, once, on the password route.
      */
     paused?: boolean;
+    /** The login runs a route of a chooser's list (ADR 0028). */
+    chooser?: boolean;
   } = {},
 ) {
   snapshot = await bindingReviewSnapshot(rt, snapshot, live, recipe, request.route !== undefined);
@@ -766,12 +768,16 @@ export async function planFor(
     const resolved = await resolveRoute({ route: "passkey" });
     if (resolved.ok) {
       facts = await factsOf(resolved);
-      // A button that leads to a layout asking for the account first takes any usable
-      // passkey of the item, when the account's binding fills that layout (ADR 0060
-      // amendment of 2026-11-18).
+      // A button that may lead to a layout asking for the account first takes any usable
+      // passkey of the item, when the account's binding fills that layout and the login
+      // could switch to it: in the tab's page and not on a chooser's list (ADR 0060
+      // amendment of 2026-11-18). A later start has no button here (`routeRecipe`), and a
+      // fill-only plan off the password route is planned again without filling.
       const identifierFirst =
         facts.passkey &&
         !facts.discoverablePasskey &&
+        live.document.frameId === 0 &&
+        !request.chooser &&
         (await identifierLayouts(rt, routeRecipe, async (layout) => {
           const fits = await resolveRoute({ route: "password", variant: 0 }, true, layout);
           return fits.ok && !readsSecret(fits.connection, fits.binding);
@@ -780,9 +786,10 @@ export async function planFor(
       // refuses such a login.
       const choice = chooseLoginRoute(routeRecipe, facts, [], pageRequest, identifierFirst);
       if (choice?.route === "passkey") {
-        if (!pageRequest) return { ...resolved, facts };
+        if (!pageRequest && !identifierFirst) return { ...resolved, facts };
         // Answering the page's request falls back to the variant that fits (ADR 0034),
-        // never to one that stops before the password the item lacks (ADR 0036).
+        // never to one that stops before the password the item lacks (ADR 0036), and so
+        // does a button taken only for the layout it may lead to, when it leads elsewhere.
         const password = await passwordPlan();
         return {
           ...resolved,

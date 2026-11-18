@@ -754,7 +754,8 @@ export type LoginReport = (
 /**
  * Why a login changed route (ADR 0034): to the `passkey` route because the page asked for
  * a passkey by itself (`page-request`); back to its password variant because that request
- * went away before the answer (`request-missing`), the item could not answer it
+ * went away before the answer, or a passkey button taken only for a layout it may lead to
+ * did not lead there (`request-missing`), the item could not answer it
  * (`answer-failed`), the recipe's rejection showed after the answer (`sign-in-rejected`),
  * or the sign-in form still showed after the answer (`sign-in-shown`); or from the `passkey`
  * route to the `password` route of the layout its button led to, which asks for the account

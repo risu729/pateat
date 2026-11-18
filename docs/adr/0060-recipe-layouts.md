@@ -33,10 +33,12 @@ sign-in form's `layouts` and a list of accounts under `chooser` with its own `la
 the state of the browser's session. See
 [Both kinds on one path](#both-kinds-on-one-path).
 
-Amended on 2026-11-18 (owner, 02:16 UTC,
+Amended on 2026-11-18 (owner, 02:16 UTC, for the switch; the route choice and its
+fallback are the agent's choice;
 [#1675](https://github.com/risu729/pateat/issues/1675)): a login on the `passkey` route
-goes on with the layout its button leads to when that layout asks for the account first.
-See
+goes on with the layout its button led to when that layout asks for the account first
+and shows after the click; a login that took the button only for such a layout goes back
+to its password variant when it does not show. See
 [the amendment](#amendment-2026-11-18-a-passkey-button-that-leads-to-a-step-asking-for-the-account).
 
 Date: 2026-10-23
@@ -425,21 +427,37 @@ instead.
   「Qantas のパスキー→会員番号→CONTINUE を Pateat が自動で進めますか」):** after the
   passkey button's click, the login switches to the layout already learned for the step
   that asks for the account, fills the identifier and presses Continue, and the page's
-  passkey request is answered with the login's item. No page is generated for it. A
-  recipe whose button leads to such a layout takes the button's route for any usable
-  passkey of the item (a zero counter, for an RP ID the origin may use, ADR 0084), not
-  only a discoverable one, since the request after the identifier names the account's
-  credentials, as after an identifier in
-  [ADR 0036](0036-passkey-after-the-identifier.md) rule 1. Without such a layout the
-  discoverable rule of ADR 0027 stands.
-- **The layout the button leads to (agent's choice, details beyond the card):** another
-  layout of the same recipe and revision or newer, starting on the button's path, with
-  no passkey button of its own, no alternatives and no passkey-only start, whose steps
-  fill at least one slot, none of them `password` or a TOTP code, and end with an
-  `advance` (`identifierLayoutAfter`). The account's plan on its `password` route must
-  pass, and its binding must read no secret into the page: no `password` slot, no
-  password or TOTP code through any field and no concealed custom field. These hold both
-  for the route choice at the start page and for the switch.
+  passkey request is answered with the login's item. No page is generated for it.
+- **The layout the button may lead to (agent's choice, details beyond the card):**
+  another layout of the same recipe, of its revision or a newer one, starting on the
+  button's path, with no passkey button of its own, no alternatives, no handlers and no
+  passkey-only start, whose steps fill at least one slot, none of them `password` or a
+  TOTP code, and end with an `advance` (`identifierLayoutAfter`). Without handlers, a
+  watched login never types a code from that layout. The account's plan on its
+  `password` route must pass, and its binding must read no secret into the page: no
+  `password` slot, no password or TOTP code through any field and no concealed custom
+  field. These hold both for the route choice at the start page and for the switch. Such
+  a layout was learned on the button's path; nothing before the click proves that the
+  button leads there, as it may open the browser's passkey prompt or another page
+  instead.
+- **The route choice (agent's choice):** a recipe with such a layout takes the button's
+  route for any usable passkey of the item (a zero counter, for an RP ID the origin may
+  use, ADR 0084), not only a discoverable one, since a request after the identifier
+  names the account's credentials, as after an identifier in
+  [ADR 0036](0036-passkey-after-the-identifier.md) rule 1. It does so only where the
+  switch could follow: in the tab's page, from the recipe's first page, neither on a
+  chooser's list (ADR 0028) nor while the tab asks and the login only fills. Such a
+  login records the password variant that fits, never one that stops before a missing
+  password. While its click's result has not settled and no passkey answer went to the
+  page since the click, the login goes back to that variant (`routeChange`
+  `request-missing`, as for a page's own request in
+  [ADR 0034](0034-answer-page-passkey-requests.md)) when the button still shows on its
+  path once a step's wait for its elements ran out, as under the browser's own prompt,
+  when the page shows the button on its path again in a new document, or when the
+  click's result would otherwise be judged or settle as unknown, as on another path.
+  Without such a layout, or with a discoverable passkey, the discoverable rule of
+  ADR 0027 stands and nothing falls back. An item without a password records no
+  variant and ends `challenge` as any login on the button's route does.
 - **The switch (agent's choice):** while the button's click is in flight and its result
   has not settled, in the tab's page, once the button no longer shows on its path and
   every element of that layout's start page shows there, the login records attempt event
@@ -447,12 +465,14 @@ instead.
   step, with a stop just past its last step, as an identifier-only recipe's login of an
   item without a password does (ADR 0036). At the stop the page's passkey request, modal
   or conditional, is answered with the login's item; without one within the stop's wait
-  the login ends `challenge`, watched, with the reason `passkey-button`. Its budget is
-  the click's submission, the layout's own and one kept for the answer. It never types
-  the item's password or PIN, never goes back to the button's route and never sends the
-  page after Continue to continue the recipe. The newest such layout that shows wins.
-  The log names the change (`login.attempt` with `routeChange` `passkey-button`,
-  `layout` and `layoutFrom`).
+  the login ends `challenge`, watched, with the reason `passkey-button`. Its submission
+  budget is every submission the login spent so far, which is the button's click, plus
+  the layout's own budget plus one kept for the answer. It never types the item's
+  password or PIN, never goes back to the button's route and never sends the page after
+  Continue to continue the recipe. The newest such layout that shows wins. The account's
+  choice is saved for that layout, or dropped when its plan names none, as after any
+  layout switch. The log names the change (`login.attempt` with `routeChange`
+  `passkey-button`, `layout` and `layoutFrom`).
 - Every other guard stays: a paused site, sign-in fill, a site whose passkey requests go
   to the browser (whose item holds no passkey here), the one-time pick and relogin limit
   of the account choice, the zero-counter rule and a re-prompt at the answer.

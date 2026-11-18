@@ -111,7 +111,11 @@ describe("a chooser's passkey button beside its list (ADR 0079)", () => {
     }),
     slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
   });
-  const onList = (discoverable: boolean, reports?: LoginReport[]) => {
+  const onList = (
+    discoverable: boolean,
+    reports?: LoginReport[],
+    facts = { passkey: discoverable, discoverable },
+  ) => {
     const h = harness(
       { siteDefaults: [], bindings: [] },
       {
@@ -120,7 +124,7 @@ describe("a chooser's passkey button beside its list (ADR 0079)", () => {
         username: true,
         custom: [],
         generation: generation(),
-        passkeys: vi.fn(async () => ({ passkey: discoverable, discoverable })),
+        passkeys: vi.fn(async () => facts),
         ...(reports ? { report: (value: LoginReport) => reports.push(value) } : {}),
       },
     );
@@ -173,5 +177,31 @@ describe("a chooser's passkey button beside its list (ADR 0079)", () => {
     expect(clicks()[0]!.list).toMatchObject({ click: "entry" });
     expect(status()![0]).toMatchObject({ chooser: { click: "entry" } });
     expect(status()![0]).not.toMatchObject({ route: "passkey" });
+  });
+  it("never takes the button for a passkey that is not discoverable on a list, whatever step follows it", async () => {
+    // A layout of the button's recipe that asks for the account first (ADR 0060 amendment
+    // of 2026-11-18): a login on a chooser's list never switches to it.
+    const h = onList(false, undefined, { passkey: true, discoverable: false });
+    const step = parseLoginRecipe({
+      version: 1,
+      id: chooser.id,
+      revision: 1,
+      origin,
+      layout: "2000",
+      pageKind: "sign-in",
+      slots: ["username"],
+      steps: [
+        { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("user") }] },
+        { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+      ],
+      maxSubmissions: 1,
+    });
+    Object.assign(h.recipes, {
+      layouts: vi.fn(async () => [{ recipe: step, createdAt: 2000 }]),
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => clicks().length > 0);
+    expect(clicks()[0]!.operation.step.target?.value).toBe("[account]");
+    expect(status()![0]).toMatchObject({ chooser: { click: "entry" } });
   });
 });

@@ -16,8 +16,19 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, connectionId, itemId, target, recipe, savedBinding, uriMatch, harness, setPause } =
-  createRuntimeTestHarness(fake);
+const {
+  origin,
+  connectionId,
+  itemId,
+  otherItemId,
+  target,
+  recipe,
+  savedBinding,
+  uriMatch,
+  harness,
+  setPause,
+  liveDefault,
+} = createRuntimeTestHarness(fake);
 
 // As Qantas's sign-in (#1675, 2026-11-18): the start page's form asks for the membership
 // number, last name and PIN beside a passkey button, which shows on the same path a step
@@ -472,5 +483,140 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     await vi.advanceTimersByTimeAsync(5_000);
     expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
     expect(status()![0]).toMatchObject({ route: "passkey", layout: FORM });
+    // A discoverable passkey keeps the button's route: it never goes back to the password.
+    await until(() => status()?.[0]?.["settled"] === true, 120_000);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
+    expect(passwordRead(h)).toBe(false);
+  });
+  it("goes back to the form's password when the button opens a passkey prompt instead", async () => {
+    vi.useFakeTimers();
+    const { h, reports } = start([form, identifierStep()], secondFactor);
+    // The button stays under the browser's prompt, which this item's passkey cannot answer.
+    shows(startPage, startPage);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 3);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY", "fill:memberId,pin", "click:LOG IN"]);
+    expect(status()![0]).toMatchObject({ route: "password", variant: 0, layout: FORM });
+    expect(status()![0]).not.toHaveProperty("passkeyButton");
+    expect(reports.find((entry) => entry.type === "start")).toMatchObject({ route: "passkey" });
+    expect(
+      reports.filter((entry) => entry.type === "attempt" && entry.routeChange !== undefined),
+    ).toEqual([expect.objectContaining({ routeChange: "request-missing" })]);
+  });
+  it("keeps the button's route once its prompt was answered with the item", async () => {
+    vi.useFakeTimers();
+    const { h } = start([form, identifierStep()], secondFactor);
+    shows(startPage, startPage);
+    const shown = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      await shown(message, tabId);
+      // The prompt over the button names the item's credential, and the bridge answers it.
+      h.login.passkeyRequested(1, origin);
+      vi.setSystemTime(Date.now() + 1);
+      answeredByBridge(h)();
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
+    expect(status()![0]).toMatchObject({ route: "passkey", layout: FORM });
+    expect(passwordRead(h)).toBe(false);
+  });
+  it("goes back to the form's password when a new page shows the button again", async () => {
+    vi.useFakeTimers();
+    const { h } = start([form, identifierStep()], secondFactor);
+    shows(startPage, startPage);
+    const shown = fake.state.onExecute!;
+    let reloaded = false;
+    fake.state.onExecute = async (message, tabId) => {
+      await shown(message, tabId);
+      const step = (message["operation"] as { step: LoginStep }).step;
+      // The button reloads the sign-in page: its document is gone.
+      if (step.kind === "click" && step.target.value === button.value && !reloaded) {
+        reloaded = true;
+        fake.state.gone = new Set(["synthetic-document"]);
+      }
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "reconciling");
+    fake.state.gone = new Set();
+    expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({ ok: true });
+    await until(() => executed().length === 3, 30_000);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY", "fill:memberId,pin", "click:LOG IN"]);
+    expect(status()![0]).toMatchObject({ route: "password", variant: 0, layout: FORM });
+  });
+  it("goes back to the form's password when the button moves the page to another path", async () => {
+    vi.useFakeTimers();
+    const { h } = start([form, identifierStep()], secondFactor);
+    shows(startPage, []);
+    const shown = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      await shown(message, tabId);
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === button.value)
+        fake.state.observedPath = "/auth/passkey";
+    };
+    const ready = fake.state.awaitReply!;
+    fake.state.awaitReply = (readiness) => {
+      // The site's passkey page sends the person back to its form once it is left.
+      if (status()?.[0]?.["route"] === "password" && fake.state.observedPath !== "/auth") {
+        fake.state.observedPath = "/auth";
+        fake.state.present = new Set(startPage);
+      }
+      return ready(readiness);
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 3);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY", "fill:memberId,pin", "click:LOG IN"]);
+    expect(status()![0]).toMatchObject({ route: "password", variant: 0, layout: FORM });
+  });
+  it("fills the password route in a frame, where no switch would follow the button", async () => {
+    vi.useFakeTimers();
+    const { h } = start([form, identifierStep()], secondFactor);
+    shows(startPage);
+    fake.state.tabUrls[1] = "https://login.example/home";
+    expect(
+      await h.hello({
+        frameId: 3,
+        documentId: "frame-one",
+        tab: { id: 1, url: "https://login.example/home" },
+      }),
+    ).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    expect(executed()).toEqual(["fill:memberId,pin", "click:LOG IN"]);
+    expect(status()![0]).toMatchObject({ route: "password", layout: FORM });
+  });
+  it("never takes over the step after the site's account changed under the click", async () => {
+    vi.useFakeTimers();
+    const both = { matches: [{ uriIndex: 0, match: 0 as const }] };
+    const uris = vi.fn<LiveUriMatcher>(async () => ({
+      ok: true as const,
+      data: uriMatch({
+        candidates: [
+          { itemId, ...both },
+          { itemId: otherItemId, ...both },
+        ],
+      }),
+    }));
+    const { h } = start([form, identifierStep()], discoverable, {}, { otherUsername: true, uris });
+    shows(startPage);
+    const shown = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      await shown(message, tabId);
+      // The site's default now names another item, without a new settings revision.
+      h.settings.settings.siteDefaults = [liveDefault({ itemId: otherItemId })];
+      h.settings.settings.bindings = [];
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
+    // The changed choice withdraws the login before any plan for another account is made.
+    expect(status()![0]).toMatchObject({
+      route: "passkey",
+      layout: FORM,
+      state: "blocked",
+      outcome: "policy-changed",
+    });
   });
 });

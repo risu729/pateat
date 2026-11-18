@@ -34,6 +34,7 @@ import { observe, reconcile, askAgain, failureRejects } from "./reconcile";
 import { allowed } from "./plan-2";
 import { learn } from "./judge";
 import { watchedCode } from "./watched-code";
+import { buttonFallsBack, fallBack } from "./passkey";
 import type { Runtime } from "./state";
 
 /**
@@ -408,6 +409,10 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
   let until = Date.now() + budget();
   // A held click's button may show this long before the page is left to the person.
   const holdUntil = Date.now() + HELD_CLICK_WAIT_MS;
+  // A passkey button taken only for the layout asking for the account it may lead to
+  // shows no longer than a step waits for its elements before the login goes back to
+  // its password variant (ADR 0060 amendment of 2026-11-18).
+  const buttonUntil = Date.now() + stepWaitMs(rt);
   // The CAPTCHA wait of this result, if any: whether a CAPTCHA showed, what the page
   // waits for now, and until when it may (ADR 0029, S4, amendment of 2026-11-07). A later
   // document of the login reads its own result in its own call.
@@ -471,6 +476,10 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
     // press is then waited for.
     if (!held) run.metadata = followPage(personAnswered(run.metadata));
     if (held) {
+      if (Date.now() >= buttonUntil && buttonFallsBack(rt, run)) {
+        await fallBack(rt, run, "request-missing");
+        return;
+      }
       if (Date.now() >= holdUntil) {
         await change(rt, run, {
           type: "OBSERVED",
