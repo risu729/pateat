@@ -1,7 +1,7 @@
 // Confirmation filling (ADR 0035 delivery 3) across in-page routes, policy changes, vault
 // replacement, storage failures, claims of pages a tab left and a replaced tab.
 import { describe, expect, it, vi } from "vitest";
-import { type LoginOperation } from "@pateat/contracts";
+import { parseLoginRecipe, type LoginOperation } from "@pateat/contracts";
 import type { LoginGeneration } from "../runtime/deps";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
@@ -23,6 +23,10 @@ const {
   announce,
   settled,
   holdDelivery,
+  executes,
+  cached,
+  recipe,
+  startsOf,
 } = confirmationFixture(fake);
 
 const authorize = (operation: LoginOperation) => ({
@@ -399,43 +403,60 @@ describe("classifying a verification page of the authenticated tab", () => {
       sender({ documentId: "reconfirm" }),
     );
   function service() {
-    return {
+    const answer = Promise.withResolvers<Awaited<ReturnType<LoginGeneration["generate"]>>>();
+    const generation = {
       available: vi.fn<LoginGeneration["available"]>(async () => true),
       generate: vi.fn<LoginGeneration["generate"]>(async (_request, sent) => {
         sent?.();
-        return new Promise(() => undefined);
+        return answer.promise;
       }),
       generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
     };
+    return { generation, answer };
   }
+  const offered = (answer: unknown) =>
+    expect(answer).toMatchObject({ ok: false, reason: "logged-in", generate: true });
+  const notOffered = (answer: unknown) => {
+    expect(answer).toMatchObject({ ok: false });
+    expect(answer).not.toHaveProperty("generate");
+  };
 
-  it("offers the page once from the login's answer, and classifies its announcement", async () => {
-    const generation = service();
-    const { h, original } = await authenticated({ username: true, custom: [], generation });
-    unclassified(h);
-    expect(await h.hello({ documentId: "reconfirm" }, false)).toMatchObject({
-      ok: false,
-      reason: "logged-in",
-      generate: true,
-    });
-    expect(await signIn(h)).toMatchObject({ ok: false, reason: "generating" });
-    await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledTimes(1));
-    // The claim holds the document and path: its next announcement, while the page is
-    // classified, is not offered again.
-    const again = await h.hello({ documentId: "reconfirm" }, false);
-    expect(again).toMatchObject({ ok: false, reason: "generating" });
-    expect(again).not.toHaveProperty("generate");
-    expect(generation.generate).toHaveBeenCalledTimes(1);
-    expect(stored()).toEqual(original);
-    expect(confirmations()).toEqual([]);
-  });
+  it.each([
+    { outcome: "abstained", reason: "no-login-form" },
+    { outcome: "recipe", kind: "sign-in" },
+  ] as const)(
+    "offers the page once from the login's answer, whatever its classification ($outcome)",
+    async (result) => {
+      const { generation, answer } = service();
+      const { h, original } = await authenticated({ username: true, custom: [], generation });
+      const clicks = () => executes().filter((entry) => entry.operation.step.kind === "click");
+      const pressed = clicks().length;
+      unclassified(h);
+      offered(await h.hello({ documentId: "reconfirm" }, false));
+      expect(await signIn(h)).toMatchObject({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledTimes(1));
+      if (result.outcome === "abstained") answer.resolve(result);
+      else {
+        const signInPage = parseLoginRecipe({ ...cached(), pageKind: result.kind });
+        answer.resolve({ outcome: "recipe", recipe: signInPage });
+      }
+      await settled(h);
+      // The classification's claim holds the document and path, so the login's answer
+      // there no longer offers it, and nothing logs in.
+      notOffered(await h.hello({ documentId: "reconfirm" }, false));
+      expect(generation.generate).toHaveBeenCalledTimes(1);
+      expect(stored()).toEqual(original);
+      expect(confirmations()).toEqual([]);
+      expect(clicks()).toHaveLength(pressed);
+    },
+  );
 
-  it.each(["unconfirmed", "paused", "not-available"] as const)(
-    "offers nothing for a %s tab",
+  it.each(["unconfirmed", "paused", "not-available", "sign-in-start", "confirm-recipe"] as const)(
+    "offers nothing for a %s page",
     async (reason) => {
-      const generation = service();
+      const { generation } = service();
       const { h } = await authenticated({ username: true, custom: [], generation });
       const record = stored()[0]!;
       let next = h;
@@ -447,10 +468,41 @@ describe("classifying a verification page of the authenticated tab", () => {
       if (reason === "paused") await setPause(h, true);
       if (reason === "not-available") generation.available.mockResolvedValue("sent");
       unclassified(next);
-      const answer = await next.hello({ documentId: "reconfirm" }, false);
-      expect(answer).toMatchObject({ ok: false });
-      expect(answer).not.toHaveProperty("generate");
+      // A sign-in recipe starts on the path, though its first step does not show now.
+      if (reason === "sign-in-start")
+        next.recipes.starts.mockResolvedValue(
+          startsOf([{ ...recipe.steps[0]!, path: "/confirm" }]),
+        );
+      if (reason === "confirm-recipe") configure(next);
+      notOffered(await next.hello({ documentId: "reconfirm" }, false));
+      await settled(next);
       expect(generation.generate).not.toHaveBeenCalled();
     },
   );
+
+  it("offers no SSO before it classifies the page, for an item with a password and SSO", async () => {
+    const { generation } = service();
+    // The item has an `SSO` field beside its password (ADR 0085); no method is described
+    // for the login itself, so that signs in with the password.
+    const sso = {
+      describe: vi.fn(async () => ({
+        ok: true as const,
+        data: { sourceEvidence: "E".repeat(43), policyRevision: 1, methods: [] },
+      })),
+      candidates: vi.fn(),
+      validate: vi.fn(),
+    };
+    const { h } = await authenticated({
+      username: true,
+      custom: [{ name: "SSO", kind: "text" }],
+      generation,
+      sso: sso as never,
+    });
+    sso.describe.mockClear();
+    unclassified(h);
+    offered(await h.hello({ documentId: "reconfirm" }, false));
+    expect(await signIn(h)).toMatchObject({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledTimes(1));
+    expect(sso.describe).not.toHaveBeenCalled();
+  });
 });

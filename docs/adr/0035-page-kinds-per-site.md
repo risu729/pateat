@@ -515,7 +515,13 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   WILLER's membership cancellation page
   ([#1714](https://github.com/risu729/pateat/issues/1714)), was never classified and
   never offered **Fill**. That answer now offers the page, once per document and path
-  (an agent's fix of the recorded behavior, `offersConfirmGeneration`).
+  (an agent's fix of the recorded behavior, `offersConfirmGeneration`). So such a page
+  is now filled by itself, without a press, when it comes back `confirm` or `unclear`
+  and `confirm` is `fill` for it, which is the default: the automatic fill of this
+  delivery, with the confirmed login's account, pressing nothing. Where `confirm` is
+  `off`, the page is still classified once and nothing fills it, and the popup offers
+  no **Fill** there. No SSO offer acts on the page while it waits for its
+  classification (`confirmClassifies`).
 - Every delivery rechecks the original authentication, exact document and top-page
   identity, site access, pause/private-window policy, account and field eligibility,
   URI matching, master-password requirements, settings/profile scope, recipe mutation

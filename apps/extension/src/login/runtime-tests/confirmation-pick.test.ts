@@ -126,9 +126,11 @@ describe("the popup's Fill on a verification page", () => {
     },
   );
 
-  // An account form that asks for the current password beside a new one (#1709): its
-  // `confirm` recipe names the email and the current password, never the new ones.
-  it("fills only the recipe's fields of an account form, pressing nothing", async () => {
+  // An account form that asks for the current password beside a new one (#1709), given a
+  // `confirm` recipe of the email and the current password. The worker delivers that
+  // recipe's fill step and nothing else; which inputs it names is the recipe's, and what
+  // the page keeps is the content script's (content-confirm-fill.browser.test.ts).
+  it("delivers only a given recipe's fill step on an account form, pressing nothing", async () => {
     const { h } = start({}, { username: true, otherUsername: true });
     const form = parseLoginRecipe({
       ...cached(),

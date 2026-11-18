@@ -28,7 +28,7 @@ import { confirmEnded, noteConfirmFill, settleConfirmFill } from "./not-started"
 import { manualPending } from "./manual-scope";
 import { confirmPickFor, endConfirmPick, type ConfirmPick } from "./confirm-pick-scope";
 import { explicitlyPicked } from "./page-permission";
-import { tabAttempt } from "./hold";
+import { recordFor, tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
 import type { LoginAttemptMetadata, LoginRecipe } from "@pateat/contracts";
 import type { Runtime } from "./state";
@@ -63,7 +63,7 @@ async function answer(
  * classification (ADR 0035 delivery 3): the content script announces a sign-in input or a
  * secret answer only after an answer with `generate`, and that announcement is what
  * `admitConfirm` classifies once per document and path. A page with a recipe on its path,
- * a page already claimed, a paused site and a page the service would not take now are not
+ * a paused site, a pending manual login and a page the service would not take now are not
  * offered.
  */
 export async function offersConfirmGeneration(
@@ -71,12 +71,36 @@ export async function offersConfirmGeneration(
   ctx: AdmitContext,
   recorded: LoginAttemptMetadata,
 ): Promise<boolean> {
-  if (ctx.paused || !hasConfirmAuthentication(rt, recorded) || manualPending(rt, ctx.live))
-    return false;
+  if (ctx.paused) return false;
+  // The proofs and claims come from the session store.
   await rt.confirmFill.loaded;
-  if (hasConfirmClaim(rt, confirmationGenerationKey(recorded.id, ctx.live))) return false;
+  if (!hasConfirmAuthentication(rt, recorded) || manualPending(rt, ctx.live)) return false;
+  // A page whose classification on this path already ran never gets here: `admitConfirm`
+  // answers it `logged-in` first, by its claim, whatever came of it.
   if ((await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path)) !== undefined) return false;
   return (await offersGeneration(rt, ctx.live)) === true;
+}
+
+/**
+ * Whether no SSO offer may act on this announcement, since only the offer of
+ * {@link offersConfirmGeneration} brings it: the confirmed login of the tab's origin, no
+ * recipe on the path, and a sign-in input or secret answer, which `admitConfirm`
+ * classifies, or a list of accounts, which the login's record answers `logged-in`.
+ * Classifying a page in that tab never starts another login (delivery 3).
+ */
+export async function confirmClassifies(rt: Runtime, ctx: AdmitContext): Promise<boolean> {
+  if (ctx.manual || ctx.start || ctx.entryHello) return false;
+  if (
+    ctx.signIn?.path !== ctx.live.path &&
+    !ctx.list &&
+    !(ctx.unoffered?.path === ctx.live.path && ctx.unoffered.why === "text-answer")
+  )
+    return false;
+  const recorded = recordFor(rt, ctx.document.tabId, ctx.document.origin);
+  if (!recorded) return false;
+  await rt.confirmFill.loaded;
+  if (!hasConfirmAuthentication(rt, recorded)) return false;
+  return (await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path)) === undefined;
 }
 
 /** Runs before the authenticated-record return, preserving that login and its account. */
