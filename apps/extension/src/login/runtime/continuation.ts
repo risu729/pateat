@@ -31,6 +31,7 @@ import { inPlaceNext, stepTargets } from "./steps";
 import { planFor } from "./plan";
 import { probeMode, CONTINUATION_WAIT_MS, CONTINUATION_STABLE_MS } from "./constants";
 import { stopsPastPlan } from "./attempt-state";
+import { switchAfterButton } from "./button-layout";
 
 import type { Runtime } from "./state";
 
@@ -170,6 +171,9 @@ export async function siblingsAt(rt: Runtime, run: Execution, at: number): Promi
 /* eslint-disable no-await-in-loop */
 export async function switchLayout(rt: Runtime, run: Execution): Promise<boolean> {
   const { metadata } = run;
+  // The passkey route's button may lead to a layout that asks for the account first (ADR
+  // 0060 amendment of 2026-11-18).
+  if (metadata.route === "passkey") return switchAfterButton(rt, run);
   const inFlight = metadata.operationId !== undefined;
   if (
     inFlight &&
@@ -295,6 +299,9 @@ export function continuable(rt: Runtime, run: Execution): boolean {
     metadata.route !== "password" ||
     metadata.variant !== 0 ||
     (metadata.stopAt !== undefined && !stopsPastPlan(metadata)) ||
+    // A login after the passkey button answers its page's request instead (ADR 0060
+    // amendment of 2026-11-18).
+    metadata.passkeyButton === true ||
     metadata.operationId === undefined ||
     metadata.operationEffect !== "advance" ||
     recipe.completion !== undefined ||

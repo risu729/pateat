@@ -161,6 +161,17 @@ describe("sign-in methods of a login (ADR 0055, amended 2026-11-18)", () => {
     expect(reports).toEqual([]);
   });
 
+  it("warns of no login that went on after its passkey button and ended before the answer", () => {
+    const { rt, reports } = runtime();
+    openMethods(rt, "a", ["passkey", "password"]);
+    // The switch to the step asking for the account moves the login to that layout's
+    // password route, with no password typed (ADR 0060 amendment of 2026-11-18).
+    expect(
+      takeMethods(rt, { ...ended("a", "password", "blocked"), passkeyButton: true })?.why,
+    ).toBe("not-answered");
+    expect(reports).toEqual([]);
+  });
+
   it("keeps the worker up for a held warning, and names nothing for an item with no method", async () => {
     const { rt } = runtime();
     const kept: Promise<void>[] = [];

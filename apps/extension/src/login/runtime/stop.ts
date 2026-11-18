@@ -63,7 +63,11 @@ export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<v
       undefined,
       cause,
       undefined,
-      run.stopMiss ? `password-empty:${run.stopMiss}` : "password-empty",
+      run.metadata.passkeyButton
+        ? "passkey-button"
+        : run.stopMiss
+          ? `password-empty:${run.stopMiss}`
+          : "password-empty",
     );
   if (!parked && bridged === undefined) {
     // A passkey button beside the stop's password field is pressed instead (owner,
