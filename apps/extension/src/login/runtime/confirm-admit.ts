@@ -30,7 +30,7 @@ import { confirmPickFor, endConfirmPick, type ConfirmPick } from "./confirm-pick
 import { explicitlyPicked } from "./page-permission";
 import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
-import type { LoginRecipe } from "@pateat/contracts";
+import type { LoginAttemptMetadata, LoginRecipe } from "@pateat/contracts";
 import type { Runtime } from "./state";
 import type { AdmitContext } from "./admit-context";
 import type { GenerationOutcome } from "./report";
@@ -56,6 +56,27 @@ async function answer(
   const starts = await startsFor(rt, ctx.document.origin);
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
   return { ok: false, reason, starts, ...(visit ? { confirm: visit.first } : {}) };
+}
+
+/**
+ * Whether the authenticated record's `logged-in` answer offers the page for
+ * classification (ADR 0035 delivery 3): the content script announces a sign-in input or a
+ * secret answer only after an answer with `generate`, and that announcement is what
+ * `admitConfirm` classifies once per document and path. A page with a recipe on its path,
+ * a page already claimed, a paused site and a page the service would not take now are not
+ * offered.
+ */
+export async function offersConfirmGeneration(
+  rt: Runtime,
+  ctx: AdmitContext,
+  recorded: LoginAttemptMetadata,
+): Promise<boolean> {
+  if (ctx.paused || !hasConfirmAuthentication(rt, recorded) || manualPending(rt, ctx.live))
+    return false;
+  await rt.confirmFill.loaded;
+  if (hasConfirmClaim(rt, confirmationGenerationKey(recorded.id, ctx.live))) return false;
+  if ((await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path)) !== undefined) return false;
+  return (await offersGeneration(rt, ctx.live)) === true;
 }
 
 /** Runs before the authenticated-record return, preserving that login and its account. */

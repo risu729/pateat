@@ -4839,7 +4839,11 @@ is not reopened for that document and path, including the latest 16 pages a tab 
 delegated in either setting.
 
 A new eligible page is offered for ordinary recipe generation before admission would
-return `logged-in`, including a recognised secret-answer field. Offered slots belong
+return `logged-in`, including a recognised secret-answer field. The content script
+announces a sign-in input or a secret answer only after an answer that carries
+`generate`, so the authenticated record's `logged-in` answer carries it for a page on
+a path without a recipe, not yet claimed, not paused, and one the service would take
+now (`offersConfirmGeneration`). Offered slots belong
 only to the authenticated account; other matching usernames remain redacted.
 Generation retains existing budgets and redaction, and a returned recipe re-admits
 the current page. An off setting still permits classification; paused or unadmitted

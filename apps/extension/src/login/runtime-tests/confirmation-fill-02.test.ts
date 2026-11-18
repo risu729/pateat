@@ -2,6 +2,7 @@
 // replacement, storage failures, claims of pages a tab left and a replaced tab.
 import { describe, expect, it, vi } from "vitest";
 import { type LoginOperation } from "@pateat/contracts";
+import type { LoginGeneration } from "../runtime/deps";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
@@ -359,4 +360,97 @@ describe("confirmation claims and proofs over a tab's life", () => {
     await settled(h);
     expect(h.fields.mock.calls.every(([read]) => read.account.itemId === itemId)).toBe(true);
   });
+});
+
+// The document announces a sign-in input only after an answer with `generate` (the
+// content script's offer window), so the authenticated record's own answer must offer it:
+// a password asked again on a path without a recipe, in the tab of the confirmed login
+// (#1714, 2026-11-18), was otherwise never classified and never offered Fill.
+describe("classifying a verification page of the authenticated tab", () => {
+  const unclassified = (h: ReturnType<typeof harness>) => {
+    h.recipes.recipe.mockResolvedValue(undefined);
+    h.recipes.routes.mockResolvedValue([]);
+    fake.state.pageUrl = `${origin}/confirm`;
+    fake.state.observedPath = "/confirm";
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.extracted["login"] = {
+      ok: true,
+      observation: {
+        version: 1,
+        origin,
+        path: "/confirm",
+        language: "en",
+        complete: true,
+        candidates: [
+          { id: "password", role: "password", target: { by: "id", value: "password" } },
+          { id: "login", role: "button", target: { by: "id", value: "login" }, label: "Confirm" },
+        ],
+      },
+    };
+  };
+  const signIn = (h: ReturnType<typeof harness>) =>
+    h.login.handle(
+      {
+        version: 1,
+        type: "login.document.ready",
+        token: "synthetic-token",
+        signIn: { path: "/confirm" },
+      },
+      sender({ documentId: "reconfirm" }),
+    );
+  function service() {
+    return {
+      available: vi.fn<LoginGeneration["available"]>(async () => true),
+      generate: vi.fn<LoginGeneration["generate"]>(async (_request, sent) => {
+        sent?.();
+        return new Promise(() => undefined);
+      }),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+      judge: vi.fn<LoginGeneration["judge"]>(),
+      slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+    };
+  }
+
+  it("offers the page once from the login's answer, and classifies its announcement", async () => {
+    const generation = service();
+    const { h, original } = await authenticated({ username: true, custom: [], generation });
+    unclassified(h);
+    expect(await h.hello({ documentId: "reconfirm" }, false)).toMatchObject({
+      ok: false,
+      reason: "logged-in",
+      generate: true,
+    });
+    expect(await signIn(h)).toMatchObject({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledTimes(1));
+    // The claim holds the document and path: its next announcement, while the page is
+    // classified, is not offered again.
+    const again = await h.hello({ documentId: "reconfirm" }, false);
+    expect(again).toMatchObject({ ok: false, reason: "generating" });
+    expect(again).not.toHaveProperty("generate");
+    expect(generation.generate).toHaveBeenCalledTimes(1);
+    expect(stored()).toEqual(original);
+    expect(confirmations()).toEqual([]);
+  });
+
+  it.each(["unconfirmed", "paused", "not-available"] as const)(
+    "offers nothing for a %s tab",
+    async (reason) => {
+      const generation = service();
+      const { h } = await authenticated({ username: true, custom: [], generation });
+      const record = stored()[0]!;
+      let next = h;
+      if (reason === "unconfirmed") {
+        record.unconfirmed = true;
+        fake.state.openTabs = [1];
+        next = harness({}, { uris, username: true, custom: [], generation });
+      }
+      if (reason === "paused") await setPause(h, true);
+      if (reason === "not-available") generation.available.mockResolvedValue("sent");
+      unclassified(next);
+      const answer = await next.hello({ documentId: "reconfirm" }, false);
+      expect(answer).toMatchObject({ ok: false });
+      expect(answer).not.toHaveProperty("generate");
+      expect(generation.generate).not.toHaveBeenCalled();
+    },
+  );
 });
