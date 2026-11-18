@@ -35,6 +35,7 @@ const {
   press,
   clicks,
   secretAnswer,
+  target,
 } = pickFixture(fake);
 
 describe("the popup's Fill on a verification page", () => {
@@ -124,6 +125,42 @@ describe("the popup's Fill on a verification page", () => {
       expect(JSON.stringify(reports)).not.toContain(otherItemId);
     },
   );
+
+  // An account form that asks for the current password beside a new one (#1709): its
+  // `confirm` recipe names the email and the current password, never the new ones.
+  it("fills only the recipe's fields of an account form, pressing nothing", async () => {
+    const { h } = start({}, { username: true, otherUsername: true });
+    const form = parseLoginRecipe({
+      ...cached(),
+      slots: ["username", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/confirm",
+          fields: [
+            { slot: "username", target: target("username") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        { kind: "click", path: "/confirm", target: target("login"), purpose: "submit" },
+      ],
+    });
+    configure(h, form);
+    fake.state.present = new Set(["username", "password", "login"]);
+    await announce(h);
+    expect(await offers(h)).toMatchObject({
+      ok: true,
+      targets: [expect.objectContaining({ fill: true })],
+    });
+    fake.state.onReconnect = () => shownHello(h, { documentId: "confirmation-document" });
+    expect(await press(h)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    await settled(h);
+    const [filled] = confirmations();
+    expect(filled?.operation.step).toEqual({ ...form.steps[0], effect: "prepare" });
+    expect(filled?.values.map((entry) => entry.slot)).toEqual(["username", "password"]);
+    expect(clicks()).toEqual([]);
+  });
 
   it("fills once per press and again on the next press", async () => {
     const { h } = start();
