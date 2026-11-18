@@ -551,6 +551,7 @@ export async function learn(
     ...candidate,
     again,
     disabledLeftOut,
+    passkeyButton: run.metadata.passkeyButton === true,
     // Only an optional page must still be on its path: an undecided one keeps ADR 0029's
     // rule, as on a single-page app that routes on while it is judged.
     ...(verdict === "optional" ? { path: remaining.path } : {}),

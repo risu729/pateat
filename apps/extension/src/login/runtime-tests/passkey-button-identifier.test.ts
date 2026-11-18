@@ -615,5 +615,8 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
       state: "blocked",
       outcome: "policy-changed",
     });
+    // An ended login keeps no methods for a later worker (ADR 0055).
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fake.state.session["pateat.login-methods.v1"]).toEqual([]);
   });
 });

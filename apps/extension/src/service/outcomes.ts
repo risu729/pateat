@@ -80,18 +80,19 @@ export interface LoginOutcomeStorage {
 const notEnded = new Set(["policy-changed", "account-switched"]);
 
 /**
- * The code to send for a login report, or nothing: only for a login on a service recipe
- * revision that just ended (signed in or blocked) or, unless it is watched, settled as
- * unknown. A watched login (ADR 0027) reports how its watch ends, as signed in or blocked
- * with the outcome the watch left, never where it first stopped. A fill-only login and one
- * of an item without a password run only part of the revision, so they report nothing:
- * every report of the latter names its stop (`password`), so it reports nothing even when
- * it fails before the stop. A login that went on after its passkey button to a layout that
- * asks for the account first ran all of that layout's steps (`passkey-button`, ADR 0060
- * amendment of 2026-11-18), so it reports how it ended. A listed cause is sent as it is and takes precedence over the
+ * How a login ended, as its first-login result code and its login record name it, or
+ * nothing: only for a login on a service recipe revision that just ended (signed in or
+ * blocked) or, unless it is watched, settled as unknown. A watched login (ADR 0027)
+ * reports how its watch ends, as signed in or blocked with the outcome the watch left,
+ * never where it first stopped. A fill-only login and one of an item without a password
+ * run only part of the revision, so they report nothing: every report of the latter names
+ * its stop (`password`), so it reports nothing even when it fails before the stop. A login
+ * that went on after its passkey button to a layout that asks for the account first ran
+ * all of that layout's steps (`passkey-button`, ADR 0060 amendment of 2026-11-18), so it
+ * reports how it ended. A listed cause is sent as it is and takes precedence over the
  * `settled` and `unconfirmed` flags, which stand in only when there is none.
  */
-export function loginOutcomeOf(
+export function loginEndOf(
   report: LoginReport,
 ): { recipeId: string; report: LoginOutcomeReport } | undefined {
   if (report.type !== "attempt" || report.recipeRevision < 1) return undefined;
@@ -122,6 +123,24 @@ export function loginOutcomeOf(
   return parsed.success && v.is(syncRecipeIdSchema, report.recipeId)
     ? { recipeId: report.recipeId, report: parsed.output }
     : undefined;
+}
+
+/**
+ * The first-login result code to send for a login report (`loginEndOf`), or nothing. A
+ * login that went on after its passkey button and ended `challenge` at its stop, as when
+ * no passkey request came there, says nothing of the layout's plan, as a stop before a
+ * missing password does not: it sends its login record but no result code.
+ */
+export function loginOutcomeOf(
+  report: LoginReport,
+): { recipeId: string; report: LoginOutcomeReport } | undefined {
+  if (
+    report.type === "attempt" &&
+    report.stop === "passkey-button" &&
+    report.outcome === "challenge"
+  )
+    return undefined;
+  return loginEndOf(report);
 }
 
 const sameRevision =

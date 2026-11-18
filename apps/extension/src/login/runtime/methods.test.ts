@@ -221,6 +221,14 @@ describe("sign-in methods of a login (ADR 0055, amended 2026-11-18)", () => {
     openMethods(rt, "b", ["password"]);
     await vi.waitFor(() => expect(session.get("session:pateat.login-methods.v1")).toHaveLength(1));
     await restoreMethods(rt, new Set(["a", "b"]));
+    // Nor does it stay in storage.
+    await vi.waitFor(() =>
+      expect(
+        (session.get("session:pateat.login-methods.v1") as { attemptId: string }[]).map(
+          (entry) => entry.attemptId,
+        ),
+      ).toEqual(["a", "b"]),
+    );
     expect(takeMethods(rt, ended("a", "password", "blocked"))).toEqual({
       route: "password",
       used: "password",
@@ -228,7 +236,7 @@ describe("sign-in methods of a login (ADR 0055, amended 2026-11-18)", () => {
       why: "later-start",
     });
     expect(takeMethods(rt, ended("b", "password"))).toMatchObject({ used: "none" });
-    // One whose record is gone is not restored.
+    // One whose record is gone, or ended, is not restored.
     expect(takeMethods(rt, ended("ended", "password"))).toBeUndefined();
   });
 

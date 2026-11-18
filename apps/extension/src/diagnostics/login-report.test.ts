@@ -1,5 +1,8 @@
+import { problemEntrySchema } from "@pateat/contracts";
+import * as v from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import type { LoginReport } from "../login/runtime/report";
+import { problemLine } from "./log-format";
 import { createLoginReporter } from "./login-report";
 
 describe("a login's login.attempt line", () => {
@@ -43,5 +46,33 @@ describe("a login's login.attempt line", () => {
       }),
       expect.anything(),
     );
+  });
+
+  // A service deployed before this build refuses a line with a field it does not know
+  // (`problemEntrySchema`), and the server may deploy after the build reaches a device.
+  it("keeps the methods on the device, so a failed login's line passes any service", () => {
+    const line = problemLine({
+      time: 1_795_000_000_000,
+      level: "warn",
+      event: "login.attempt",
+      fields: {
+        origin: "https://member.example",
+        route: "password",
+        state: "blocked",
+        outcome: "challenge",
+        stop: "passkey-button",
+        used: "none",
+        held: "passkey.password",
+        why: "not-answered",
+      },
+    });
+    expect(line?.fields).toEqual({
+      origin: "https://member.example",
+      route: "password",
+      state: "blocked",
+      outcome: "challenge",
+      stop: "passkey-button",
+    });
+    expect(v.is(problemEntrySchema, { seq: 1, ...line })).toBe(true);
   });
 });

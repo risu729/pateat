@@ -366,6 +366,23 @@ describe("a login whose wait for the site ran out", () => {
     expect(ended[0]!.methods).toEqual({ route: "password", used: "password", held: "password" });
   });
 
+  it("restores no methods for a login that ended before the worker stopped", async () => {
+    const { h, since } = await settledLogin({ siteWait: () => undefined });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(since + WATCH_MS + 1);
+    onTestFinished(() => clock.mockRestore());
+    await h.login.siteWaitDue();
+    const record = at(origin)!;
+    expect(record).toMatchObject({ state: "blocked" });
+    // A worker that stopped before its write left the ended login's entry in storage.
+    fake.state.session["pateat.login-methods.v1"] = [
+      { attemptId: record.id, held: ["password"], used: ["password"], marks: {} },
+    ];
+    vi.clearAllTimers();
+    const restarted = twoSites();
+    expect(await restarted.login.active()).toBe(false);
+    await vi.waitFor(() => expect(fake.state.session["pateat.login-methods.v1"]).toEqual([]));
+  });
+
   it("keeps the worker up while a login waits for the site, but not for its watch", async () => {
     // The submit replaces the document, so the login waits for the tab's next page.
     fake.state.onExecute = async (message) => {

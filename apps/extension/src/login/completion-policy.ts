@@ -78,9 +78,15 @@ export function settleCompletion({
   again,
   disabledLeftOut,
   path,
+  passkeyButton = false,
 }: {
   completes: boolean;
   stopHeld: boolean;
+  /**
+   * The login went on after its passkey button (ADR 0060 amendment of 2026-11-18): its
+   * stop still holds the completion, but its item may hold a password, so none is named.
+   */
+  passkeyButton?: boolean;
   again?: { decision: SignInDecision; loaded: boolean; path?: string } | undefined;
   disabledLeftOut?: boolean;
   /**
@@ -95,8 +101,12 @@ export function settleCompletion({
       (path === undefined || again.path === path) &&
       (again.decision === "judge" || again.decision === "signed-in");
   const notCompleted =
-    completes && disabledLeftOut ? "disabled-left-out" : stopHeld ? "password-empty" : undefined;
-  return { completes: completes && notCompleted === undefined, notCompleted };
+    completes && disabledLeftOut
+      ? "disabled-left-out"
+      : stopHeld && !passkeyButton
+        ? "password-empty"
+        : undefined;
+  return { completes: completes && !stopHeld && notCompleted === undefined, notCompleted };
 }
 
 /** A confirmed sign of another sign-in step (S2 to S5) without the sign-in fields. */

@@ -201,7 +201,9 @@ export const LOG_EVENTS = {
       layoutFrom: "code",
       stop: "code",
       // The sign-in methods a login that ended used and its item holds, and why it did not
-      // use a better one (ADR 0055, amended 2026-11-18).
+      // use a better one (ADR 0055, amended 2026-11-18). Kept on the device: the problems
+      // contract leaves them out, as a service deployed before them refuses such a line,
+      // and the login record and `login.route` already carry them.
       used: "code",
       held: "code",
       why: "code",

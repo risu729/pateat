@@ -51,6 +51,7 @@ import {
 } from "./messages";
 import { saveSession } from "./attempt";
 import { loadMethods, restoreMethods } from "./methods";
+import { terminal } from "./attempt-state";
 import { BINDING_REVIEWS_KEY, bindingReviewStateSchema } from "./binding-review-state";
 import { revive } from "./choice";
 import { type Sender } from "./types";
@@ -406,8 +407,14 @@ function startRuntime(rt: Runtime) {
           // Its tab closed while the worker was stopped (ADR 0019, amended 2026-11-04).
           reportClosed(rt, metadata);
         }
-      // The sign-in methods of the logins left, before any of them ends (ADR 0055).
-      await restoreMethods(rt, new Set([...rt.persisted.values()].map((entry) => entry.id)));
+      // The sign-in methods of the logins left that have not ended, before any of them
+      // ends (ADR 0055).
+      await restoreMethods(
+        rt,
+        new Set(
+          [...rt.persisted.values()].filter((entry) => !terminal(entry)).map((entry) => entry.id),
+        ),
+      );
       // A wait for the site that ran out while the worker was stopped ends when it ran out
       // (ADR 0022, amended 2026-11-03): its bound was kept in memory only.
       endLostSiteWaits(

@@ -457,16 +457,20 @@ instead.
   choice is saved for that layout, or dropped when its plan names none, as after any
   layout switch. The log names the change (`login.attempt` with `routeChange`
   `passkey-button`, `layout` and `layoutFrom`).
-- **How it ends (agent's choice, 2026-11-18):** each `login.attempt` line of such a
-  login names its stop as `stop` `passkey-button`, never `password`, as its item may
-  hold a password. It ran every step of the layout, so it sends its first-login result
-  code and its login record ([ADR 0055](0055-login-records-sent-to-the-service.md)) like
-  any login, while a login stopping before its item's missing password still sends
-  neither. On build `ce71c5f0` on 2026-11-18 the stop was named `password`, so Qantas's
-  logins that signed in with the item's passkey sent no record. The record names the
-  route it ran, `password`, with `used` `passkey` when the passkey answered at the stop:
-  `route` is the route the login ran and `used` the method that signed in, as for a
-  password-route login that answers its page's passkey request.
+- **How it ends (agent's choice, 2026-11-18):** each `login.attempt` line after
+  the switch names its stop as `stop` `passkey-button`, never `password`, as its item
+  may hold a password, and a judged page held at the stop names no missing password
+  (`notCompleted`). It ran every step of the layout, so it sends its login record
+  ([ADR 0055](0055-login-records-sent-to-the-service.md)) however it ended, and its
+  first-login result code when it signed in or failed otherwise. One that ended
+  `challenge` at the stop, as when no passkey request came there, sends no result
+  code: as at a stop before an item's missing password, that end says nothing of the
+  layout's plan. A login stopping before its item's missing password still sends
+  neither. On build `ce71c5f0` on 2026-11-18 the stop was named `password`, so
+  Qantas's logins that signed in with the item's passkey sent no record. The record
+  names the route it ran, `password`, with `used` `passkey` when the passkey answered
+  at the stop: `route` is the route the login ran and `used` the method that signed
+  in, as for a password-route login that answers its page's passkey request.
 - Every other guard stays: a paused site, sign-in fill, a site whose passkey requests go
   to the browser (whose item holds no passkey here), the one-time pick and relogin limit
   of the account choice, the zero-counter rule and a re-prompt at the answer.

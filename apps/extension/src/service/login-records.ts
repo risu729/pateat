@@ -1,7 +1,7 @@
 import { LOGIN_RECORD_PARTS, loginRecordSchema, type LoginRecord } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginReport } from "../login/runtime/report";
-import { loginOutcomeOf } from "./outcomes";
+import { loginEndOf } from "./outcomes";
 import type { ServiceConnection } from "./runtime";
 import type { OutcomeResult, ServiceTransport } from "./transport";
 
@@ -33,7 +33,7 @@ export type FoundLoginRecord =
 /**
  * The record to send for a login report, or nothing. Only a login that just ended with its
  * times (`times`: signed in or blocked, a watched one when its watch ended, and never a
- * repeat report) and that would report a result code (`loginOutcomeOf`) sends one: a login
+ * repeat report) and whose end a result code names (`loginEndOf`) sends one: a login
  * without a service recipe revision, a fill-only login, any login of an item without a
  * password that stops before it, and a `policy-changed`, `account-switched` or cause-less
  * `cancelled` end send nothing, as for the first login's result code. A result that
@@ -46,7 +46,7 @@ export function loginRecordOf(
   extensionBuild: string,
 ): FoundLoginRecord | undefined {
   if (report.type !== "attempt" || !report.times || report.repeat) return undefined;
-  const found = loginOutcomeOf(report);
+  const found = loginEndOf(report);
   if (!found) return undefined;
   const { revision, branch, outcome, cause } = found.report;
   const { totalMs, serviceMs, networkMs, personMs, pageMs } = report.times;

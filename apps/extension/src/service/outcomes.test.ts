@@ -192,6 +192,22 @@ describe("loginOutcomeOf", () => {
     ).toEqual({ version: 1, revision: 3, branch: "1000", outcome: "authenticated", step: 1 });
   });
 
+  it("reports nothing for a login that went on after its passkey button and got no request", () => {
+    // The stop waited for a passkey request that never came: as at a stop before a
+    // missing password, that says nothing of the layout's plan.
+    expect(
+      loginOutcomeOf(
+        attempt({
+          state: "blocked",
+          outcome: "challenge",
+          reason: "passkey-button",
+          settled: undefined,
+          stop: "passkey-button",
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
   it("lets a listed cause take precedence over the settled flag", () => {
     expect(loginOutcomeOf(attempt({ cause: "sign-in-shown" }))?.report.cause).toBe("sign-in-shown");
   });

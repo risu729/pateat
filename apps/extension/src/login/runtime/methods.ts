@@ -21,10 +21,12 @@ import type { Runtime } from "./state";
  * a login that passed over a passkey or SSO method for a reason that may be a bug logs a
  * `login.route` warning, which goes to the service with the other problem lines.
  *
- * Kept for the logins that started in this worker, and in session storage
+ * Kept from a login's start until it ends, in memory and in session storage
  * (`METHODS_KEY`), so a login a restarted worker ends still names them, as one whose result
- * stayed watched long after the worker stopped (USI, 2026-11-18). A warning held for a
- * second factor is kept in memory only, with the worker kept up for it.
+ * stayed watched long after the worker stopped (USI, 2026-11-18). A login that ended, or
+ * whose record is gone, keeps none: a restarted worker restores them only for the logins
+ * it holds that have not ended. A warning held for a second factor is kept in memory only,
+ * with the worker kept up for it.
  */
 
 /** What made the login take the route it did, read when it started and as it ran. */
@@ -147,9 +149,9 @@ export function loadMethods(rt: Runtime): void {
 }
 
 /**
- * Takes the methods a stopped worker kept (`loadMethods`) for its logins that still have a
- * record (`attemptIds`), before any of them can end; a login this worker opened meanwhile
- * keeps its own. Never throws.
+ * Takes the methods a stopped worker kept (`loadMethods`) for its logins that have a
+ * record and have not ended (`attemptIds`), before any of them can end, and drops the rest
+ * from storage; a login this worker opened meanwhile keeps its own. Never throws.
  */
 export async function restoreMethods(rt: Runtime, attemptIds: ReadonlySet<string>): Promise<void> {
   const found = tablesOf(rt);
@@ -302,7 +304,10 @@ function warns(metadata: LoginAttemptMetadata, methods: AttemptMethods): boolean
   );
 }
 
-/** Drops attempt `attemptId`'s methods, as for an SSO hop's own login, which has no record. */
+/**
+ * Drops attempt `attemptId`'s methods: an SSO hop's own login, which has no record, a
+ * login that ended without its record's times, or one whose record is gone.
+ */
 export function dropMethods(rt: Runtime, attemptId: string): void {
   if (tablesOf(rt).kept.delete(attemptId)) save(rt);
 }
