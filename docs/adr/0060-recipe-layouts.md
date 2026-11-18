@@ -33,12 +33,10 @@ sign-in form's `layouts` and a list of accounts under `chooser` with its own `la
 the state of the browser's session. See
 [Both kinds on one path](#both-kinds-on-one-path).
 
-Amended on 2026-11-18 (owner, 02:16 UTC, for the switch; the route choice and its
-fallback are the agent's choice;
+Amended on 2026-11-18 (owner, 02:16 UTC;
 [#1675](https://github.com/risu729/pateat/issues/1675)): a login on the `passkey` route
 goes on with the layout its button led to when that layout asks for the account first
-and shows after the click; a login that took the button only for such a layout goes back
-to its password variant when it does not show. See
+and shows after the click. See
 [the amendment](#amendment-2026-11-18-a-passkey-button-that-leads-to-a-step-asking-for-the-account).
 
 Date: 2026-10-23
@@ -428,36 +426,22 @@ instead.
   passkey button's click, the login switches to the layout already learned for the step
   that asks for the account, fills the identifier and presses Continue, and the page's
   passkey request is answered with the login's item. No page is generated for it.
-- **The layout the button may lead to (agent's choice, details beyond the card):**
-  another layout of the same recipe, of its revision or a newer one, starting on the
-  button's path, with no passkey button of its own, no alternatives, no handlers and no
+- **The layout the button leads to (agent's choice, details beyond the card):** another
+  layout of the same recipe, of its revision or a newer one, starting on the button's
+  path, with no passkey button of its own, no alternatives, no handlers and no
   passkey-only start, whose steps fill at least one slot, none of them `password` or a
-  TOTP code, and end with an `advance` (`identifierLayoutAfter`). Without handlers, a
-  watched login never types a code from that layout. The account's plan on its
-  `password` route must pass, and its binding must read no secret into the page: no
-  `password` slot, no password or TOTP code through any field and no concealed custom
-  field. These hold both for the route choice at the start page and for the switch. Such
-  a layout was learned on the button's path; nothing before the click proves that the
-  button leads there, as it may open the browser's passkey prompt or another page
-  instead.
-- **The route choice (agent's choice):** a recipe with such a layout takes the button's
-  route for any usable passkey of the item (a zero counter, for an RP ID the origin may
-  use, ADR 0084), not only a discoverable one, since a request after the identifier
-  names the account's credentials, as after an identifier in
-  [ADR 0036](0036-passkey-after-the-identifier.md) rule 1. It does so only where the
-  switch could follow: in the tab's page, from the recipe's first page, neither on a
-  chooser's list (ADR 0028) nor while the tab asks and the login only fills. Such a
-  login records the password variant that fits, never one that stops before a missing
-  password. While its click's result has not settled and no passkey answer went to the
-  page since the click, the login goes back to that variant (`routeChange`
-  `request-missing`, as for a page's own request in
-  [ADR 0034](0034-answer-page-passkey-requests.md)) when the button still shows on its
-  path once a step's wait for its elements ran out, as under the browser's own prompt,
-  when the page shows the button on its path again in a new document, or when the
-  click's result would otherwise be judged or settle as unknown, as on another path.
-  Without such a layout, or with a discoverable passkey, the discoverable rule of
-  ADR 0027 stands and nothing falls back. An item without a password records no
-  variant and ends `challenge` as any login on the button's route does.
+  TOTP code, and end with an `advance` (`identifierLayoutAfter`). Generation derives a
+  click's `advance` from a page whose filled fields are all identifiers and that shows
+  no password or code input beside them. The switch takes over no handler of that
+  layout; once the login is watched it may still type the item's TOTP into a page that
+  asks for an authenticator app's code, as any watched login may
+  ([ADR 0027 amendment of 2026-11-17](0027-per-account-login-routes.md#amendment-2026-11-17-where-a-code-comes-from)).
+  The account's plan on that layout's `password` route must pass, for the login's own
+  account, and its binding must read no secret into the page: no `password` slot, no
+  password or TOTP code through any field and no concealed custom field.
+- **The route choice stays:** the button's route is still taken only for a discoverable
+  passkey (ADR 0027 rule 1), as the owner's item at 01:56 UTC was. The switch only
+  changes what that route does after its click.
 - **The switch (agent's choice):** while the button's click is in flight and its result
   has not settled, in the tab's page, once the button no longer shows on its path and
   every element of that layout's start page shows there, the login records attempt event
@@ -483,5 +467,9 @@ instead.
   detected as described here.
 - Not chosen: sending the page after the button's click to be continued as the
   `passkey` route's later steps, which needs a paid generation per site and a schema
-  change for steps after the button; and counting any usable passkey for every passkey
-  button, whose own request may need a discoverable one.
+  change for steps after the button. Also not chosen, and not asked for by the owner:
+  taking the button for a passkey that is not discoverable when such a layout exists.
+  Nothing before the click proves that the button leads there, so that login would need
+  a fallback to the password, which could type it under the browser's open passkey
+  prompt or on a page that has not rendered its form yet. An agent built it on
+  2026-11-18 and removed it after review; it stays a proposal for the owner.

@@ -34,24 +34,6 @@ export async function buttonLayouts(rt: Runtime, recipe: LoginRecipe): Promise<L
 }
 
 /**
- * Whether `recipe`'s passkey button leads to a layout that asks for the account first and
- * that the account fits (`fits`), so a passkey of the item that is not discoverable takes
- * the button's route too (ADR 0060 amendment of 2026-11-18).
- */
-export async function identifierLayouts(
-  rt: Runtime,
-  recipe: LoginRecipe,
-  fits: (layout: LoginRecipe) => Promise<boolean>,
-): Promise<boolean> {
-  for (const layout of await buttonLayouts(rt, recipe)) {
-    // Sequential: each plan reads the same vault and settings.
-    // eslint-disable-next-line no-await-in-loop
-    if (await fits(layout)) return true;
-  }
-  return false;
-}
-
-/**
  * Whether a binding reads a secret into the page: the `password` slot, the password or a
  * TOTP code through any field, or a concealed (hidden) custom field. A layout that asks
  * for the account first fills none of these after the passkey button.

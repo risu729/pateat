@@ -51,12 +51,12 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     fake.state.onReconnect = undefined;
     fake.state.messages = [];
     fake.state.granted = true;
-    fake.state.pageUrl = "https://login.example/auth";
+    fake.state.pageUrl = "https://login.example/auth/member/oauth";
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
     fake.state.incognito = new Set();
     fake.state.observed = ["unique", "missing"];
-    fake.state.observedPath = "/auth";
+    fake.state.observedPath = SIGN_IN;
     fake.state.unusable = new Set();
     fake.state.unobservable = new Set();
     fake.state.awaited = { ok: true };
@@ -70,6 +70,8 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     fake.state.signs = undefined;
     fake.state.loaded = true;
   });
+  // The path, steps and budgets of both layouts as stored for the site (2026-11-18).
+  const SIGN_IN = "/auth/member/oauth";
   const FORM = "1794476533378";
   const STEP = "1794922960578";
   const { completion: _unlearned, ...bare } = recipe;
@@ -83,16 +85,16 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     steps: [
       {
         kind: "fill",
-        path: "/auth",
+        path: SIGN_IN,
         fields: [
           { slot: "username", target: target("memberId") },
           { slot: "password", target: target("pin") },
         ],
         effect: "prepare",
       },
-      { kind: "click", path: "/auth", target: { by: "text", value: "LOG IN" }, purpose: "submit" },
+      { kind: "click", path: SIGN_IN, target: { by: "text", value: "LOG IN" }, purpose: "submit" },
     ],
-    passkey: { path: "/auth", target: button },
+    passkey: { path: SIGN_IN, target: button },
     maxSubmissions: 1,
   });
   const identifierStep = (overrides: Record<string, unknown> = {}) =>
@@ -103,10 +105,10 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
       layout: STEP,
       slots: ["username"],
       steps: [
-        { kind: "fill", path: "/auth", fields: [{ slot: "username", target: target("memberId") }] },
+        { kind: "fill", path: SIGN_IN, fields: [{ slot: "username", target: target("memberId") }] },
         {
           kind: "click",
-          path: "/auth",
+          path: SIGN_IN,
           target: { by: "text", value: "CONTINUE" },
           purpose: "advance",
         },
@@ -176,7 +178,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     );
     h.recipes.starts.mockResolvedValue([
       {
-        path: "/auth",
+        path: SIGN_IN,
         steps: layouts.map((layout) => layout.steps[0]!),
         later: layouts.flatMap((layout) => laterStartSteps(layout).map(laterReadiness)),
       },
@@ -204,10 +206,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
   const answeredByBridge = (h: ReturnType<typeof start>["h"]) => () =>
     h.login.passkeyAnswered(1, origin, "login.example");
 
-  it.each([
-    ["not discoverable", secondFactor],
-    ["discoverable", discoverable],
-  ])(
+  it.each([["discoverable", discoverable]])(
     "presses the button, fills the account, presses Continue and answers with a passkey %s",
     async (_label, facts) => {
       vi.useFakeTimers();
@@ -252,7 +251,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
   );
   it("answers the conditional request the step makes after Continue with the item", async () => {
     vi.useFakeTimers();
-    const { h } = start([form, identifierStep()], secondFactor);
+    const { h } = start([form, identifierStep()], discoverable);
     let decided: ConditionalDecision | undefined;
     shows(startPage, undefined, () => {
       void h.login
@@ -272,7 +271,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
   });
   it("ends at the step, watched, when no passkey request comes, and never types the PIN", async () => {
     vi.useFakeTimers();
-    const { h, reports } = start([form, identifierStep()], secondFactor);
+    const { h, reports } = start([form, identifierStep()], discoverable);
     shows(startPage);
     expect(await h.hello()).toEqual({ ok: true });
     await until(() => status()?.[0]?.["state"] === "watching");
@@ -292,15 +291,21 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     expect(executed()).toEqual(["fill:memberId,pin", "click:LOG IN"]);
     expect(status()![0]).toMatchObject({ route: "password", layout: FORM });
   });
-  it("keeps the discoverable rule when the button leads to no such step", async () => {
-    vi.useFakeTimers();
-    const { h } = start([form], secondFactor);
-    shows(startPage);
-    expect(await h.hello()).toEqual({ ok: true });
-    await until(() => executed().length === 2);
-    expect(executed()).toEqual(["fill:memberId,pin", "click:LOG IN"]);
-    expect(status()![0]).toMatchObject({ route: "password", layout: FORM });
-  });
+  it.each([
+    ["without such a step", [form]],
+    ["with a step that asks for the account after the button", [form, identifierStep()]],
+  ])(
+    "fills the form's password for a passkey that is not discoverable, %s",
+    async (_label, layouts) => {
+      vi.useFakeTimers();
+      const { h } = start(layouts, secondFactor);
+      shows(startPage);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => executed().length === 2);
+      expect(executed()).toEqual(["fill:memberId,pin", "click:LOG IN"]);
+      expect(status()![0]).toMatchObject({ route: "password", layout: FORM });
+    },
+  );
   it("only presses the button for a discoverable passkey when no layout asks for the account", async () => {
     vi.useFakeTimers();
     const { h } = start([form], discoverable);
@@ -323,12 +328,12 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
             steps: [
               {
                 kind: "fill",
-                path: "/auth",
+                path: SIGN_IN,
                 fields: [{ slot: "password", target: target("memberId") }],
               },
               {
                 kind: "click",
-                path: "/auth",
+                path: SIGN_IN,
                 target: { by: "text", value: "CONTINUE" },
                 purpose: "advance",
               },
@@ -339,22 +344,24 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
             steps: [
               {
                 kind: "fill",
-                path: "/auth",
+                path: SIGN_IN,
                 fields: [{ slot: "username", target: target("memberId") }],
               },
               {
                 kind: "click",
-                path: "/auth",
+                path: SIGN_IN,
                 target: { by: "text", value: "CONTINUE" },
                 purpose: "submit",
               },
             ],
           });
-    const { h } = start([form, other], secondFactor);
+    const { h } = start([form, other], discoverable);
     shows(startPage);
     expect(await h.hello()).toEqual({ ok: true });
-    await until(() => executed().length === 2);
-    expect(executed()).toEqual(["fill:memberId,pin", "click:LOG IN"]);
+    await until(() => executed().length === 1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
+    expect(status()![0]).toMatchObject({ route: "passkey", layout: FORM });
   });
   it("waits on the button's route while the button still shows beside the step", async () => {
     vi.useFakeTimers();
@@ -382,7 +389,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
   });
   it("fills the password route on a page set to fill only (ADR 0035)", async () => {
     vi.useFakeTimers();
-    const { h } = start([form, identifierStep()], secondFactor, {
+    const { h } = start([form, identifierStep()], discoverable, {
       pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" },
     });
     shows(startPage);
@@ -393,7 +400,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
   });
   it("fills the password route on a site whose passkey requests go to the browser (ADR 0007)", async () => {
     vi.useFakeTimers();
-    const { h, passkeys } = start([form, identifierStep()], secondFactor, {
+    const { h, passkeys } = start([form, identifierStep()], discoverable, {
       passkeyBrowserSites: [{ hostname: new URL(origin).hostname }],
     });
     shows(startPage);
@@ -402,7 +409,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     expect(executed()).toEqual(["fill:memberId,pin", "click:LOG IN"]);
     expect(passkeys).not.toHaveBeenCalled();
   });
-  it("never sends the page after Continue to continue the recipe", async () => {
+  it("never sends the page after Continue to be judged or to continue the recipe", async () => {
     vi.useFakeTimers();
     const generation = {
       available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
@@ -415,7 +422,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
     };
     const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true as const, data: uriMatch() }));
-    const { h } = start([form, identifierStep()], secondFactor, {}, { generation, uris });
+    const { h } = start([form, identifierStep()], discoverable, {}, { generation, uris });
     // The site shows its PIN input after Continue instead of asking for the passkey.
     shows(startPage, undefined, () => {
       fake.state.present = new Set(["memberId", "pin", "CONTINUE"]);
@@ -426,7 +433,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
           observation: {
             version: 1,
             origin,
-            path: "/auth",
+            path: SIGN_IN,
             language: "en",
             complete: true,
             candidates: [
@@ -441,21 +448,19 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     await until(() => status()?.[0]?.["state"] === "watching");
     expect(status()![0]).toMatchObject({ outcome: "challenge", layout: STEP });
     expect(generation.generate).not.toHaveBeenCalled();
+    expect(generation.judge).not.toHaveBeenCalled();
     expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY", "fill:memberId", "click:CONTINUE"]);
     expect(passwordRead(h)).toBe(false);
   });
   it("starts nothing on a paused site (ADR 0062)", async () => {
     vi.useFakeTimers();
-    const { h } = start([form, identifierStep()], secondFactor);
+    const { h } = start([form, identifierStep()], discoverable);
     shows(startPage);
     await setPause(h, true);
     expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
     expect(executed()).toEqual([]);
   });
-  it.each([
-    ["not discoverable", secondFactor, ["fill:memberId,pin", "click:LOG IN"]],
-    ["discoverable", discoverable, ["click:SIGN IN WITH PASSKEY"]],
-  ])(
+  it.each([["discoverable", discoverable, ["click:SIGN IN WITH PASSKEY"]]])(
     "never goes on to the step whose binding reads the password, for a passkey %s",
     async (_label, facts, steps) => {
       vi.useFakeTimers();
@@ -476,7 +481,7 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     const shown = fake.state.onExecute!;
     fake.state.onExecute = async (message, tabId) => {
       await shown(message, tabId);
-      fake.state.observedPath = "/auth/passkey";
+      fake.state.observedPath = "/auth/member/passkey";
     };
     expect(await h.hello()).toEqual({ ok: true });
     await until(() => executed().length === 1);
@@ -488,91 +493,9 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
     expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
     expect(passwordRead(h)).toBe(false);
   });
-  it("goes back to the form's password when the button opens a passkey prompt instead", async () => {
+  it("never switches to the step in a frame", async () => {
     vi.useFakeTimers();
-    const { h, reports } = start([form, identifierStep()], secondFactor);
-    // The button stays under the browser's prompt, which this item's passkey cannot answer.
-    shows(startPage, startPage);
-    expect(await h.hello()).toEqual({ ok: true });
-    await until(() => executed().length === 3);
-    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY", "fill:memberId,pin", "click:LOG IN"]);
-    expect(status()![0]).toMatchObject({ route: "password", variant: 0, layout: FORM });
-    expect(status()![0]).not.toHaveProperty("passkeyButton");
-    expect(reports.find((entry) => entry.type === "start")).toMatchObject({ route: "passkey" });
-    expect(
-      reports.filter((entry) => entry.type === "attempt" && entry.routeChange !== undefined),
-    ).toEqual([expect.objectContaining({ routeChange: "request-missing" })]);
-  });
-  it("keeps the button's route once its prompt was answered with the item", async () => {
-    vi.useFakeTimers();
-    const { h } = start([form, identifierStep()], secondFactor);
-    shows(startPage, startPage);
-    const shown = fake.state.onExecute!;
-    fake.state.onExecute = async (message, tabId) => {
-      await shown(message, tabId);
-      // The prompt over the button names the item's credential, and the bridge answers it.
-      h.login.passkeyRequested(1, origin);
-      vi.setSystemTime(Date.now() + 1);
-      answeredByBridge(h)();
-    };
-    expect(await h.hello()).toEqual({ ok: true });
-    await until(() => executed().length === 1);
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
-    expect(status()![0]).toMatchObject({ route: "passkey", layout: FORM });
-    expect(passwordRead(h)).toBe(false);
-  });
-  it("goes back to the form's password when a new page shows the button again", async () => {
-    vi.useFakeTimers();
-    const { h } = start([form, identifierStep()], secondFactor);
-    shows(startPage, startPage);
-    const shown = fake.state.onExecute!;
-    let reloaded = false;
-    fake.state.onExecute = async (message, tabId) => {
-      await shown(message, tabId);
-      const step = (message["operation"] as { step: LoginStep }).step;
-      // The button reloads the sign-in page: its document is gone.
-      if (step.kind === "click" && step.target.value === button.value && !reloaded) {
-        reloaded = true;
-        fake.state.gone = new Set(["synthetic-document"]);
-      }
-    };
-    expect(await h.hello()).toEqual({ ok: true });
-    await until(() => status()?.[0]?.["state"] === "reconciling");
-    fake.state.gone = new Set();
-    expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({ ok: true });
-    await until(() => executed().length === 3, 30_000);
-    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY", "fill:memberId,pin", "click:LOG IN"]);
-    expect(status()![0]).toMatchObject({ route: "password", variant: 0, layout: FORM });
-  });
-  it("goes back to the form's password when the button moves the page to another path", async () => {
-    vi.useFakeTimers();
-    const { h } = start([form, identifierStep()], secondFactor);
-    shows(startPage, []);
-    const shown = fake.state.onExecute!;
-    fake.state.onExecute = async (message, tabId) => {
-      await shown(message, tabId);
-      const step = (message["operation"] as { step: LoginStep }).step;
-      if (step.kind === "click" && step.target.value === button.value)
-        fake.state.observedPath = "/auth/passkey";
-    };
-    const ready = fake.state.awaitReply!;
-    fake.state.awaitReply = (readiness) => {
-      // The site's passkey page sends the person back to its form once it is left.
-      if (status()?.[0]?.["route"] === "password" && fake.state.observedPath !== "/auth") {
-        fake.state.observedPath = "/auth";
-        fake.state.present = new Set(startPage);
-      }
-      return ready(readiness);
-    };
-    expect(await h.hello()).toEqual({ ok: true });
-    await until(() => executed().length === 3);
-    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY", "fill:memberId,pin", "click:LOG IN"]);
-    expect(status()![0]).toMatchObject({ route: "password", variant: 0, layout: FORM });
-  });
-  it("fills the password route in a frame, where no switch would follow the button", async () => {
-    vi.useFakeTimers();
-    const { h } = start([form, identifierStep()], secondFactor);
+    const { h } = start([form, identifierStep()], discoverable);
     shows(startPage);
     fake.state.tabUrls[1] = "https://login.example/home";
     expect(
@@ -582,9 +505,11 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
         tab: { id: 1, url: "https://login.example/home" },
       }),
     ).toEqual({ ok: true });
-    await until(() => executed().length === 2);
-    expect(executed()).toEqual(["fill:memberId,pin", "click:LOG IN"]);
-    expect(status()![0]).toMatchObject({ route: "password", layout: FORM });
+    await until(() => executed().length === 1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(executed()).toEqual(["click:SIGN IN WITH PASSKEY"]);
+    expect(status()![0]).toMatchObject({ route: "passkey", layout: FORM });
+    expect(status()![0]).not.toHaveProperty("passkeyButton");
   });
   it("never takes over the step after the site's account changed under the click", async () => {
     vi.useFakeTimers();

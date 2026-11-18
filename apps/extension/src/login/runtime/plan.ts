@@ -50,7 +50,6 @@ import { signInPermission } from "./page-permission";
 import { listedBrowserSite } from "./pause";
 import type { Runtime } from "./state";
 import { bindingReviewSnapshot } from "./binding-review";
-import { identifierLayouts, readsSecret } from "./button-layout";
 import type { BindingIssue } from "./binding-review-state";
 
 /**
@@ -503,8 +502,6 @@ export async function planFor(
      * the popup logs in, once, on the password route.
      */
     paused?: boolean;
-    /** The login runs a route of a chooser's list (ADR 0028). */
-    chooser?: boolean;
   } = {},
 ) {
   snapshot = await bindingReviewSnapshot(rt, snapshot, live, recipe, request.route !== undefined);
@@ -571,28 +568,27 @@ export async function planFor(
   /**
    * The plan for one route, or why it does not resolve. Without `fillGaps`, a saved binding
    * that holds no entry for one of the route's slots refuses `binding-slots-mismatch`
-   * rather than having it filled (ADR 0027, amended 2026-10-19). `on` is another layout of
-   * the recipe whose route is checked for the account (ADR 0060 amendment of 2026-11-18).
+   * rather than having it filled (ADR 0027, amended 2026-10-19).
    */
-  const resolveRoute = async (route: LoginRouteChoice, fillGaps = true, on = recipe) => {
+  const resolveRoute = async (route: LoginRouteChoice, fillGaps = true) => {
     // Passive execution never delivers the code, effectful-fill or keypad fields.
     // Their omitted bindings must not prevent the ordinary fields from being filled.
     const slots =
       signInFill && route.route === "password"
         ? [
             ...new Set(
-              routeSteps(on, route).flatMap((step) => {
+              routeSteps(recipe, route).flatMap((step) => {
                 const fill = fillOnlyStep(step);
                 return fill?.kind === "fill" ? fill.fields.map((field) => field.slot) : [];
               }),
             ),
           ]
-        : routeSlots(on, route);
+        : routeSlots(recipe, route);
     let policy = snapshot.snapshot;
     let binding: LoginAccountBinding;
     let choice: UnsavedChoice | undefined;
     let stored: SavedLoginBinding | undefined;
-    if (!chosen) binding = probeBinding(on, rt.vars.account, slots);
+    if (!chosen) binding = probeBinding(recipe, rt.vars.account, slots);
     else {
       let named: SavedLoginBinding | LoginChoiceAccount;
       let unsaved: boolean;
@@ -613,7 +609,7 @@ export async function planFor(
           rt,
           catalog,
           snapshot.snapshot.settings,
-          on,
+          recipe,
           chosen,
           live.document.origin,
           slots,
@@ -667,7 +663,7 @@ export async function planFor(
     if (request.handlerSlots?.includes(TOTP_HANDLER_SLOT)) {
       const owner = catalog.connections.find((entry) => entry.id === binding.connectionId);
       const code =
-        owner && codeFieldOf(owner, binding.itemId, snapshot.snapshot.settings.bindings, on);
+        owner && codeFieldOf(owner, binding.itemId, snapshot.snapshot.settings.bindings, recipe);
       if (!code) return { ok: false as const, reason: "code-field-missing" as const };
       binding = {
         ...binding,
@@ -675,7 +671,7 @@ export async function planFor(
       };
       planSlots = [...slots, TOTP_HANDLER_SLOT];
     }
-    const plan = resolveLoginPlan(policy, catalog, live.url, on, binding, planSlots);
+    const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding, planSlots);
     // A saved default's item that no longer matches the page, as after its URI was edited
     // on another device, is also no matching item.
     if (!plan.ok && plan.reason === "item-origin-mismatch" && savedDefault)
@@ -768,28 +764,12 @@ export async function planFor(
     const resolved = await resolveRoute({ route: "passkey" });
     if (resolved.ok) {
       facts = await factsOf(resolved);
-      // A button that may lead to a layout asking for the account first takes any usable
-      // passkey of the item, when the account's binding fills that layout and the login
-      // could switch to it: in the tab's page and not on a chooser's list (ADR 0060
-      // amendment of 2026-11-18). A later start has no button here (`routeRecipe`), and a
-      // fill-only plan off the password route is planned again without filling.
-      const identifierFirst =
-        facts.passkey &&
-        !facts.discoverablePasskey &&
-        live.document.frameId === 0 &&
-        !request.chooser &&
-        (await identifierLayouts(rt, routeRecipe, async (layout) => {
-          const fits = await resolveRoute({ route: "password", variant: 0 }, true, layout);
-          return fits.ok && !readsSecret(fits.connection, fits.binding);
-        }));
       // No binding matters on this route, so a password variant that does not fit never
       // refuses such a login.
-      const choice = chooseLoginRoute(routeRecipe, facts, [], pageRequest, identifierFirst);
-      if (choice?.route === "passkey") {
-        if (!pageRequest && !identifierFirst) return { ...resolved, facts };
+      if (chooseLoginRoute(routeRecipe, facts, [], pageRequest)?.route === "passkey") {
+        if (!pageRequest) return { ...resolved, facts };
         // Answering the page's request falls back to the variant that fits (ADR 0034),
-        // never to one that stops before the password the item lacks (ADR 0036), and so
-        // does a button taken only for the layout it may lead to, when it leads elsewhere.
+        // never to one that stops before the password the item lacks (ADR 0036).
         const password = await passwordPlan();
         return {
           ...resolved,

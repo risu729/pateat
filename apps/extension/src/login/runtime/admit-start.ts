@@ -154,7 +154,6 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       ...(asking ? { asking } : {}),
       ...(fill ? { fill } : {}),
       ...(pausedStart ? { paused: true } : {}),
-      ...(ctx.chooser ? { chooser: true } : {}),
       ...(ctx.previous ? { route: attemptRouteChoice(ctx.previous) } : {}),
       ...(pageRequest ? { pageRequest } : {}),
       ...(from && !from.button ? { later: true } : {}),
@@ -173,7 +172,6 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       planned = await planFor(rt, snapshot, ctx.live, route, {
         ...(asking ? { asking } : {}),
         ...(pausedStart ? { paused: true } : {}),
-        ...(ctx.chooser ? { chooser: true } : {}),
         ...(from && !from.button ? { later: true } : {}),
       });
       if (rt.documents.get(ctx.key) !== ctx.live) return undefined;
@@ -221,7 +219,6 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     const pressed = await planFor(rt, snapshot, ctx.live, passkeyRoute, {
       ...(asking ? { asking } : {}),
       ...(pausedStart ? { paused: true } : {}),
-      ...(ctx.chooser ? { chooser: true } : {}),
       ...(pageRequest ? { pageRequest } : {}),
     });
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
@@ -265,7 +262,6 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         ...(fill ? { fill } : {}),
         ...(pageRequest ? { pageRequest } : {}),
         ...(pausedStart ? { paused: true } : {}),
-        ...(ctx.chooser ? { chooser: true } : {}),
       }));
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     if (bare && alone && alone.ok && "stopAt" in alone && !("fillOnly" in alone)) {
@@ -448,7 +444,6 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
           ...(asking ? { asking } : {}),
           ...(pageRequest ? { pageRequest } : {}),
           ...(pausedStart ? { paused: true } : {}),
-          ...(ctx.chooser ? { chooser: true } : {}),
         });
         if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
         // An item without a password goes on only when that branch can take its stop

@@ -3,7 +3,7 @@ import { attemptPlan } from "../../src/login-attempt/operations";
 import { createAttemptMetadata, transitionLoginAttempt } from "../../src/login-attempt";
 import type { LoginAttemptEvent } from "../../src/login-attempt/events";
 import type { LoginRecipe } from "../../src/login/route-schema";
-import { chooseLoginRoute, identifierLayoutAfter } from "../../src/login/routes";
+import { identifierLayoutAfter } from "../../src/login/routes";
 import type { LoginAttemptTestContext } from "./context";
 
 /**
@@ -54,6 +54,22 @@ export function registerButtonLayouts({
     };
     it("names a layout of the recipe that asks for the account and goes on", () => {
       expect(identifierLayoutAfter(form, step)).toBe(true);
+      // A generated slot's own name counts as the account's, as any slot but the password's
+      // or a code's does.
+      const named = {
+        ...step,
+        slots: ["0"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [{ slot: "0", target: id("member") }],
+          },
+          step.steps[1]!,
+        ],
+      } as LoginRecipe;
+      expect(identifierLayoutAfter(form, named)).toBe(true);
       // Never without a button, for itself, or for another recipe's layout.
       const { passkey: _button, ...buttonless } = form;
       expect(identifierLayoutAfter(buttonless, step)).toBe(false);
@@ -167,21 +183,6 @@ export function registerButtonLayouts({
     ])("never names a layout that %s", (_label, change) => {
       expect(identifierLayoutAfter(form, { ...step, ...change } as LoginRecipe)).toBe(false);
     });
-    it("takes the button for any passkey only when it leads to such a layout", () => {
-      const facts = { password: true, discoverablePasskey: false, passkey: true };
-      expect(chooseLoginRoute(form, facts, [true])).toEqual({ route: "password", variant: 0 });
-      expect(chooseLoginRoute(form, facts, [true], false, true)).toEqual({ route: "passkey" });
-      // Without a passkey, or a button, nothing changes.
-      expect(chooseLoginRoute(form, { ...facts, passkey: false }, [true], false, true)).toEqual({
-        route: "password",
-        variant: 0,
-      });
-      const { passkey: _button, ...buttonless } = form;
-      expect(chooseLoginRoute(buttonless, facts, [true], true, true)).toEqual({
-        route: "password",
-        variant: 0,
-      });
-    });
 
     const started = (change: Partial<Parameters<typeof createAttemptMetadata>[0]> = {}) =>
       transitionLoginAttempt(
@@ -192,7 +193,7 @@ export function registerButtonLayouts({
           policyRevision: 3,
           account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
           choice: { route: "passkey" },
-          facts: { password: true, totp: false, passkey: true, discoverablePasskey: false },
+          facts: { password: true, totp: false, passkey: true, discoverablePasskey: true },
           document: top,
           ...change,
         }),

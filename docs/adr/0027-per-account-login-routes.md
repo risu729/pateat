@@ -154,12 +154,10 @@ sent, and a watched login types the item's TOTP once into a page that names an
 authenticator app, also one its document swaps in place
 ([Where a code comes from](#amendment-2026-11-17-where-a-code-comes-from)).
 
-Amended on 2026-11-18 (owner, decision card answered at 02:16 UTC, for the switch after
-the click; the route choice is the agent's choice; implemented, not merged): the login
-goes on after the passkey button's click with a layout of the recipe that asks for the
-account first, and the `passkey` route's requirement of a discoverable passkey gives way
-to any usable passkey when the button may lead to such a layout, with a fallback to the
-password when it does not
+Amended on 2026-11-18 (owner, decision card answered at 02:16 UTC; implemented, not
+merged): after the passkey button's click, the login goes on with a layout of the recipe
+that asks for the account first when that layout shows; the route is still chosen as
+rule 1 says
 ([A passkey button before the account](#amendment-2026-11-18-a-passkey-button-before-the-account)).
 
 Date: 2026-10-11
@@ -243,6 +241,8 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
 1. **One route is chosen at start**, in this order (owner, 13:40 UTC: passkey before
    SSO), and recorded:
    1. `passkey`, if the recipe has that route and the item has a discoverable passkey;
+      its button's click may go on with a layout that asks for the account first
+      ([amendment of 2026-11-18](#amendment-2026-11-18-a-passkey-button-before-the-account));
    2. `sso`, if the item has it. An SSO item never uses `password` (ADR 0026);
    3. `password`, if the item has a password and its binding fills one variant.
 
@@ -2116,19 +2116,10 @@ item's passkey instead of the password route. The owner chose option
 「進める(今のレシピで)」 at 02:16 UTC. As recorded in
 [ADR 0060's amendment of 2026-11-18](0060-recipe-layouts.md#amendment-2026-11-18-a-passkey-button-that-leads-to-a-step-asking-for-the-account):
 
-- **Route choice (agent's choice):** rule 1 of the [executor](#executor) reads:
-  `passkey`, if the recipe has that route and the item has a discoverable passkey, or
-  any usable passkey when the recipe holds a layout the button may lead to, which asks
-  for the account first and which the account fits, and the login could switch to it
-  (in the tab's page, from the recipe's first page, not on a chooser's list and not only
-  filling). The discoverable rule stays for every other button. Nothing before the click
-  proves that the button leads to that layout, so such a login records the password
-  variant that fits and goes back to it while the click's result is unsettled, no
-  passkey answer went to the page and the layout has not shown: when the button still
-  shows on its path after a step's wait, shows again there in a new document, or the
-  result would be judged or settle as unknown. This is the one `passkey` route of a
-  recipe with a button that falls back to the password.
-- **After the click (owner; details are the agent's choice there):** once that layout's
-  start page shows, the login goes on with its identifier and Continue, stops just past
-  them and answers the page's passkey request with its item. From there it never falls
-  back to typing the password.
+- **Route choice (unchanged):** rule 1 of the [executor](#executor) still needs a
+  discoverable passkey, as the owner's item at 01:56 UTC had.
+- **After the click (owner; details are the agent's choice there):** once the button is
+  gone and the start page of a layout that asks for the account first shows on its
+  path, the login goes on with that layout's identifier and Continue, stops just past
+  them and answers the page's passkey request with its item. It never falls back to
+  typing the password, as this ADR says of the `passkey` route.

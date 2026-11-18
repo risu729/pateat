@@ -830,26 +830,6 @@ export function bridgeAnswer(rt: Runtime, run: Execution): number | undefined {
 }
 
 /**
- * Whether the login took its recipe's passkey button only for a layout the button may lead
- * to, which asks for the account first, and may still go back to the password variant it
- * recorded (ADR 0060 amendment of 2026-11-18): no other login on a recipe with a button
- * records one on the `passkey` route. Only while the button's click is unsettled and no
- * passkey answer went to the page since it.
- */
-export function buttonFallsBack(rt: Runtime, run: Execution): boolean {
-  const { metadata } = run;
-  return (
-    run.recipe.passkey !== undefined &&
-    metadata.route === "passkey" &&
-    metadata.variant !== undefined &&
-    metadata.stepIndex === 0 &&
-    metadata.operationKind === "click" &&
-    metadata.settled !== true &&
-    bridgeAnswer(rt, run) === undefined
-  );
-}
-
-/**
  * The `passkey` route that answers its page's own request goes back to the password
  * variant the login recorded (ADR 0034), or ends `challenge` without one or with a stop
  * before the item's missing password (ADR 0036). It never answers again. A passkey the

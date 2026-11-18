@@ -218,7 +218,7 @@ export function identifierLayoutAfter(button: LoginRecipe, layout: LoginRecipe):
     layout.passkey === undefined &&
     layout.passkeyOnly !== true &&
     layout.alternatives === undefined &&
-    // A watched login never types a code from a handler of that layout.
+    // The switch takes over no handler of that layout.
     layout.handlers === undefined &&
     steps[0]?.path === button.passkey.path &&
     slots.length > 0 &&
@@ -234,22 +234,16 @@ export function identifierLayoutAfter(button: LoginRecipe, layout: LoginRecipe):
  * item's binding fills each password variant in order (`fits[variant]`), the first
  * fitting variant, when the item has a password. Undefined means `no-route`, unless an
  * item without a password may take the `password` route up to its password, or to the end
- * of a route that fills none (`passwordStopOrMiss`, ADR 0036). With `identifierFirst`, the
- * button leads to a layout that asks for the account first (`identifierLayoutAfter`), so
- * any usable passkey of the item takes the button's route (ADR 0060 amendment of
- * 2026-11-18), as one after an identifier does (ADR 0036).
+ * of a route that fills none (`passwordStopOrMiss`, ADR 0036).
  */
 // SSO (ADR 0026) comes between the passkey and password routes once it exists.
 export function chooseLoginRoute(
   recipe: LoginRecipe,
-  facts: Pick<LoginItemFacts, "password" | "discoverablePasskey"> &
-    Partial<Pick<LoginItemFacts, "passkey">>,
+  facts: Pick<LoginItemFacts, "password" | "discoverablePasskey">,
   fits: readonly boolean[],
   pageRequest = false,
-  identifierFirst = false,
 ): LoginRouteChoice | undefined {
   if ((recipe.passkey || pageRequest) && facts.discoverablePasskey) return { route: "passkey" };
-  if (recipe.passkey && identifierFirst && facts.passkey === true) return { route: "passkey" };
   if (!facts.password) return undefined;
   const variant = passwordVariants(recipe).findIndex((_, index) => fits[index] === true);
   return variant === -1 ? undefined : { route: "password", variant };
