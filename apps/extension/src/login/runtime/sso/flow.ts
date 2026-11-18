@@ -823,17 +823,17 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     cancelSso(rt, ctx.document.tabId);
     return ctx.refuse("sso-idp-unreadable");
   }
+  // The IdP's own login runs in the tab: it has not ended signed in or stopped, and it is
+  // watched only for its result (ADR 0027).
+  const childRuns =
+    child !== undefined &&
+    child.metadata.id === work.childId &&
+    !["authenticated", "blocked"].includes(child.metadata.state);
   if (
     parsed.output.kind === "native" ||
     (parsed.output.kind === "unknown" && ctx.signIn?.passkey)
   ) {
-    if (
-      !work.childId ||
-      (child &&
-        child.metadata.id === work.childId &&
-        !["authenticated", "blocked"].includes(child.metadata.state))
-    )
-      return undefined;
+    if (!work.childId || childRuns) return undefined;
   }
   if (
     parsed.output.kind === "account" ||
@@ -857,6 +857,17 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     if (!pressed) cancelSso(rt, ctx.document.tabId, "sso-idp-stopped");
     return { ok: false as const, reason: "sso-in-progress" };
   }
+  value = undefined;
+  // A page of the IdP's own origin that is neither its sign-in form nor a finite step, as a
+  // risk check or a method chooser after the IdP's own submit, is that login's next page:
+  // it is admitted with its record, as a direct login of the IdP goes on to its handlers
+  // or its watch there. Before that login began, such a page, as a redirect through an
+  // interstitial, waits as a sign-in in progress; the flow's own time bounds it (ADR 0026,
+  // amendment of 2026-11-18). An unsafe page still ends the flow.
+  if (parsed.output.kind === "unknown") {
+    if (childRuns) return undefined;
+    if (!work.childId) return ctx.refuse("sso-in-progress");
+  }
   cancelSso(rt, ctx.document.tabId, "sso-idp-stop");
   return ctx.refuse("sso-idp-stop");
 }
@@ -865,7 +876,11 @@ export function ssoChildChanged(rt: Runtime, run: Execution) {
   const work = rt.sso.flows.get(run.metadata.document.tabId);
   if (!work || work.childId !== run.metadata.id || work.ended) return;
   work.childRecord = run.metadata;
-  if (run.metadata.state === "blocked" || run.metadata.state === "watching" || run.metadata.settled)
+  // A result that settled as unknown or a challenge is watched (ADR 0027): its next IdP page
+  // may enter a handler, or the IdP may send the tab back to the RP, whose own evidence
+  // completes the flow. Only a login that stopped ends it (ADR 0026, amendment of
+  // 2026-11-18).
+  if (run.metadata.state === "blocked")
     cancelSso(rt, run.metadata.document.tabId, "sso-idp-child-stopped");
   else if (run.metadata.state === "authenticated") {
     work.phase = "returning-rp";

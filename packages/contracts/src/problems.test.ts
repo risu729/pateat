@@ -209,6 +209,8 @@ describe("problem report contract (ADR 0066)", () => {
     expect(accepts(problemReportSchema, withFields("login.start", { fillOnly: true }))).toBe(false);
     expect(problemLocalOnly("passkey.create", {})).toBe(true);
     expect(problemLocalOnly("login.attempt", { fillOnly: true })).toBe(true);
+    expect(problemLocalOnly("login.attempt", { ssoChild: true })).toBe(true);
+    expect(problemLocalOnly("login.attempt", { ssoChild: false })).toBe(false);
   });
 
   it("checks each field by the kind its event gives it", () => {

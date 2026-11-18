@@ -226,6 +226,12 @@ export type LoginReport = (
        * the login record (ADR 0055, amendment of 2026-11-18).
        */
       methods?: AttemptMethods;
+      /**
+       * The IdP's own login inside an SSO flow (ADR 0026, amendment of 2026-11-18): logged on
+       * the device only. It sends no record or result and shows nothing on the badge; its
+       * parent stands for the login.
+       */
+      ssoChild?: true;
     }
   | {
       /**

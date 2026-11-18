@@ -584,6 +584,9 @@ export default defineBackground(() => {
     entryBlocks,
     report: (report) => {
       diagnosticsLog.login(report);
+      // The IdP's own login inside an SSO flow is only logged (ADR 0026, amendment of
+      // 2026-11-18): its parent is the login the badge, the service and the records see.
+      if (report.type === "attempt" && report.ssoChild) return;
       loginBadge.observe(report);
       // A site count the login stopped may run once it ended, settled or is only watched.
       if (
