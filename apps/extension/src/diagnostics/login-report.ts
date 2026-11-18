@@ -178,6 +178,22 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
               : {}),
           },
         );
+      else if (report.type === "route")
+        void logger.log(
+          "login.route",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            layout: report.layout,
+            route: report.route,
+            used: report.used,
+            held: report.held,
+            why: report.why,
+            outcome: report.outcome,
+          },
+          { source },
+        );
       else if (report.type === "choice")
         void logger.log(
           "login.choice",

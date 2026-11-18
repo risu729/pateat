@@ -24,6 +24,7 @@ import {
   type AskedQuestion,
 } from "../wire";
 import { timed, withholdSpans } from "./spans";
+import { methodUsed } from "./methods";
 import { loginFillsUsername, loginSecretKind, loginUsernameFieldId } from "../vault";
 import { newId } from "@pateat/contracts/ids";
 import { type Execution } from "./types";
@@ -623,6 +624,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
         ) {
           fill.submitted = true;
           fill.at = at;
+          methodUsed(rt, run.metadata.id, "password");
         }
       } else if (codeSubmit) {
         // The page may submit the code by itself once it is in (ADR 0027), and leave

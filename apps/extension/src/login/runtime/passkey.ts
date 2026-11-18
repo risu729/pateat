@@ -41,6 +41,7 @@ import { change, current } from "./attempt";
 import { allowed } from "./plan-2";
 import { reconcileBounded } from "./sign-in";
 import { type RouteChange } from "./report";
+import { methodRouteChanged, methodUsed } from "./methods";
 import { planFor, itemMatchesUrl } from "./plan";
 import { ssoAfterPasskey } from "./sso/passkey-refused";
 import { observedPath } from "../../observation/path";
@@ -135,6 +136,15 @@ export function passkeyAnswered(
   // A running login's answer is that login's step, which it follows itself (ADR 0034).
   const running = recordFor(rt, tabId, siteOrigin);
   const outside = !running || terminal(running) || idle(running);
+  // The login of the tab's origin signed with its own item's passkey (ADR 0055, amended
+  // 2026-11-18); one that just completed takes it as its second factor.
+  if (
+    running &&
+    item &&
+    running.account.connectionId === item.connectionId &&
+    running.account.itemId === item.itemId
+  )
+    methodUsed(rt, running.id, "passkey");
   // The page the answer went to signed in, as after a submitted password or code: the
   // tab's next page of its origin is the page after a sign-in (ADR 0028), whatever the
   // method (owner, 2026-11-08).
@@ -842,6 +852,7 @@ export async function fallBack(
 ): Promise<void> {
   if (!current(rt, run) || terminal(run.metadata)) return;
   run.passkeyFailed = true;
+  methodRouteChanged(rt, run.metadata.id, cause);
   if (await ssoAfterPasskey(rt, run)) return;
   const { variant } = run.metadata;
   const steps =

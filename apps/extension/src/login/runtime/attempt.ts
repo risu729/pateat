@@ -48,6 +48,7 @@ import { settleDetails, forgetDetail, removeRefused } from "./detail-fill";
 import { askFor, offerChoice } from "./choice";
 import { DocumentGone } from "./document-gone";
 import { takeSpans, timed } from "./spans";
+import { methodsCorrected, takeMethods } from "./methods";
 import type { Runtime } from "./state";
 
 /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
@@ -109,6 +110,9 @@ export const reportAttempt = (
       : undefined;
   // Where its own time went, for the local log and the login record (ADR 0019, ADR 0055).
   const spans = times ? takeSpans(rt, metadata.id) : undefined;
+  // Which sign-in method it used, for the login record (ADR 0055, amended 2026-11-18).
+  const methods = times ? takeMethods(rt, metadata) : undefined;
+  if (flags.corrected) methodsCorrected(rt, metadata);
   // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
   const handler =
     recipe && metadata.handlers.length
@@ -150,6 +154,7 @@ export const reportAttempt = (
     ...marks,
     ...(times ? { times } : {}),
     ...(spans ? { spans } : {}),
+    ...(methods ? { methods } : {}),
   });
 };
 

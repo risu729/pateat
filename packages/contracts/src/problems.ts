@@ -169,6 +169,19 @@ export const PROBLEM_EVENT_FIELDS = {
     otherMs: "count",
     url: "path",
   },
+  // A login that did not use the best sign-in method its item holds, for a reason that may
+  // be a bug (ADR 0066, amendment of 2026-11-18).
+  "login.route": {
+    origin: "origin",
+    recipe: "recipe",
+    recipeRevision: "count",
+    layout: "code",
+    route: "code",
+    used: "code",
+    held: "code",
+    why: "code",
+    outcome: "code",
+  },
   "login.entry": {
     origin: "origin",
     recipe: "recipe",

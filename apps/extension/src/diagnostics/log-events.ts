@@ -219,6 +219,22 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
+  // A login that did not use a passkey or SSO method its item holds, for a reason that may
+  // be a bug (ADR 0066, amendment of 2026-11-18).
+  "login.route": {
+    level: "warn",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      layout: "code",
+      route: "code",
+      used: "code",
+      held: "code",
+      why: "code",
+      outcome: "code",
+    },
+  },
   "login.entry": {
     level: "info",
     fields: {

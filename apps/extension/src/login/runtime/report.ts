@@ -10,6 +10,7 @@ import {
   type LogoutPurpose,
 } from "@pateat/contracts";
 import type { AttemptSpans } from "./spans";
+import type { AttemptMethods } from "./methods";
 import type { ServiceTiming } from "../../service/transport";
 import { type ListMissReport as ListMiss, type ExecutionDetail, type LaterMiss } from "../wire";
 import { type AskReason } from "../choice-wire";
@@ -216,6 +217,29 @@ export type LoginReport = (
        * (ADR 0019, ADR 0055).
        */
       spans?: AttemptSpans;
+      /**
+       * With `times`: which sign-in method the login used beside those its item holds, for
+       * the login record (ADR 0055, amendment of 2026-11-18).
+       */
+      methods?: AttemptMethods;
+    }
+  | {
+      /**
+       * A login that did not use a passkey or SSO method its item holds, for a reason that
+       * may be a bug (ADR 0066, amendment of 2026-11-18): codes only.
+       */
+      type: "route";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      layout?: string;
+      route: string;
+      /** `loginMethodList` of what the login used and of what its item holds. */
+      used: string;
+      held: string;
+      why: string;
+      outcome?: string;
     }
   | {
       type: "refused";
