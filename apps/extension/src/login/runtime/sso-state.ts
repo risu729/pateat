@@ -86,6 +86,10 @@ export type SsoNativeChoice = {
   automatic?: true;
   /** The item offered an SSO method beside its native routes (ADR 0085). */
   methods?: true;
+  /** The person picked this route in the popup, rather than the chooser by itself. */
+  picked?: true;
+  /** The site had refused the item's passkey, so the chooser picked without it. */
+  passkeyRefused?: true;
   /** The login this choice started: only its own refused passkey goes back to the chooser. */
   attemptId?: string;
 };

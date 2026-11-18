@@ -255,6 +255,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       // Log in now never takes a native route by itself: it is the person's pick.
       ...(ctx.manual ? {} : { automatic: true as const }),
       ...(described.data.methods.length ? { methods: true as const } : {}),
+      ...(receipt.picked ? { picked: true as const } : {}),
+      ...(passkeyRefused ? { passkeyRefused: true as const } : {}),
     });
     return undefined;
   }
@@ -270,5 +272,18 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   const selectedEntry = receipt.selection.entryId
     ? targets.get(receipt.selection.entryId)
     : undefined;
-  return beginSso(rt, ctx, saved, chosen, receipt.selection, selectedEntry);
+  // What the item holds and why the login takes an SSO method, for its record (ADR 0055,
+  // amended 2026-11-18).
+  const methods = {
+    held: [
+      ...(facts.discoverablePasskey ? (["passkey"] as const) : []),
+      "sso" as const,
+      ...(facts.password ? (["password"] as const) : []),
+    ],
+    marks: {
+      ...(receipt.picked ? { picked: true as const } : {}),
+      ...(passkeyRefused ? { passkeyRefused: true as const } : {}),
+    },
+  };
+  return beginSso(rt, ctx, saved, chosen, receipt.selection, selectedEntry, methods);
 }

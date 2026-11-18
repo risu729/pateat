@@ -188,8 +188,24 @@ describe("Log in now presses by itself only an SSO entry the automatic order dec
     if (!answer.ok) throw new Error(answer.reason);
     expect(input.entryLearned).toHaveBeenCalledWith("provider", idpOrigin);
     expect(input.hopAllowed).toHaveBeenCalledWith(idpOrigin);
+    const consumed = await h.controller.consume(answer.choiceId);
+    expect(consumed).toMatchObject({ selection: { kind: "sso", entryId: "provider" } });
+    // The automatic order decided it, so the login's record counts it as automatic, not
+    // as the person's pick (ADR 0055, amended 2026-11-18).
+    expect(consumed).not.toHaveProperty("picked");
+  });
+
+  it("names the person's own pick in Log in now's chooser as picked", async () => {
+    const h = await mapped();
+    const pending = await h.request(manual(false));
+    expect(pending.waiting).toBe(true);
+    expect(await h.choose("sso", 1, { entryId: "provider" })).toEqual({ ok: true });
+    const answer = await pending.result;
+    if (!answer.ok) throw new Error(answer.reason);
     expect(await h.controller.consume(answer.choiceId)).toMatchObject({
+      ok: true,
       selection: { kind: "sso", entryId: "provider" },
+      picked: true,
     });
   });
 

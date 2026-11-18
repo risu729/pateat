@@ -50,7 +50,11 @@ type Receipt = {
   entryOrigin?: string;
   /** An automatic choice of a broker page's learned entry requires it again when consumed. */
   learned?: true;
+  /** The person picked it in the popup, rather than the automatic order (ADR 0085). */
+  picked?: true;
 };
+/** What a receipt keeps beside its selection, for {@link Receipt}. */
+type ReceiptFacts = Pick<Receipt, "entryOrigin" | "learned" | "picked">;
 type Refusal = { reason: string; field?: string };
 type SsoSelection = Extract<SsoChooseRequest["selection"], { kind: "sso" }>;
 const failure = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
@@ -228,19 +232,15 @@ export function createSsoChoiceController(options: {
     if (!checked.ok) return refusal(checked);
     return (await current(offer)) ? undefined : { reason: "scope-changed" };
   }
-  function resolve(
-    offer: Offer,
-    selection: SsoResolvedChoice,
-    entryOrigin?: string,
-    learned?: true,
-  ) {
+  function resolve(offer: Offer, selection: SsoResolvedChoice, facts: ReceiptFacts = {}) {
     if (!retained(offer) || offer.settled) return failure("offer-gone");
     const choiceId = newId();
     receipts.set(choiceId, {
       offer,
       selection,
-      ...(entryOrigin ? { entryOrigin } : {}),
-      ...(learned ? { learned } : {}),
+      ...(facts.entryOrigin ? { entryOrigin: facts.entryOrigin } : {}),
+      ...(facts.learned ? { learned: facts.learned } : {}),
+      ...(facts.picked ? { picked: facts.picked } : {}),
     });
     finish(offer, { ok: true, choiceId });
     return { ok: true as const };
@@ -269,8 +269,7 @@ export function createSsoChoiceController(options: {
     resolve(
       offer,
       { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
-      exact ? selected.origin : undefined,
-      exact ? undefined : true,
+      exact ? { entryOrigin: selected.origin } : { learned: true },
     );
   }
   /**
@@ -503,13 +502,17 @@ export function createSsoChoiceController(options: {
     }
     const label =
       method.label ?? offer.input.entries?.find((entry) => entry.id === selection.entryId)?.label;
-    return resolve(offer, {
-      kind: "sso",
-      source: method.source,
-      selected: chosen,
-      ...(label ? { label } : {}),
-      ...(selection.entryId ? { entryId: selection.entryId } : {}),
-    });
+    return resolve(
+      offer,
+      {
+        kind: "sso",
+        source: method.source,
+        selected: chosen,
+        ...(label ? { label } : {}),
+        ...(selection.entryId ? { entryId: selection.entryId } : {}),
+      },
+      { picked: true },
+    );
   }
   async function choose(request: SsoChooseRequest): Promise<SsoActionResponse> {
     const offer = offers.get(request.tabId);
@@ -522,7 +525,7 @@ export function createSsoChoiceController(options: {
       // A native route needs no SSO method to be mapped or valid (ADR 0085).
       if (selection.kind === "native") {
         if (!offer.input.native[selection.route]) return failure("method-unavailable");
-        return resolve(offer, selection);
+        return resolve(offer, selection, { picked: true });
       }
       const method = methodOf(offer, selection.method.number);
       if (!method) return failure("method-unavailable");
@@ -777,10 +780,14 @@ export function createSsoChoiceController(options: {
         if (!saved?.ok || !matching(saved, offer)) invalidateTab(tabId, "vault-changed");
     },
     /** Rechecks the route and the exact observed URL entry; one use, even on refusal. */
-    async consume(
-      choiceId: string,
-    ): Promise<
-      | { ok: true; document: LoginDocument; account: LoginAccount; selection: SsoResolvedChoice }
+    async consume(choiceId: string): Promise<
+      | {
+          ok: true;
+          document: LoginDocument;
+          account: LoginAccount;
+          selection: SsoResolvedChoice;
+          picked?: true;
+        }
       | { ok: false; reason: string }
     > {
       const receipt = receipts.get(choiceId);
@@ -813,7 +820,13 @@ export function createSsoChoiceController(options: {
       }
       if (!retained(offer)) return failure("scope-changed");
       invalidateTab(offer.input.document.tabId, "consumed");
-      return { ok: true, document: offer.input.document, account: offer.input.account, selection };
+      return {
+        ok: true,
+        document: offer.input.document,
+        account: offer.input.account,
+        selection,
+        ...(receipt.picked ? { picked: receipt.picked } : {}),
+      };
     },
   };
 }

@@ -369,6 +369,37 @@ export function registerLoginRecordTests() {
       ]);
     });
 
+    it("keeps the sign-in method used beside the item's, and nothing for a record without it", async () => {
+      const device = await enrollOwner();
+      expect((await publish(device, "bank-login", 0)).status).toBe(200);
+      const method = {
+        route: "password",
+        used: "password",
+        held: "passkey.password",
+        routeWhy: "no-passkey-route",
+      };
+      expect((await send(device, "bank-login", { ...record, ...method })).status).toBe(204);
+      expect((await send(device, "bank-login", { ...record, totalMs: 9500 })).status).toBe(204);
+      expect(
+        (await send(device, "bank-login", { ...record, ...method, used: "password.passkey" }))
+          .status,
+      ).toBe(400);
+      const { results } = await env.DB.prepare(
+        "SELECT route, used, held, route_why FROM login_timings WHERE owner_id = ? ORDER BY total_ms",
+      )
+        .bind(device.ownerId)
+        .all();
+      expect(results).toEqual([
+        {
+          route: "password",
+          used: "password",
+          held: "passkey.password",
+          route_why: "no-passkey-route",
+        },
+        { route: null, used: null, held: null, route_why: null },
+      ]);
+    });
+
     it("takes the site from the newest kept revision once the reported one is pruned", async () => {
       const device = await enrollOwner();
       expect((await publish(device, "bank-login", 0)).status).toBe(200);

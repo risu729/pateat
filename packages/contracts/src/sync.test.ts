@@ -374,6 +374,32 @@ describe("login record contract", () => {
     const { branch: _branch, ...withoutBranch } = record;
     expect(accepts(loginRecordSchema, withoutBranch)).toBe(false);
   });
+
+  it("carries the sign-in method used beside the item's, together or not at all (ADR 0055)", () => {
+    const method = { route: "password", used: "password", held: "passkey.password" };
+    expect(accepts(loginRecordSchema, { ...record, ...method })).toBe(true);
+    expect(accepts(loginRecordSchema, { ...record, ...method, routeWhy: "no-passkey-route" })).toBe(
+      true,
+    );
+    for (const used of ["passkey", "passkey.password", "sso", "none"])
+      expect(accepts(loginRecordSchema, { ...record, ...method, used })).toBe(true);
+    expect(accepts(loginRecordSchema, { ...record, ...method, route: "sso", used: "sso" })).toBe(
+      true,
+    );
+    for (const changed of [
+      { used: "password.passkey" },
+      { used: "" },
+      { used: "totp" },
+      { held: "none" },
+      { held: "passkey.passkey" },
+      { route: "totp" },
+      { routeWhy: "Passkey missing" },
+    ])
+      expect(accepts(loginRecordSchema, { ...record, ...method, ...changed })).toBe(false);
+    const { used: _used, ...withoutUsed } = method;
+    expect(accepts(loginRecordSchema, { ...record, ...withoutUsed })).toBe(false);
+    expect(accepts(loginRecordSchema, { ...record, routeWhy: "picked" })).toBe(false);
+  });
 });
 
 describe("recipe use report contract (ADR 0058)", () => {
