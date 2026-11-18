@@ -83,6 +83,7 @@ import { destinationRefusal, accountDestinationRefusal } from "./plan";
 import { allowed } from "./plan-2";
 import { reviewRequests, secondFactorAfterCompletion } from "./passkey";
 import { armSiteWait, quietly, scopes } from "./session-store";
+import { dropMethods } from "./methods";
 import { leaveConfirm } from "./markers";
 import { rejectedElsewhere, recordFor } from "./hold";
 import { forgetClosedSites } from "./relogin";
@@ -780,7 +781,12 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
       const stored = gone && ended.get(gone.metadata.id);
       if (gone && gone.metadata.document.tabId === tabId && stored === storedAtDrop)
         ended.set(gone.metadata.id, gone.metadata);
-      if (closed) for (const metadata of ended.values()) reportClosed(rt, metadata);
+      if (closed)
+        for (const metadata of ended.values()) {
+          reportClosed(rt, metadata);
+          // It never ends, so it names no method (ADR 0055).
+          dropMethods(rt, metadata.id);
+        }
       // A closed tab's login no longer waits for the site (ADR 0022).
       armSiteWait(rt);
       await rt.attemptRecords.write([...rt.persisted.values()]);

@@ -74,6 +74,12 @@ export const CONFIG_KEY = "pateat.login-probe-origin.v1";
  */
 export const SSO_CANCELS_KEY = "session:pateat.login-sso-cancels.v1";
 
+/**
+ * The sign-in methods kept for each login that has not ended (ADR 0055, amended 2026-11-18),
+ * so a restarted worker that ends a login, as when its watch runs out, still names them.
+ */
+export const METHODS_KEY = "session:pateat.login-methods.v1";
+
 /** Sign-in entry presses per tab, until the tab closes (ADR 0031). */
 export const ENTRY_PRESSES_KEY = "session:pateat.login-entry-presses.v1";
 

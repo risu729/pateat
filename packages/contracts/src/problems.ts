@@ -4,8 +4,9 @@ import { extensionBuildSchema } from "./sync";
 // What one `warn` or `error` line, or `info` line saying why Pateat did nothing, of a
 // device's local log may carry to the service (ADR 0066). The extension's log allowlists
 // every event's fields by kind (ADR 0019); this is that allowlist less the item and
-// connection pseudonyms, with a page URL as a redacted path, so the service checks each
-// field by its kind too and the extension's own reduction is not the only boundary.
+// connection pseudonyms and an ended `login.attempt` line's sign-in methods, with a page
+// URL as a redacted path, so the service checks each field by its kind too and the
+// extension's own reduction is not the only boundary.
 
 /** Log lines one problem report carries at most. */
 export const MAX_PROBLEM_ENTRIES = 100;
@@ -94,6 +95,11 @@ export const LOCAL_ONLY_FIELDS = {
     "checkMs",
     "vaultMs",
     "commandMs",
+    // The sign-in methods of the line where a login ends: the login record and
+    // `login.route` send them (ADR 0066 amendment of 2026-11-18).
+    "used",
+    "held",
+    "why",
   ],
 } as const satisfies Record<string, readonly string[]>;
 

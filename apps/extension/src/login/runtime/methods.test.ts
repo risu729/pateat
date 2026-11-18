@@ -1,11 +1,20 @@
 import type { LoginAttemptMetadata } from "@pateat/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const session = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("wxt/utils/storage", () => ({
+  storage: {
+    getItem: async (key: string) => session.get(key) ?? null,
+    setItem: async (key: string, value: unknown) => void session.set(key, value),
+  },
+}));
 import { RESULT_CORRECTION_MS } from "./constants";
 import {
   methodRouteChanged,
   methodsCorrected,
   methodUsed,
+  loadMethods,
   openMethods,
+  restoreMethods,
   takeMethods,
 } from "./methods";
 import type { LoginReport } from "./report";
@@ -198,7 +207,40 @@ describe("sign-in methods of a login (ADR 0055, amended 2026-11-18)", () => {
     expect(reports).toMatchObject([{ outcome: "credential-rejected" }]);
   });
 
-  it("names nothing for a login it does not keep, as one a restarted worker resumed", () => {
+  it("names the methods a stopped worker kept for a login it left (USI, 2026-11-18)", async () => {
+    session.clear();
+    const stopped = runtime();
+    openMethods(stopped.rt, "a", ["passkey", "password"], { later: true });
+    methodUsed(stopped.rt, "a", "password");
+    openMethods(stopped.rt, "ended", ["password"]);
+    await vi.waitFor(() => expect(session.get("session:pateat.login-methods.v1")).toHaveLength(2));
+    const { rt } = runtime();
+    loadMethods(rt);
+    // A login this worker opened before the restore keeps its own methods, and its write
+    // does not lose the stopped worker's.
+    openMethods(rt, "b", ["password"]);
+    await vi.waitFor(() => expect(session.get("session:pateat.login-methods.v1")).toHaveLength(1));
+    await restoreMethods(rt, new Set(["a", "b"]));
+    // Nor does it stay in storage.
+    await vi.waitFor(() =>
+      expect(
+        (session.get("session:pateat.login-methods.v1") as { attemptId: string }[]).map(
+          (entry) => entry.attemptId,
+        ),
+      ).toEqual(["a", "b"]),
+    );
+    expect(takeMethods(rt, ended("a", "password", "blocked"))).toEqual({
+      route: "password",
+      used: "password",
+      held: "passkey.password",
+      why: "later-start",
+    });
+    expect(takeMethods(rt, ended("b", "password"))).toMatchObject({ used: "none" });
+    // One whose record is gone, or ended, is not restored.
+    expect(takeMethods(rt, ended("ended", "password"))).toBeUndefined();
+  });
+
+  it("names nothing for a login it does not keep", () => {
     const { rt, reports } = runtime();
     methodUsed(rt, "a", "password");
     expect(takeMethods(rt, ended("a", "password"))).toBeUndefined();

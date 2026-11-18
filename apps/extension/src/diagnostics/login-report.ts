@@ -526,6 +526,10 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             layout: report.layoutFrom === undefined ? undefined : report.branch,
             layoutFrom: report.layoutFrom,
             stop: report.stop,
+            // Which sign-in method a login that ended used (ADR 0055, amended 2026-11-18).
+            used: report.methods?.used,
+            held: report.methods?.held,
+            why: report.methods?.why,
             ...report.times,
             ...report.spans,
           },

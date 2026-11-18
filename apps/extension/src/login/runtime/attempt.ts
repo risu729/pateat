@@ -49,7 +49,7 @@ import { settleDetails, forgetDetail, removeRefused } from "./detail-fill";
 import { askFor, offerChoice } from "./choice";
 import { DocumentGone } from "./document-gone";
 import { takeSpans, timed } from "./spans";
-import { methodsCorrected, takeMethods } from "./methods";
+import { dropMethods, methodsCorrected, takeMethods } from "./methods";
 import type { Runtime } from "./state";
 
 /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
@@ -113,6 +113,8 @@ export const reportAttempt = (
   const spans = times ? takeSpans(rt, metadata.id) : undefined;
   // Which sign-in method it used, for the login record (ADR 0055, amended 2026-11-18).
   const methods = times ? takeMethods(rt, metadata) : undefined;
+  // An end without its times, as a repeat or a correction, keeps no methods either.
+  if (!times && terminal(metadata)) dropMethods(rt, metadata.id);
   if (flags.corrected) methodsCorrected(rt, metadata);
   // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
   const handler =
@@ -149,7 +151,11 @@ export const reportAttempt = (
           ...(metadata.fillDone ? { fillDone: true as const } : {}),
         }
       : {}),
-    ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
+    // A login that went on after its passkey button stops past its layout's steps, whose
+    // item may hold a password (ADR 0060 amendment of 2026-11-18): it ran the whole layout.
+    ...(metadata.stopAt === undefined
+      ? {}
+      : { stop: metadata.passkeyButton ? ("passkey-button" as const) : ("password" as const) }),
     ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
     ...(stop ? { cause: stop } : {}),
     ...marks,

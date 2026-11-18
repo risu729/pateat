@@ -3,6 +3,7 @@ import { parseAttemptMetadata, type LoginAttemptMetadata } from "@pateat/contrac
 import { forgetConfirmProof, rememberConfirmAuthentication } from "./confirm-state";
 import { recordKey } from "./steps";
 import { terminal } from "./attempt-state";
+import { dropMethods } from "./methods";
 import { SITE_MOVE_MS, SITE_WAIT_MS, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
 
@@ -87,7 +88,11 @@ export async function keep(
 export async function forget(rt: Runtime, key: string): Promise<void> {
   const released = rt.persisted.get(key);
   rt.persisted.delete(key);
-  if (released) forgetConfirmProof(rt, released.document.tabId, released.account.origin);
+  if (released) {
+    forgetConfirmProof(rt, released.document.tabId, released.account.origin);
+    // A released login never ends, so it names no method (ADR 0055).
+    dropMethods(rt, released.id);
+  }
   await write(rt);
 }
 

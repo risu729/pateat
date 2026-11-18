@@ -51,6 +51,8 @@ import {
   loginAccount,
 } from "./messages";
 import { saveSession } from "./attempt";
+import { loadMethods, restoreMethods } from "./methods";
+import { terminal } from "./attempt-state";
 import { BINDING_REVIEWS_KEY, bindingReviewStateSchema } from "./binding-review-state";
 import { revive } from "./choice";
 import { type Sender } from "./types";
@@ -257,6 +259,8 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
 }
 
 function startRuntime(rt: Runtime) {
+  // What a stopped worker kept of its logins' sign-in methods, before this one writes.
+  loadMethods(rt);
   // Picks and waiting choices outlive a worker restart, as the tab's badge does. Every
   // change to them happens after this load.
   rt.vars.sessionRead = quietly(rt, async () => {
@@ -410,6 +414,14 @@ function startRuntime(rt: Runtime) {
           // Its tab closed while the worker was stopped (ADR 0019, amended 2026-11-04).
           reportClosed(rt, metadata);
         }
+      // The sign-in methods of the logins left that have not ended, before any of them
+      // ends (ADR 0055).
+      await restoreMethods(
+        rt,
+        new Set(
+          [...rt.persisted.values()].filter((entry) => !terminal(entry)).map((entry) => entry.id),
+        ),
+      );
       // A wait for the site that ran out while the worker was stopped ends when it ran out
       // (ADR 0022, amended 2026-11-03): its bound was kept in memory only.
       endLostSiteWaits(

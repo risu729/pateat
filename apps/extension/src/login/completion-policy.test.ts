@@ -293,3 +293,23 @@ describe("judgedCompletionResult", () => {
     },
   );
 });
+
+describe("a stop that holds the completion", () => {
+  it("names the missing password, but not for a login past its passkey button (ADR 0060)", () => {
+    const held = { completes: false, stopHeld: true } as const;
+    expect(settleCompletion(held)).toEqual({ completes: false, notCompleted: "password-empty" });
+    // Its item may hold a password: the stop is the passkey's, and still holds it.
+    expect(settleCompletion({ ...held, passkeyButton: true })).toEqual({
+      completes: false,
+      notCompleted: undefined,
+    });
+    expect(
+      settleCompletion({
+        completes: true,
+        stopHeld: true,
+        passkeyButton: true,
+        again: { decision: "judge", loaded: true },
+      }).completes,
+    ).toBe(false);
+  });
+});
