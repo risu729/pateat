@@ -441,6 +441,7 @@ export function createSsoChoiceController(options: {
     });
     if (refused) return refused;
     method.stored = true;
+    delete method.inferred;
     method.selectedId = chosen.id;
     delete method.reason;
     delete method.field;
@@ -511,6 +512,7 @@ export function createSsoChoiceController(options: {
     const refused = await write(offer, method);
     if (refused) return refused;
     delete method.stored;
+    delete method.inferred;
     method.candidates = method.candidates.filter((entry) => entry.id !== method.selectedId);
     delete method.selectedId;
     method.reason = "mapping-required";
@@ -620,9 +622,33 @@ export function createSsoChoiceController(options: {
     }
     const refused = await discover(offer, method);
     if (refused?.reason === "scope-changed") return false;
+    if (!saved && !refused) {
+      const only = await onlyCandidate(offer, method);
+      if (only === "withdrawn") return false;
+      if (only) return true;
+    }
     if (refused && !method.reason) Object.assign(method, refused);
     method.reason ??= "mapping-required";
     return true;
+  }
+  /**
+   * A URL-form method without a saved mapping whose discovery found exactly one IdP item
+   * (owner, 2026-11-18 14:14 UTC, ADR 0085): its own concrete URIs hold the method's
+   * origin and its username is the site item's, so the origin and the username name that
+   * account and nothing is guessed. It is used for this sign-in as a saved mapping is,
+   * after the same validation, and never saved: the next offer decides again, so a vault
+   * change that adds a second such item brings the person's choice back. A bracket
+   * method's label never selects an account, so it still needs the person's mapping.
+   */
+  async function onlyCandidate(offer: Offer, method: Method) {
+    const only = method.candidates.length === 1 ? method.candidates[0] : undefined;
+    if (method.form !== "url" || !only || hopRefusal(offer, only.selected)) return undefined;
+    const checked = await options.source.validate(method.source, only.selected, offer.input.signal);
+    if (!retained(offer)) return "withdrawn";
+    if (!checked.ok) return undefined;
+    method.selectedId = only.id;
+    method.inferred = true;
+    return only;
   }
   /** The automatic route: passkey, then the preferred SSO method, then the password. */
   async function automatic(offer: Offer): Promise<Refusal | undefined> {

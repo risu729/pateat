@@ -36,11 +36,33 @@ const prepared = () =>
 /** Where each button goes, by its id: the page's own form, unless a test says. */
 let destinations: Record<string, string> = {};
 
+/** The IBMid item, as discovery finds it: its own URI holds `login.ibm.com`. */
+const ibmItem = {
+  account: { connectionId, itemId: otherItemId },
+  snapshotId: "b0000000-0000-4000-8000-000000000001",
+  origins: [ibm],
+};
+type Discovery =
+  | { ok: true; data: { sourceEvidence: string; policyRevision: number; candidates: unknown[] } }
+  | { ok: false; reason: string };
+const discovered = (candidates: unknown[]): Discovery => ({
+  ok: true,
+  data: { sourceEvidence: evidence, policyRevision: 1, candidates },
+});
+
 /**
  * The HCP item ("HCP / Terraform"): a URL-form `SSO` method mapped to the IBMid item at
- * `login.ibm.com`, on the broker page, where no entry was pressed before.
+ * `login.ibm.com`, on the broker page, where no entry was pressed before. With `saved`
+ * false, the settings hold no mapping, as the owner's do.
  */
-function setup(options: { idpName?: string; entries?: typeof buttons } = {}) {
+function setup(
+  options: {
+    idpName?: string;
+    entries?: typeof buttons;
+    saved?: false;
+    discovery?: Discovery;
+  } = {},
+) {
   const sso = {
     describe: vi.fn(async () => ({
       ok: true as const,
@@ -50,20 +72,7 @@ function setup(options: { idpName?: string; entries?: typeof buttons } = {}) {
         methods: [{ method: { number: 1 }, form: "url", automatic: true }],
       },
     })),
-    candidates: vi.fn(async () => ({
-      ok: true as const,
-      data: {
-        sourceEvidence: evidence,
-        policyRevision: 1,
-        candidates: [
-          {
-            account: { connectionId, itemId: otherItemId },
-            snapshotId: "b0000000-0000-4000-8000-000000000001",
-            origins: [ibm],
-          },
-        ],
-      },
-    })),
+    candidates: vi.fn(async () => options.discovery ?? discovered([ibmItem])),
     validate: vi.fn(async () => ({
       ok: true as const,
       data: { sourceEvidence: evidence, policyRevision: 1, candidates: [] },
@@ -107,9 +116,10 @@ function setup(options: { idpName?: string; entries?: typeof buttons } = {}) {
     },
   );
   const account = { provider: "bitwarden", server: "cloud-us", userId };
-  h.settings.settings.ssoMappings = [
-    { ...account, itemId, method: 1, idp: { ...account, itemId: otherItemId, origin: ibm } },
-  ];
+  if (options.saved !== false)
+    h.settings.settings.ssoMappings = [
+      { ...account, itemId, method: 1, idp: { ...account, itemId: otherItemId, origin: ibm } },
+    ];
   const recipes = h.recipes as typeof h.recipes & Record<string, unknown>;
   recipes["sso"] = vi.fn(async () => heads);
   recipes["ssoFence"] = vi.fn(async () => () => true);
@@ -145,7 +155,7 @@ function setup(options: { idpName?: string; entries?: typeof buttons } = {}) {
       itemId,
     });
   }
-  return { h, methods, offer, logInNow, generateSso };
+  return { h, sso, methods, offer, logInNow, generateSso };
 }
 /** The flow pressed exactly the IBMid button, once per press. */
 const pressedIbm = (times = 1) => {
@@ -313,5 +323,45 @@ describe("a broker page's first visit starts SSO by itself (#1687)", () => {
     s.h.settings.settings.excludedSites = [{ hostname: "login.example", includeSubdomains: true }];
     await s.h.signIn();
     expect(prepared()).toHaveLength(0);
+  });
+});
+
+// The owner's settings hold no SSO mapping (ADR 0085, amended 2026-11-18): discovery's one
+// IdP item, whose own URI holds the method's origin and whose username is the site item's,
+// is used for the sign-in by itself, and nothing is saved.
+describe("a broker page with no saved mapping (#1687)", () => {
+  it("presses the IBMid entry on a fresh tab, with no popup, and saves nothing", async () => {
+    const s = setup({ saved: false });
+    void s.h.signIn();
+    await vi.waitFor(() => pressedIbm());
+    expect(await s.methods()).toEqual({ ok: true });
+    expect(s.sso.validate).toHaveBeenCalled();
+    expect(s.h.settings.settings.ssoMappings ?? []).toEqual([]);
+    expect(s.h.store.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "two IdP items hold the origin",
+      discovered([
+        ibmItem,
+        { ...ibmItem, account: { connectionId, itemId: "80000000-0000-4000-8000-000000000009" } },
+      ]),
+      "mapping-required",
+    ],
+    // Discovery leaves out an item whose username is not the site item's.
+    ["the IdP item's username is not the site item's", discovered([]), "mapping-required"],
+    // Discovery refuses an item that holds the origin only by a Regex rule.
+    [
+      "the origin is held only by a Regex URI",
+      { ok: false as const, reason: "uri-unavailable" },
+      "uri-unavailable",
+    ],
+  ] as const)("asks the person, and presses nothing, when %s", async (_, discovery, reason) => {
+    const s = setup({ saved: false, discovery });
+    void s.h.signIn();
+    await vi.waitFor(async () => expect(await s.methods()).toMatchObject({ offer: { reason } }));
+    expect(prepared()).toHaveLength(0);
+    expect(s.h.settings.settings.ssoMappings ?? []).toEqual([]);
   });
 });

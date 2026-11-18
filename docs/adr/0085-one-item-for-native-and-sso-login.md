@@ -624,8 +624,10 @@ The rest of this section is the agent's choice, not confirmed by the owner:
 - **Checked again.** The receipt of such a choice checks the entry against its record,
   the layout and its destinations again just before the flow uses it, as an
   exact-origin entry is checked again.
-- **Only with a saved mapping.** A method without one still waits with
-  `mapping-required`, and nothing lists or guesses an IdP account.
+- **Only with a mapping.** A method without one still waits with `mapping-required`,
+  and nothing lists or guesses an IdP account; a URL-form method whose discovery finds
+  exactly one IdP item now uses that item as its mapping
+  ([amendment below](#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
 - **Log in now too.** By the owner's later decision the same day, **Log in now** presses
   such an entry too, under its own hop guard, and shows the explicit chooser in every
   other case
@@ -707,9 +709,25 @@ The label rule below is the agent's choice, not confirmed by the owner:
   what the page learned. The receipt checks the entry again just before the flow uses
   it. The pause, private windows, the repeated-login limit, the master-password
   re-prompt, `auto` sign-in on both origins and **Log in now**'s `hopAllowed` all stay.
-  A method without a saved mapping still waits with `mapping-required`: no IdP is
-  guessed, and the mapping is not made automatically even when one IdP item alone holds
-  the origin.
+- **A URL-form method without a saved mapping.** The owner's settings hold no SSO
+  mapping, so the automatic start above stopped with `mapping-required` before any entry
+  was looked at. Following the owner's question above, such a method now uses
+  discovery's IdP item as its mapping for the sign-in when discovery finds exactly one
+  (`onlyCandidate` in `sso-choice.ts`). Discovery already admits only an item, across
+  every eligible connection, whose own concrete URIs hold the method's origin (a
+  Regex-only URI refuses discovery with `uri-unavailable`) and whose username equals the
+  site item's (`sso-vault.ts`, `crypto/sso.ts`). The item must then pass the same
+  validation a saved mapping passes, and the hop guard. The single-candidate rule is the
+  agent's choice, not confirmed by the owner: the origin and the username together name
+  the account, so nothing is guessed. Zero items, several, a discovery refusal, an
+  unreadable field or a refused validation keep `mapping-required` or that refusal, and
+  the popup's explicit mapping chooser lists the items with none chosen. A bracket-form
+  method's label never selects an account, so it still needs a saved mapping.
+- **Resolved every time, never saved.** The agent chose to resolve such a mapping at
+  each offer and to write nothing to the settings: no settings revision or sync follows
+  a sign-in, and a vault change that adds a second such item, or removes the one, brings
+  the person's choice back at the next offer. Saving stays the person's explicit act in
+  the chooser.
 - **Why a wrong press is safe.** A broker entry that leads to another provider reaches
   that provider's origin, which is not the mapped one: the flow stops there with
   `sso-forbidden-origin` before any credential is released, as for a learned entry that
@@ -735,5 +753,5 @@ The label rule below is the agent's choice, not confirmed by the owner:
   **Log in now**'s offer found its document announced again or its request ended. No
   timer of about 40 seconds exists on that path. A waiting offer writes no line until it
   ends, so none of the three shows that nothing would be pressed. With this rule the HCP
-  page's `Sign in with IBMid` is pressed for its IBMid mapping, and `Sign in with SSO`
-  and `Continue` never are.
+  page's `Sign in with IBMid` is pressed for its IBMid mapping, saved or the one item
+  discovery finds, and `Sign in with SSO` and `Continue` never are.

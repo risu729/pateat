@@ -80,6 +80,11 @@ export type Method = SafeSsoMethod & {
   discovered?: boolean;
   /** Whether the settings hold a mapping of this method, usable here or not. */
   stored?: true;
+  /**
+   * The one IdP item a URL-form method's discovery found, used without a saved mapping
+   * (ADR 0085, amended 2026-11-18); never saved.
+   */
+  inferred?: true;
 };
 export type Offer = {
   id: string;
@@ -181,7 +186,14 @@ export function shown(offer: Offer): ShownOffer {
       "-",
     ...offer.input.native,
     methods: offer.methods.map(
-      ({ source: _source, discovered: _discovered, stored, candidates: list, ...method }) => ({
+      ({
+        source: _source,
+        discovered: _discovered,
+        inferred: _inferred,
+        stored,
+        candidates: list,
+        ...method
+      }) => ({
         ...method,
         candidates: list.map(({ selected, ...entry }) => ({ ...entry, origin: selected.origin })),
         ...(stored ? { mapped: true as const } : {}),

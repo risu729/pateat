@@ -4941,7 +4941,11 @@ write refuses `scope-changed`. A
 vault sync drops the mappings of an item that account's previous snapshot held and the
 next one no longer lists, counting unreadable items as listed (`connections/policy.ts`).
 A saved mapping is validated directly at every use; discovery runs only for an unmapped
-method or when the person asks, and a mapping this device cannot resolve can still be
+method or when the person asks. An unmapped URL-form method whose discovery finds
+exactly one IdP item uses it, after the same validation, for that sign-in only, and
+saves nothing
+([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
+A mapping this device cannot resolve can still be
 removed, here in the popup or from any browser on the service's Vaults page, which
 lists every mapping by item ID. Popup choices are memory-only, bounded to ten minutes
 and withdrawn on cancellation, a settings change of what the offer reads (its site
@@ -4952,7 +4956,7 @@ a catalog change behind the offer's accounts, and a new document or path in the 
 own frame or the top frame. One that **Log in now** opened is also withdrawn when that
 request ends
 ([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-log-in-now-offer-ends-with-its-request)).
-An automatic URL-form choice with a saved mapping presses the entry whose own
+An automatic URL-form choice with a mapping presses the entry whose own
 destination is the mapped origin or, on a broker page where none is, the one entry the
 page's SSO layout learned, that goes nowhere but the page's own origin and that a flow
 pressed before to reach this very IdP origin (`pateat.login.sso-entries.v1`, local); the
