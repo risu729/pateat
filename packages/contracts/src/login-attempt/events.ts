@@ -189,6 +189,24 @@ export const loginAttemptEventSchema = v.variant("type", [
     document: loginDocumentSchema,
   }),
   /**
+   * After the `passkey` route's click on its button, the page on the button's path shows
+   * another layout of the recipe that asks for the account first (`identifierLayoutAfter`,
+   * ADR 0060 amendment of 2026-11-18): the login runs that layout's `password` route
+   * (variant 0) from its first step and stops just past its last step, where its page's
+   * passkey request is answered with its item (ADR 0036); it never fills a password.
+   * `steps` and `maxSubmissions` are the layout's; the click's submission stays spent, and
+   * one more is kept for the answer. The runtime checks the layout and the account's plan
+   * on it before sending it.
+   */
+  v.strictObject({
+    type: v.literal("IDENTIFIER_LAYOUT"),
+    layout: recipeLayoutKeySchema,
+    recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
+    steps: v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1)),
+    maxSubmissions: v.pipe(integer(MAX_ATTEMPT_SUBMISSIONS), v.minValue(1)),
+    document: loginDocumentSchema,
+  }),
+  /**
    * After an effect step, the page shows the recipe's handler `handler` (its index in the
    * recipe's handlers): its `steps` follow the effect step, and its `effects` grow the
    * submission budget (ADR 0027). At a login's stop before its item's missing password, with

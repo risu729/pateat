@@ -33,6 +33,12 @@ sign-in form's `layouts` and a list of accounts under `chooser` with its own `la
 the state of the browser's session. See
 [Both kinds on one path](#both-kinds-on-one-path).
 
+Amended on 2026-11-18 (owner, 02:16 UTC,
+[#1675](https://github.com/risu729/pateat/issues/1675)): a login on the `passkey` route
+goes on with the layout its button leads to when that layout asks for the account first.
+See
+[the amendment](#amendment-2026-11-18-a-passkey-button-that-leads-to-a-step-asking-for-the-account).
+
 Date: 2026-10-23
 
 ## Context
@@ -396,3 +402,66 @@ Recorded on 2026-10-23 from the owner; not designed or decided here:
   migration for older data that the compatibility rule forbids.
 - Project every layout's markers into the running recipe: stops a layout without markers
   from learning its continuation pages and exceeds the four-marker limit.
+
+## Amendment 2026-11-18: a passkey button that leads to a step asking for the account
+
+Qantas's sign-in ([#1675](https://github.com/risu729/pateat/issues/1675)) shows a form
+for the membership number, last name and PIN beside "SIGN IN WITH PASSKEY". The button
+shows, on the same path, a step that asks for the membership number alone, then
+"CONTINUE". The recipe holds two layouts of that path: the form's, with the button as
+its `passkey` route, and the step's (`username`, then an `advance`), learned on
+2026-11-17 after the person pressed the button. The owner (02:07 UTC): Pateat should
+have used the passkey. In the owner's Chrome on 2026-11-18 at 01:56 UTC (build
+`f67d2749`), the login of the site default took the form's `passkey` route, so the
+item's passkey is discoverable, and clicked the button. Its one click ended at the step:
+the page was not sent to be judged (`sign-in-shown`, since the membership number input
+is the form's own field), the result settled as `unknown-submit`, and no layout switch
+ran from the `passkey` route, so nothing typed the number or pressed "CONTINUE" and the
+page asked for no passkey. For an item whose passkey is not discoverable, the form's
+`passkey` route was never chosen (ADR 0027), and the login took the `password` route
+instead.
+
+- **Decision (owner, 2026-11-18 02:16 UTC, option 「進める(今のレシピで)」 on the card
+  「Qantas のパスキー→会員番号→CONTINUE を Pateat が自動で進めますか」):** after the
+  passkey button's click, the login switches to the layout already learned for the step
+  that asks for the account, fills the identifier and presses Continue, and the page's
+  passkey request is answered with the login's item. No page is generated for it. A
+  recipe whose button leads to such a layout takes the button's route for any usable
+  passkey of the item (a zero counter, for an RP ID the origin may use, ADR 0084), not
+  only a discoverable one, since the request after the identifier names the account's
+  credentials, as after an identifier in
+  [ADR 0036](0036-passkey-after-the-identifier.md) rule 1. Without such a layout the
+  discoverable rule of ADR 0027 stands.
+- **The layout the button leads to (agent's choice, details beyond the card):** another
+  layout of the same recipe and revision or newer, starting on the button's path, with
+  no passkey button of its own, no alternatives and no passkey-only start, whose steps
+  fill at least one slot, none of them `password` or a TOTP code, and end with an
+  `advance` (`identifierLayoutAfter`). The account's plan on its `password` route must
+  pass, and its binding must read no secret into the page: no `password` slot, no
+  password or TOTP code through any field and no concealed custom field. These hold both
+  for the route choice at the start page and for the switch.
+- **The switch (agent's choice):** while the button's click is in flight and its result
+  has not settled, in the tab's page, once the button no longer shows on its path and
+  every element of that layout's start page shows there, the login records attempt event
+  `IDENTIFIER_LAYOUT`. It runs that layout's `password` route (variant 0) from its first
+  step, with a stop just past its last step, as an identifier-only recipe's login of an
+  item without a password does (ADR 0036). At the stop the page's passkey request, modal
+  or conditional, is answered with the login's item; without one within the stop's wait
+  the login ends `challenge`, watched, with the reason `passkey-button`. Its budget is
+  the click's submission, the layout's own and one kept for the answer. It never types
+  the item's password or PIN, never goes back to the button's route and never sends the
+  page after Continue to continue the recipe. The newest such layout that shows wins.
+  The log names the change (`login.attempt` with `routeChange` `passkey-button`,
+  `layout` and `layoutFrom`).
+- Every other guard stays: a paused site, sign-in fill, a site whose passkey requests go
+  to the browser (whose item holds no passkey here), the one-time pick and relogin limit
+  of the account choice, the zero-counter rule and a re-prompt at the answer.
+- This is a general page rule, not a feature for Qantas
+  ([ADR 0033](0033-no-site-specific-features.md)).
+- Not confirmed in the owner's Chrome yet: whether the site asks for a passkey after
+  "CONTINUE", with which mediation and for which RP ID, and whether the step is then
+  detected as described here.
+- Not chosen: sending the page after the button's click to be continued as the
+  `passkey` route's later steps, which needs a paid generation per site and a schema
+  change for steps after the button; and counting any usable passkey for every passkey
+  button, whose own request may need a discoverable one.

@@ -154,6 +154,12 @@ sent, and a watched login types the item's TOTP once into a page that names an
 authenticator app, also one its document swaps in place
 ([Where a code comes from](#amendment-2026-11-17-where-a-code-comes-from)).
 
+Amended on 2026-11-18 (owner, decision card answered at 02:16 UTC; implemented, not
+merged): the `passkey` route's requirement of a discoverable passkey gives way to any
+usable passkey when the button leads to a layout that asks for the account first, and
+the login goes on with that layout after the click
+([A passkey button before the account](#amendment-2026-11-18-a-passkey-button-before-the-account)).
+
 Date: 2026-10-11
 
 ## Context
@@ -2099,3 +2105,20 @@ browser (`no-recipe`) and could not choose the route either (ADR 0034).
   the route.
 - Not chosen: holding a conditional request while no recipe exists, which would keep
   the browser's own passkey autofill from the page whenever Pateat has no recipe yet.
+
+## Amendment 2026-11-18: a passkey button before the account
+
+The owner, 2026-11-18 (02:07 UTC, on Qantas's sign-in,
+[#1675](https://github.com/risu729/pateat/issues/1675)): Pateat should have used the
+item's passkey instead of the password route. The owner chose option
+「進める(今のレシピで)」 at 02:16 UTC. As recorded in
+[ADR 0060's amendment of 2026-11-18](0060-recipe-layouts.md#amendment-2026-11-18-a-passkey-button-that-leads-to-a-step-asking-for-the-account):
+
+- **Route choice (owner):** rule 1 of the [executor](#executor) reads: `passkey`, if the
+  recipe has that route and the item has a discoverable passkey, or any usable passkey
+  when the button leads to a layout of the recipe that asks for the account first and
+  the account fits that layout. The discoverable rule stays for every other button.
+- **After the click (owner; details are the agent's choice there):** the login goes on
+  with that layout's identifier and Continue, stops just past them and answers the
+  page's passkey request with its item. It never falls back to typing the password, as
+  this ADR says of the `passkey` route.

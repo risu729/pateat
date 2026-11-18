@@ -756,9 +756,12 @@ export type LoginReport = (
  * a passkey by itself (`page-request`); back to its password variant because that request
  * went away before the answer (`request-missing`), the item could not answer it
  * (`answer-failed`), the recipe's rejection showed after the answer (`sign-in-rejected`),
- * or the sign-in form still showed after the answer (`sign-in-shown`).
+ * or the sign-in form still showed after the answer (`sign-in-shown`); or from the `passkey`
+ * route to the `password` route of the layout its button led to, which asks for the account
+ * first (`passkey-button`, ADR 0060 amendment of 2026-11-18).
  */
 export type RouteChange =
+  | "passkey-button"
   | "page-request"
   | "request-missing"
   | "answer-failed"

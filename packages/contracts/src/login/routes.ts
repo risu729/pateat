@@ -193,22 +193,58 @@ export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean 
     : route === "password" && passwordVariants(recipe).length > 0;
 }
 /**
+ * Whether `layout` is the page a click on `button`'s passkey button leads to, where the
+ * site asks for the account before its passkey request (ADR 0060 amendment of
+ * 2026-11-18): another layout of the same recipe, without a passkey button, alternatives
+ * or a passkey-only start, whose route starts on the button's path, fills at least one
+ * slot, none of them the `password` or a TOTP code, and ends with an `advance`. A login on
+ * the button's route goes on there with that layout's steps (`IDENTIFIER_LAYOUT`).
+ */
+export function identifierLayoutAfter(button: LoginRecipe, layout: LoginRecipe): boolean {
+  const steps = layout.steps;
+  const last = steps.at(-1);
+  const slots = steps.flatMap((step) =>
+    step.kind === "fill" ? step.fields.map((field) => field.slot) : [],
+  );
+  return (
+    button.passkey !== undefined &&
+    layout.id === button.id &&
+    layout.origin === button.origin &&
+    layout.layout !== undefined &&
+    layout.layout !== button.layout &&
+    layout.passkey === undefined &&
+    layout.passkeyOnly !== true &&
+    layout.alternatives === undefined &&
+    steps[0]?.path === button.passkey.path &&
+    slots.length > 0 &&
+    slots.every((slot) => slot !== "password" && slot !== TOTP_HANDLER_SLOT) &&
+    last !== undefined &&
+    loginStepEffect(last) === "advance"
+  );
+}
+/**
  * The route a new login takes (ADR 0027), in the owner's order: `passkey` when the item
  * holds a discoverable passkey and the recipe has the route's button, or the start page
  * asked for a passkey by itself (`pageRequest`, ADR 0034); otherwise, from whether the
  * item's binding fills each password variant in order (`fits[variant]`), the first
  * fitting variant, when the item has a password. Undefined means `no-route`, unless an
  * item without a password may take the `password` route up to its password, or to the end
- * of a route that fills none (`passwordStopOrMiss`, ADR 0036).
+ * of a route that fills none (`passwordStopOrMiss`, ADR 0036). With `identifierFirst`, the
+ * button leads to a layout that asks for the account first (`identifierLayoutAfter`), so
+ * any usable passkey of the item takes the button's route (ADR 0060 amendment of
+ * 2026-11-18), as one after an identifier does (ADR 0036).
  */
 // SSO (ADR 0026) comes between the passkey and password routes once it exists.
 export function chooseLoginRoute(
   recipe: LoginRecipe,
-  facts: Pick<LoginItemFacts, "password" | "discoverablePasskey">,
+  facts: Pick<LoginItemFacts, "password" | "discoverablePasskey"> &
+    Partial<Pick<LoginItemFacts, "passkey">>,
   fits: readonly boolean[],
   pageRequest = false,
+  identifierFirst = false,
 ): LoginRouteChoice | undefined {
   if ((recipe.passkey || pageRequest) && facts.discoverablePasskey) return { route: "passkey" };
+  if (recipe.passkey && identifierFirst && facts.passkey === true) return { route: "passkey" };
   if (!facts.password) return undefined;
   const variant = passwordVariants(recipe).findIndex((_, index) => fits[index] === true);
   return variant === -1 ? undefined : { route: "password", variant };
