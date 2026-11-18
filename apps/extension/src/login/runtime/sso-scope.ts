@@ -20,14 +20,25 @@ import type { LiveDocument } from "./types";
 /**
  * Where the flow's RP return may land: the RP's own origin, or another origin of its
  * registrable site that is not the selected IdP's, as a broker that hands the tab to the
- * site's portal or its own callback does (ADR 0085 amendment of 2026-11-18). Any other
- * origin stays forbidden.
+ * site's portal or its own callback does (ADR 0085 amendment of 2026-11-18). The other
+ * origin keeps the RP's scheme, so an https RP never returns to http, and an RP on
+ * `localhost` or an IP address has no site beyond its own origin. Any other origin stays
+ * forbidden.
  */
 export function ssoReturnOrigin(work: SsoWork, origin: string) {
   if (origin === work.account.origin) return true;
-  const site = siteOf(work.account.origin);
-  return origin !== work.selected.origin && site !== undefined && siteOf(origin) === site;
+  if (origin === work.selected.origin) return false;
+  const rp = URL.parse(work.account.origin);
+  const url = URL.parse(origin);
+  if (!rp || !url || url.protocol !== rp.protocol || hostOnly(rp.hostname)) return false;
+  const site = siteOf(rp);
+  return site !== undefined && siteOf(url) === site;
 }
+/** `localhost`, an IPv4 address or an IPv6 literal, as URL canonicalizes them. */
+const hostOnly = (hostname: string) =>
+  hostname.replace(/\.$/u, "") === "localhost" ||
+  hostname.startsWith("[") ||
+  /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(hostname);
 export const ssoCurrent = (rt: Runtime, work: SsoWork, live = work.live) =>
   rt.sso.flows.get(work.rpLive.document.tabId) === work &&
   !work.ended &&

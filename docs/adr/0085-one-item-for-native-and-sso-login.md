@@ -606,12 +606,17 @@ The rest of this section is the agent's choice, not confirmed by the owner:
   and an entry going to another origin is never pressed this way.
 - **Where an entry led.** A layout names a page's entries but not where each one goes,
   and it is shared by every account and method on the page. So when a flow presses a
-  URL-form method's entry and the tab then reaches its mapped origin, the device records
-  that this page's entry reached that origin (`pateat.login.sso-entries.v1` in local
+  URL-form method's entry and the tab then reaches its mapped origin (its URL there, or
+  an IdP page admitted there), or the flow completes on the RP's own evidence after an
+  IdP with a live session and grant sent the tab straight back without a page, the
+  device records that this page's entry reached that origin
+  (`pateat.login.sso-entries.v1` in local
   storage, at most 200 records, the newest per entry, with no account, username or
   credential). An entry is pressed by itself only for the IdP origin it last reached, so
   an entry learned for another provider, by this or another account, is never pressed
-  for this method. The record stays on the device and is not synced.
+  for this method. The record stays on the device and is not synced. No settings path
+  forgets a site's local login records, so this record has none either; it holds no
+  secret and only ever narrows what is pressed.
 - **Checked again.** The receipt of such a choice checks the entry against its record,
   the layout and its destinations again just before the flow uses it, as an
   exact-origin entry is checked again.
@@ -639,10 +644,19 @@ rather than on the broker page's origin. Such a page ended the flow with
 `sso-forbidden-origin`, so a sign-in that succeeded was not recorded.
 
 - A page on another origin of the RP's registrable site (`siteOf`, Bitwarden's Domain
-  match) that is not the selected IdP's origin is now read as the RP's return
-  (`ssoReturnOrigin`), on the tab's navigation and on the page's admission alike. It
-  completes only on the same evidence as the RP's own origin (`returned`), and the RP
-  item must still match its URL, as items saved with a Domain rule do; otherwise the
-  flow ends with `sso-scope-changed`.
+  match) with the RP's own scheme, and that is not the selected IdP's origin, is now
+  read as the RP's return (`ssoReturnOrigin`), on the tab's navigation and on the page's
+  admission alike. An https RP never returns to http, and an RP on `localhost` or an IP
+  address has no other origin. The return completes only on the same evidence as the
+  RP's own origin (`returned`), and the RP item must still match its URL, as items saved
+  with a Domain rule do. Where it does not, as under a Host rule, the tab's navigation
+  there ends the flow with `sso-forbidden-origin` and the page's admission with
+  `sso-scope-changed`.
+- **Log in now** on such a page ends a flow that only waits there, as on the RP's own
+  origin.
 - The attempt keeps its RP document, since an attempt belongs to its account's origin.
 - Every other origin stays forbidden.
+- **Known limit.** A host that serves many tenants under one registrable domain but is
+  missing from the public suffix list reads its tenants as one site. Only the RP item's
+  URI match fences them apart there, so an item saved with a Domain rule on such a host
+  accepts a return on another tenant's origin.

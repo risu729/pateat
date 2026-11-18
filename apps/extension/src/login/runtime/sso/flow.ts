@@ -25,7 +25,7 @@ import { stateResultSchema, observationSchema } from "../../wire";
 import { loginUsernameFieldId } from "../../vault";
 import { send, publish, noteSignedIn, reportAttempt } from "../attempt";
 import { keep, quietly } from "../session-store";
-import { choiceAccount } from "../plan";
+import { choiceAccount, itemMatchesUrl } from "../plan";
 import { withChoice } from "../steps";
 import { hideUsernames, markerProofs, showsMarkers } from "../markers";
 import { openPasswordWindow } from "../master-password";
@@ -146,7 +146,7 @@ export function ssoWaiting(rt: Runtime, live: LiveDocument, record: LoginAttempt
     !work.busy &&
     work.parent?.id === record.id &&
     live.document.frameId === 0 &&
-    live.document.origin === work.account.origin &&
+    ssoReturnOrigin(work, live.document.origin) &&
     (work.operation === undefined || work.operation.stage === "spent") &&
     ((work.phase === "entering-idp" && work.operation?.stage === "spent") ||
       work.phase === "returning-rp") &&
@@ -705,13 +705,27 @@ export async function beginSso(
     work.busy = false;
   }
 }
+/** The URL-form entry this flow pressed and is on its way through, if any. */
+const pressedEntry = (work: SsoWork) =>
+  work.phase === "entering-idp" && work.form === "url" ? work.entry : undefined;
+/**
+ * Records once that the pressed URL-form entry reached the mapped IdP: a later automatic
+ * press of it on this page is for this IdP only (ADR 0085 amendment of 2026-11-18).
+ */
+function learnPressedEntry(work: SsoWork, entry = pressedEntry(work)) {
+  if (!entry) return;
+  delete work.entry;
+  void learnSsoEntry(work.account.origin, entry.path, entry.target, work.selected.origin).catch(
+    () => undefined,
+  );
+}
 export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   await rt.sso.loaded;
   const work = rt.sso.flows.get(ctx.document.tabId);
   if (!work) return interruptedAdmit(rt, ctx);
   // The person's own Log in now on the RP ends the flow, and the page is admitted as any
   // manual request is: an RP page never waits for a flow the person has moved past.
-  if (ctx.manual && ctx.document.frameId === 0 && ctx.document.origin === work.account.origin) {
+  if (ctx.manual && ctx.document.frameId === 0 && ssoReturnOrigin(work, ctx.document.origin)) {
     cancelSso(rt, ctx.document.tabId, "sso-manual-request", ctx.document);
     return interruptedAdmit(rt, ctx);
   }
@@ -734,8 +748,14 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
       // return. It completes only on the page's own evidence, with no judge, and without
       // it the flow waits, as an RP page on the way to the IdP does.
       if (!original && work.phase === "entering-idp" && work.operation?.stage === "spent") {
+        const pressed = pressedEntry(work);
         const result = await returned(rt, work, ctx.live, true);
-        if (result === "completed") return { ok: false as const, reason: "sso-completed" };
+        if (result === "completed") {
+          // The IdP's own session sent the tab back without a page: the completion is
+          // where the pressed entry led.
+          learnPressedEntry(work, pressed);
+          return { ok: false as const, reason: "sso-completed" };
+        }
         // The IdP refused at once, as a failed silent sign-in or a revoked grant does: the
         // site shows its sign-in again, so the flow ends rather than waiting for nothing.
         if (result === "refused") {
@@ -763,15 +783,7 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     cancelSso(rt, ctx.document.tabId, "sso-return-unconfirmed");
     return ctx.refuse("sso-return-unconfirmed");
   }
-  // The pressed URL-form entry reached the mapped IdP: a later automatic press of it on
-  // this page is for this IdP only (ADR 0085 amendment of 2026-11-18).
-  if (work.phase === "entering-idp" && work.entry)
-    void learnSsoEntry(
-      work.account.origin,
-      work.entry.path,
-      work.entry.target,
-      work.selected.origin,
-    ).catch(() => undefined);
+  learnPressedEntry(work);
   work.phase = "at-idp";
   const child = rt.attempts.get(ctx.document.tabId);
   if (!(await ssoReprompt(rt, work, ctx.live, true))) {
@@ -842,6 +854,12 @@ export function ssoChildChanged(rt: Runtime, run: Execution) {
   }
 }
 
+const siblingMatches = async (rt: Runtime, work: SsoWork, url: string) => {
+  const matched = await itemMatchesUrl(rt, work.saved, work.account, url, work.saved.catalog).catch(
+    () => undefined,
+  );
+  return matched !== undefined && !("reason" in matched);
+};
 export function installSsoLifecycle(rt: Runtime) {
   browser.tabs.onUpdated.addListener((tabId, change) => {
     const work = rt.sso.flows.get(tabId);
@@ -851,6 +869,16 @@ export function installSsoLifecycle(rt: Runtime) {
     if (!work || !change.url) return;
     if (!url || (!ssoReturnOrigin(work, url.origin) && url.origin !== work.selected.origin))
       cancelSso(rt, tabId, "sso-forbidden-origin");
+    // The tab reached the IdP after the press, even before any IdP page is admitted.
+    else if (url.origin === work.selected.origin && !work.ended) learnPressedEntry(work);
+    // Another origin of the RP's site is a return only where the RP item matches it, as
+    // under a Domain rule; a Host-match item's flow stops there, as on any other site.
+    else if (url.origin !== work.account.origin)
+      void siblingMatches(rt, work, url.href).then((matches) => {
+        if (!matches && rt.sso.flows.get(tabId) === work && !work.ended)
+          cancelSso(rt, tabId, "sso-forbidden-origin");
+        return undefined;
+      });
   });
   browser.tabs.onCreated?.addListener((tab) => {
     if (tab.openerTabId !== undefined && rt.sso.flows.has(tab.openerTabId))

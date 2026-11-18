@@ -430,28 +430,115 @@ describe("historical SSO-child holds keep evidence without blocking another logi
   });
 });
 
+const portal = "https://portal.example.test";
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+/** The RP item, with the origins it matches, as a Domain rule (or a Host rule) gives. */
+const rpItemFor = (h: ReturnType<typeof harness>, allowedOrigins: string[]) => {
+  h.saved.catalog = {
+    connections: [
+      {
+        id: "rp-vault",
+        label: "Synthetic RP",
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId: itemId,
+        snapshotId: "b0000000-0000-4000-8000-000000000001",
+        state: "ready",
+        groups: [],
+        items: [{ id: itemId, label: "Synthetic", allowedOrigins, groupIds: [], fields: [] }],
+      },
+    ],
+  };
+};
+const entriesKey = "local:pateat.login.sso-entries.v1";
+const learned = () => io.setItem.mock.calls.filter(([key]) => key === entriesKey);
+
 describe("actual SSO lifecycle uses browser event delivery", () => {
-  // Another origin of the RP's own site is a return too (ADR 0085 amendment of 2026-11-18).
-  it.each([rp + "/callback", idp + "/login", "https://portal.example.test/home"])(
+  it.each([rp + "/callback", idp + "/login"])(
     "keeps an allowed same-tab origin update %s",
     async (url) => {
       const h = harness();
       await h.rt.sso.loaded;
       installSsoLifecycle(h.rt);
       fake.emitUpdated(7, { url });
+      await settle();
       expect(h.rt.sso.flows.get(7)).toBe(h.flow);
       expect(h.flow.abort.signal.aborted).toBe(false);
     },
   );
-  it("cancels a flow when the real onUpdated listener sees an unexpected origin", async () => {
+  // Another origin of the RP's own site is a return too, where the RP item matches it
+  // (ADR 0085 amendment of 2026-11-18).
+  it("keeps an update to another origin of the RP's site that the RP item matches", async () => {
     const h = harness();
     await h.rt.sso.loaded;
+    rpItemFor(h, [rp, portal]);
     installSsoLifecycle(h.rt);
-    fake.emitUpdated(7, { url: "https://unexpected.other.test/continuation" });
-    expect(h.rt.sso.flows.has(7)).toBe(false);
+    fake.emitUpdated(7, { url: portal + "/home" });
+    await settle();
+    expect(h.rt.sso.flows.get(7)).toBe(h.flow);
+    expect(h.flow.abort.signal.aborted).toBe(false);
+  });
+  it.each([
+    ["another site", "https://unexpected.other.test/continuation"],
+    ["a same-site origin no RP item matches", "https://unexpected.example.test/continuation"],
+    ["an http origin of the RP's site", "http://portal.example.test/home"],
+  ])("cancels a flow when the real onUpdated listener sees %s", async (_, url) => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    rpItemFor(h, [rp, portal, "http://portal.example.test"]);
+    if (url.includes("unexpected.example")) rpItemFor(h, [rp]);
+    installSsoLifecycle(h.rt);
+    fake.emitUpdated(7, { url });
+    await vi.waitFor(() => expect(h.rt.sso.flows.has(7)).toBe(false));
     expect(h.flow.abort.signal.aborted).toBe(true);
     expect(h.rt.sso.interrupted.has(7)).toBe(true);
     await h.rt.sso.write();
+  });
+  it("cancels a same-site update under a Host-match RP item, which names only its host", async () => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    rpItemFor(h, [rp]);
+    installSsoLifecycle(h.rt);
+    fake.emitUpdated(7, { url: portal + "/home" });
+    await vi.waitFor(() => expect(h.rt.sso.flows.has(7)).toBe(false));
+    expect(h.flow.abort.signal.aborted).toBe(true);
+  });
+  it("learns the pressed URL-form entry when the tab's URL reaches the IdP", async () => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.flow, {
+      phase: "entering-idp",
+      form: "url",
+      entry: { path: "/signin", target },
+    });
+    installSsoLifecycle(h.rt);
+    fake.emitUpdated(7, { url: idp + "/authorize" });
+    await vi.waitFor(() =>
+      expect(io.setItem).toHaveBeenCalledWith(entriesKey, [
+        { origin: rp, path: "/signin", target, idp },
+      ]),
+    );
+    // Once: a later IdP page records nothing again.
+    fake.emitUpdated(7, { url: idp + "/login" });
+    await settle();
+    expect(learned()).toHaveLength(1);
+  });
+  it.each([
+    ["before the press", { phase: "prepared", form: "url" }],
+    ["once at the IdP", { phase: "at-idp", form: "url" }],
+    ["for a bracket-form method", { phase: "entering-idp", form: "bracket" }],
+  ] as const)("learns no entry %s", async (_, state) => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.flow, state, { entry: { path: "/signin", target } });
+    installSsoLifecycle(h.rt);
+    fake.emitUpdated(7, { url: idp + "/authorize" });
+    await settle();
+    await settle();
+    expect(learned()).toEqual([]);
+    expect(h.rt.sso.flows.get(7)).toBe(h.flow);
   });
   it("cancels the opener flow when onCreated delivers a new browsing context", async () => {
     const h = harness();

@@ -4942,8 +4942,9 @@ page's SSO layout learned, that goes nowhere but the page's own origin and that 
 pressed before to reach this very IdP origin (`pateat.login.sso-entries.v1`, local); the
 receipt checks it again
 ([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)).
-A flow's RP return may land on another origin of the RP's registrable site that is not
-the IdP's (`ssoReturnOrigin`); every other origin stays forbidden
+A flow's RP return may land on another origin of the RP's registrable site, with its
+scheme, that is not the IdP's and that the RP item matches (`ssoReturnOrigin`; never for
+a `localhost` or IP RP); every other origin stays forbidden
 ([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-an-rp-return-on-another-origin-of-the-same-site)).
 An SSO route validates its own method
 and refuses another mapped method on the same IdP account, even through different

@@ -185,6 +185,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     ...(methodOffer ? { signal: methodOffer.signal } : {}),
     native: { passkey: facts.discoverablePasskey && !passkeyRefused, password: facts.password },
     automatic: ctx.manual ? "sso" : true,
+    // `saved` is the snapshot this request read; ssoScope reads the settings and pauses
+    // again before any press, so a later change still stops the hop.
     ...(ctx.manual
       ? { hopAllowed: (origin: string) => manualHopAllowed(rt, ctx, saved, origin) }
       : {}),
@@ -260,6 +262,7 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     if (!manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
       return ctx.refuse("manual-request-ended");
     // A one-page grant cannot authorize a hop. Existing auto permission on both sites can.
+    // ssoScope reads the current settings again before any press.
     if (!(await manualHopAllowed(rt, ctx, saved, receipt.selection.selected.origin)))
       return ctx.refuse("sso-manual-scope-unavailable");
     endManual(rt, ctx.document.tabId, undefined, ctx.manual.request);

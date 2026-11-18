@@ -9,7 +9,7 @@ vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
 const { learnSsoEntry } = await import("../runtime/sso/learned-entries");
-const { origin, connectionId, itemId, otherItemId, userId, uriMatch, harness } =
+const { origin, connectionId, itemId, otherItemId, userId, uriMatch, harness, setPause } =
   createRuntimeTestHarness(fake);
 const popup = {
   id: "synthetic-extension",
@@ -111,6 +111,10 @@ function setup(options: { mapped?: boolean; learned?: boolean; reached?: string 
     void learnSsoEntry(origin, "/signin", provider, options.reached ?? idp);
   };
   if (options.learned !== false) learn();
+  /** The page's layout is gone again, as a regenerated recipe drops an entry. */
+  const forget = () => {
+    learned = false;
+  };
   recipes["ssoFence"] = vi.fn(async () => () => true);
   fake.state.extracted = {
     login: {
@@ -155,7 +159,7 @@ function setup(options: { mapped?: boolean; learned?: boolean; reached?: string 
       itemId,
     });
   }
-  return { h, sso, methods, shown, choose, offer, logInNow, learn };
+  return { h, sso, methods, shown, choose, offer, logInNow, learn, forget };
 }
 
 /** Where the provider button's form goes: the broker page's own origin, unless a test says. */
@@ -304,27 +308,55 @@ describe("a fresh tab on a broker page (#1687)", () => {
     expect(await s.methods()).toEqual({ ok: true });
   });
 
-  it("Log in now whose hop the scope refuses shows the chooser, and its SSO choice says why", async () => {
-    const s = setup({ learned: false });
-    await expiredThenLearned(s);
-    // The one-page grant never reaches the IdP: it needs automatic sign-in there.
-    s.h.settings.settings.sitePagePermissions = [
-      { hostname: "idp.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
-    ];
-    expect(await s.logInNow()).toEqual({ ok: true, state: "choosing" });
+  it.each(["the scope refuses", "the page is paused", "the IdP is paused"] as const)(
+    "Log in now whose hop %s shows the chooser, and its SSO choice says why",
+    async (refusal) => {
+      const s = setup({ learned: false });
+      await expiredThenLearned(s);
+      // The one-page grant never reaches the IdP: it needs automatic sign-in there, and
+      // neither site paused.
+      if (refusal === "the scope refuses")
+        s.h.settings.settings.sitePagePermissions = [
+          { hostname: "idp.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+        ];
+      else {
+        if (refusal === "the IdP is paused") fake.state.tabUrls[2] = idp + "/login";
+        expect(await setPause(s.h, true, refusal === "the page is paused" ? 1 : 2)).toMatchObject({
+          ok: true,
+        });
+      }
+      expect(await s.logInNow()).toEqual({ ok: true, state: "choosing" });
+      expect(prepared()).toHaveLength(0);
+      const shown = await s.shown();
+      const entry = shown.entries.find((item) => item.label === "Continue with the provider")!;
+      const candidateId = shown.methods[0]!.selectedId!;
+      expect(
+        await s.choose({ kind: "sso", method: { number: 1 }, candidateId, entryId: entry.id }),
+      ).toEqual({ ok: true });
+      await vi.waitFor(async () =>
+        expect(await s.offer()).toMatchObject({
+          status: { state: "blocked", reason: "sso-manual-scope-unavailable" },
+        }),
+      );
+      expect(prepared()).toHaveLength(0);
+    },
+  );
+
+  it("checks the learned entry again when its decision is consumed, and presses nothing once it is gone", async () => {
+    const s = setup();
+    const valid = s.sso.validate.getMockImplementation()!;
+    // The layout goes between the decision and its use: the receipt no longer holds.
+    // The mapping is checked as the method is prepared, as the entry is decided, and as
+    // the receipt is consumed, just before its entry is checked again.
+    let checks = 0;
+    s.sso.validate.mockImplementation(async (...args: Parameters<typeof valid>) => {
+      if (++checks === 3) s.forget();
+      return valid(...args);
+    });
+    // The controller's entry-changed reaches the page as a withdrawn choice.
+    expect(await s.h.signIn()).toEqual({ ok: false, reason: "sso-choice-withdrawn" });
     expect(prepared()).toHaveLength(0);
-    const shown = await s.shown();
-    const entry = shown.entries.find((item) => item.label === "Continue with the provider")!;
-    const candidateId = shown.methods[0]!.selectedId!;
-    expect(
-      await s.choose({ kind: "sso", method: { number: 1 }, candidateId, entryId: entry.id }),
-    ).toEqual({ ok: true });
-    await vi.waitFor(async () =>
-      expect(await s.offer()).toMatchObject({
-        status: { state: "blocked", reason: "sso-manual-scope-unavailable" },
-      }),
-    );
-    expect(prepared()).toHaveLength(0);
+    expect(checks).toBe(3);
   });
 
   it("never presses an entry the page learned for another provider", async () => {

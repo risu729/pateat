@@ -9,7 +9,7 @@ import { setAccountPolicy } from "../../vault/__fixtures__/policy";
 import type { Runtime } from "./state";
 import type { SsoWork } from "./sso-state";
 import { createSsoPauseIntents } from "./sso-pause";
-import { ssoChildOn, ssoCurrent, ssoScope } from "./sso-scope";
+import { ssoChildOn, ssoCurrent, ssoReturnOrigin, ssoScope } from "./sso-scope";
 
 const seams = vi.hoisted(() => ({
   tab: vi.fn(),
@@ -586,5 +586,27 @@ describe("SSO final scope preserves real origin-busy and cookie partition rules"
       return {};
     });
     expect(await ssoScope(h.rt, h.work)).toBeUndefined();
+  });
+});
+
+describe("where a flow's RP return may land (ADR 0085 amendment of 2026-11-18)", () => {
+  const work = (account: string, selected: string) =>
+    ({ account: { origin: account }, selected: { origin: selected } }) as SsoWork;
+  const sso = "https://sso.example.test";
+  it.each([
+    ["the RP's own origin", rp, idp, rp, true],
+    ["another origin of the RP's site", rp, idp, "https://portal.example.test", true],
+    ["another port of the RP's site", rp, idp, "https://portal.example.test:8443", true],
+    ["an http origin of an https RP's site", rp, idp, "http://portal.example.test", false],
+    ["the RP's host over http", rp, idp, "http://rp.example.test", false],
+    ["another site", rp, idp, "https://portal.elsewhere.test", false],
+    ["the IdP's origin", rp, idp, idp, false],
+    ["the IdP's origin on the RP's own site", rp, sso, sso, false],
+    ["a localhost RP's other port", "http://localhost:3000", idp, "http://localhost:4000", false],
+    ["a localhost RP's own origin", "http://localhost:3000", idp, "http://localhost:3000", true],
+    ["an IPv4 RP's other port", "https://192.0.2.1", idp, "https://192.0.2.1:8443", false],
+    ["an IPv6 RP's other port", "https://[2001:db8::1]", idp, "https://[2001:db8::1]:8443", false],
+  ])("answers %s", (_, account, selected, origin, expected) => {
+    expect(ssoReturnOrigin(work(account, selected), origin)).toBe(expected);
   });
 });

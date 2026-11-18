@@ -21,7 +21,7 @@ const io = vi.hoisted(() => ({
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { createRuntimeState } = await import("../runtime/state");
-const { ssoAdmit } = await import("../runtime/sso/flow");
+const { ssoAdmit, ssoWaiting } = await import("../runtime/sso/flow");
 const { heldElsewhere } = await import("../runtime/hold");
 const { manualOffer, manualStart } = await import("../runtime/manual");
 const { createLoginSites } = await import("../sites");
@@ -702,6 +702,44 @@ describe("an RP page before and after the IdP is reached", () => {
     expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
     expect(h.work.parent?.state).toBe("authenticated");
     expect(h.signedIn).toHaveBeenCalledWith(7, rp);
+  });
+  // An IdP with a live session and grant, as GitHub's, shows no page: the completion is
+  // where the pressed entry led, so the next Log in now presses it by itself.
+  it("learns the pressed entry when the IdP sent the tab straight back", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.work, { form: "url", entry: { path: "/signin", target } });
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    await vi.waitFor(() =>
+      expect(io.setItem).toHaveBeenCalledWith("local:pateat.login.sso-entries.v1", [
+        { origin: rp, path: "/signin", target, idp },
+      ]),
+    );
+  });
+  it("learns nothing from an instant return that completes nothing", async () => {
+    const h = harness({ ok: true, identity: "absent" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.work, { form: "url", entry: { path: "/signin", target } });
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(io.setItem.mock.calls.some(([key]) => String(key).includes("sso-entries"))).toBe(false);
+  });
+  it("lets Log in now on another origin of the RP's site end a waiting flow", async () => {
+    const portal = "https://portal.example.test";
+    const h = harness({ ok: true, identity: "absent" }, false, portal);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    h.saved.catalog.connections[0]!.items[0]!.allowedOrigins.push(portal);
+    spent(h);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(ssoWaiting(h.rt, h.ctx.live, h.work.parent!)).toBe(true);
+    const manual = { ...h.ctx, manual: { request: "manual-request" } } as unknown as AdmitContext;
+    expect(await ssoAdmit(h.rt, manual)).toBeUndefined();
+    expect(h.work.ended).toBe(true);
+    expect(h.rt.sso.flows.has(7)).toBe(false);
   });
   it("never completes a bracket-form method on a marker alone after an instant return", async () => {
     // The IdP may have signed in another of the person's accounts: a marker says nothing
