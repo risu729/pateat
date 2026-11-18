@@ -5013,12 +5013,18 @@ for supported effects and current verification limits.
 An IdP page that is neither the IdP's sign-in form nor a finite step (`login.sso.idp`
 reads `unknown`), as a risk check or a method chooser after the IdP's own submit, is
 admitted with the IdP child's record while that child runs, so it goes on to its
-handlers or its watch there as a direct login of the IdP does; before any child began,
-such a page refuses `sso-in-progress` and the flow waits, bounded by its ten minutes
-(`sso-expired`). An `unsafe` reading, or an `unknown` one after the child ended signed
-in or blocked, still ends the flow `sso-idp-stop`. A child whose result settled as
-unknown, or that is watched after a challenge, keeps the flow; only a `blocked` child
-ends it (`sso-idp-child-stopped`). The child's `login.attempt` lines are logged on the
-device with `ssoChild`, and a step its parent's scope no longer authorizes logs
-`login.refused` `sso-scope-changed` with detail `idp-step`, once for its page
-([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit)).
+handlers or its watch there as a direct login of the IdP does. That includes an account
+confirmation over its 16-letter text allowance, on which the child acts only through
+its own recipe's targets. Before any child began, or after the child signed in, such a
+page refuses `sso-in-progress` and the flow waits, pressing nothing, bounded by its ten
+minutes (`sso-expired`); only the RP's own evidence completes it. An `unsafe` reading,
+or an `unknown` one after the child ended `blocked`, still ends the flow `sso-idp-stop`.
+A child whose result settled as unknown, or that is watched after a challenge, keeps the
+flow; only a `blocked` child ends it (`sso-idp-child-stopped`). The child's
+`login.attempt` lines are logged on the device with `ssoChild`, also its end when the
+flow detaches it (`sso-detached`) and its release (`sso-released`, at debug). A step its
+parent's scope no longer authorizes logs `login.refused` `sso-scope-changed` with detail
+`idp-step`, at info the first time for its document and path, which goes to the service
+as a problem line, and at debug for each repeat there
+([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit);
+awaiting the owner's decision).

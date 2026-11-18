@@ -7,6 +7,7 @@ import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime, LOGIN_SITE_WAIT_ALARM } from "../src/login/runtime";
 import { bindingProfileScope } from "../src/login/runtime/binding-review-state";
+import { reportLeavesLog } from "../src/login/runtime/report";
 import { createRecipeRepairs } from "../src/login/repair";
 import { createLoginSites } from "../src/login/sites";
 import {
@@ -586,7 +587,7 @@ export default defineBackground(() => {
       diagnosticsLog.login(report);
       // The IdP's own login inside an SSO flow is only logged (ADR 0026, amendment of
       // 2026-11-18): its parent is the login the badge, the service and the records see.
-      if (report.type === "attempt" && report.ssoChild) return;
+      if (!reportLeavesLog(report)) return;
       loginBadge.observe(report);
       // A site count the login stopped may run once it ended, settled or is only watched.
       if (

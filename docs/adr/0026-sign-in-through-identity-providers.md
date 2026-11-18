@@ -14,7 +14,8 @@ identity providers or of their pages; the IdP's origin comes from the item and i
 are handled as any site's. Amended on 2026-11-07 by
 [ADR 0085](0085-one-item-for-native-and-sso-login.md) (owner, 12:51 UTC;
 [amendment](#amendment-2026-11-07-one-item-for-password-and-sso)). Amended on 2026-11-18
-by an agent, unconfirmed: the IdP's own login is logged and goes on past its submit
+by an agent, awaiting the owner's decision: the IdP's own login is logged and goes on
+past its submit
 ([amendment](#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit)).
 Researched from
 public documentation only; no real site or account has been used.
@@ -498,6 +499,9 @@ does ([ADR 0027](0027-per-account-login-routes.md)), which ends the flow with it
 
 ## Amendment 2026-11-18: the IdP's own login is logged and goes on past its submit
 
+Status: awaiting the owner's decision. An agent made every decision below and
+implemented it; the owner has been asked and has not confirmed any of it yet.
+
 On 2026-11-18 at 18:02 UTC, in the owner's Chrome, the flow of
 [#1687](https://github.com/risu729/pateat/issues/1687) pressed "Sign in with IBMid" on
 `flow.idp.hashicorp.com/login` by itself, and the tab reached `login.ibm.com`. The local
@@ -532,9 +536,11 @@ What the code shows (agent's reading, 2026-11-18):
 - **Why `sso-idp-stop`.** The flow reads every IdP page before the tab's ordinary
   admission (`ssoAdmit` in `sso/flow.ts`). A page that reads as neither the IdP's
   sign-in form nor an account list, confirmation or stay-signed-in question reads
-  `unknown`, and ended the flow, also while the IdP's own login had just submitted. The
-  risk check has no input and names no step, so it ended the flow before the child could
-  read it.
+  `unknown` (`readSsoIdp` in `content-sso.ts`). So does an account confirmation whose
+  other text is over its allowance of 16 letters (`CONFIRM_TEXT_LETTERS`), which is no
+  finite step. Such a page ended the flow, also while the IdP's own login had just
+  submitted. The risk check has no input and names no step, so it ended the flow before
+  the child could read it.
 - **The next stop in line.** A child whose result settled as unknown, or that is watched
   after a challenge ([ADR 0027](0027-per-account-login-routes.md)), ended the flow
   (`ssoChildChanged`), although the watch is how a direct login enters a handler on a
@@ -544,27 +550,37 @@ What the code shows (agent's reading, 2026-11-18):
   never at a handler. Handlers are entered only after an effect step, when its result is
   read or during the watch.
 
-Decisions, all the agent's and not confirmed by the owner:
+Decisions, all the agent's and awaiting the owner's decision:
 
 1. **The child's lines are logged.** Each `login.attempt` line of the IdP's own login
    carries `ssoChild` and goes to the local log only: not to the badge, the first-login
    result, the login records or the recipe use, where the parent stands for the login,
    and not to the service as a problem line (`LOCAL_ONLY_FLAGS`,
-   [ADR 0066](0066-problem-lines-sent-to-the-service.md)). A step its parent's scope no
-   longer authorizes logs `login.refused` `sso-scope-changed` with detail `idp-step`,
-   once for its page; the flow's ten minutes bound it.
+   [ADR 0066](0066-problem-lines-sent-to-the-service.md)). A child the flow detaches
+   before a finite step or on the RP return logs its end too (`sso-detached`, and its
+   release as a repeat, `sso-released`), so every child that ends has an end line. A
+   step its parent's scope no longer authorizes logs `login.refused`
+   `sso-scope-changed` with detail `idp-step`: at info the first time for its document
+   and path, and at debug for each repeat there. The info line goes to the service as a
+   problem line, as every `login.refused` does (ADR 0066); a debug line never does. The
+   flow's ten minutes bound the wait.
 2. **A page that is no step belongs to the running child.** An IdP page that reads
    `unknown` while the IdP's own login runs (it has neither signed in nor stopped) is
    admitted with that login's record, so the login reads it as a direct login of the IdP
    reads its next page: its handlers, its markers, its wait for the site and its watch.
-3. **Before any child, such a page waits.** An IdP page that reads `unknown` before the
-   IdP's own login began, as an interstitial on the way to the sign-in form, refuses
-   `sso-in-progress` and the flow waits for the tab's next page, bounded by the flow's
-   ten minutes (`sso-expired`). Nothing is pressed or filled on it. This changes the
+   That includes an account confirmation over its text allowance, which before stopped
+   the flow: the child's ordinary admission acts only on its own recipe's targets, never
+   on the page's confirmation control.
+3. **Otherwise such a page waits.** An IdP page that reads `unknown` before the IdP's
+   own login began, as an interstitial on the way to the sign-in form, or after that
+   login signed in, as a page on the IdP's way back to the RP, refuses `sso-in-progress`
+   and the flow waits for the tab's next page, bounded by the flow's ten minutes
+   (`sso-expired`). Nothing is pressed or filled on it, and only the RP's own evidence
+   completes the flow. This changes the
    [hardening of 2026-11-16](#review-hardening-2026-11-16-finite-idp-steps-named-by-the-page),
    under which such a page stopped the flow; a page that reads `unsafe`, and an
-   `unknown` page after the child ended signed in or blocked, still stop it with
-   `sso-idp-stop`.
+   `unknown` page after the child ended `blocked`, including one the flow detached
+   before a finite step, still stop it with `sso-idp-stop`.
 4. **A watched child keeps the flow.** Only a child that ended `blocked` ends the flow
    (`sso-idp-child-stopped`). One whose result settled as unknown or that is watched
    after a challenge keeps it: its watch may enter a handler on the IdP's next page, and

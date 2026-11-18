@@ -299,6 +299,9 @@ async function pauseNativeChild(rt: Runtime, work: SsoWork): Promise<boolean> {
           watch: undefined,
           settled: undefined,
         });
+  // The child's end is logged as any of its lines is (ADR 0026, amendment of 2026-11-18).
+  if (child.metadata.state !== "authenticated")
+    reportAttempt(rt, work.childRecord, child.recipe, undefined, { reason: "sso-detached" });
   const sameDocument =
     sameLoginDocument(child.live.document, work.live.document) &&
     child.live.token === work.live.token;
@@ -325,6 +328,10 @@ async function releaseChild(rt: Runtime, work: SsoWork) {
   work.childRecord = parseAttemptMetadata({
     ...metadata,
     ssoChild: { parentId: work.id, attemptId: metadata.id, released: true },
+  });
+  reportAttempt(rt, work.childRecord, undefined, undefined, {
+    repeat: true,
+    reason: "sso-released",
   });
   await keep(rt, work.childRecord);
 }
@@ -866,7 +873,11 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   // amendment of 2026-11-18). An unsafe page still ends the flow.
   if (parsed.output.kind === "unknown") {
     if (childRuns) return undefined;
-    if (!work.childId) return ctx.refuse("sso-in-progress");
+    // So does such a page after the IdP's own login signed in, as one the IdP shows on its
+    // way back to the RP: nothing is pressed, and only the RP's own evidence completes the
+    // flow. One after that login stopped ends it.
+    const ended = child?.metadata.id === work.childId ? child?.metadata : work.childRecord;
+    if (!work.childId || ended?.state === "authenticated") return ctx.refuse("sso-in-progress");
   }
   cancelSso(rt, ctx.document.tabId, "sso-idp-stop");
   return ctx.refuse("sso-idp-stop");

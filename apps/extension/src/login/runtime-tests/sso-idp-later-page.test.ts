@@ -33,6 +33,9 @@ const { authorizeSso } = await import("../runtime/sso-effects");
 const { allowed } = await import("../runtime/plan-2");
 const { change } = await import("../runtime/attempt");
 const { registerSsoChild } = await import("../runtime/sso-state");
+const { admit } = await import("../runtime/admit");
+const { keep } = await import("../runtime/session-store");
+const { reportLeavesLog } = await import("../runtime/report");
 const { createLoginSites } = await import("../sites");
 const { createLoginBadge, memoryBadgeStorage } = await import("../badge");
 const rp = "https://rp.example.test";
@@ -142,7 +145,7 @@ async function harness() {
       report,
       sites: createLoginSites({ read: async () => structuredClone(saved.snapshot) }),
       recipes: {
-        recipe: async () => undefined,
+        recipe: async (origin: string) => (origin === idp ? idpRecipe : undefined),
         starts: async () => [],
         entries: async () => [],
         sso: async () => [ssoRecipe],
@@ -260,6 +263,26 @@ async function harness() {
         : pointer;
     }
     if (message["type"] === "login.sso.idp") return reading;
+    // The RP's page after the IdP shows the selected identity and no sign-in.
+    if (message["type"] === "login.sso.return") return { ok: true, identity: "match" };
+    if (message["type"] === "login.state")
+      return {
+        ok: true,
+        loaded: true,
+        signs: {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+          username: true,
+        },
+      };
+    if (message["type"] === "login.observe")
+      return {
+        path: new URL(fake.state.tabUrls[7] ?? rpLive.url).pathname,
+        targets: (message["targets"] as unknown[]).map(() => "missing"),
+      };
     return { ok: true };
   });
   await Promise.all([rt.sso.loaded, rt.confirmFill.loaded]);
@@ -287,7 +310,28 @@ async function harness() {
     } as unknown as AdmitContext;
     return { live, ctx };
   };
-  return { rt, work, idpPage, report, selected };
+  /** The tab's next RP document, after the IdP. */
+  const rpPage = (documentId: string, path: string) => {
+    const live: LiveDocument = {
+      ...rpLive,
+      token: documentId + "-token",
+      url: rp + path,
+      path,
+      document: { ...rpLive.document, documentId },
+    };
+    rt.documents.set("7:0", live);
+    fake.state.tabUrls[7] = live.url;
+    const ctx = {
+      ...rpCtx,
+      document: live.document,
+      live,
+      signIn: undefined,
+      manual: undefined,
+      refuse: vi.fn(async (reason: string) => ({ ok: false as const, reason })),
+    } as unknown as AdmitContext;
+    return { live, ctx };
+  };
+  return { rt, work, idpPage, rpPage, report, selected };
 }
 /** The IdP's own login, started on its identifier page and driven to `events`. */
 function idpChild(
@@ -468,5 +512,151 @@ describe("the IdP's own login is never silent", () => {
     expect(h.report).toHaveBeenCalledWith(
       expect.objectContaining({ type: "refused", reason: "sso-scope-changed", detail: "idp-step" }),
     );
+  });
+});
+
+describe("the tab's own admission of the IdP's pages", () => {
+  it("resumes the submitted child on the risk check and the method chooser, never ending the flow", async () => {
+    const h = await harness();
+    const first = h.idpPage("idp-first", "/authsvc");
+    const run = idpChild(h, first.live, submitted);
+    await keep(h.rt, run.metadata);
+    for (const [documentId, path] of [
+      ["idp-risk", "/risk/v3.0/authz/pages/compute"],
+      ["idp-methods", "/authsvc"],
+    ] as const) {
+      const url = idp + path + "?txn=synthetic";
+      fake.state.tabUrls[7] = url;
+      const sender = {
+        id: fake.browser.runtime.id,
+        tab: { id: 7, incognito: false, url },
+        frameId: 0,
+        documentId,
+        origin: idp,
+        url,
+      };
+      h.rt.hellos.set("hello-" + documentId, 1);
+      // oxlint-disable-next-line no-await-in-loop -- the tab's pages come one after another
+      await admit(h.rt, sender as never, documentId + "-token", "hello-" + documentId, 1);
+      // No refusal outside the SSO allow-list ended the flow (`sso-idp-admission-stopped`),
+      // and the IdP's own login took the page over.
+      expect(h.work.ended).toBe(false);
+      expect(h.rt.sso.flows.get(7)).toBe(h.work);
+      expect(h.report).not.toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "sso-idp-admission-stopped" }),
+      );
+      const resumed = h.rt.attempts.get(7);
+      expect(resumed?.metadata.id).toBe("idp-child");
+      expect(resumed?.live.document.documentId).toBe(documentId);
+    }
+  });
+});
+
+describe("an IdP page that is no step after the IdP's own login", () => {
+  it("waits once that login signed in, pressing nothing", async () => {
+    const h = await harness();
+    const first = h.idpPage("idp-first", "/authsvc");
+    const run = idpChild(h, first.live, submitted);
+    run.metadata = transitionLoginAttempt(run.metadata, {
+      type: "OBSERVED",
+      result: "authenticated",
+      document: first.live.document,
+    });
+    expect(run.metadata.state).toBe("authenticated");
+    ssoChildChanged(h.rt, run);
+    const before = delivery.mock.calls.length;
+    const page = h.idpPage("idp-landing", "/landing");
+    expect(await ssoAdmit(h.rt, page.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(h.work.ended).toBe(false);
+    expect(
+      delivery.mock.calls
+        .slice(before)
+        .filter(([, message]) => String(message["type"]).startsWith("login.sso.prepare")),
+    ).toEqual([]);
+  });
+  it("logs the end of a child the flow detaches before a finite step", async () => {
+    const h = await harness();
+    const first = h.idpPage("idp-first", "/authsvc");
+    idpChild(h, first.live, submitted);
+    reading = { kind: "continue", target: { by: "id", value: "continue" } };
+    h.report.mockClear();
+    const page = h.idpPage("idp-confirm", "/confirm");
+    await ssoAdmit(h.rt, page.ctx);
+    expect(h.report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "attempt",
+        state: "blocked",
+        outcome: "cancelled",
+        reason: "sso-detached",
+        ssoChild: true,
+      }),
+    );
+  });
+});
+
+describe("the flow's bounds and its RP return", () => {
+  it("ends a flow that waited on an IdP page with no step at its ten minutes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const h = await harness();
+      const page = h.idpPage("idp-first", "/authsvc");
+      expect(await ssoAdmit(h.rt, page.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+      h.report.mockClear();
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(h.work.ended).toBe(true);
+      expect(h.rt.sso.flows.has(7)).toBe(false);
+      await vi.waitFor(() =>
+        expect(h.report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "attempt", state: "blocked", reason: "sso-expired" }),
+        ),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("completes on the RP's own evidence after a watched child", async () => {
+    const h = await harness();
+    const first = h.idpPage("idp-first", "/authsvc");
+    const run = idpChild(h, first.live, submitted);
+    run.metadata = transitionLoginAttempt(run.metadata, {
+      type: "OBSERVED",
+      result: "unknown",
+      document: first.live.document,
+    });
+    ssoChildChanged(h.rt, run);
+    expect(h.work.ended).toBe(false);
+    h.work.phase = "at-idp";
+    h.report.mockClear();
+    const back = h.rpPage("rp-back", "/home");
+    expect(await ssoAdmit(h.rt, back.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.work.parent?.state).toBe("authenticated");
+    // The detached child's end and its release are logged, marked as the hop's.
+    expect(h.report).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "sso-detached", ssoChild: true }),
+    );
+    expect(h.report).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "sso-released", ssoChild: true, repeat: true }),
+    );
+  });
+});
+
+describe("where a login report goes", () => {
+  it("keeps the IdP's own login lines in the local log only", () => {
+    const attempt = {
+      type: "attempt",
+      tabId: 7,
+      origin: idp,
+      recipeId: "native-idp",
+      recipeRevision: 1,
+      route: "password",
+      state: "blocked",
+      stepIndex: 0,
+      stepCount: 4,
+    } as const;
+    expect(reportLeavesLog(attempt)).toBe(true);
+    expect(reportLeavesLog({ ...attempt, ssoChild: true })).toBe(false);
+    expect(
+      reportLeavesLog({ type: "refused", tabId: 7, origin: idp, reason: "sso-in-progress" }),
+    ).toBe(true);
   });
 });
