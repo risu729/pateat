@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { idpOrigin, selected, ssoHarness, type SsoHarness } from "./sso-choice-fixture";
+import {
+  evidence,
+  idpOrigin,
+  otherItem,
+  selected,
+  ssoHarness,
+  snapshotId,
+  type SsoHarness,
+} from "./sso-choice-fixture";
 
 // A broker page (ADR 0085 amendment of 2026-11-18): the provider button submits to the
 // site, which sends the tab on to the IdP, so no entry's own destination is the mapped
@@ -18,14 +26,32 @@ const entries = [
   { id: "password", label: "Continue" },
 ];
 const automatic = { automatic: true, native: { passkey: false, password: true } };
-/** A URL-form method whose mapping the person saved earlier. */
+/**
+ * A URL-form method whose mapping the person saved earlier; or, without `save`, none,
+ * where two IdP items hold its origin, so none is used by itself (ADR 0085).
+ */
 async function mapped(save = true) {
   const h = ssoHarness([{ method: { number: 1 }, automatic: true, form: "url" }]);
   fixtures.push(h);
   if (save) {
     await h.request();
     expect(await h.choose()).toEqual({ ok: true });
-  }
+  } else
+    h.source.candidates.mockResolvedValue({
+      ok: true,
+      data: {
+        sourceEvidence: evidence,
+        policyRevision: h.saved.snapshot.revision,
+        candidates: [
+          { account: selected.account, snapshotId, origins: [idpOrigin] },
+          {
+            account: { connectionId: "other", itemId: otherItem },
+            snapshotId,
+            origins: [idpOrigin],
+          },
+        ],
+      },
+    });
   return h;
 }
 const pendingOf = async (pending: { result: Promise<unknown> }) => {
@@ -101,7 +127,7 @@ describe("a broker page's learned entry", () => {
     },
   );
 
-  it("never guesses an IdP: without a saved mapping the person chooses", async () => {
+  it("never guesses an IdP: without a saved mapping, of two, the person chooses", async () => {
     const h = await mapped(false);
     const entryLearned = vi.fn(async () => true);
     const pending = await h.request({

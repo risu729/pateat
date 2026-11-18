@@ -59,6 +59,17 @@ function setup(options: { mapped?: boolean; learned?: boolean; reached?: string 
             snapshotId: "b0000000-0000-4000-8000-000000000001",
             origins: [idp],
           },
+          // Without a saved mapping, a second IdP item at the origin keeps the person's
+          // choice (ADR 0085, amended 2026-11-18).
+          ...(options.mapped === false
+            ? [
+                {
+                  account: { connectionId, itemId: "80000000-0000-4000-8000-000000000009" },
+                  snapshotId: "b0000000-0000-4000-8000-000000000001",
+                  origins: [idp],
+                },
+              ]
+            : []),
         ],
       },
     })),
@@ -219,7 +230,7 @@ describe("a fresh tab on a broker page (#1687)", () => {
 
   it.each([
     ["no layout learned the entry", { learned: false }, "entry-required"],
-    ["no mapping is saved", { mapped: false }, "mapping-required"],
+    ["no mapping is saved and two IdP items qualify", { mapped: false }, "mapping-required"],
   ] as const)("shows the choice when %s, and presses nothing", async (_, options, reason) => {
     const s = setup(options);
     void s.h.signIn();

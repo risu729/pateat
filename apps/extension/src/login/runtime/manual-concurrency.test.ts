@@ -66,6 +66,7 @@ function harness() {
     picked: new Map(),
     manualStarts: new Map(),
     admitting: new Map(),
+    hellos: new Map(),
     switchesRunning: new Set(),
     switchStates: new Map(),
     attempts: new Map(),
@@ -84,6 +85,12 @@ function harness() {
     },
   } as unknown as Runtime;
   fixtures.push(rt);
+  // The page answers the request's reconnect by announcing, as the content script does.
+  calls.reconnect.mockImplementation(async (...args: unknown[]) => {
+    const key = `${String(args[0])}:${(args[2] as { frameId?: number } | undefined)?.frameId ?? 0}`;
+    rt.hellos.set(key, (rt.hellos.get(key) ?? 0) + 1);
+    return { ok: true };
+  });
   return { rt, live };
 }
 function settled(tabId: number): Execution {

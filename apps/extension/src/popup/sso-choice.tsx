@@ -169,7 +169,14 @@ function SsoOffer({
                 {t("Show other provider accounts")}
               </Button>
             )}
-            {(entry.selectedId || entry.mapped) && (
+            {entry.inferred && !entry.mapped && (
+              <p className="popup-muted">
+                {t(
+                  "Used because it is the only provider account found for this sign-in origin. Nothing is saved. Save a mapping to keep it, choose another method for this sign-in, or set this site's sign-in pages to Fill only so it does not start by itself.",
+                )}
+              </p>
+            )}
+            {((entry.selectedId && !entry.inferred) || entry.mapped) && (
               <Button
                 disabled={busy}
                 aria-label={t("Remove provider mapping for {{method}}", { method: name })}

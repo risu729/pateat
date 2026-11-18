@@ -68,6 +68,13 @@ export const PENDING_DETAILS_KEY = "session:pateat.login-pending-details.v1";
 export const CONFIG_KEY = "pateat.login-probe-origin.v1";
 
 /**
+ * Documents whose automatic SSO method offer the person cancelled, as `${tabId} ${documentId}`,
+ * so a restarted worker's or the popup's re-announcement never offers it by itself again
+ * (ADR 0085, amended 2026-11-18). The oldest go first.
+ */
+export const SSO_CANCELS_KEY = "session:pateat.login-sso-cancels.v1";
+
+/**
  * The sign-in methods kept for each login that has not ended (ADR 0055, amended 2026-11-18),
  * so a restarted worker that ends a login, as when its watch runs out, still names them.
  */

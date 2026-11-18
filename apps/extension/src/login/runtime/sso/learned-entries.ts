@@ -53,3 +53,14 @@ export async function ssoEntryReaches(
   await queue;
   return (await read()).some((entry) => same(entry, origin, path, target) && entry.idp === idp);
 }
+
+/** Whether pressing `target` on `origin` and `path` last reached an IdP other than `idp`. */
+export async function ssoEntryReachesOther(
+  origin: string,
+  path: string,
+  target: LoginTarget,
+  idp: string,
+): Promise<boolean> {
+  await queue;
+  return (await read()).some((entry) => same(entry, origin, path, target) && entry.idp !== idp);
+}

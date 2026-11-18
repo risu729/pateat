@@ -192,15 +192,19 @@ its five minutes while the offer stayed open five more, then ended with
   otherwise shows the chooser. The rest of this bullet is the agent's reading of that
   decision. A request on an item with SSO methods re-runs the page's admission as the
   person's request. It presses by itself only when all of these hold: the item's
-  preferred SSO method has a saved mapping, it has no numbered method beside it, no
+  preferred SSO method has a saved mapping, or is URL-form and discovery finds exactly
+  one IdP item for it
+  ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)),
+  it has no numbered method beside it, no
   passkey would come first in the order, exactly one entry qualifies (one whose own
-  destination is the mapped origin, or the one a broker page learned for that origin,
-  [ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)),
+  destination is the mapped origin, the one a broker page learned for that origin, or
+  the one whose label names the mapped IdP,
+  [ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)),
   and the request's scope reaches the IdP (below). The popup's start then answers
   `started`. **Log in now** never takes the passkey or the password by itself, so a
   route it starts natively is always the person's pick, and a passkey the site refuses
   stops with `sso-passkey-refused` and offers the methods again without it, as before.
-- **The chooser otherwise.** In every other case, as with no saved mapping, no learned
+- **The chooser otherwise.** In every other case, as with no mapping, no learned
   entry or several, a numbered method, a passkey, or a scope that does not reach the
   IdP, the explicit chooser opens, with every method and the password as before. While
   it waits, the request's status is `choosing`: the popup's start answers at once, and
@@ -220,6 +224,9 @@ its five minutes while the offer stayed open five more, then ended with
   page permissions for its own page only. A hop to the identity provider still needs
   `auto` sign-in on both origins with neither paused (`sso-manual-scope-unavailable`),
   and site access, item eligibility and master-password re-prompt still apply.
-- **The first visit.** A broker page whose entry no flow has pressed yet still shows the
-  chooser once, also for **Log in now**
-  ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)).
+- **The first visit.** On a broker page whose entry no flow has pressed yet, **Log in
+  now** presses the one entry whose label names the mapped IdP, as the automatic sign-in
+  does, under the same hop guard
+  ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
+  Its start waits only for the page's announcement for the request, never for an earlier
+  admission of the page.

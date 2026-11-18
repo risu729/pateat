@@ -4945,7 +4945,11 @@ write refuses `scope-changed`. A
 vault sync drops the mappings of an item that account's previous snapshot held and the
 next one no longer lists, counting unreadable items as listed (`connections/policy.ts`).
 A saved mapping is validated directly at every use; discovery runs only for an unmapped
-method or when the person asks, and a mapping this device cannot resolve can still be
+method or when the person asks. An unmapped URL-form method whose discovery finds
+exactly one IdP item uses it, after the same validation, for that sign-in only, and
+saves nothing
+([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
+A mapping this device cannot resolve can still be
 removed, here in the popup or from any browser on the service's Vaults page, which
 lists every mapping by item ID. Popup choices are memory-only, bounded to ten minutes
 and withdrawn on cancellation, a settings change of what the offer reads (its site
@@ -4956,12 +4960,21 @@ a catalog change behind the offer's accounts, and a new document or path in the 
 own frame or the top frame. One that **Log in now** opened is also withdrawn when that
 request ends
 ([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-log-in-now-offer-ends-with-its-request)).
-An automatic URL-form choice with a saved mapping presses the entry whose own
+An automatic URL-form choice with a mapping presses the entry whose own
 destination is the mapped origin or, on a broker page where none is, the one entry the
 page's SSO layout learned, that goes nowhere but the page's own origin and that a flow
 pressed before to reach this very IdP origin (`pateat.login.sso-entries.v1`, local); the
 receipt checks it again
 ([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)).
+On a first visit, where the page learned none, it presses the one entry whose label
+names the mapped IdP by the IdP item's name or the registrable labels of its origin and
+URIs (`sso-entry-label.ts`), under the same destination check, never one learned for
+another IdP, never a device sign-in, and only when no other observed entry is named; it
+completes and is learned only once the tab was seen at the mapped origin, and ends with
+`sso-idp-unseen` otherwise. **Log in now** does too; the popup asks a page of a site
+that is not paused and that a restarted worker forgot to announce again, and a cancelled
+automatic offer stays cancelled for its document (`pateat.login-sso-cancels.v1`)
+([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
 A flow's RP return may land on another origin of the RP's registrable site, with its
 scheme, that is not the IdP's and that the RP item matches (`ssoReturnOrigin`; never for
 a `localhost` or IP RP); every other origin stays forbidden

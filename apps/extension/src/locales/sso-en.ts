@@ -64,4 +64,8 @@ export const ssoEn = {
     "An identity provider must use a different account and origin from this site.",
   "This sign-in method is unavailable or changed. Check the vault and reopen the choice.":
     "This sign-in method is unavailable or changed. Check the vault and reopen the choice.",
+  "Used because it is the only provider account found for this sign-in origin. Nothing is saved. Save a mapping to keep it, choose another method for this sign-in, or set this site's sign-in pages to Fill only so it does not start by itself.":
+    "Used because it is the only provider account found for this sign-in origin. Nothing is saved. Save a mapping to keep it, choose another method for this sign-in, or set this site's sign-in pages to Fill only so it does not start by itself.",
+  "This provider account is used because it is the only one found; no mapping is saved to remove. Choose another method, or set this site's sign-in pages to Fill only.":
+    "This provider account is used because it is the only one found; no mapping is saved to remove. Choose another method, or set this site's sign-in pages to Fill only.",
 } as const;

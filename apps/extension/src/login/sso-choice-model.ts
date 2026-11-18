@@ -39,6 +39,12 @@ export type SsoChoiceInput = {
   asIdentityProvider?: boolean;
   /** URL-form entries come from a local observation, never from a guessed provider label. */
   entries?: { id: string; label: string }[];
+  /**
+   * The visible labels of the page's other observed entries, never pressed, as a link or
+   * an entry its inspection refused: one that names the mapped IdP keeps the label rule
+   * from pressing any entry (ADR 0085, amended 2026-11-18).
+   */
+  otherLabels?: string[];
   entryCurrent?: (entryId: string) => Promise<boolean>;
   /** A fresh explicit HTTP destination of the entry matches this selected origin; never a label guess. */
   entryOrigin?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
@@ -50,6 +56,13 @@ export type SsoChoiceInput = {
    * the mapped origin.
    */
   entryLearned?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
+  /**
+   * A broker page's first visit (ADR 0085 amendment of 2026-11-18, owner): the entry whose
+   * visible label names the mapped IdP goes nowhere but the page's own origin on a fresh
+   * inspection, and no flow learned it for another IdP. Asked only when neither an entry's
+   * own destination nor a learned entry decides, and only for the one entry named.
+   */
+  entryLabeled?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
   signal?: AbortSignal;
 };
 export type SsoResolvedChoice =
@@ -73,6 +86,11 @@ export type Method = SafeSsoMethod & {
   discovered?: boolean;
   /** Whether the settings hold a mapping of this method, usable here or not. */
   stored?: true;
+  /**
+   * The one IdP item a URL-form method's discovery found, used without a saved mapping
+   * (ADR 0085, amended 2026-11-18); never saved.
+   */
+  inferred?: true;
 };
 export type Offer = {
   id: string;
@@ -93,7 +111,7 @@ export type Offer = {
   releaseAbort: () => void;
 };
 
-const connectionFor = (saved: Saved, account: AccountRef) =>
+export const connectionFor = (saved: Saved, account: AccountRef) =>
   saved.catalog.connections.find((entry) => entry.id === account.connectionId);
 /** The account's portable identity, while its connection is open on a known account. */
 export function portable(saved: Saved, account: AccountRef): SsoPortableAccount | undefined {
