@@ -366,6 +366,15 @@ describe("local SSO method chooser", () => {
       expect((await h.controller.consume(id)).ok).toBe(true);
     },
   );
+  it("says whether the offer waits for the person once the request returns", async () => {
+    const h = start();
+    // An explicit choice waits; an automatic one that chose, or a refused offer, does not.
+    expect(await h.request()).toMatchObject({ waiting: true });
+    await h.choose();
+    expect(await h.request({ automatic: true })).not.toHaveProperty("waiting");
+    h.source.describe.mockResolvedValue({ ok: false, reason: "invalid-value" });
+    expect(await h.request()).not.toHaveProperty("waiting");
+  });
   it("withdraws on expiry, explicit cancellation, replacement, and worker recreation", async () => {
     const h = start();
     const first = await h.request();

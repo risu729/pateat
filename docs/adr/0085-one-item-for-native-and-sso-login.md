@@ -15,7 +15,12 @@ execution. Also amended by the
 and on 2026-11-16 by the owner's decision that
 [SSO mappings sync with the settings](#amendment-2026-11-16-sso-mappings-sync-with-the-settings).
 Amended on 2026-11-17 by an agent's fix that
-[keeps an open method offer over settings it does not read](#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read).
+[keeps an open method offer over settings it does not read](#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read),
+and on 2026-11-18 by an agent's fix that
+[ends a Log in now method offer with its request](#amendment-2026-11-18-a-log-in-now-offer-ends-with-its-request).
+Amended on 2026-11-18 by the owner (03:01 UTC,
+[below](#amendment-2026-11-18-a-broker-pages-provider-entry)): a URL-form method with a
+saved mapping presses a broker page's provider entry automatically.
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
 no separate provider and username fields or JSON. The selection and validation rules
@@ -547,3 +552,69 @@ check therefore ended the choice the person was about to answer.
   unless it changed what the offer reads. Running logins and the other work fenced on
   a settings revision keep the rules of the
   [amendment of 2026-11-16](#amendment-2026-11-16-sso-mappings-sync-with-the-settings).
+
+## Amendment 2026-11-18: a Log in now offer ends with its request
+
+Chosen by an agent to fix [#1687](https://github.com/risu729/pateat/issues/1687), where
+the owner expects **Log in now** to work on a page whose method offer expired; not
+confirmed by the owner. The popup side is in
+[ADR 0088](0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now).
+
+- The method offer **Log in now** opens for the person's explicit choice is bound to
+  that request (`signal`): the request ending withdraws it with `cancelled`, and the
+  request ends at once with the reason of an offer that ends first, such as
+  `settings-changed` under the
+  [amendment of 2026-11-17](#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read).
+- `request` says whether the offer it made still waits for the person (`waiting`), so
+  the request is marked `choosing` only then, never for an offer already decided or
+  refused.
+- Offers of automatic logins are unchanged: they still wait up to ten minutes, and the
+  choice they wait for is the page's own.
+
+## Amendment 2026-11-18: a broker page's provider entry
+
+The owner wrote on 2026-11-18 at 03:01 UTC, about
+[#1687](https://github.com/risu729/pateat/issues/1687): 「i opened a new tab but didn't
+work. also, pateat should automatically login even if using sso, no?」. The owner's
+decision: on a broker page such as `flow.idp.hashicorp.com/login`, Pateat signs in by
+itself with the site's item, and where that item's route is SSO through its saved
+mapping, it presses that SSO method's entry automatically. The
+[URL-form rule above](#amendment-2026-11-12-local-method-discovery-and-mapping-validation)
+left such an entry to the person's explicit choice. Every other guard stays: pause,
+private windows, the repeated-login limit, master-password re-prompt, the settings scope
+and the saved mapping, with no IdP guessed where none is saved.
+
+**The cause in the fresh tab.** The page's provider button submits the page's own form
+to its own origin, and the site then sends the tab to the IdP. The automatic choice of a
+URL-form method pressed only an entry whose own observed destination is the mapped
+origin (`automaticUrl` in `sso-choice.ts`), so it found none, recorded `entry-required`
+and waited the offer's ten minutes for the popup's entry choice. A waiting offer writes
+no log line until it ends, which matches the fresh tab's log: no `login.start`,
+`recipe.generate` or `sso.*` line, and in another tab only `replaced` when
+**Log in now** replaced the waiting offer.
+
+The rest of this section is the agent's choice, not confirmed by the owner:
+
+- **Which entry.** An entry whose own destination is the mapped origin is still pressed
+  first, as before. Only when there is none, the automatic choice presses the one
+  current entry that an SSO layout of the site's recipe for this page names and whose
+  fresh inspection finds it going nowhere but the page's own origin, or nowhere explicit
+  (`entryLearned`). Such a layout is what the flow stores after the person's first
+  explicit entry choice on the page, so the entry is one the person chose before, never
+  one picked by its text. None, or more than one, leaves the choice to the person as
+  before, and an entry going to another origin is never pressed this way.
+- **Checked again.** The receipt of such a choice checks the entry against the layout
+  and its destinations again just before the flow uses it, as an exact-origin entry is
+  checked again.
+- **Only with a saved mapping.** A method without one still waits with
+  `mapping-required`, and nothing lists or guesses an IdP account.
+- **Only automatic logins.** **Log in now** keeps the explicit chooser
+  ([ADR 0088](0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)).
+- **The first visit.** A page whose layout has not learned the entry yet still offers
+  the choice once. The person's entry choice there stores the layout, and later visits
+  press it by themselves. Whether a first visit should press without that is for the
+  owner.
+- **Known limit.** A site's SSO layouts are kept per page, not per item or method. Where
+  another account's method taught the page another provider's button and only that one
+  is shown, the flow presses it and stops on the other provider's origin
+  (`sso-forbidden-origin`) without releasing anything.

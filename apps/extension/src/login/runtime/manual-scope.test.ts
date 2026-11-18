@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Runtime } from "./state";
 import type { LiveDocument } from "./types";
-import { endManual, manualPending, MANUAL_START_MS, type ManualStart } from "./manual-scope";
+import {
+  endManual,
+  manualChoosing,
+  manualPending,
+  MANUAL_START_MS,
+  type ManualStart,
+} from "./manual-scope";
 import { frameKey } from "./steps";
 
 function harness() {
@@ -127,6 +133,43 @@ describe("pending manual authority", () => {
     expect(h.rt.manualStarts.get(1)).toBe(next);
     expect(h.rt.picked.get(1)).toBe(next.pick);
     expect(next.status).toEqual({ requestId: "new", state: "evaluating" });
+  });
+
+  it("says that a request waiting for a method choice ran out of time (ADR 0085)", () => {
+    const h = harness();
+    manualChoosing(h.rt, h.live, { request: h.pending, pick: h.pick }, true);
+    vi.spyOn(Date, "now").mockReturnValue(h.pending.expiresAt);
+    expect(manualPending(h.rt, h.live)).toBeUndefined();
+    expect(h.pending.status).toMatchObject({ state: "blocked", reason: "choice-timed-out" });
+  });
+
+  it("marks only a current request as waiting for a method choice, and tells its start", () => {
+    const h = harness();
+    const told = vi.fn();
+    h.pending.choosing = told;
+    const authorization = { request: h.pending, pick: h.pick };
+    manualChoosing(h.rt, h.live, authorization, true);
+    expect(h.pending.status).toEqual({ requestId: "request", state: "choosing" });
+    expect(told).toHaveBeenCalledTimes(1);
+    manualChoosing(h.rt, h.live, authorization, false);
+    expect(h.pending.status).toEqual({ requestId: "request", state: "evaluating" });
+    endManual(h.rt, 1, "cancelled", h.pending);
+    manualChoosing(h.rt, h.live, authorization, true);
+    expect(h.pending.status).toEqual({
+      requestId: "request",
+      state: "blocked",
+      reason: "cancelled",
+    });
+    expect(told).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, "cancelled"])("withdraws the method offer it opened (end: %s)", (reason) => {
+    const h = harness();
+    const offer = new AbortController();
+    h.pending.methodOffer = offer;
+    endManual(h.rt, 1, reason, h.pending);
+    expect(offer.signal.aborted).toBe(true);
+    expect(h.pending.methodOffer).toBeUndefined();
   });
 
   it("retires pending authority without removing an attached attempt pick", () => {

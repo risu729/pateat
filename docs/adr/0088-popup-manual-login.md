@@ -12,7 +12,11 @@ ordinary automatic logins and the existing account-choice action keep their beha
 Testing is synthetic; no real account or paid model request was used.
 Amended on 2026-11-17 by the owner (13:15 UTC,
 [below](#amendment-2026-11-17-fill-on-verification-pages)): a verification page with a
-`confirm` or `unclear` recipe offers **Fill** instead of **Log in now**.
+`confirm` or `unclear` recipe offers **Fill** instead of **Log in now**. Amended on
+2026-11-18 by an agent's fix of [#1687](https://github.com/risu729/pateat/issues/1687)
+([below](#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)): a request that
+waits for the person's sign-in method choice says so, and ends with its method offer,
+also in a fresh tab.
 
 Date: 2026-11-11
 
@@ -156,3 +160,53 @@ The following are the agent's choices, not confirmed by the owner:
   know yet to announce again, with a bounded wait, so **Fill** shows there; other pages
   are not asked
   ([ADR 0035](0035-page-kinds-per-site.md#amendment-2026-11-17-fill-after-a-worker-restart)).
+
+## Amendment 2026-11-18: a sign-in method choice for Log in now
+
+The owner reported in [#1687](https://github.com/risu729/pateat/issues/1687) on
+2026-11-18 that **Log in now** did nothing on `flow.idp.hashicorp.com/login` and expects
+it to work there. The rest of this section is the agent's choice, not confirmed by the
+owner.
+
+The page's SSO method offer had waited its ten minutes for the person's provider mapping
+and entry and ended (`expired`). **Log in now** then opened the offer again for the
+person's explicit method choice
+([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-mapping-and-method-choice)),
+but the request kept the status `evaluating`, so the popup said only "Preparing this
+login…", and the popup's start waited for the whole admission. The request ran out after
+its five minutes while the offer stayed open five more, then ended with
+`manual-request-ended`; a choice made in between could start nothing.
+
+- **A fresh tab.** The owner then reported on 2026-11-18 at 03:01 UTC that
+  **Log in now** did nothing in a fresh tab either. There the page's own method offer
+  was still open and waiting for the entry choice
+  ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)).
+  The request replaced it (`replaced` in the log) with its own offer, and the popup
+  again said only "Preparing this login…" until the request ended
+  (`manual-request-ended`). The rules below apply to both cases.
+- **The page's admission again.** A request on an item with SSO methods re-runs the
+  page's admission as the person's request: the item's method offer opens again, with
+  the explicit method choice **Log in now** has had. While the offer waits for that
+  choice, the request's status is `choosing`: the popup's start answers at once, and
+  the section says to choose under **Sign-in method**. Once chosen, the request is
+  `evaluating` until the login starts.
+- **One lifetime.** The offer belongs to the request. The request ending withdraws it at
+  once: its five minutes, with `choice-timed-out`, **Cancel this login**, or a page
+  change. A request that ended while its page was read opens no offer. An offer that
+  ends, as on the person's cancel under **Sign-in method**, a change of the settings or
+  vault it reads
+  ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read))
+  or a new page, ends the request at once with its reason, which the popup shows, as any
+  refused admission of the request does. Nothing waits for a choice that can no longer
+  start a login.
+- **Guards kept.** The request still overrides pauses, private-window suppression and
+  page permissions for its own page only. A hop to the identity provider still needs
+  `auto` sign-in on both origins with neither paused (`sso-manual-scope-unavailable`),
+  and site access, item eligibility and master-password re-prompt still apply.
+- **Not chosen.** **Log in now** could run the item's automatic method choice (passkey,
+  then the preferred SSO method, then the password) and show the chooser only when that
+  cannot decide, which would start at once where the preferred method is mapped. It
+  does not, since **Log in now**'s chooser is where the person picks another method or
+  the password explicitly (ADR 0085). The owner's message of 03:01 UTC asks for
+  automatic logins through SSO, which the ADR 0085 amendment above adds; whether
+  **Log in now** should decide by itself too is for the owner.

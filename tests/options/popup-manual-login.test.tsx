@@ -279,3 +279,58 @@ test("says plainly when the page has no sign-in form", async () => {
   await expect.element(page.getByText("No sign-in form was found on this page.")).toBeVisible();
   await expect.element(button()).toBeDisabled();
 });
+
+// A Log in now that waits for the person's sign-in method choice (ADR 0085, amended
+// 2026-11-18), and why one that could not start ended.
+test("points to the method choice while the request waits for it, and can cancel it", async () => {
+  const h = await mount({
+    ok: true,
+    targets: [],
+    status: { requestId: "pending", state: "choosing" },
+  });
+  await expect.element(button()).toBeDisabled();
+  await expect
+    .element(
+      page.getByText("Choose how to sign in under Sign-in method below. The login starts then."),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Cancel this login", exact: true }))
+    .toBeEnabled();
+  expect(h.client.start).not.toHaveBeenCalled();
+});
+
+test("a start that answers with the method choice keeps the popup open", async () => {
+  const h = await mount();
+  h.client.start.mockResolvedValue({ ok: true, state: "choosing" });
+  await userEvent.click(button());
+  expect(h.client.start).toHaveBeenCalledTimes(1);
+  expect(h.onStarted).not.toHaveBeenCalled();
+});
+
+test.each([
+  [
+    "choice-timed-out",
+    "No sign-in method was chosen in time. Nothing will start from this request. Press Log in now again.",
+  ],
+  [
+    "settings-changed",
+    "The page, vault or settings changed before the sign-in method was used. Press Log in now again.",
+  ],
+  [
+    "sso-manual-scope-unavailable",
+    "Signing in through a provider needs automatic sign-in on this site and the provider, with neither paused. Choose another method, or change Page behavior or resume the site.",
+  ],
+  [
+    "invalid-value",
+    "The SSO fields have invalid syntax, duplicate methods or mixed formats. Correct the vault item and sync it.",
+  ],
+])("says why a request that could not start ended: %s", async (reason, text) => {
+  await mount({
+    ok: true,
+    targets: [target()],
+    status: { requestId: "pending", state: "blocked", reason },
+  });
+  await expect.element(page.getByText(text)).toBeVisible();
+  await expect.element(button()).toBeEnabled();
+});

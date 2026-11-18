@@ -8,6 +8,7 @@ import { i18n } from "../i18n";
 import type { ConfirmFillStatus, ManualClient, ManualOfferResponse } from "../login/manual-wire";
 import { Button } from "../options/button";
 import { siteAccountOptions } from "../options/site-policy";
+import { ssoReason } from "./sso-reasons";
 
 export type { ManualClient } from "../login/manual-wire";
 
@@ -81,6 +82,24 @@ export function manualReason(reason: string | undefined, t: TFunction, fill = fa
         : t(
             "Preparing this login took too long. Nothing else will start from this request. Try again.",
           );
+    // The sign-in method choice a **Log in now** opened (ADR 0085, amended 2026-11-18).
+    case "choice-timed-out":
+    case "expired":
+      return t(
+        "No sign-in method was chosen in time. Nothing will start from this request. Press Log in now again.",
+      );
+    case "scope-changed":
+    case "settings-changed":
+    case "vault-changed":
+    case "replaced":
+    case "sso-choice-withdrawn":
+      return t(
+        "The page, vault or settings changed before the sign-in method was used. Press Log in now again.",
+      );
+    case "sso-manual-scope-unavailable":
+      return t(
+        "Signing in through a provider needs automatic sign-in on this site and the provider, with neither paused. Choose another method, or change Page behavior or resume the site.",
+      );
     case "master-password-reprompt":
       return t("Enter the master password in Pateat's window to continue this login.");
     case "closed":
@@ -106,7 +125,9 @@ export function manualReason(reason: string | undefined, t: TFunction, fill = fa
     default:
       return fill
         ? t("Nothing was filled. Check Diagnostics for the reason, then try again.")
-        : t("The login could not start. Check Diagnostics for the reason, then try again.");
+        : // A sign-in method that stopped the login says what to do about it.
+          (ssoReason(t, reason) ??
+            t("The login could not start. Check Diagnostics for the reason, then try again."));
   }
 }
 
@@ -205,6 +226,7 @@ export function ManualLogin({
       return answer?.ok &&
         (answer.status?.state === "evaluating" ||
           answer.status?.state === "generating" ||
+          answer.status?.state === "choosing" ||
           fillRunning(answer.fill) ||
           answer.reason === "origin-busy" ||
           answer.reason === "login-running")
@@ -237,9 +259,12 @@ export function ManualLogin({
     : options.length === 1
       ? options[0]
       : undefined;
-  // A manual login, or a **Fill** press, that is still at work: nothing else starts.
+  // A manual login, or a **Fill** press, that is still at work: nothing else starts. A
+  // login that waits for the person's sign-in method choice below is still at work too.
   const manualPreparing =
-    found?.status?.state === "evaluating" || found?.status?.state === "generating";
+    found?.status?.state === "evaluating" ||
+    found?.status?.state === "generating" ||
+    found?.status?.state === "choosing";
   const preparing = manualPreparing || fillRunning(found?.fill);
   const pending = manualPreparing ? found?.status?.requestId : undefined;
   // This popup's own press, or one still at work, shows how it goes.
@@ -396,7 +421,9 @@ export function ManualLogin({
             ? manualReason("master-password-reprompt", t)
             : found?.status?.state === "generating"
               ? t("Checking the page before starting the login…")
-              : t("Preparing this login…")
+              : found?.status?.state === "choosing"
+                ? t("Choose how to sign in under Sign-in method below. The login starts then.")
+                : t("Preparing this login…")
           : press && (fillRunning(press) || !failure)
             ? fillStatusText(press, t)
             : reason || offer.isError

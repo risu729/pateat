@@ -18,6 +18,13 @@ export type ManualStart = {
   pick?: PickedAccount;
   generated?: boolean;
   timer?: ReturnType<typeof setTimeout>;
+  /**
+   * The SSO method offer this request opened for the person's choice (ADR 0085). Ending
+   * the request withdraws it, so the offer never waits past the request.
+   */
+  methodOffer?: AbortController;
+  /** Tells the popup's start that the request now waits for the person's method choice. */
+  choosing?: () => void;
 };
 
 export type ManualAuthorization = { request: ManualStart; pick: PickedAccount };
@@ -59,7 +66,7 @@ export function manualPending(rt: Runtime, live: LiveDocument): ManualStart | un
     endManual(
       rt,
       live.document.tabId,
-      Date.now() >= request.expiresAt ? "timed-out" : "page-changed",
+      Date.now() >= request.expiresAt ? manualTimedOut(request) : "page-changed",
       request,
     );
     return undefined;
@@ -77,6 +84,10 @@ export function endManual(
   const request = rt.manualStarts.get(tabId);
   if (!request || (expected && request !== expected)) return;
   clearTimeout(request.timer);
+  const offer = request.methodOffer;
+  delete request.methodOffer;
+  delete request.choosing;
+  offer?.abort();
   const pick = request.pick;
   const promptKey = `${tabId} ${request.document.documentId}`;
   if (rt.passwordAsks.get(promptKey)?.manualRequestId === request.status.requestId) {
@@ -100,4 +111,27 @@ export function endManual(
 export function manualGenerating(rt: Runtime, live: LiveDocument): void {
   const request = manualPending(rt, live);
   if (request) request.status = { requestId: request.status.requestId, state: "generating" };
+}
+
+/** Why a request that ran out of time ended: one waiting for a method choice says so. */
+export const manualTimedOut = (request: ManualStart): string =>
+  request.status.state === "choosing" ? "choice-timed-out" : "timed-out";
+
+/**
+ * The request waits for the person's SSO method choice in the popup (`choosing`), or goes
+ * on once it was made (ADR 0085, amendment of 2026-11-18). Only a current request changes.
+ */
+export function manualChoosing(
+  rt: Runtime,
+  live: LiveDocument,
+  authorization: ManualAuthorization,
+  choosing: boolean,
+): void {
+  if (!manualAuthorizationCurrent(rt, live, authorization)) return;
+  const { request } = authorization;
+  request.status = {
+    requestId: request.status.requestId,
+    state: choosing ? "choosing" : "evaluating",
+  };
+  if (choosing) request.choosing?.();
 }

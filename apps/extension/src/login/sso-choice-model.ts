@@ -36,6 +36,13 @@ export type SsoChoiceInput = {
   entryCurrent?: (entryId: string) => Promise<boolean>;
   /** A fresh explicit HTTP destination of the entry matches this selected origin; never a label guess. */
   entryOrigin?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
+  /**
+   * A broker page's entry (ADR 0085 amendment of 2026-11-18): an SSO layout the site's
+   * recipe holds for this page names it, and a fresh inspection finds it going nowhere
+   * but the page's own origin. Only with a saved mapping, and only when no entry's own
+   * destination names the mapped origin.
+   */
+  entryLearned?: (entryId: string) => Promise<boolean>;
   signal?: AbortSignal;
 };
 export type SsoResolvedChoice =

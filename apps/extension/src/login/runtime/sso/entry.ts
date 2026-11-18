@@ -4,6 +4,7 @@ import {
   resolvePagePermission,
   isSsoFieldName,
   sameLoginDocument,
+  sameLoginTarget,
   type LoginObservation,
   type LoginTarget,
 } from "@pateat/contracts";
@@ -17,7 +18,7 @@ import { frameKey, acceptedObservation } from "../steps";
 import { send } from "../attempt";
 import { itemFacts } from "../plan";
 import { listedBrowserSite, pauseOf } from "../pause";
-import { endManual, manualAuthorizationCurrent } from "../manual-scope";
+import { endManual, manualAuthorizationCurrent, manualChoosing } from "../manual-scope";
 import { tabAttempt, heldForLogin } from "../hold";
 import { terminal } from "../attempt-state";
 import { askFor } from "../choice";
@@ -153,11 +154,19 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     refused?.origin === account.origin &&
     refused.connectionId === account.connectionId &&
     refused.itemId === account.itemId;
+  // The person's own request opens the method offer they choose from (ADR 0085). It ends
+  // with that request, as on its time running out or the person's cancel, so the offer
+  // never waits for a choice nothing could still use.
+  if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
+    return ctx.refuse("manual-request-ended");
+  const methodOffer = ctx.manual ? new AbortController() : undefined;
+  if (ctx.manual && methodOffer) ctx.manual.request.methodOffer = methodOffer;
   const requested = await rt.ssoChoices.request({
     document: ctx.document,
     account,
     incognito: ctx.incognito === true,
     basis: saved,
+    ...(methodOffer ? { signal: methodOffer.signal } : {}),
     native: { passkey: facts.discoverablePasskey && !passkeyRefused, password: facts.password },
     automatic: !ctx.manual,
     entries: [...targets].map(([id, entry]) => ({ id, label: entry.label })),
@@ -173,12 +182,37 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       const entry = targets.get(id);
       return !!entry && !!(await inspectSsoTarget(rt, ctx.live, entry.target));
     },
+    // A broker page's provider button submits to the site itself (ADR 0085 amendment of
+    // 2026-11-18): it may be pressed only as the entry the page's own SSO layout learned.
+    entryLearned: async (id: string) => {
+      const entry = targets.get(id);
+      const inspected = entry && (await inspectSsoTarget(rt, ctx.live, entry.target));
+      if (
+        !inspected ||
+        inspected.destinations.some(
+          (destination) => URL.parse(destination)?.origin !== ctx.document.origin,
+        )
+      )
+        return false;
+      const heads = (await rt.recipes.sso?.(ctx.document.origin, ctx.live.path)) ?? [];
+      return (
+        rt.documents.get(ctx.key) === ctx.live &&
+        heads.some((head) =>
+          head.sso.layouts.some((layout) =>
+            layout.entries.some((known) => sameLoginTarget(known.target, entry.target)),
+          ),
+        )
+      );
+    },
   });
+  // The popup says the request waits for the person's choice, and its start answers now.
+  if (ctx.manual && requested.waiting) manualChoosing(rt, ctx.live, ctx.manual, true);
   const result = await requested.result;
   if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
     return ctx.refuse("manual-request-ended");
   if (!result.ok || rt.documents.get(ctx.key) !== ctx.live)
     return ctx.refuse(result.ok ? "stale-document" : result.reason);
+  if (ctx.manual) manualChoosing(rt, ctx.live, ctx.manual, false);
   const receipt = await rt.ssoChoices.consume(result.choiceId);
   if (
     !receipt.ok ||

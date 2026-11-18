@@ -48,6 +48,8 @@ type Receipt = {
   selection: SsoResolvedChoice;
   /** Only an automatic URL-form choice requires this exact destination again when consumed. */
   entryOrigin?: string;
+  /** An automatic choice of a broker page's learned entry requires it again when consumed. */
+  learned?: true;
 };
 type Refusal = { reason: string; field?: string };
 type SsoSelection = Extract<SsoChooseRequest["selection"], { kind: "sso" }>;
@@ -226,10 +228,20 @@ export function createSsoChoiceController(options: {
     if (!checked.ok) return refusal(checked);
     return (await current(offer)) ? undefined : { reason: "scope-changed" };
   }
-  function resolve(offer: Offer, selection: SsoResolvedChoice, entryOrigin?: string) {
+  function resolve(
+    offer: Offer,
+    selection: SsoResolvedChoice,
+    entryOrigin?: string,
+    learned?: true,
+  ) {
     if (!retained(offer) || offer.settled) return failure("offer-gone");
     const choiceId = newId();
-    receipts.set(choiceId, { offer, selection, ...(entryOrigin ? { entryOrigin } : {}) });
+    receipts.set(choiceId, {
+      offer,
+      selection,
+      ...(entryOrigin ? { entryOrigin } : {}),
+      ...(learned ? { learned } : {}),
+    });
     finish(offer, { ok: true, choiceId });
     return { ok: true as const };
   }
@@ -253,8 +265,14 @@ export function createSsoChoiceController(options: {
       if (same) matches.push(entry);
       if (matches.length > 1) break;
     }
-    const [entry] = matches;
-    if (matches.length !== 1 || !entry) {
+    // On a broker page no entry names the mapped origin: its provider button submits to
+    // the site, which sends the tab on. The one entry the site's own SSO layout learned
+    // there is pressed instead, as the owner decided on 2026-11-18 (ADR 0085).
+    const learned = matches.length ? [] : await learnedEntries(offer);
+    if (!learned) return { reason: "scope-changed" };
+    const found = matches.length ? matches : learned;
+    const [entry] = found;
+    if (found.length !== 1 || !entry) {
       offer.reason = "entry-required";
       return undefined;
     }
@@ -264,9 +282,26 @@ export function createSsoChoiceController(options: {
     resolve(
       offer,
       { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
-      selected.origin,
+      matches.length ? selected.origin : undefined,
+      matches.length ? undefined : true,
     );
     return undefined;
+  }
+  /** The present entries a broker page's learned layout names; undefined once withdrawn. */
+  async function learnedEntries(offer: Offer) {
+    const { entryCurrent, entryLearned, entries } = offer.input;
+    const found: { id: string; label: string }[] = [];
+    for (const entry of entryCurrent && entryLearned ? (entries ?? []) : []) {
+      const known =
+        // oxlint-disable-next-line no-await-in-loop -- each entry's evidence is its own
+        (await entryCurrent?.(entry.id).catch(() => false)) &&
+        // oxlint-disable-next-line no-await-in-loop -- the layout evidence belongs to this entry
+        (await entryLearned?.(entry.id).catch(() => false));
+      if (!retained(offer)) return undefined;
+      if (known) found.push(entry);
+      if (found.length > 1) break;
+    }
+    return found;
   }
   /** Lists the saved IdP accounts and origins a method may use; keeps a chosen one. */
   async function discover(offer: Offer, method: Method): Promise<Refusal | undefined> {
@@ -559,6 +594,8 @@ export function createSsoChoiceController(options: {
     async request(input: SsoChoiceInput): Promise<{
       offerId: string;
       result: Promise<SsoChoiceOutcome>;
+      /** The offer is open and waits for the person's choice in the popup. */
+      waiting?: true;
     }> {
       const { tabId, frameId } = input.document;
       const early = (reason: string) => ({
@@ -628,7 +665,11 @@ export function createSsoChoiceController(options: {
       }
       // Ready only after the automatic decision, so no popup choice races it.
       offer.ready = true;
-      return { offerId: offer.id, result };
+      return {
+        offerId: offer.id,
+        result,
+        ...(offer.settled ? {} : { waiting: true as const }),
+      };
     },
     async get(tabId: number): Promise<SsoResponse> {
       const offer = offers.get(tabId);
@@ -702,12 +743,13 @@ export function createSsoChoiceController(options: {
         const refused = await validateSso(offer, method);
         if (refused) return failure(refused.reason);
         if (selection.entryId) {
-          const { entryCurrent, entryOrigin } = offer.input;
+          const { entryCurrent, entryOrigin, entryLearned } = offer.input;
           if (
             !entryCurrent ||
             !(await entryCurrent(selection.entryId)) ||
             (receipt.entryOrigin !== undefined &&
-              (!entryOrigin || !(await entryOrigin(selection.entryId, receipt.entryOrigin))))
+              (!entryOrigin || !(await entryOrigin(selection.entryId, receipt.entryOrigin)))) ||
+            (receipt.learned && (!entryLearned || !(await entryLearned(selection.entryId))))
           )
             return failure("entry-changed");
           // The entry's own awaits may have outlived a vault, policy or document change.
