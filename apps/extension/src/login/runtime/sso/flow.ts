@@ -381,7 +381,9 @@ async function returned(
   work: SsoWork,
   live: LiveDocument,
   instant = false,
-): Promise<"completed" | "refused" | false> {
+  /** Only says whether the RP's own evidence would complete (`evidence`), recording nothing. */
+  check = false,
+): Promise<"completed" | "evidence" | "refused" | false> {
   if (!(await ssoScope(rt, work, live))) return false;
   let value = work.form === "url" ? undefined : await username(rt, work, live, false);
   const identity = v.safeParse(
@@ -430,7 +432,7 @@ async function returned(
     await markerProofs(rt, work.account.origin, work.account.origin),
   );
   if (identity.output.identity === "match" || marker || (await ssoMarkerShown(rt, work, live)))
-    return (await completeSso(rt, work, live, instant)) && "completed";
+    return check ? "evidence" : (await completeSso(rt, work, live, instant)) && "completed";
   if (instant || work.completionTried || !work.recipe || !work.layout || !rt.generation?.judgeSso)
     return false;
   work.completionTried = true;
@@ -758,13 +760,15 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
         const pressed = pressedEntry(work);
         // An entry pressed for its label alone and never seen at the mapped origin may
         // have gone to another provider that answered by a redirect alone, as an IdP with
-        // a live grant does: the RP's evidence cannot tell which IdP signed in, so the
-        // flow neither completes nor learns it (ADR 0085, amended 2026-11-18).
-        if (pressed?.labeled) {
+        // a live grant does. Where the RP's evidence would complete, it cannot tell which
+        // IdP signed in, so the flow neither completes nor learns it; any other RP page,
+        // as an interstitial on the way to the IdP, waits as for any press (ADR 0085,
+        // amended 2026-11-18).
+        const result = await returned(rt, work, ctx.live, true, pressed?.labeled);
+        if (result === "evidence") {
           cancelSso(rt, ctx.document.tabId, "sso-idp-unseen");
           return ctx.refuse("sso-idp-unseen");
         }
-        const result = await returned(rt, work, ctx.live, true);
         if (result === "completed") {
           // The IdP's own session sent the tab back without a page: the completion is
           // where the pressed entry led.

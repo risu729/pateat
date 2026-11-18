@@ -509,6 +509,8 @@ export function createSsoChoiceController(options: {
   }
   /** Removes a method's saved mapping, even one whose items this device cannot resolve. */
   async function unmap(offer: Offer, method: Method) {
+    // An inferred IdP has no mapping to remove, and the next offer would use it again.
+    if (method.inferred && !method.stored) return "mapping-not-saved";
     const refused = await write(offer, method);
     if (refused) return refused;
     delete method.stored;

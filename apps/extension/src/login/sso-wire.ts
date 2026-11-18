@@ -91,6 +91,11 @@ export const ssoResponseSchema = v.variant("ok", [
               selectedId: v.optional(id),
               /** The settings hold a mapping of the method, which it can remove. */
               mapped: v.optional(v.literal(true)),
+              /**
+               * The one IdP item discovery found is used without a saved mapping, so there
+               * is none to remove (ADR 0085, amended 2026-11-18).
+               */
+              inferred: v.optional(v.literal(true)),
               /** Why this method cannot run now, and the canonical field a refusal names. */
               reason: v.optional(id),
               field: v.optional(id),

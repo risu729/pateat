@@ -138,6 +138,11 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     return undefined;
   if (ctx.document.frameId !== 0 || heldForLogin(rt, ctx.live))
     return ctx.refuse(ctx.document.frameId !== 0 ? "sso-top-document-only" : "origin-busy");
+  // The person cancelled this document's automatic offer, perhaps before a worker
+  // restart: only their own Log in now offers it again (ADR 0085, amended 2026-11-18).
+  // Nothing else is read first, and the tab's passkey refusal stays for that request.
+  const cancelKey = documentKey(ctx.document);
+  if (!ctx.manual && rt.ssoCancels.has(cancelKey)) return ctx.refuse("sso-offer-cancelled");
   const connection = saved.catalog.connections.find((entry) => entry.id === chosen.connectionId);
   if (!connection) return ctx.refuse("vault-unavailable");
   const account = {
@@ -156,8 +161,9 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   const described = await rt.options.sso.describe(account);
   if (!described.ok) return ctx.refuse(described.reason);
   const targets = new Map<string, { target: LoginTarget; label: string }>();
-  // Every other observed entry's label: one that names the IdP keeps the label rule from
-  // pressing anything (ADR 0085, amended 2026-11-18).
+  // The label of every other observed button or link, as one by `href` or whose
+  // inspection failed: one that names the IdP keeps the label rule from pressing anything
+  // (ADR 0085, amended 2026-11-18). A field's label, as "Email or IBMid", is not counted.
   const otherLabels: string[] = [];
   if (described.data.methods.some((method) => method.form === "url")) {
     const observation = await ssoObservation(rt, ctx.live);
@@ -180,7 +186,12 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       if (targets.size >= 100) break;
     }
     for (const candidate of observation?.candidates ?? [])
-      if (!pressable.has(candidate) && candidate.label?.trim() && otherLabels.length < 200)
+      if (
+        !pressable.has(candidate) &&
+        ["button", "link"].includes(candidate.role) &&
+        candidate.label?.trim() &&
+        otherLabels.length < 200
+      )
         otherLabels.push(candidate.label.trim().slice(0, 128));
   }
   // After the site refused this account's passkey, the chooser picks again without it.
@@ -207,10 +218,6 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       )
     );
   };
-  // The person cancelled this document's automatic offer, perhaps before a worker
-  // restart: only their own Log in now offers it again (ADR 0085, amended 2026-11-18).
-  const cancelKey = documentKey(ctx.document);
-  if (!ctx.manual && rt.ssoCancels.has(cancelKey)) return ctx.refuse("sso-offer-cancelled");
   if (ctx.manual && methodOffer) ctx.manual.request.methodOffer = methodOffer;
   const requested = await rt.ssoChoices.request({
     document: ctx.document,

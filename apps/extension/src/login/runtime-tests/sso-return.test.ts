@@ -735,6 +735,28 @@ describe("an RP page before and after the IdP is reached", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(io.setItem.mock.calls.some(([key]) => String(key).includes("sso-entries"))).toBe(false);
   });
+  // A "Redirecting" page, a SAML auto-post page or the broker drawn again on its own
+  // origin, before the site sends the tab on: the labeled press waits, as any press does.
+  it("keeps a labeled press waiting through an RP page without evidence", async () => {
+    const h = harness({ ok: true, identity: "absent" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.work, { form: "url", entry: { path: "/signin", target, labeled: true } });
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(h.work.ended).toBe(false);
+    expect(h.rt.sso.flows.get(7)).toBe(h.work);
+    // The IdP's page then shows, and the flow goes on there.
+    installSsoLifecycle(h.rt);
+    fake.emitUpdated(7, { url: idp + "/authorize" });
+    await vi.waitFor(() =>
+      expect(io.setItem).toHaveBeenCalledWith("local:pateat.login.sso-entries.v1", [
+        { origin: rp, path: "/signin", target, idp },
+      ]),
+    );
+    expect(h.work.ended).toBe(false);
+    expect(h.rt.sso.flows.get(7)).toBe(h.work);
+  });
   it("completes a labeled press once the tab was seen at the mapped IdP", async () => {
     const h = harness({ ok: true, identity: "match" }, false);
     await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);

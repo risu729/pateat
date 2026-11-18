@@ -706,10 +706,11 @@ The label rule below is the agent's choice, not confirmed by the owner:
 - **Never a device sign-in.** An entry whose label names a sign-in on the device itself
   (`passkey`, `Hello`, `security key`, `Face`, `Touch`, `fingerprint` and the like) is
   never pressed by its label, as `Windows Hello` would be for `login.windows.net`.
-- **Exactly one.** The label must name exactly one of the page's observed entries, by
-  any rule, counting the entries that are never pressed, as a link (`href`) or an entry
-  whose inspection failed (`otherLabels`). None, or several, leave the chooser as
-  before, with `entry-required`.
+- **Exactly one.** The label must name exactly one of the page's observed buttons and
+  links, by any rule, counting those that are never pressed, as a link by `href` or an
+  entry whose inspection failed (`otherLabels`). A field's or checkbox's label, as
+  `Email or IBMid` or `Remember my IBMid`, is not an entry and is not counted. None, or
+  several, leave the chooser as before, with `entry-required`.
 - **Guards.** The named entry must, on a fresh inspection, go nowhere but the page's own
   origin, or nowhere explicit, as a learned entry (`entryLearned`). An entry a flow
   learned to reach another IdP is never pressed for this one, so a label never overrides
@@ -738,6 +739,15 @@ The label rule below is the agent's choice, not confirmed by the owner:
   a sign-in, and a vault change that adds a second such item, or removes the one, brings
   the person's choice back at the next offer. Saving stays the person's explicit act in
   the chooser.
+- **No removal of what is not saved.** Where such an offer waits for the person, the
+  popup marks the method as `inferred` and shows no **Remove provider mapping**, which
+  would change nothing; a removal sent anyway is refused with `mapping-not-saved`. The
+  agent chose the smallest honest way instead: the popup says the account is used
+  because it is the only one found and nothing is saved, and the explicit chooser stays,
+  so the person can save the mapping, or pick the password or another method for this
+  sign-in. To stop SSO starting by itself on the site, the popup names the existing
+  setting: the site's sign-in pages set to **Fill only**, under which no automatic
+  hop runs.
 - **A wrong press.** A broker entry that leads to another provider showing a page
   reaches that provider's origin, which is not the mapped one: the flow stops there with
   `sso-forbidden-origin` before any credential is released, as for a learned entry that
@@ -747,8 +757,12 @@ The label rule below is the agent's choice, not confirmed by the owner:
   it has no `webRequest` or `webNavigation` permission to see such a redirect (none is
   added). So an entry pressed for its label completes, and is learned, only once the tab
   was seen at the mapped origin: its committed URL there (`tabs.onUpdated`) or an IdP
-  page admitted there. An RP page after such a press without that ends the flow with
-  `sso-idp-unseen`: the flow records no success, no default or account choice is saved,
+  page admitted there. Before that, an RP page whose own evidence would complete the
+  flow (a check of `returned` that records nothing) ends it with `sso-idp-unseen`. Any
+  other RP page, as a "Redirecting" interstitial, a SAML auto-post page or the broker
+  drawn again on its own origin before the site sends the tab on, waits with
+  `sso-in-progress` as after any press, so the flow goes on at the IdP. On
+  `sso-idp-unseen` the flow records no success, no default or account choice is saved,
   no repeated login is counted, nothing is learned and the page stays as the site left
   it. Since nothing was learned, the next visit applies the label rule again.
   **Known limit:** with the mapped IdP itself answering by a redirect alone, a press for
@@ -772,8 +786,15 @@ The label rule below is the agent's choice, not confirmed by the owner:
   storage (`pateat.login-sso-cancels.v1`, by tab and document, the 256 newest, dropped
   when the tab closes), so no automatic admission of that document offers SSO again, by
   the restarted worker's or the popup's re-announcement or a later announcement alike;
-  it stops with `sso-offer-cancelled`. Only the person's own **Log in now** offers it
-  again there. A new document of the tab, such as a reload, is offered as before.
+  it stops with `sso-offer-cancelled`, before the item's methods or the page are read,
+  so the tab's passkey refusal stays for the next request. Only the person's own
+  **Log in now** offers it again there. A new document of the tab, such as a reload, is
+  offered as before.
+- **A re-announcement never refills.** A page the popup asks again after a restart is
+  admitted as any announcement: a document a fill already ran in is fenced by the
+  fill's own record, kept in local storage, so nothing is filled twice, and a sign-in
+  fill keeps any field the person typed in before it, as the content script did before
+  this amendment.
 - **Log in now's start.** Its start waits only for an announcement the page made for the
   request, never for an admission that began before it, as an automatic one that waits
   for its method offer, so the popup answers and shows the request's state at once. A

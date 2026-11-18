@@ -65,4 +65,8 @@ export const ssoJa = {
     "ID プロバイダーには、このサイトとは別のアカウントとログイン先を選んでください。",
   "This sign-in method is unavailable or changed. Check the vault and reopen the choice.":
     "このログイン方法は使えなくなったか、変更されました。保管庫を確認してから、もう一度選んでください。",
+  "Used because it is the only provider account found for this sign-in origin. Nothing is saved. Save a mapping to keep it, choose another method for this sign-in, or set this site's sign-in pages to Fill only so it does not start by itself.":
+    "このログイン先で見つかった ID プロバイダーのアカウントがこれだけなので使っています。対応付けは保存されていません。保存して使い続けるか、今回のログインに別の方法を選ぶか、このサイトのログインページを「入力のみ」にすると自動では始まりません。",
+  "This provider account is used because it is the only one found; no mapping is saved to remove. Choose another method, or set this site's sign-in pages to Fill only.":
+    "この ID プロバイダーのアカウントは、見つかったのがこれだけなので使っています。削除する対応付けはありません。別の方法を選ぶか、このサイトのログインページを「入力のみ」にしてください。",
 } as const;

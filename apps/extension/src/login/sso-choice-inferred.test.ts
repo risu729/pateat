@@ -175,6 +175,25 @@ describe("a URL-form method's only IdP item", () => {
     expect(after.ok && after.offer).toBeFalsy();
   });
 
+  it("tells the popup it is inferred, and has no mapping to remove", async () => {
+    const { h } = setup();
+    // No entry is decided, so the offer waits for the person, with the IdP inferred.
+    const pending = await h.request(automatic);
+    expect(pending.waiting).toBe(true);
+    const shown = await h.offer();
+    expect(shown.methods[0]).toMatchObject({ inferred: true, selectedId: expect.any(String) });
+    expect(shown.methods[0]).not.toHaveProperty("mapped");
+    expect(
+      await h.controller.choose({
+        tabId: 7,
+        offerId: shown.id,
+        selection: { kind: "unmap", method: { number: 1 } },
+      }),
+    ).toEqual({ ok: false, reason: "mapping-not-saved" });
+    expect(h.updateSettings).not.toHaveBeenCalled();
+    expect((await h.offer()).methods[0]).toMatchObject({ inferred: true });
+  });
+
   it("is saved only when the person maps it in the chooser", async () => {
     const { h } = setup();
     await h.request();

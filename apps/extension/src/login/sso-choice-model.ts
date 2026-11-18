@@ -192,14 +192,7 @@ export function shown(offer: Offer): ShownOffer {
       "-",
     ...offer.input.native,
     methods: offer.methods.map(
-      ({
-        source: _source,
-        discovered: _discovered,
-        inferred: _inferred,
-        stored,
-        candidates: list,
-        ...method
-      }) => ({
+      ({ source: _source, discovered: _discovered, stored, candidates: list, ...method }) => ({
         ...method,
         candidates: list.map(({ selected, ...entry }) => ({ ...entry, origin: selected.origin })),
         ...(stored ? { mapped: true as const } : {}),

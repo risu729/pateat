@@ -214,6 +214,16 @@ describe("a broker page's first visit starts SSO by itself (#1687)", () => {
     expect(await s.methods()).toEqual({ ok: true });
   });
 
+  it.each([
+    ["an email field labelled", "Email or IBMid", "email"],
+    ["a checkbox labelled", "Remember my IBMid", "checkbox"],
+  ])("still presses it beside %s %s", async (_, label, role) => {
+    const field = { id: "c6", role, target: button("email_input"), label };
+    const s = setup({ entries: [...buttons, field] });
+    void s.h.signIn();
+    await vi.waitFor(() => pressedIbm());
+  });
+
   it("presses it by the origin's label too, when the IdP item has another name", async () => {
     const s = setup({ idpName: "Work login" });
     void s.h.signIn();
@@ -402,7 +412,8 @@ describe("the popup's re-announcement after a worker restart (#1687)", () => {
     await after.offer();
     expect(fake.state.reconnects).not.toHaveLength(0);
     expect(prepared()).toHaveLength(0);
-    expect(after.sso.describe).toHaveBeenCalled();
+    // The cancelled document is refused before anything of the item or page is read.
+    expect(after.sso.describe).not.toHaveBeenCalled();
     expect(after.sso.candidates).not.toHaveBeenCalled();
     // The person's own Log in now still offers it, and presses the IBMid entry.
     expect(await after.logInNow()).toMatchObject({ ok: true });
@@ -427,9 +438,9 @@ describe("the popup's re-announcement after a worker restart (#1687)", () => {
     await vi.waitFor(() => pressedIbm());
     // The request replaced the automatic flow before its press, or found it running.
     expect(JSON.stringify(started)).toMatch(/"state":"started"|login-running/);
-    // The replaced flow's own work settles; it presses nothing after its layout arrives.
-    // oxlint-disable-next-line no-await-in-loop -- each turn lets one pending step run
-    for (let turn = 0; turn < 1000; turn++) await Promise.resolve();
+    // The replaced flow's own work settles, timers too: it presses nothing after its
+    // layout arrives, even from a timer.
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(prepared()).toHaveLength(1);
   });
 });

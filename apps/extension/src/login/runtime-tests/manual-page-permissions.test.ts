@@ -277,6 +277,29 @@ describe("one-time manual login after passive autofill", () => {
     releaseChanges();
     expect(executes().filter((entry) => entry.operation.step.kind === "click")).toEqual([]);
   });
+  // The popup asks a page a restarted worker forgot to announce again (ADR 0085, amended
+  // 2026-11-18): the fill's own record fences the same document, so nothing is filled
+  // twice, and what the person typed meanwhile stays, as the content script keeps a
+  // field typed in before its fill (`content-signin-fill.browser.test.ts`).
+  it("fills nothing again when the popup re-announces a filled page after a restart", async () => {
+    const { h } = passive();
+    await h.hello();
+    await waiting();
+    const filled = executes().length;
+    expect(filled).toBeGreaterThan(0);
+    const restarted = passive().h;
+    fake.state.openTabs = [1];
+    fake.state.reconnects = [];
+    fake.state.onReconnect = () => restarted.hello();
+    await offers(restarted);
+    // The restarted worker asks the tab of a site with a login record itself, and the
+    // popup waits for that announcement rather than sending another.
+    expect(fake.state.reconnects.length).toBeGreaterThan(0);
+    await vi.waitFor(() => expect(stored()[0]).toMatchObject({ signInFill: true, stepIndex: 1 }));
+    releaseChanges();
+    expect(executes()).toHaveLength(filled);
+    expect(stored()[0]).toMatchObject({ submissions: 0 });
+  });
   it("keeps an idle passive login unavailable while its document has a live passkey ceremony", async () => {
     let active = false;
     const passkeyActive = vi.fn(

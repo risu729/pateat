@@ -150,6 +150,37 @@ test("a saved mapping this device cannot resolve can still be removed", async ()
   });
 });
 
+test("an IdP used as the only one found offers no removal, and says how to stop it", async () => {
+  const only = offer().methods[0]!;
+  await mount(
+    offer({
+      methods: [
+        {
+          ...only,
+          form: "url",
+          candidates: [only.candidates[0]!],
+          selectedId: "candidate-one",
+          inferred: true,
+          reason: "entry-required",
+        },
+      ],
+    }),
+  );
+  await expect
+    .element(
+      page.getByText(
+        "Used because it is the only provider account found for this sign-in origin. Nothing is saved. Save a mapping to keep it, choose another method for this sign-in, or set this site's sign-in pages to Fill only so it does not start by itself.",
+      ),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Save provider mapping for Synthetic Provider" }))
+    .toBeVisible();
+  expect(
+    page.getByRole("button", { name: "Remove provider mapping for Synthetic Provider" }).elements(),
+  ).toEqual([]);
+});
+
 test("a mapping that could not be saved says so", async () => {
   const h = await mount();
   h.client.choose.mockResolvedValueOnce({ ok: false, reason: "mapping-save-failed" });

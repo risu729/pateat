@@ -23,6 +23,10 @@ export function ssoReason(t: TFunction, reason: string | undefined): string | un
       );
     case "mapping-limit":
       return t("Your settings hold as many provider mappings as they can. Remove one first.");
+    case "mapping-not-saved":
+      return t(
+        "This provider account is used because it is the only one found; no mapping is saved to remove. Choose another method, or set this site's sign-in pages to Fill only.",
+      );
     case "mapping-save-failed":
       return t("Pateat could not save the provider mapping to your settings. Try again.");
     case "candidate-limit":
