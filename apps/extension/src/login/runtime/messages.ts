@@ -752,8 +752,9 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
           ...(rejectedElsewhere(rt, tabId, asked) ? { elsewhere: true as const } : {}),
         },
       );
-    for (const key of rt.askFills)
-      if (key.startsWith(`${tabId} `)) changed = rt.askFills.delete(key) || changed;
+    for (const keys of [rt.askFills, rt.ssoCancels])
+      for (const key of keys)
+        if (key.startsWith(`${tabId} `)) changed = keys.delete(key) || changed;
     if (rt.entryPresses.delete(tabId)) changed = true;
     // A site's re-logins count until all of its tabs closed (ADR 0062).
     if (rt.relogins.size && (await forgetClosedSites(rt))) changed = true;

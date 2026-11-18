@@ -158,26 +158,32 @@ describe("the popup's Fill after a worker restart", () => {
     expect(fake.state.reconnects).toEqual([{ tabId: 1, frameId: 0 }]);
   });
 
-  // A page where `sign-in` is `auto` is asked too, so the automatic sign-in the restarted
-  // worker lost runs again (ADR 0085 amendment of 2026-11-18,
-  // `sso-broker-first-visit.test.ts`); these pages only fill.
-  it("asks no page whose path has no verification recipe", async () => {
+  // A page where the site is not paused is asked too, where `sign-in` is `fill` as where it
+  // is `auto`, so a login or account choice the restarted worker lost is offered again
+  // (ADR 0085 amendment of 2026-11-18, `sso-broker-first-visit.test.ts`).
+  it.each([
+    ["a page whose path has no verification recipe", { confirm: "fill" }, true],
+    ["a verification page where confirm is off", { confirm: "off" }, false],
+  ] as const)("asks %s, where sign-in is fill", async (_, permissions, withRecipe) => {
     const h = await restarted({
       siteDefaults: [],
-      pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" },
+      pagePermissionDefaults: { "sign-in": "fill", "personal-details": "fill", ...permissions },
     });
-    h.recipes.routes.mockResolvedValue([parseLoginRecipe(recipe)]);
-    h.recipes.recipe.mockResolvedValue(parseLoginRecipe(recipe));
-    expect(await offers(h)).toMatchObject(unknown);
-    expect(fake.state.reconnects).toEqual([]);
+    if (withRecipe) {
+      h.recipes.routes.mockResolvedValue([parseLoginRecipe(recipe)]);
+      h.recipes.recipe.mockResolvedValue(parseLoginRecipe(recipe));
+    }
+    expect(await offers(h)).toMatchObject({ ok: true, targets: [expect.anything()] });
+    expect(fake.state.reconnects).toEqual([{ tabId: 1, frameId: 0 }]);
   });
 
-  it("asks no verification page where confirm is off", async () => {
+  it("asks no page of a paused site", async () => {
     const h = await restarted({
       siteDefaults: [],
+      excludedSites: [{ hostname: new URL(origin).hostname, includeSubdomains: false }],
       pagePermissionDefaults: { "sign-in": "fill", confirm: "off", "personal-details": "fill" },
     });
-    expect(await offers(h)).toMatchObject(unknown);
+    await offers(h);
     expect(fake.state.reconnects).toEqual([]);
   });
 });

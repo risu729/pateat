@@ -21,7 +21,7 @@ const io = vi.hoisted(() => ({
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { createRuntimeState } = await import("../runtime/state");
-const { ssoAdmit, ssoWaiting } = await import("../runtime/sso/flow");
+const { ssoAdmit, ssoWaiting, installSsoLifecycle } = await import("../runtime/sso/flow");
 const { heldElsewhere } = await import("../runtime/hold");
 const { manualOffer, manualStart } = await import("../runtime/manual");
 const { createLoginSites } = await import("../sites");
@@ -718,6 +718,42 @@ describe("an RP page before and after the IdP is reached", () => {
       ]),
     );
   });
+  // A press chosen by its label alone, as "Sign in with GitHub" pressed by mistake where
+  // GitHub has a live grant: the RP comes back signed in, but the mapped IdP was never
+  // seen, so nothing completes, is recorded or learned.
+  it("never completes or learns a labeled press the mapped IdP was never seen for", async () => {
+    const h = harness({ ok: true, identity: "match" }, true);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.work, { form: "url", entry: { path: "/signin", target, labeled: true } });
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-idp-unseen" });
+    expect(h.work.ended).toBe(true);
+    expect(h.work.parent?.state).not.toBe("authenticated");
+    expect(h.signedIn).not.toHaveBeenCalled();
+    expect(h.update).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(io.setItem.mock.calls.some(([key]) => String(key).includes("sso-entries"))).toBe(false);
+  });
+  it("completes a labeled press once the tab was seen at the mapped IdP", async () => {
+    const h = harness({ ok: true, identity: "match" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.work, { form: "url", entry: { path: "/signin", target, labeled: true } });
+    // The tab's URL at the IdP, as tabs.onUpdated reports a committed IdP page.
+    installSsoLifecycle(h.rt);
+    fake.emitUpdated(7, { url: idp + "/authorize" });
+    await vi.waitFor(() =>
+      expect(io.setItem).toHaveBeenCalledWith("local:pateat.login.sso-entries.v1", [
+        { origin: rp, path: "/signin", target, idp },
+      ]),
+    );
+    // The tab comes back to the RP.
+    fake.emitUpdated(7, { url: h.ctx.live.url });
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.work.parent?.state).toBe("authenticated");
+  });
   it("learns nothing from an instant return that completes nothing", async () => {
     const h = harness({ ok: true, identity: "absent" }, false);
     await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
@@ -837,6 +873,13 @@ describe("an RP page before and after the IdP is reached", () => {
     });
     if (!offer.ok) throw new Error("No offer");
     delivered.mockClear();
+    // The page answers the request's reconnect by announcing, as the content script does.
+    const answer = delivered.getMockImplementation()!;
+    delivered.mockImplementation(async (tabId, message, options) => {
+      if (message["type"] !== "login.reconnect") return answer(tabId, message, options);
+      h.rt.hellos.set("7:0", (h.rt.hellos.get("7:0") ?? 0) + 1);
+      return { ok: true };
+    });
     const started = await manualStart(h.rt, {
       requestId: "manual-request",
       document: h.ctx.document,

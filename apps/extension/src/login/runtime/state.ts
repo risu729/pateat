@@ -339,6 +339,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
    * never filled again. The oldest go first.
    */
   const askFills = new Set<string>();
+  /** Documents whose automatic SSO method offer the person cancelled (`SSO_CANCELS_KEY`). */
+  const ssoCancels = new Set<string>();
 
   /**
    * By `reloginKey`: when automatic logins of a site ended `authenticated` in the last
@@ -541,6 +543,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     stoppedAsks,
     rejectedAsks,
     askFills,
+    ssoCancels,
     relogins,
     entryPresses,
     pressing,

@@ -35,17 +35,57 @@ describe("a broker page's entry that names the mapped IdP", () => {
     expect(labeledEntry(entries, names("https://accounts.google.com"))?.id).toBe("google");
   });
 
-  it.each([
-    ["the origin alone", undefined],
-    ["the item's name", "Microsoft"],
-  ])("picks Microsoft for login.microsoftonline.com by %s", (_, itemName) => {
+  it("picks Microsoft for login.microsoftonline.com by the item's name", () => {
     const entries = [
       { id: "microsoft", label: "Sign in with Microsoft" },
       { id: "google", label: "Sign in with Google" },
     ];
-    expect(labeledEntry(entries, names("https://login.microsoftonline.com", itemName))?.id).toBe(
+    expect(labeledEntry(entries, names("https://login.microsoftonline.com", "Microsoft"))?.id).toBe(
       "microsoft",
     );
+  });
+
+  // Probes of an independent review: a word that begins a longer registrable label, or a
+  // whole word that names a device sign-in, names another thing than the IdP.
+  it.each([
+    ["Sign in with Microsoft", "https://login.microsoftonline.com"],
+    ["Microsoft account", "https://login.microsoftonline.com"],
+    ["Sign in with Amazon", "https://synthetic.amazoncognito.com"],
+    ["Windows Hello", "https://login.windows.net"],
+    ["Sign in with a passkey", "https://passkey.example"],
+  ])("never presses %s for %s by the origin alone", (label, origin) => {
+    const entries = [
+      { id: "probe", label },
+      { id: "email", label: "Continue with email" },
+    ];
+    expect(labeledEntry(entries, names(origin))).toBeUndefined();
+  });
+
+  it("never takes a one- or two-letter name by itself", () => {
+    const entries = [
+      { id: "x", label: "Sign in with X" },
+      { id: "email", label: "Continue with email" },
+    ];
+    expect(labeledEntry(entries, names("https://x.com", "X"))).toBeUndefined();
+    expect(labeledEntry(entries, names("https://idp.example", "HP"))).toBeUndefined();
+  });
+
+  it("picks nothing when a link or an uninspected entry names the IdP too", () => {
+    expect(
+      labeledEntry(broker, names("https://login.ibm.com", "IBMid"), ["About IBMid"]),
+    ).toBeUndefined();
+    expect(
+      labeledEntry(broker, names("https://login.ibm.com", "IBMid"), ["Create an account"]),
+    ).toMatchObject({ id: "sign-in-ibmid" });
+  });
+
+  it("leaves the page's own site out of the IdP item's name", () => {
+    const entries = [
+      { id: "own", label: "Sign in with HashiCorp" },
+      { id: "ibmid", label: "Sign in with IBMid" },
+    ];
+    // The item's name is the page's own site alone, so it names nothing; `ibm` names IBMid.
+    expect(labeledEntry(entries, names("https://login.ibm.com", "HashiCorp"))?.id).toBe("ibmid");
   });
 
   it("picks by the IdP item's own URIs", () => {

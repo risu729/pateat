@@ -679,7 +679,7 @@ the person's entry choice
 
 The label rule below is the agent's choice, not confirmed by the owner:
 
-- **Which entry.** For a URL-form method with a saved mapping, on a page where no
+- **Which entry.** For a URL-form method with a mapping, on a page where no
   entry's own destination is the mapped origin and the page learned none for it, the
   automatic sign-in and **Log in now**'s automatic mode press the one current entry
   whose visible label names the mapped IdP (`labeled` in
@@ -691,23 +691,33 @@ The label rule below is the agent's choice, not confirmed by the owner:
   origin and of the item's own URIs, as `github` for `https://github.com`, `google` for
   `accounts.google.com`, `microsoftonline` for `login.microsoftonline.com` and `ibm` for
   `login.ibm.com`. Labels and names are compared after NFKC and in lower case, word by
-  word: a name's words must appear in order as whole words of the label. A name made
-  only of words that name a way to sign in (`SSO`, `Sign in`, `Continue`, `Login`,
-  `Account` and the like) names nothing, and a registrable label of the page's own site
-  is left out, since the page names its own site everywhere.
+  word: a name's words must appear in order as whole words of the label. A name names
+  something only through a word of three letters or more that does not name a way to
+  sign in (`SSO`, `Sign in`, `Continue`, `Login`, `Account` and the like), so `SSO` or a
+  one- or two-letter name such as `X` names nothing. The page's own site's registrable
+  label is left out, from the labels and from the item name's words alike, since the
+  page names its own site everywhere.
 - **A prefix of the registrable label.** A registrable label of three letters or more
-  may also begin a longer word of the label, as `ibm` begins `IBMid`, and a label word
-  of five letters or more may begin a longer registrable label, as `Microsoft` begins
-  `microsoftonline`. The agent judges this safe enough only because of the next rule:
-  any rule that names a second entry, a prefix or a whole word, leaves the choice to the
-  person.
+  may also begin a longer word of the label, as `ibm` begins `IBMid`. Never the other
+  way: an independent review's probe found `Sign in with Amazon` named by
+  `amazoncognito` and `Microsoft account` by `microsoftonline`, so a label word that
+  merely begins a registrable label names nothing, and `Sign in with Microsoft` is
+  pressed for `login.microsoftonline.com` only when the IdP item is called `Microsoft`.
+- **Never a device sign-in.** An entry whose label names a sign-in on the device itself
+  (`passkey`, `Hello`, `security key`, `Face`, `Touch`, `fingerprint` and the like) is
+  never pressed by its label, as `Windows Hello` would be for `login.windows.net`.
 - **Exactly one.** The label must name exactly one of the page's observed entries, by
-  any rule. None, or several, leave the chooser as before, with `entry-required`.
+  any rule, counting the entries that are never pressed, as a link (`href`) or an entry
+  whose inspection failed (`otherLabels`). None, or several, leave the chooser as
+  before, with `entry-required`.
 - **Guards.** The named entry must, on a fresh inspection, go nowhere but the page's own
   origin, or nowhere explicit, as a learned entry (`entryLearned`). An entry a flow
   learned to reach another IdP is never pressed for this one, so a label never overrides
-  what the page learned. The receipt checks the entry again just before the flow uses
-  it. The pause, private windows, the repeated-login limit, the master-password
+  what the page learned. The receipt checks the entry's presence, inspection and learned
+  record again just before the flow uses it, but not the label match: the labels are
+  those of the observation the offer was made from, and a new observation of the page
+  withdraws the offer. The pause, private windows, the repeated-login limit, the
+  master-password
   re-prompt, `auto` sign-in on both origins and **Log in now**'s `hopAllowed` all stay.
 - **A URL-form method without a saved mapping.** The owner's settings hold no SSO
   mapping, so the automatic start above stopped with `mapping-required` before any entry
@@ -728,10 +738,22 @@ The label rule below is the agent's choice, not confirmed by the owner:
   a sign-in, and a vault change that adds a second such item, or removes the one, brings
   the person's choice back at the next offer. Saving stays the person's explicit act in
   the chooser.
-- **Why a wrong press is safe.** A broker entry that leads to another provider reaches
-  that provider's origin, which is not the mapped one: the flow stops there with
+- **A wrong press.** A broker entry that leads to another provider showing a page
+  reaches that provider's origin, which is not the mapped one: the flow stops there with
   `sso-forbidden-origin` before any credential is released, as for a learned entry that
-  changed.
+  changed. A provider where the person has a live session and grant, as GitHub's, may
+  instead answer with a server redirect alone and commit no page, and the site then
+  signs the person in with that provider's identity: the extension cannot stop that, and
+  it has no `webRequest` or `webNavigation` permission to see such a redirect (none is
+  added). So an entry pressed for its label completes, and is learned, only once the tab
+  was seen at the mapped origin: its committed URL there (`tabs.onUpdated`) or an IdP
+  page admitted there. An RP page after such a press without that ends the flow with
+  `sso-idp-unseen`: the flow records no success, no default or account choice is saved,
+  no repeated login is counted, nothing is learned and the page stays as the site left
+  it. Since nothing was learned, the next visit applies the label rule again.
+  **Known limit:** with the mapped IdP itself answering by a redirect alone, a press for
+  the label never completes, though the site signs the person in; an entry the person
+  picks in the chooser, or one learned, still completes on the RP's own evidence.
 - **Recorded as before.** Once the tab reaches the mapped IdP, the press is learned
   (`pateat.login.sso-entries.v1`), and later visits press that entry by what was
   learned. The first press still has the site's SSO layout generated for the entry's
@@ -739,13 +761,30 @@ The label rule below is the agent's choice, not confirmed by the owner:
 - **A restarted worker.** The worker keeps its method offers and the documents it
   admitted in memory only, and a restarted worker asks only the tabs of sites with a
   saved default to announce again, which a first visit has none of. The popup now also
-  asks the tab's top page to announce again where `sign-in` is `auto` and the worker
-  knows no document of the tab, as it does for a verification page
+  asks the tab's top page to announce again where the site is not paused, with
+  `sign-in` `fill` as with `auto`, and the worker knows no document of the tab, as it
+  does for a verification page
   ([ADR 0035](0035-page-kinds-per-site.md#amendment-2026-11-17-fill-after-a-worker-restart)),
-  so an automatic sign-in or method offer the restart lost starts again.
+  so a sign-in, account choice or method offer the restart lost is offered again.
+- **A cancel outlasts the restart.** The agent chose to keep the person's cancel rather
+  than to make the popup's re-announcement offer only. Where the person cancels an
+  automatic method offer under **Sign-in method**, the document is kept in session
+  storage (`pateat.login-sso-cancels.v1`, by tab and document, the 256 newest, dropped
+  when the tab closes), so no automatic admission of that document offers SSO again, by
+  the restarted worker's or the popup's re-announcement or a later announcement alike;
+  it stops with `sso-offer-cancelled`. Only the person's own **Log in now** offers it
+  again there. A new document of the tab, such as a reload, is offered as before.
 - **Log in now's start.** Its start waits only for an announcement the page made for the
   request, never for an admission that began before it, as an automatic one that waits
-  for its method offer, so the popup answers and shows the request's state at once.
+  for its method offer, so the popup answers and shows the request's state at once. A
+  page that answers the request's reconnect without announcing for it, which the content
+  script does not do, leaves nothing to drive the request, so it ends at once with
+  `not-started` rather than showing "Preparing" until its five minutes end.
+- **Log in now during an automatic press.** Pressed while the popup's re-announcement
+  starts the automatic press, the request replaces that flow before its press, or finds
+  the login running: one entry press, never two. **Known limit:** the replaced flow's
+  SSO layout generation, a paid call, may already be under way, so the service may be
+  asked for the layout twice.
 - **Diagnosis of the reported tabs.** The fresh tabs logged only `login.refused`:
   `replaced` where a newer admission of the tab opened its own method offer, as
   **Log in now** does; `cancelled` where the person cancelled the waiting offer under

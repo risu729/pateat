@@ -62,8 +62,11 @@ async function request(
     itemId,
   };
 }
-const run = (h: ReturnType<typeof harness>, pick: ManualStartRequest) =>
-  h.login.handle({ version: 1, type: "login.manual.start", ...pick }, popup);
+/** Starts the request; the page answers its reconnect by announcing, as it does. */
+const run = (h: ReturnType<typeof harness>, pick: ManualStartRequest) => {
+  fake.state.onReconnect ??= async () => h.hello({}, false);
+  return h.login.handle({ version: 1, type: "login.manual.start", ...pick }, popup);
+};
 let changes: (() => void)[] = [];
 const releaseChanges = () => {
   for (const resolve of changes.splice(0)) resolve();

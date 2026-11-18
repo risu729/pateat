@@ -303,6 +303,15 @@ export async function manualStart(
     // An admission that fails after the start answered `choosing` ends the request itself.
     admitted.catch(() => undefined);
     await Promise.race([admitted, choosing]);
+    // The page answered without announcing for this request, as a page that announces
+    // nothing or whose earlier admission still runs: nothing drives the request, so it
+    // ends now rather than leaving the popup on "Preparing" until it times out.
+    if (
+      !announced() &&
+      pending.status.state === "evaluating" &&
+      rt.manualStarts.get(tabId) === pending
+    )
+      endManual(rt, tabId, "not-started", pending);
     if (pending.status.state === "blocked") return refuse(pending.status.reason ?? "not-started");
     return { ok: true, state: pending.status.state };
   } catch {

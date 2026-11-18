@@ -329,8 +329,7 @@ export function createSsoChoiceController(options: {
    * A first visit, where no entry names the mapped origin and the page learned none: the
    * one entry whose visible label names the mapped IdP, by its item's name or the
    * registrable labels of its origin and URIs (owner, 2026-11-18 14:14 UTC, ADR 0085).
-   * A wrong one can only reach another origin, where the flow stops with
-   * `sso-forbidden-origin` before anything is released.
+   * The flow learns it, and completes, only once the tab was seen at the mapped origin.
    */
   async function labeled(
     offer: Offer,
@@ -351,6 +350,7 @@ export function createSsoChoiceController(options: {
               itemName: item?.label,
               uris: item?.allowedOrigins ?? [],
             }),
+            offer.input.otherLabels,
           )
         : undefined;
     if (!entry) return undefined;
@@ -860,6 +860,8 @@ export function createSsoChoiceController(options: {
           account: LoginAccount;
           selection: SsoResolvedChoice;
           picked?: true;
+          /** The entry was chosen by its label alone: the flow learns it only once seen. */
+          labeled?: true;
         }
       | { ok: false; reason: string }
     > {
@@ -902,6 +904,7 @@ export function createSsoChoiceController(options: {
         account: offer.input.account,
         selection,
         ...(receipt.picked ? { picked: receipt.picked } : {}),
+        ...(receipt.labeled ? { labeled: receipt.labeled } : {}),
       };
     },
   };

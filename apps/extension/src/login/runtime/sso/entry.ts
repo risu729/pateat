@@ -14,8 +14,9 @@ import { extractResultSchema } from "../../wire";
 import { ssoInspectResultSchema } from "../../sso-operation-wire";
 import { choose } from "../choice-save";
 import { offerChoice } from "../choice";
-import { frameKey, acceptedObservation } from "../steps";
-import { send } from "../attempt";
+import { frameKey, acceptedObservation, documentKey } from "../steps";
+import { saveSession, send } from "../attempt";
+import { quietly } from "../session-store";
 import { itemFacts } from "../plan";
 import { listedBrowserSite, pauseOf } from "../pause";
 import { endManual, manualAuthorizationCurrent, manualChoosing } from "../manual-scope";
@@ -30,6 +31,17 @@ import type { Saved } from "../../sso-choice-model";
 import type { AdmitContext } from "../admit-context";
 import type { Runtime } from "../state";
 import type { LiveDocument } from "../types";
+
+/** Keeps a cancelled automatic offer's document, the 256 newest, across a restart. */
+function rememberCancel(rt: Runtime, key: string) {
+  rt.ssoCancels.delete(key);
+  rt.ssoCancels.add(key);
+  for (const old of rt.ssoCancels) {
+    if (rt.ssoCancels.size <= 256) break;
+    rt.ssoCancels.delete(old);
+  }
+  void quietly(rt, () => saveSession(rt));
+}
 
 export async function ssoObservation(
   rt: Runtime,
@@ -144,8 +156,12 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   const described = await rt.options.sso.describe(account);
   if (!described.ok) return ctx.refuse(described.reason);
   const targets = new Map<string, { target: LoginTarget; label: string }>();
+  // Every other observed entry's label: one that names the IdP keeps the label rule from
+  // pressing anything (ADR 0085, amended 2026-11-18).
+  const otherLabels: string[] = [];
   if (described.data.methods.some((method) => method.form === "url")) {
     const observation = await ssoObservation(rt, ctx.live);
+    const pressable = new Set<unknown>();
     for (const candidate of observation?.candidates ?? []) {
       if (
         candidate.target.by === "href" ||
@@ -154,13 +170,18 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       )
         continue;
       // oxlint-disable-next-line no-await-in-loop -- observations are checked locally, never inferred from labels
-      if (await inspectSsoTarget(rt, ctx.live, candidate.target))
+      if (await inspectSsoTarget(rt, ctx.live, candidate.target)) {
+        pressable.add(candidate);
         targets.set(newId(), {
           target: candidate.target,
           label: candidate.label.trim().slice(0, 128),
         });
+      }
       if (targets.size >= 100) break;
     }
+    for (const candidate of observation?.candidates ?? [])
+      if (!pressable.has(candidate) && candidate.label?.trim() && otherLabels.length < 200)
+        otherLabels.push(candidate.label.trim().slice(0, 128));
   }
   // After the site refused this account's passkey, the chooser picks again without it.
   const refused = rt.sso.passkeyRefused.get(ctx.document.tabId);
@@ -186,6 +207,10 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       )
     );
   };
+  // The person cancelled this document's automatic offer, perhaps before a worker
+  // restart: only their own Log in now offers it again (ADR 0085, amended 2026-11-18).
+  const cancelKey = documentKey(ctx.document);
+  if (!ctx.manual && rt.ssoCancels.has(cancelKey)) return ctx.refuse("sso-offer-cancelled");
   if (ctx.manual && methodOffer) ctx.manual.request.methodOffer = methodOffer;
   const requested = await rt.ssoChoices.request({
     document: ctx.document,
@@ -201,6 +226,7 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       ? { hopAllowed: (origin: string) => manualHopAllowed(rt, ctx, saved, origin) }
       : {}),
     entries: [...targets].map(([id, entry]) => ({ id, label: entry.label })),
+    otherLabels,
     // A first visit (owner, 2026-11-18 14:14 UTC): the entry whose label names the mapped
     // IdP, as `entryLearned` checks its destinations, and never one a flow learned to
     // reach another IdP.
@@ -253,6 +279,7 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   // The popup says the request waits for the person's choice, and its start answers now.
   if (ctx.manual && requested.waiting) manualChoosing(rt, ctx.live, ctx.manual, true);
   const result = await requested.result;
+  if (!ctx.manual && !result.ok && result.reason === "cancelled") rememberCancel(rt, cancelKey);
   if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
     return ctx.refuse("manual-request-ended");
   if (!result.ok || rt.documents.get(ctx.key) !== ctx.live)
@@ -304,5 +331,13 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       ...(passkeyRefused ? { passkeyRefused: true as const } : {}),
     },
   };
-  return beginSso(rt, ctx, saved, chosen, receipt.selection, selectedEntry, methods);
+  return beginSso(
+    rt,
+    ctx,
+    saved,
+    chosen,
+    receipt.selection,
+    selectedEntry && receipt.labeled ? { ...selectedEntry, labeled: true } : selectedEntry,
+    methods,
+  );
 }

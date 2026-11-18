@@ -44,8 +44,11 @@ export type SsoWork = {
   form?: "url" | "bracket";
   label?: string;
   entryId?: string;
-  /** A URL-form method's pressed RP entry, learned for its IdP once the tab reaches it. */
-  entry?: { path: string; target: LoginTarget };
+  /**
+   * A URL-form method's pressed RP entry, learned for its IdP once the tab reaches it;
+   * `labeled` when only its label chose it, so it is never learned from an RP return.
+   */
+  entry?: { path: string; target: LoginTarget; labeled?: true };
   phase: "prepared" | "entering-idp" | "at-idp" | "returning-rp";
   rpLive: LiveDocument;
   live: LiveDocument;

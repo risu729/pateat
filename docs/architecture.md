@@ -4965,9 +4965,11 @@ receipt checks it again
 On a first visit, where the page learned none, it presses the one entry whose label
 names the mapped IdP by the IdP item's name or the registrable labels of its origin and
 URIs (`sso-entry-label.ts`), under the same destination check, never one learned for
-another IdP, and only when no other entry is named; **Log in now** does too, and the
-popup asks a page where `sign-in` is `auto` that a restarted worker forgot to announce
-again
+another IdP, never a device sign-in, and only when no other observed entry is named; it
+completes and is learned only once the tab was seen at the mapped origin, and ends with
+`sso-idp-unseen` otherwise. **Log in now** does too; the popup asks a page of a site
+that is not paused and that a restarted worker forgot to announce again, and a cancelled
+automatic offer stays cancelled for its document (`pateat.login-sso-cancels.v1`)
 ([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
 A flow's RP return may land on another origin of the RP's registrable site, with its
 scheme, that is not the IdP's and that the RP item matches (`ssoReturnOrigin`; never for

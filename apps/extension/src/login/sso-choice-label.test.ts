@@ -65,6 +65,8 @@ describe("a first visit's entry named by the mapped IdP", () => {
         entryId: "provider",
         label: "Sign in with Synthetic idp item",
       },
+      // The flow learns and completes it only once the tab was seen at the IdP.
+      labeled: true,
     });
     expect(consumed).not.toHaveProperty("picked");
   });
@@ -80,6 +82,10 @@ describe("a first visit's entry named by the mapped IdP", () => {
       { entries: [...entries, { id: "again", label: "Synthetic idp item workforce" }] },
     ],
     ["the entry is gone", { entryCurrent: async () => false }],
+    [
+      "a link the flow never presses names the IdP too",
+      { otherLabels: ["Synthetic idp item help"] },
+    ],
     ["the guard throws", { entryLabeled: async () => Promise.reject(new Error("gone")) }],
     ["no guard is given", { entryLabeled: undefined }],
   ])("waits for the person's entry choice when %s", async (_, overrides) => {
@@ -98,9 +104,9 @@ describe("a first visit's entry named by the mapped IdP", () => {
     const answer = await (await h.request(input)).result;
     if (!answer.ok) throw new Error(answer.reason);
     expect(input.entryLabeled).not.toHaveBeenCalled();
-    expect(await h.controller.consume(answer.choiceId)).toMatchObject({
-      selection: { entryId: "password" },
-    });
+    const consumed = await h.controller.consume(answer.choiceId);
+    expect(consumed).toMatchObject({ selection: { entryId: "password" } });
+    expect(consumed).not.toHaveProperty("labeled");
   });
 
   it("comes after a learned entry, which wins over the label", async () => {

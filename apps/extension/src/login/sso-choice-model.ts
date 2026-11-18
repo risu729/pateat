@@ -39,6 +39,12 @@ export type SsoChoiceInput = {
   asIdentityProvider?: boolean;
   /** URL-form entries come from a local observation, never from a guessed provider label. */
   entries?: { id: string; label: string }[];
+  /**
+   * The visible labels of the page's other observed entries, never pressed, as a link or
+   * an entry its inspection refused: one that names the mapped IdP keeps the label rule
+   * from pressing any entry (ADR 0085, amended 2026-11-18).
+   */
+  otherLabels?: string[];
   entryCurrent?: (entryId: string) => Promise<boolean>;
   /** A fresh explicit HTTP destination of the entry matches this selected origin; never a label guess. */
   entryOrigin?: (entryId: string, selectedOrigin: string) => Promise<boolean>;

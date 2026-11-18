@@ -58,7 +58,7 @@ const discovered = (candidates: unknown[]): Discovery => ({
 function setup(
   options: {
     idpName?: string;
-    entries?: typeof buttons;
+    entries?: readonly (typeof buttons)[number][];
     saved?: false;
     discovery?: Discovery;
   } = {},
@@ -132,7 +132,7 @@ function setup(
         path: "/signin",
         language: "en",
         complete: true,
-        candidates: options.entries ?? buttons,
+        candidates: [...(options.entries ?? buttons)],
       },
     },
   };
@@ -155,7 +155,7 @@ function setup(
       itemId,
     });
   }
-  return { h, sso, methods, offer, logInNow, generateSso };
+  return { h, sso, methods, offer, logInNow, generateSso, send: popupSends };
 }
 /** The flow pressed exactly the IBMid button, once per press. */
 const pressedIbm = (times = 1) => {
@@ -242,6 +242,20 @@ describe("a broker page's first visit starts SSO by itself (#1687)", () => {
 
   it.each([
     ["no entry names the IdP", { entries: buttons.slice(1) }],
+    [
+      "a link, which is never pressed, names the IdP too",
+      {
+        entries: [
+          ...buttons,
+          {
+            id: "c5",
+            role: "link",
+            target: { by: "href", value: "/ibmid/help" } as unknown as LoginTarget,
+            label: "About IBMid",
+          },
+        ],
+      },
+    ],
     ["the IdP item is called SSO and the origin names nothing on the page", { idpName: "SSO" }],
   ] as const)("shows the choice, and presses nothing, when %s", async (_, options) => {
     const s = setup(options);
@@ -283,7 +297,7 @@ describe("a broker page's first visit starts SSO by itself (#1687)", () => {
     expect(prepared()).toHaveLength(0);
   });
 
-  it("Log in now answers at once, rather than waiting for the page's own earlier admission", async () => {
+  it("Log in now ends at once when the page announces nothing for it", async () => {
     const s = setup({ entries: buttons.slice(1) });
     void s.h.signIn();
     await vi.waitFor(async () =>
@@ -291,7 +305,9 @@ describe("a broker page's first visit starts SSO by itself (#1687)", () => {
     );
     const answer = await s.offer();
     if (!answer.ok || !answer.targets[0]) throw new Error("No target");
-    // The page's own automatic admission still waits for its method offer.
+    // The page's own automatic admission still waits for its method offer, and the page
+    // answers the request's reconnect without announcing for it: nothing drives the
+    // request, so the popup shows why at once, never "Preparing" until it times out.
     fake.state.onReconnect = async () => ({ ok: false });
     expect(
       await s.h.login.handle(
@@ -306,16 +322,8 @@ describe("a broker page's first visit starts SSO by itself (#1687)", () => {
         },
         popup,
       ),
-    ).toEqual({ ok: true, state: "evaluating" });
-    // The popup shows the request as still preparing, with its cancel, and the person's
-    // cancel ends it.
-    expect(
-      await s.h.login.handle(
-        { version: 1, type: "login.manual.cancel", tabId: 1, requestId: "manual-request" },
-        popup,
-      ),
-    ).toEqual({ ok: true });
-    expect(await s.offer()).toMatchObject({ status: { state: "blocked", reason: "cancelled" } });
+    ).toEqual({ ok: false, reason: "not-started" });
+    expect(await s.offer()).toMatchObject({ status: { state: "blocked", reason: "not-started" } });
   });
 
   it("keeps the pause: a paused page presses nothing by itself", async () => {
@@ -363,5 +371,65 @@ describe("a broker page with no saved mapping (#1687)", () => {
     await vi.waitFor(async () => expect(await s.methods()).toMatchObject({ offer: { reason } }));
     expect(prepared()).toHaveLength(0);
     expect(s.h.settings.settings.ssoMappings ?? []).toEqual([]);
+  });
+});
+
+describe("the popup's re-announcement after a worker restart (#1687)", () => {
+  const two = discovered([
+    ibmItem,
+    { ...ibmItem, account: { connectionId, itemId: "80000000-0000-4000-8000-000000000009" } },
+  ]);
+
+  it("never presses by itself on a page whose automatic offer the person cancelled", async () => {
+    const s = setup({ saved: false, discovery: two });
+    void s.h.signIn();
+    let shown: Awaited<ReturnType<typeof s.methods>> | undefined;
+    await vi.waitFor(async () => {
+      shown = await s.methods();
+      expect(shown).toMatchObject({ offer: { reason: "mapping-required" } });
+    });
+    if (!shown?.ok || !shown.offer) throw new Error("No offer");
+    expect(await s.send({ type: "login.sso.cancel", tabId: 1, offerId: shown.offer.id })).toEqual({
+      ok: true,
+    });
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-sso-cancels.v1"]).toEqual(["1 synthetic-document"]),
+    );
+    // The worker restarts; the vault now holds only the IBMid item, and the popup asks
+    // the page it forgot to announce again.
+    const after = setup({ saved: false });
+    fake.state.onReconnect = async () => after.h.signIn();
+    await after.offer();
+    expect(fake.state.reconnects).not.toHaveLength(0);
+    expect(prepared()).toHaveLength(0);
+    expect(after.sso.describe).toHaveBeenCalled();
+    expect(after.sso.candidates).not.toHaveBeenCalled();
+    // The person's own Log in now still offers it, and presses the IBMid entry.
+    expect(await after.logInNow()).toMatchObject({ ok: true });
+    await vi.waitFor(() => pressedIbm());
+  });
+
+  it("presses once when Log in now comes during the re-announced automatic press", async () => {
+    const s = setup();
+    const generate = s.generateSso.getMockImplementation()!;
+    const gate = Promise.withResolvers<void>();
+    s.generateSso.mockImplementationOnce(async (request) => {
+      await gate.promise;
+      return generate(request);
+    });
+    fake.state.onReconnect = async () => s.h.signIn();
+    void s.offer();
+    await vi.waitFor(() => expect(s.generateSso).toHaveBeenCalled());
+    // The person presses Log in now while the automatic press waits for its layout.
+    const answer = await s.offer();
+    const started = answer.ok && answer.targets[0] ? await s.logInNow() : answer;
+    gate.resolve();
+    await vi.waitFor(() => pressedIbm());
+    // The request replaced the automatic flow before its press, or found it running.
+    expect(JSON.stringify(started)).toMatch(/"state":"started"|login-running/);
+    // The replaced flow's own work settles; it presses nothing after its layout arrives.
+    // oxlint-disable-next-line no-await-in-loop -- each turn lets one pending step run
+    for (let turn = 0; turn < 1000; turn++) await Promise.resolve();
+    expect(prepared()).toHaveLength(1);
   });
 });

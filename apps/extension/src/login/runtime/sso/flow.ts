@@ -503,7 +503,8 @@ export async function beginSso(
   saved: Saved,
   chosen: Choice,
   selection: Extract<SsoResolvedChoice, { kind: "sso" }>,
-  observed?: { target: LoginTarget; label: string },
+  /** `labeled`: the entry was chosen by its label alone (ADR 0085, amended 2026-11-18). */
+  observed?: { target: LoginTarget; label: string; labeled?: true },
   /** What the item holds and why the chooser took this method (ADR 0055, amended 2026-11-18). */
   methods?: { held: readonly LoginMethod[]; marks: MethodMarks },
 ) {
@@ -698,7 +699,8 @@ export async function beginSso(
     if (chosen.pick) chosen.pick.attemptId = work.id;
     if (methods) openMethods(rt, work.id, methods.held, methods.marks, ["sso"]);
     work.phase = "entering-idp";
-    if (method.form === "url") work.entry = { path: ctx.live.path, target };
+    if (method.form === "url")
+      work.entry = { path: ctx.live.path, target, ...(observed?.labeled ? { labeled: true } : {}) };
     await rt.sso.write();
     if (!(await ssoPress(rt, work, ctx.live, target, "rp-entry")))
       throw new Error(work.stopReason ?? "sso-entry-stopped");
@@ -754,6 +756,14 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
       // it the flow waits, as an RP page on the way to the IdP does.
       if (!original && work.phase === "entering-idp" && work.operation?.stage === "spent") {
         const pressed = pressedEntry(work);
+        // An entry pressed for its label alone and never seen at the mapped origin may
+        // have gone to another provider that answered by a redirect alone, as an IdP with
+        // a live grant does: the RP's evidence cannot tell which IdP signed in, so the
+        // flow neither completes nor learns it (ADR 0085, amended 2026-11-18).
+        if (pressed?.labeled) {
+          cancelSso(rt, ctx.document.tabId, "sso-idp-unseen");
+          return ctx.refuse("sso-idp-unseen");
+        }
         const result = await returned(rt, work, ctx.live, true);
         if (result === "completed") {
           // The IdP's own session sent the tab back without a page: the completion is

@@ -51,8 +51,14 @@ async function request(h: ReturnType<typeof harness>, frameId = 0): Promise<Manu
     itemId,
   };
 }
-const run = (h: ReturnType<typeof harness>, pick: ManualStartRequest) =>
-  h.login.handle({ version: 1, type: "login.manual.start", ...pick }, popup);
+/**
+ * Starts the request. The page answers its reconnect by announcing, as the content script
+ * does, with no sign-in form ready unless the test says otherwise.
+ */
+const run = (h: ReturnType<typeof harness>, pick: ManualStartRequest) => {
+  fake.state.onReconnect ??= async () => h.hello({}, false);
+  return h.login.handle({ version: 1, type: "login.manual.start", ...pick }, popup);
+};
 
 beforeEach(() => {
   fake.state.storage = {};
@@ -254,6 +260,7 @@ describe("one-time login through the popup and actual runtime", () => {
     const frame = { frameId: 3, documentId: "selected", tab: { id: 1, url: top } };
     await h.hello(frame);
     const pick = await request(h, 3);
+    fake.state.onReconnect = async () => h.hello(frame, false);
     expect(await run(h, pick)).toEqual({ ok: true, state: "evaluating" });
     expect(fake.state.reconnects).toEqual([{ tabId: 1, frameId: 3, documentId: "selected" }]);
     await h.hello({ ...frame, frameId: 4, documentId: "sibling" });

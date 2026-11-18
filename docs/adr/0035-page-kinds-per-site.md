@@ -675,10 +675,10 @@ The agent's fix, not confirmed by the owner (`announceUnknownPage` in
   tab, or for another offer's, and sends `login.reconnect` to the top frame only when
   none brought the page and no announcement of it is being admitted. So one tab gets
   one reconnect at a time.
-- Each wait is bounded: after 1.5 seconds in all
-  (`CONFIRM_ANNOUNCE_MS`), as on a page whose script a dialog blocks, or at once on a
-  page without Pateat's content script, the offer goes on without that document and
-  the popup says no sign-in form was found.
+- Each wait is bounded: after 1.5 seconds in all (`UNKNOWN_PAGE_ANNOUNCE_MS`, then named
+  `CONFIRM_ANNOUNCE_MS`), as on a page whose script a dialog blocks, or at once on a
+  page without Pateat's content script, the offer goes on without that document and the
+  popup says no sign-in form was found.
 - The announcement is admitted as the page's own was, and as a restarted worker's
   reconnect of a site with a saved default is; the offer itself fills and presses
   nothing. The popup then offers **Fill** there, also on an excluded site or in a

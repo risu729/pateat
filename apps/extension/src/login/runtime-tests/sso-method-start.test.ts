@@ -415,6 +415,55 @@ async function generationStart(form: "url" | "bracket", label: string) {
     },
   };
 }
+describe("an entry chosen by its label alone (ADR 0085, amended 2026-11-18)", () => {
+  it.each([true, false])(
+    "marks the flow's pressed entry as labeled: %s, so only a seen IdP completes it",
+    async (labeled) => {
+      const h = await generationStart("url", "Alternative provider");
+      // The person's Log in now request, which `generationStart` leaves out.
+      h.rt.manualStarts.set(7, h.request);
+      h.rt.picked.set(7, h.request.pick!);
+      const target = { by: "id" as const, value: "selected-entry" };
+      h.setHeads([
+        {
+          ...h.ssoRecipe,
+          sso: {
+            path: "/signin",
+            layouts: [
+              {
+                key: "1000",
+                createdAt: 1000,
+                entries: [{ label: "Alternative provider", target }],
+              },
+            ],
+          },
+        },
+      ]);
+      h.rt.ssoChoices!.consume = vi.fn(async () => {
+        const input = h.offered.mock.calls.at(-1) as unknown as [{ entries: { id: string }[] }];
+        return {
+          ok: true as const,
+          document: h.ctx.document,
+          account: h.account,
+          selection: {
+            kind: "sso" as const,
+            source: h.source,
+            selected: h.selected,
+            entryId: input[0].entries[0]!.id,
+            label: "Alternative provider",
+          },
+          ...(labeled ? { labeled: true as const } : {}),
+        };
+      });
+      expect(await offerSso(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+      expect(h.rt.sso.flows.get(7)?.entry).toEqual({
+        path: "/signin",
+        target,
+        ...(labeled ? { labeled: true } : {}),
+      });
+    },
+  );
+});
 describe("actual SSO generation keeps local account labels private", () => {
   it("redacts a URL-form observed selected label together with its page before any outgoing generation request", async () => {
     const h = await generationStart("url", "Continue as idp-private-username");
