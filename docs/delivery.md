@@ -458,7 +458,7 @@ Cloudflare Vite plugin together. cf requires Node >=22.18; aube is the
 package manager and Node the runtime. See [research](research/2026-10-10-feasibility.md)
 for the typed-config/test-harness compatibility gate.
 
-1. Inside trusted main CI, produce a production-mode `.cloudflare/output/v0/`
+1. Inside trusted main CI, produce a production-mode `.cloudflare/output/v1/`
    artifact and validate that exact output before `CI Check` can pass. Archive
    it unchanged with migration SQL from the same tested revision. Record commit,
    workflow run, mode, tool versions and digests. A main-only deployment consumes

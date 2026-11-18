@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Miniflare, Response, type Request } from "miniflare";
 
 const project = fileURLToPath(new URL("../../services/api/", import.meta.url));
-const workerDirectory = join(project, ".cloudflare", "output", "v0", "workers", "default");
+const workerDirectory = join(project, ".cloudflare", "output", "v1", "workers", "default");
 
 /** One request as the Access stand-in received it. */
 export type FrontRequest = {

@@ -8,7 +8,7 @@ import { inventory } from "./server-artifact.mjs";
 /* oxlint-disable no-await-in-loop -- Pages are checked and propagation retried in order. */
 
 const root = resolve(import.meta.dirname, "../..");
-const build = resolve(root, "apps/docs/.cloudflare/output/v0");
+const build = resolve(root, "apps/docs/.cloudflare/output/v1");
 const release = resolve(root, "work/docs-release");
 const workerName = "pateat-docs";
 

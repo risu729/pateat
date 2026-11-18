@@ -8,7 +8,7 @@ import { Miniflare } from "miniflare";
 const defaultProject = fileURLToPath(new URL("../../services/api/", import.meta.url));
 const project = resolve(process.argv[2] ?? defaultProject);
 const expectedRevision = process.argv[3] ?? process.env.PATEAT_REVISION ?? "development";
-const output = join(project, ".cloudflare", "output", "v0");
+const output = join(project, ".cloudflare", "output", "v1");
 const root = JSON.parse(await readFile(join(output, "config.json"), "utf8"));
 assert.equal(
   root.buildContext?.mode,

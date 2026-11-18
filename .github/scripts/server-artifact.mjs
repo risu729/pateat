@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { cp, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const buildPath = "services/api/.cloudflare/output/v0";
+const buildPath = "services/api/.cloudflare/output/v1";
 const migrationsPath = "services/api/migrations";
 const releasePath = "work/server-release";
 const databaseName = "pateat";
