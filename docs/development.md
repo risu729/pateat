@@ -1703,15 +1703,17 @@ repositories. Its GitHub App covers this repository and reads the configuration 
 `.github/renovate.json` on the default branch. Cloudflare build and test dependencies
 are grouped and allow prereleases. For `@cloudflare/vite-plugin`, the owner chose on
 2026-11-07 to retain the one-day release age and select the numerically ordered
-`2.0.0-beta.v.N` series rather than follow the `beta` dist-tag. The dedicated rule sets
+`2.0.0-beta.v.N` series rather than follow the `beta` dist-tag. On 2026-11-18 the
+series moved to the numerically ordered `2.0.0-rc.N` release candidates, because cf
+1.0.0-rc.0 and later refuse to build with an older plugin. The dedicated rule sets
 `ignoreUnstable: false`, `respectLatest: false` and
-`allowedVersions: /^2\.0\.0-beta\.v\.[0-9]+$/`. This lets the shared preset's
-release-age filter select the highest eligible mature beta even when a newer beta is
-too young. It needs neither the old commit-hash rollback workaround nor its rollback
-title override. The dependency pin and lockfile are unchanged by this policy change.
+`allowedVersions: /^2\.0\.0-rc\.[0-9]+$/`. This lets the shared preset's
+release-age filter select the highest eligible mature release candidate even when a
+newer one is too young. It needs neither the old commit-hash rollback workaround nor
+its rollback title override.
 
-The pattern deliberately excludes hash betas, release candidates, stable releases and
-other version series. Renovate will not report a transition to any of those through
+The pattern deliberately excludes betas, hash builds, stable releases and other
+version series. Renovate will not report a transition to any of those through
 this rule. When reviewing Cloudflare dependency updates, compare the upstream
 [npm versions and dist-tags](https://www.npmjs.com/package/@cloudflare/vite-plugin?activeTab=versions)
 with the allowed series. If it changes, review compatibility and update this rule and
