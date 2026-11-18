@@ -850,7 +850,7 @@ export function bridgeAnswer(rt: Runtime, run: Execution): number | undefined {
 export async function fallBack(
   rt: Runtime,
   run: Execution,
-  cause: Exclude<RouteChange, "page-request">,
+  cause: Exclude<RouteChange, "page-request" | "passkey-button">,
 ): Promise<void> {
   if (!current(rt, run) || terminal(run.metadata)) return;
   run.passkeyFailed = true;

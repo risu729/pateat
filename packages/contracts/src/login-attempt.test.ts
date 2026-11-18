@@ -32,6 +32,7 @@ import { registerPasswordStopContinuations } from "../test/login-attempt/passwor
 import { registerLaterSteps } from "../test/login-attempt/later-steps";
 import { registerAttemptTiming } from "../test/login-attempt/timing";
 import { registerLayoutChanges } from "../test/login-attempt/layouts";
+import { registerButtonLayouts } from "../test/login-attempt/button-layouts";
 
 const facts = { password: true, totp: false, passkey: false, discoverablePasskey: false };
 const document: LoginDocument = {
@@ -215,3 +216,5 @@ registerLaterSteps({ facts, document, recipe, noTimeBefore });
 registerAttemptTiming({ facts, document, recipe, noTimeBefore, detected });
 
 registerLayoutChanges({ document, recipe, detected, readyToClick });
+
+registerButtonLayouts({ document, recipe, noTimeBefore });

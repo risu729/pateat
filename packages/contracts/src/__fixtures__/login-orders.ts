@@ -8,6 +8,7 @@ import {
   continuesRecipe,
   extendsRecipe,
   handlerSteps,
+  identifierLayoutAfter,
   routeSteps,
   type LoginItemFacts,
   type LoginRouteChoice,
@@ -267,6 +268,17 @@ function recipeEvents(
         ),
         document,
       });
+    // The layout a passkey button leads to, which asks for the account first (ADR 0060
+    // amendment of 2026-11-18), with its own steps and budget as the runtime sends them.
+    if (identifierLayoutAfter(recipe, next))
+      events.push({
+        type: "IDENTIFIER_LAYOUT",
+        layout: next.layout,
+        recipeRevision: next.revision,
+        steps: next.steps.length,
+        maxSubmissions: next.maxSubmissions,
+        document,
+      });
   }
   // A route the login may take, with its steps on the state's recipe (ADR 0034).
   if (!routes) return events;
@@ -453,7 +465,10 @@ function broken(
     to.state === "ready" &&
     to.stepIndex <= from.stepIndex &&
     // The passkey route's answer falls back to the password route's first step (ADR 0034).
-    !(type === "ROUTE" && to.route !== from.route)
+    !(type === "ROUTE" && to.route !== from.route) &&
+    // After a passkey button, the layout it led to starts at its own first step (ADR 0060
+    // amendment of 2026-11-18): the button's click is none of its steps.
+    !(type === "IDENTIFIER_LAYOUT" && to.layout !== from.layout)
   )
     names.push("possibly submitted step taken again");
   // Before a submission a login changes route once each way (ADR 0034): back on the

@@ -238,6 +238,8 @@ function createLoginAttemptMachine() {
         "operationId" in event &&
         operationMatches(context, event) &&
         (context.stopAt === undefined || stopsPastPlan(context)) &&
+        // A login after the passkey button answers there; it never grows the recipe.
+        context.passkeyButton !== true &&
         context.operationEffect === "advance" &&
         context.mutationIntent === true &&
         context.submissions > 0 &&
@@ -345,6 +347,30 @@ function createLoginAttemptMachine() {
           sameScope(context.document, event.document)
         );
       },
+      // After the `passkey` route's click on its button, which is still in flight, before
+      // anything else ran or the result settled, in the tab's page (ADR 0060 amendment of
+      // 2026-11-18). The layout's budget must hold the click's submission.
+      canTakeIdentifierLayout: ({ context, event }) =>
+        event.type === "IDENTIFIER_LAYOUT" &&
+        context.route === "passkey" &&
+        context.layout !== undefined &&
+        event.layout !== context.layout &&
+        event.recipeRevision >= context.recipeRevision &&
+        context.stepIndex === 0 &&
+        context.stepCount === 1 &&
+        context.operationKind === "click" &&
+        context.mutationIntent === true &&
+        context.submissions > 0 &&
+        context.handlers.length === 0 &&
+        context.chooser === undefined &&
+        context.stopAt === undefined &&
+        context.startStep === undefined &&
+        context.fillOnly !== true &&
+        context.signInFill !== true &&
+        context.settled !== true &&
+        context.document.frameId === 0 &&
+        context.submissions + event.maxSubmissions + 1 <= MAX_ATTEMPT_SUBMISSIONS &&
+        sameScope(context.document, event.document),
       // Before anything was submitted, between steps, once each way: a login back on the
       // password route never takes the passkey route again (ADR 0034).
       canSwitchRoute: ({ context, event }) =>
@@ -559,6 +585,11 @@ function createLoginAttemptMachine() {
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
           LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
+          IDENTIFIER_LAYOUT: {
+            guard: "canTakeIdentifierLayout",
+            target: "ready",
+            actions: "record",
+          },
           ROUTE: { guard: "canFallBack", target: "ready", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
         },
@@ -575,6 +606,11 @@ function createLoginAttemptMachine() {
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
           LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
+          IDENTIFIER_LAYOUT: {
+            guard: "canTakeIdentifierLayout",
+            target: "ready",
+            actions: "record",
+          },
           ROUTE: { guard: "canFallBack", target: "ready", actions: "record" },
         },
       },

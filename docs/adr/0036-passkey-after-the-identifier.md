@@ -28,7 +28,13 @@ its next step now has that request handed on. Amended on 2026-11-17 by the owner
 option D at 13:50 UTC
 ([below](#amendment-a-login-that-moved-answers-the-passkey-request-there-2026-11-17)): a
 running login answers a passkey request on the page its tab moved to, of its site or of
-a related origin, within 30 seconds of its last step, with its item.
+a related origin, within 30 seconds of its last step, with its item. Amended on
+2026-11-18 by
+[ADR 0060](0060-recipe-layouts.md#amendment-2026-11-18-a-passkey-button-that-leads-to-a-step-asking-for-the-account)
+(owner, 02:16 UTC; the stop's use there is the agent's choice): a login that went on
+after its recipe's passkey button to a layout that asks for the account first stops just
+past that layout's steps as rule 2 says, whether or not its item holds a password, and
+ends `challenge` there with the reason `passkey-button`.
 
 Date: 2026-10-13
 

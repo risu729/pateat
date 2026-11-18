@@ -229,6 +229,32 @@ export function record(
         retryRequired: undefined,
         settled: undefined,
       };
+    case "IDENTIFIER_LAYOUT":
+      return {
+        route: "password",
+        passkeyLeft: true,
+        variant: 0,
+        layout: event.layout,
+        recipeRevision: event.recipeRevision,
+        // The layout runs from its first step: the button's click was none of its steps.
+        stepIndex: 0,
+        stepCount: event.steps,
+        stopAt: event.steps,
+        passkeyButton: true,
+        maxSubmissions: Math.min(
+          MAX_ATTEMPT_SUBMISSIONS,
+          context.submissions + event.maxSubmissions + 1,
+        ),
+        document: event.document,
+        continuation: undefined,
+        operationId: undefined,
+        operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
+        outcome: undefined,
+        retryRequired: undefined,
+        settled: undefined,
+      };
     case "HANDLER": {
       // After an effect step the handler's steps follow it; at a stop, with nothing in
       // flight, they go in at the stop step itself (ADR 0036).

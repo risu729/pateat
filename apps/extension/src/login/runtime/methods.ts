@@ -34,7 +34,7 @@ export type MethodMarks = {
   /** The login started at a later step, past the first page's passkey button (ADR 0049). */
   later?: true;
   /** Why the login went back from the passkey to the password (ADR 0034). */
-  routeChange?: Exclude<RouteChange, "page-request">;
+  routeChange?: Exclude<RouteChange, "page-request" | "passkey-button">;
 };
 
 type Kept = {
@@ -104,7 +104,7 @@ export function openMethods(
 export function methodRouteChanged(
   rt: Runtime,
   attemptId: string,
-  routeChange: Exclude<RouteChange, "page-request">,
+  routeChange: Exclude<RouteChange, "page-request" | "passkey-button">,
 ): void {
   const found = tablesOf(rt).kept.get(attemptId);
   if (found) found.marks.routeChange = routeChange;
@@ -139,9 +139,10 @@ function whyOf(
   if (marks.picked) return "picked";
   if (missed === "sso") return metadata.route === "password" ? "sso-not-automatic" : "unknown";
   if (marks.routeChange) return marks.routeChange;
-  // The login took the passkey's own route and ended before an answer: it passed nothing
-  // over, and its own line says how it ended.
-  if (metadata.route === "passkey") return "not-answered";
+  // The login took the passkey's own route, or went on after its passkey button to the
+  // step asking for the account (ADR 0060 amendment of 2026-11-18), and ended before an
+  // answer: it passed nothing over, and its own line says how it ended.
+  if (metadata.route === "passkey" || metadata.passkeyButton) return "not-answered";
   if (marks.passkeyRefused) return "passkey-refused";
   if (marks.later) return "later-start";
   return metadata.route === "password" ? "no-passkey-route" : "unknown";

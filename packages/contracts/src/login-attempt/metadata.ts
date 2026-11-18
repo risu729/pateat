@@ -202,6 +202,14 @@ export const attemptMetadataSchema = v.pipe(
      */
     stopJudged: v.optional(v.literal(true)),
     /**
+     * The login pressed its recipe's passkey button, then went on with the layout that
+     * asks for the account on the button's page (`IDENTIFIER_LAYOUT`, ADR 0060 amendment of
+     * 2026-11-18): its `password` route stops just past that layout's last step, where its
+     * page's passkey request is answered with its item. Its pages are never sent to
+     * continue the recipe.
+     */
+    passkeyButton: v.optional(v.literal(true)),
+    /**
      * A `password` login that started at a later step of its variant, because its page
      * showed that step and none of the recipe's first steps (ADR 0049): that step's index,
      * where the route starts again after an answered passkey request falls back to it.
@@ -245,6 +253,12 @@ export const attemptMetadataSchema = v.pipe(
         metadata.document.frameId === 0 &&
         (metadata.route !== "password" || metadata.stopAt <= metadata.stepCount)),
     "A stop needs a top-level password variant, inside its plan or just past it",
+  ),
+  v.check(
+    (metadata) =>
+      metadata.passkeyButton === undefined ||
+      (metadata.route === "password" && metadata.stopAt === metadata.stepCount),
+    "A login after the passkey button stops just past its layout's steps",
   ),
   v.check(
     (metadata) => metadata.stopJudged === undefined || metadata.stopAt !== undefined,
