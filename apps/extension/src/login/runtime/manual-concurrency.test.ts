@@ -66,6 +66,7 @@ function harness() {
     picked: new Map(),
     manualStarts: new Map(),
     admitting: new Map(),
+    hellos: new Map(),
     switchesRunning: new Set(),
     switchStates: new Map(),
     attempts: new Map(),

@@ -4958,6 +4958,13 @@ page's SSO layout learned, that goes nowhere but the page's own origin and that 
 pressed before to reach this very IdP origin (`pateat.login.sso-entries.v1`, local); the
 receipt checks it again
 ([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)).
+On a first visit, where the page learned none, it presses the one entry whose label
+names the mapped IdP by the IdP item's name or the registrable labels of its origin and
+URIs (`sso-entry-label.ts`), under the same destination check, never one learned for
+another IdP, and only when no other entry is named; **Log in now** does too, and the
+popup asks a page where `sign-in` is `auto` that a restarted worker forgot to announce
+again
+([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
 A flow's RP return may land on another origin of the RP's registrable site, with its
 scheme, that is not the IdP's and that the RP item matches (`ssoReturnOrigin`; never for
 a `localhost` or IP RP); every other origin stays forbidden

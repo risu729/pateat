@@ -25,9 +25,11 @@ import {
   type SsoChooseRequest,
   type SsoResponse,
 } from "./sso-wire";
+import { idpNames, labeledEntry } from "./sso-entry-label";
 import {
   candidate,
   candidates,
+  connectionFor,
   hopRefusal,
   identity,
   portable,
@@ -50,11 +52,13 @@ type Receipt = {
   entryOrigin?: string;
   /** An automatic choice of a broker page's learned entry requires it again when consumed. */
   learned?: true;
+  /** An automatic choice of the entry whose label names the IdP requires it again too. */
+  labeled?: true;
   /** The person picked it in the popup, rather than the automatic order (ADR 0085). */
   picked?: true;
 };
 /** What a receipt keeps beside its selection, for {@link Receipt}. */
-type ReceiptFacts = Pick<Receipt, "entryOrigin" | "learned" | "picked">;
+type ReceiptFacts = Pick<Receipt, "entryOrigin" | "learned" | "labeled" | "picked">;
 type Refusal = { reason: string; field?: string };
 type SsoSelection = Extract<SsoChooseRequest["selection"], { kind: "sso" }>;
 const failure = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
@@ -240,15 +244,15 @@ export function createSsoChoiceController(options: {
       selection,
       ...(facts.entryOrigin ? { entryOrigin: facts.entryOrigin } : {}),
       ...(facts.learned ? { learned: facts.learned } : {}),
+      ...(facts.labeled ? { labeled: facts.labeled } : {}),
       ...(facts.picked ? { picked: facts.picked } : {}),
     });
     finish(offer, { ok: true, choiceId });
     return { ok: true as const };
   }
   /**
-   * A URL-form method has no label: it runs automatically only when exactly one observed
-   * entry is present and its fresh, explicit destination is the mapped origin. Anything
-   * else waits for the person to choose the entry; a label is never guessed.
+   * A URL-form method has no label: it runs automatically only on the one entry `urlEntry`
+   * finds. Anything else waits for the person to choose the entry.
    */
   async function automaticUrl(offer: Offer, method: Method): Promise<Refusal | undefined> {
     const found = await urlEntry(offer, method);
@@ -263,20 +267,26 @@ export function createSsoChoiceController(options: {
     resolveUrl(offer, method, found);
     return undefined;
   }
-  type UrlEntry = { entry: { id: string; label: string }; exact: boolean };
-  function resolveUrl(offer: Offer, method: Method, { entry, exact }: UrlEntry) {
+  /** How the automatic order found the entry: its destination, the page, or its label. */
+  type UrlEntry = { entry: { id: string; label: string }; by: "exact" | "learned" | "labeled" };
+  function resolveUrl(offer: Offer, method: Method, { entry, by }: UrlEntry) {
     const selected = selectedOf(method)!.selected;
     resolve(
       offer,
       { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
-      exact ? { entryOrigin: selected.origin } : { learned: true },
+      by === "exact"
+        ? { entryOrigin: selected.origin }
+        : by === "learned"
+          ? { learned: true }
+          : { labeled: true },
     );
   }
   /**
    * The one entry the automatic order presses for a mapped URL-form method: the one whose
    * own destination is the mapped origin, or, on a broker page where none is, the one the
-   * page learned for that origin (owner, 2026-11-18, ADR 0085). Undefined when none or
-   * several qualify.
+   * page learned for that origin (owner, 2026-11-18, ADR 0085), or, where it learned none,
+   * the one whose label names the mapped IdP (`labeled`). Undefined when none or several
+   * qualify at the first rule that finds any.
    */
   async function urlEntry(
     offer: Offer,
@@ -297,7 +307,7 @@ export function createSsoChoiceController(options: {
       if (matches.length > 1) break;
     }
     if (matches.length)
-      return matches.length === 1 ? { entry: matches[0]!, exact: true } : undefined;
+      return matches.length === 1 ? { entry: matches[0]!, by: "exact" } : undefined;
     // On a broker page no entry names the mapped origin: its provider button submits to
     // the site, which sends the tab on.
     const learned: { id: string; label: string }[] = [];
@@ -311,7 +321,44 @@ export function createSsoChoiceController(options: {
       if (known) learned.push(entry);
       if (learned.length > 1) break;
     }
-    return learned.length === 1 ? { entry: learned[0]!, exact: false } : undefined;
+    if (learned.length)
+      return learned.length === 1 ? { entry: learned[0]!, by: "learned" } : undefined;
+    return labeled(offer, method);
+  }
+  /**
+   * A first visit, where no entry names the mapped origin and the page learned none: the
+   * one entry whose visible label names the mapped IdP, by its item's name or the
+   * registrable labels of its origin and URIs (owner, 2026-11-18 14:14 UTC, ADR 0085).
+   * A wrong one can only reach another origin, where the flow stops with
+   * `sso-forbidden-origin` before anything is released.
+   */
+  async function labeled(
+    offer: Offer,
+    method: Method,
+  ): Promise<UrlEntry | "withdrawn" | undefined> {
+    const { entryCurrent, entryLabeled, entries } = offer.input;
+    const selected = selectedOf(method)!.selected;
+    const item = connectionFor(offer.saved, selected.account)?.items.find(
+      (entry) => entry.id === selected.account.itemId,
+    );
+    const entry =
+      entryCurrent && entryLabeled
+        ? labeledEntry(
+            entries ?? [],
+            idpNames({
+              origin: selected.origin,
+              pageOrigin: offer.input.document.origin,
+              itemName: item?.label,
+              uris: item?.allowedOrigins ?? [],
+            }),
+          )
+        : undefined;
+    if (!entry) return undefined;
+    const usable =
+      (await entryCurrent?.(entry.id).catch(() => false)) &&
+      (await entryLabeled?.(entry.id, selected.origin).catch(() => false));
+    if (!retained(offer)) return "withdrawn";
+    return usable ? { entry, by: "labeled" } : undefined;
   }
   /**
    * **Log in now** (ADR 0088 amendment of 2026-11-18): it presses by itself only the SSO
@@ -802,7 +849,7 @@ export function createSsoChoiceController(options: {
         const refused = await validateSso(offer, method);
         if (refused) return failure(refused.reason);
         if (selection.entryId) {
-          const { entryCurrent, entryOrigin, entryLearned } = offer.input;
+          const { entryCurrent, entryOrigin, entryLearned, entryLabeled } = offer.input;
           if (
             !entryCurrent ||
             !(await entryCurrent(selection.entryId)) ||
@@ -810,7 +857,10 @@ export function createSsoChoiceController(options: {
               (!entryOrigin || !(await entryOrigin(selection.entryId, receipt.entryOrigin)))) ||
             (receipt.learned &&
               (!entryLearned ||
-                !(await entryLearned(selection.entryId, selection.selected.origin))))
+                !(await entryLearned(selection.entryId, selection.selected.origin)))) ||
+            (receipt.labeled &&
+              (!entryLabeled ||
+                !(await entryLabeled(selection.entryId, selection.selected.origin))))
           )
             return failure("entry-changed");
           // The entry's own awaits may have outlived a vault, policy or document change.

@@ -193,6 +193,8 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       custom?: CustomField[];
       /** Custom fields of the other item, which has none otherwise. */
       otherCustom?: CustomField[];
+      /** The other item's name, as an IdP item's name an SSO entry's label may name. */
+      otherLabel?: string;
       /**
        * Further items of the connection, each with a password, these built-in fields, as an
        * identity's or a card's, and these custom fields.
@@ -332,7 +334,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
                 },
                 {
                   id: otherItemId,
-                  label: "Other synthetic item",
+                  label: live.otherLabel ?? "Other synthetic item",
                   ...(live.otherReprompt ? { reprompt: true as const } : {}),
                   allowedOrigins: [],
                   groupIds: [],

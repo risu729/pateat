@@ -663,7 +663,7 @@ of sites with a saved default or a login record to announce again
 (`apps/extension/src/login/runtime/index.ts`), and the popup's offer did not wait for
 any of them, so it found no document of the tab and offered nothing.
 
-The agent's fix, not confirmed by the owner (`announceConfirmPage` in
+The agent's fix, not confirmed by the owner (`announceUnknownPage` in
 `apps/extension/src/login/runtime/confirm-announce.ts`):
 
 - When the worker knows no top document of the tab, the tab's path, as observed with
@@ -685,5 +685,8 @@ The agent's fix, not confirmed by the owner (`announceConfirmPage` in
   private window, as before the restart.
 - Only the tab's top page is asked. A verification page in a frame, such as a 3-D
   Secure frame, is not, and neither are a secret-answer page without a recipe, a
-  sign-in page, or a verification page where `confirm` is `off`. After a restart the
+  sign-in page where `sign-in` is not `auto`, or a verification page where `confirm` is
+  `off`. A page where `sign-in` is `auto` is asked since
+  [ADR 0085's amendment of 2026-11-18](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page),
+  so a sign-in the restart lost starts again. After a restart the
   popup still says no sign-in form was found on them until their page announces again.

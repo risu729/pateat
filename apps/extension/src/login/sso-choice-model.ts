@@ -50,6 +50,13 @@ export type SsoChoiceInput = {
    * the mapped origin.
    */
   entryLearned?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
+  /**
+   * A broker page's first visit (ADR 0085 amendment of 2026-11-18, owner): the entry whose
+   * visible label names the mapped IdP goes nowhere but the page's own origin on a fresh
+   * inspection, and no flow learned it for another IdP. Asked only when neither an entry's
+   * own destination nor a learned entry decides, and only for the one entry named.
+   */
+  entryLabeled?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
   signal?: AbortSignal;
 };
 export type SsoResolvedChoice =
@@ -93,7 +100,7 @@ export type Offer = {
   releaseAbort: () => void;
 };
 
-const connectionFor = (saved: Saved, account: AccountRef) =>
+export const connectionFor = (saved: Saved, account: AccountRef) =>
   saved.catalog.connections.find((entry) => entry.id === account.connectionId);
 /** The account's portable identity, while its connection is open on a known account. */
 export function portable(saved: Saved, account: AccountRef): SsoPortableAccount | undefined {

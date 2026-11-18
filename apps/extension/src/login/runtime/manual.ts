@@ -12,7 +12,7 @@ import { MANUAL_START_MS, endManual, manualTimedOut, type ManualStart } from "./
 import { cancelSso, ssoWaiting } from "./sso/flow";
 import { endConfirmPick } from "./confirm-pick-scope";
 import { confirmFillPage } from "./confirm-pick";
-import { announceConfirmPage } from "./confirm-announce";
+import { announceUnknownPage } from "./confirm-announce";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
 
@@ -118,8 +118,9 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
   const targets: Extract<ManualOfferResponse, { ok: true }>["targets"] = [];
   let reason = snapshot?.ok ? undefined : "settings-unavailable";
   if (snapshot?.ok) {
-    // A verification page a restarted worker does not know yet (ADR 0035).
-    await announceConfirmPage(rt, tabId, tab.url, snapshot);
+    // A verification or automatic sign-in page a restarted worker does not know yet
+    // (ADR 0035, ADR 0085).
+    await announceUnknownPage(rt, tabId, tab.url, snapshot);
     // The top page is first. A popup choice's frame follows it, before any other frames.
     const waiting = rt.pending.get(tabId)?.document;
     const pages = [...rt.documents.values()]
@@ -282,6 +283,12 @@ export async function manualStart(
     const choosing = new Promise<void>((resolve) => {
       pending.choosing = resolve;
     });
+    // Only an announcement made for this request carries it. An admission that began
+    // before it, as an automatic one that waits up to ten minutes for its method offer, is
+    // not waited for: the popup would show nothing but its spinner meanwhile.
+    const helloKey = tabId + ":" + live.document.frameId;
+    const before = rt.hellos.get(helloKey) ?? 0;
+    const announced = () => (rt.hellos.get(helloKey) ?? 0) > before;
     const admitted = (async () => {
       await browser.tabs.sendMessage(
         tabId,
@@ -291,7 +298,7 @@ export async function manualStart(
           documentId: live.document.documentId,
         },
       );
-      await rt.admitting.get(tabId + ":" + live.document.frameId)?.catch(() => undefined);
+      if (announced()) await rt.admitting.get(helloKey)?.catch(() => undefined);
     })();
     // An admission that fails after the start answered `choosing` ends the request itself.
     admitted.catch(() => undefined);

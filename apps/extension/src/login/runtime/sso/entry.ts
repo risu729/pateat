@@ -25,7 +25,7 @@ import { askFor } from "../choice";
 import { reloginLimited } from "../relogin";
 import { asksEveryTime } from "../entry-press";
 import { beginSso } from "./flow";
-import { ssoEntryReaches } from "./learned-entries";
+import { ssoEntryReaches, ssoEntryReachesOther } from "./learned-entries";
 import type { Saved } from "../../sso-choice-model";
 import type { AdmitContext } from "../admit-context";
 import type { Runtime } from "../state";
@@ -176,6 +176,16 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
     return ctx.refuse("manual-request-ended");
   const methodOffer = ctx.manual ? new AbortController() : undefined;
+  /** A fresh inspection finds the entry going nowhere but the page's own origin, if anywhere. */
+  const ownOriginOnly = async (target: LoginTarget) => {
+    const inspected = await inspectSsoTarget(rt, ctx.live, target);
+    return (
+      !!inspected &&
+      inspected.destinations.every(
+        (destination) => URL.parse(destination)?.origin === ctx.document.origin,
+      )
+    );
+  };
   if (ctx.manual && methodOffer) ctx.manual.request.methodOffer = methodOffer;
   const requested = await rt.ssoChoices.request({
     document: ctx.document,
@@ -191,6 +201,22 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       ? { hopAllowed: (origin: string) => manualHopAllowed(rt, ctx, saved, origin) }
       : {}),
     entries: [...targets].map(([id, entry]) => ({ id, label: entry.label })),
+    // A first visit (owner, 2026-11-18 14:14 UTC): the entry whose label names the mapped
+    // IdP, as `entryLearned` checks its destinations, and never one a flow learned to
+    // reach another IdP.
+    entryLabeled: async (id: string, selectedOrigin: string) => {
+      const entry = targets.get(id);
+      return (
+        !!entry &&
+        (await ownOriginOnly(entry.target)) &&
+        !(await ssoEntryReachesOther(
+          ctx.document.origin,
+          ctx.live.path,
+          entry.target,
+          selectedOrigin,
+        ))
+      );
+    },
     entryOrigin: async (id: string, origin: string) => {
       const entry = targets.get(id);
       const inspected = entry && (await inspectSsoTarget(rt, ctx.live, entry.target));
@@ -208,14 +234,7 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     // and a flow pressed there to reach this very IdP origin.
     entryLearned: async (id: string, selectedOrigin: string) => {
       const entry = targets.get(id);
-      const inspected = entry && (await inspectSsoTarget(rt, ctx.live, entry.target));
-      if (
-        !inspected ||
-        inspected.destinations.some(
-          (destination) => URL.parse(destination)?.origin !== ctx.document.origin,
-        )
-      )
-        return false;
+      if (!entry || !(await ownOriginOnly(entry.target))) return false;
       if (
         !(await ssoEntryReaches(ctx.document.origin, ctx.live.path, entry.target, selectedOrigin))
       )

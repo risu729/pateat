@@ -23,6 +23,10 @@ Amended on 2026-11-18 by the owner (03:01 UTC,
 saved mapping presses a broker page's provider entry automatically; and by an agent's
 choice the same day, a flow's
 [RP return may land on another origin of the same site](#amendment-2026-11-18-an-rp-return-on-another-origin-of-the-same-site).
+Amended again on 2026-11-18 by the owner (14:14 UTC,
+[below](#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)): SSO starts
+automatically on the login page, also on a first visit, through the entry whose label
+names the mapped IdP.
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
 no separate provider and username fields or JSON. The selection and validation rules
@@ -626,10 +630,10 @@ The rest of this section is the agent's choice, not confirmed by the owner:
   such an entry too, under its own hop guard, and shows the explicit chooser in every
   other case
   ([ADR 0088](0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)).
-- **The first visit.** A page whose entry no flow has pressed yet still offers the
-  choice once, as does a device that has not recorded it. The person's entry choice
-  there records it, and later visits press it by themselves. Whether a first visit
-  should press without that is for the owner.
+- **The first visit.** Replaced by the
+  [owner's decision below](#amendment-2026-11-18-sso-starts-automatically-on-the-login-page):
+  where no entry names the mapped origin and none is learned, the entry whose label
+  names the mapped IdP is pressed by itself.
 - **Known limit.** An entry that once led to one provider and now leads to another is
   pressed once more for the old one: the flow stops on the other provider's origin
   (`sso-forbidden-origin`) without releasing anything, and the record keeps the old
@@ -660,3 +664,76 @@ rather than on the broker page's origin. Such a page ended the flow with
   missing from the public suffix list reads its tenants as one site. Only the RP item's
   URI match fences them apart there, so an item saved with a Domain rule on such a host
   accepts a return on another tenant's origin.
+
+## Amendment 2026-11-18: SSO starts automatically on the login page
+
+The owner wrote on 2026-11-18 at 14:14 UTC, about
+[#1687](https://github.com/risu729/pateat/issues/1687) on
+`flow.idp.hashicorp.com/login`:
+「そもそもSSOってログイン画面で自動で始まるべきでは？なんで？」. The owner's decision:
+SSO starts automatically on the login page. A broker page's first visit no longer needs
+the person's entry choice
+([amendment above](#amendment-2026-11-18-a-broker-pages-provider-entry)).
+
+The label rule below is the agent's choice, not confirmed by the owner:
+
+- **Which entry.** For a URL-form method with a saved mapping, on a page where no
+  entry's own destination is the mapped origin and the page learned none for it, the
+  automatic sign-in and **Log in now**'s automatic mode press the one current entry
+  whose visible label names the mapped IdP (`labeled` in
+  `apps/extension/src/login/sso-choice.ts`,
+  `apps/extension/src/login/sso-entry-label.ts`). The order is: an entry whose own
+  destination is the mapped origin, then the entry learned for it, then the label.
+- **What names the IdP.** Only local data: the mapped IdP item's name, and the
+  registrable labels without their public suffix (tldts, as for passkeys) of the mapped
+  origin and of the item's own URIs, as `github` for `https://github.com`, `google` for
+  `accounts.google.com`, `microsoftonline` for `login.microsoftonline.com` and `ibm` for
+  `login.ibm.com`. Labels and names are compared after NFKC and in lower case, word by
+  word: a name's words must appear in order as whole words of the label. A name made
+  only of words that name a way to sign in (`SSO`, `Sign in`, `Continue`, `Login`,
+  `Account` and the like) names nothing, and a registrable label of the page's own site
+  is left out, since the page names its own site everywhere.
+- **A prefix of the registrable label.** A registrable label of three letters or more
+  may also begin a longer word of the label, as `ibm` begins `IBMid`, and a label word
+  of five letters or more may begin a longer registrable label, as `Microsoft` begins
+  `microsoftonline`. The agent judges this safe enough only because of the next rule:
+  any rule that names a second entry, a prefix or a whole word, leaves the choice to the
+  person.
+- **Exactly one.** The label must name exactly one of the page's observed entries, by
+  any rule. None, or several, leave the chooser as before, with `entry-required`.
+- **Guards.** The named entry must, on a fresh inspection, go nowhere but the page's own
+  origin, or nowhere explicit, as a learned entry (`entryLearned`). An entry a flow
+  learned to reach another IdP is never pressed for this one, so a label never overrides
+  what the page learned. The receipt checks the entry again just before the flow uses
+  it. The pause, private windows, the repeated-login limit, the master-password
+  re-prompt, `auto` sign-in on both origins and **Log in now**'s `hopAllowed` all stay.
+  A method without a saved mapping still waits with `mapping-required`: no IdP is
+  guessed, and the mapping is not made automatically even when one IdP item alone holds
+  the origin.
+- **Why a wrong press is safe.** A broker entry that leads to another provider reaches
+  that provider's origin, which is not the mapped one: the flow stops there with
+  `sso-forbidden-origin` before any credential is released, as for a learned entry that
+  changed.
+- **Recorded as before.** Once the tab reaches the mapped IdP, the press is learned
+  (`pateat.login.sso-entries.v1`), and later visits press that entry by what was
+  learned. The first press still has the site's SSO layout generated for the entry's
+  label, as an explicit choice of the entry has.
+- **A restarted worker.** The worker keeps its method offers and the documents it
+  admitted in memory only, and a restarted worker asks only the tabs of sites with a
+  saved default to announce again, which a first visit has none of. The popup now also
+  asks the tab's top page to announce again where `sign-in` is `auto` and the worker
+  knows no document of the tab, as it does for a verification page
+  ([ADR 0035](0035-page-kinds-per-site.md#amendment-2026-11-17-fill-after-a-worker-restart)),
+  so an automatic sign-in or method offer the restart lost starts again.
+- **Log in now's start.** Its start waits only for an announcement the page made for the
+  request, never for an admission that began before it, as an automatic one that waits
+  for its method offer, so the popup answers and shows the request's state at once.
+- **Diagnosis of the reported tabs.** The fresh tabs logged only `login.refused`:
+  `replaced` where a newer admission of the tab opened its own method offer, as
+  **Log in now** does; `cancelled` where the person cancelled the waiting offer under
+  **Sign-in method**; and `manual-request-ended` where an admission that waited for
+  **Log in now**'s offer found its document announced again or its request ended. No
+  timer of about 40 seconds exists on that path. A waiting offer writes no line until it
+  ends, so none of the three shows that nothing would be pressed. With this rule the HCP
+  page's `Sign in with IBMid` is pressed for its IBMid mapping, and `Sign in with SSO`
+  and `Continue` never are.

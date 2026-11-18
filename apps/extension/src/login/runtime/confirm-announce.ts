@@ -1,7 +1,7 @@
-// The popup's **Fill** on a verification page a restarted worker does not know yet
-// (ADR 0035, amended 2026-11-17): the worker keeps the documents it admitted in memory
-// only, and asks only the tabs of sites with a saved default or a login record to
-// announce again (`index.ts`).
+// The popup on a verification page, or a page that signs in automatically, that a
+// restarted worker does not know yet (ADR 0035, amended 2026-11-17; ADR 0085, amended
+// 2026-11-18): the worker keeps the documents it admitted in memory only, and asks only
+// the tabs of sites with a saved default or a login record to announce again (`index.ts`).
 import type { SettingsResponse } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { observedPath } from "../../observation/path";
@@ -45,12 +45,13 @@ export function trackReconnect(
 /**
  * Asks the tab's top document to announce again when the worker knows none and the tab's
  * path has a `confirm` or `unclear` recipe that `confirm` lets fill, so the popup can
- * offer **Fill** there. A reconnect already in flight for the tab, the restarted worker's
+ * offer **Fill** there, or `sign-in` is `auto` there, so an automatic login or SSO method
+ * offer the restarted worker lost is offered again (ADR 0085, amended 2026-11-18). A reconnect already in flight for the tab, the restarted worker's
  * own or another offer's, is waited for instead of sending another. A frame's page, such
  * as a 3-D Secure frame, is not asked. A page that does not answer within
  * `CONFIRM_ANNOUNCE_MS`, as one whose script a dialog blocks, stays unknown.
  */
-export async function announceConfirmPage(
+export async function announceUnknownPage(
   rt: Runtime,
   tabId: number,
   url: string,
@@ -59,10 +60,12 @@ export async function announceConfirmPage(
   const known = () => rt.documents.has(frameKey({ tabId, frameId: 0 }));
   if (known()) return;
   const page = URL.parse(url);
+  const { settings } = snapshot.snapshot;
   if (
     !page ||
-    pagePermission(snapshot.snapshot.settings, url, "confirm").permission !== "fill" ||
-    (await confirmRecipeOn(rt, page.origin, observedPath(page.pathname))) === undefined
+    (pagePermission(settings, url, "sign-in").permission !== "auto" &&
+      (pagePermission(settings, url, "confirm").permission !== "fill" ||
+        (await confirmRecipeOn(rt, page.origin, observedPath(page.pathname))) === undefined))
   )
     return;
   const until = Date.now() + CONFIRM_ANNOUNCE_MS;

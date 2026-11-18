@@ -158,8 +158,14 @@ describe("the popup's Fill after a worker restart", () => {
     expect(fake.state.reconnects).toEqual([{ tabId: 1, frameId: 0 }]);
   });
 
+  // A page where `sign-in` is `auto` is asked too, so the automatic sign-in the restarted
+  // worker lost runs again (ADR 0085 amendment of 2026-11-18,
+  // `sso-broker-first-visit.test.ts`); these pages only fill.
   it("asks no page whose path has no verification recipe", async () => {
-    const h = await restarted({ siteDefaults: [] });
+    const h = await restarted({
+      siteDefaults: [],
+      pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" },
+    });
     h.recipes.routes.mockResolvedValue([parseLoginRecipe(recipe)]);
     h.recipes.recipe.mockResolvedValue(parseLoginRecipe(recipe));
     expect(await offers(h)).toMatchObject(unknown);
@@ -169,7 +175,7 @@ describe("the popup's Fill after a worker restart", () => {
   it("asks no verification page where confirm is off", async () => {
     const h = await restarted({
       siteDefaults: [],
-      pagePermissionDefaults: { "sign-in": "auto", confirm: "off", "personal-details": "fill" },
+      pagePermissionDefaults: { "sign-in": "fill", confirm: "off", "personal-details": "fill" },
     });
     expect(await offers(h)).toMatchObject(unknown);
     expect(fake.state.reconnects).toEqual([]);
