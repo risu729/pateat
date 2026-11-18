@@ -13,7 +13,10 @@ import type { Runtime } from "./state";
 
 function runtime() {
   const reports: LoginReport[] = [];
-  const rt = { options: { report: (report: LoginReport) => reports.push(report) } } as Runtime;
+  const report = (entry: LoginReport) => {
+    reports.push(entry);
+  };
+  const rt = { options: { report } } as unknown as Runtime;
   return { rt, reports };
 }
 
