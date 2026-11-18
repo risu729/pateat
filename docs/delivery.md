@@ -458,7 +458,7 @@ Cloudflare Vite plugin together. cf requires Node >=22.18; aube is the
 package manager and Node the runtime. See [research](research/2026-10-10-feasibility.md)
 for the typed-config/test-harness compatibility gate.
 
-1. Inside trusted main CI, produce a production-mode `.cloudflare/output/v0/`
+1. Inside trusted main CI, produce a production-mode `.cloudflare/output/v1/`
    artifact and validate that exact output before `CI Check` can pass. Archive
    it unchanged with migration SQL from the same tested revision. Record commit,
    workflow run, mode, tool versions and digests. A main-only deployment consumes
@@ -665,7 +665,7 @@ grant is inferred merely from the presence of a route.
 
 The four production action calls retain the reviewed domain-changeset safeguards from
 [deployment action PR #287](https://github.com/risu729/wrangler-deploy-action/pull/287)
-and pin v3.0.2 with the bounded diagnostics from
+and pin v4.0.0, which keeps the bounded diagnostics from
 [deployment action PR #290](https://github.com/risu729/wrangler-deploy-action/pull/290).
 A failed changeset request reports only numeric HTTP status and Cloudflare error
 codes, without response bodies or credentials. The guard and permission policy are

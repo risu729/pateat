@@ -821,7 +821,7 @@ empty database, so seed referencing rows before trying such a migration. A new
 
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds
 the compatibility settings it shares with Vitest. The credential-free build and
-prebuilt dry run validate the exact `.cloudflare/output/v0/` artifact, and the local
+prebuilt dry run validate the exact `.cloudflare/output/v1/` artifact, and the local
 artifact smoke test executes that bundle in workerd. None of this demonstrates a
 deployed service or the service acceptance gates in
 [the delivery plan](../../docs/delivery.md).
