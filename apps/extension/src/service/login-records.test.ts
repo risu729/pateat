@@ -111,6 +111,23 @@ describe("loginRecordOf", () => {
     expect(loginRecordOf(ended(), BUILD)).not.toHaveProperty("record.route");
   });
 
+  it("sends a record of a login that went on after its passkey button, however it ended", () => {
+    // Its first-login result code leaves out an end at the stop without a request, but
+    // its record still says how long it took (ADR 0060 amendment of 2026-11-18).
+    for (const outcome of ["authenticated", "challenge"] as const)
+      expect(
+        loginRecordOf(
+          ended({
+            state: outcome === "challenge" ? "blocked" : "authenticated",
+            outcome,
+            reason: "passkey-button",
+            stop: "passkey-button",
+          }),
+          BUILD,
+        ),
+      ).toMatchObject({ record: { outcome, branch: "1000" } });
+  });
+
   it("keeps the chooser branch and a listed cause of a blocked login", () => {
     expect(
       loginRecordOf(

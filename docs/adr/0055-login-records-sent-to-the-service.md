@@ -98,10 +98,11 @@ Not confirmed by the owner (the agent's choices):
 
 - Which logins send nothing, consistent with the first-login result code: a login
   without a service recipe revision, a fill-only login, any login of an item without a
-  password, and `policy-changed`, `account-switched` or cause-less `cancelled` ends. A
-  result that settled as unknown without a watch has no end and no times, so it sends
-  nothing either. A record the contract refuses, such as a time over a day or a build it
-  does not accept, is not sent and is logged locally as `failed:invalid-record`.
+  password that stops before it, and `policy-changed`, `account-switched` or cause-less
+  `cancelled` ends. A result that settled as unknown without a watch has no end and no
+  times, so it sends nothing either. A record the contract refuses, such as a time over
+  a day or a build it does not accept, is not sent and is logged locally as
+  `failed:invalid-record`.
 - The route name `/logins`, the 1 KiB body limit, and the build as a 7 to 40 digit
   commit or `development`.
 - A report for a recipe the service keeps no document of, as after its revocation, is
@@ -193,11 +194,24 @@ to the service as a problem line
 
 Not confirmed by the owner (the agent's choices):
 
-- The device keeps these in memory (`apps/extension/src/login/runtime/methods.ts`), as
-  it keeps the parts of a login's own time, so a login that a restarted worker resumed
-  sends none of them. The contract takes `route`, `used` and `held` together or none,
-  and `routeWhy` only with them; the service stores them in nullable `login_timings`
-  columns (migration 0042).
+- The device keeps these from a login's start until it ends, in memory
+  (`apps/extension/src/login/runtime/methods.ts`) and, from 2026-11-18, in session
+  storage (`session:pateat.login-methods.v1`, at most 64 logins), so a login that a
+  restarted worker ends still sends them. A login drops them when it ends, its tab
+  closes or its record is released, and a restarted worker restores them only for the
+  records it holds that have not ended. On build `ce71c5f0` a USI login whose result
+  stayed watched for ten minutes while the worker stopped sent a record with all four
+  fields null. A login whose write failed still sends none of them, and the parts of a
+  login's own time stay in memory only. The contract takes `route`, `used` and `held`
+  together or none, and `routeWhy` only with them; the service stores them in nullable
+  `login_timings` columns (migration 0042).
+- A login that went on after its passkey button to a layout asking for the account
+  ([ADR 0060 amendment of 2026-11-18](0060-recipe-layouts.md#amendment-2026-11-18-a-passkey-button-that-leads-to-a-step-asking-for-the-account))
+  ran all of that layout's steps, so it sends a record, though it stops for the passkey
+  as a login of an item without a password does. Its first-login result code leaves out
+  an end `challenge` at that stop, which says nothing of the plan. Its `route` is
+  `password`, the route it ran, and `used` is `passkey` when the passkey answered at the
+  stop.
 - `used` counts only what came before the record was sent: a passkey a site asks for
   after the login completed, as Cloudflare's security key after its password, is not in
   the record, though it keeps the warning from being logged.

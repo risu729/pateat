@@ -324,6 +324,10 @@ describe("production login document admission", () => {
           "pateat.login-relogins.v1": [],
           "pateat.login-detail-offers.v1": [],
           "pateat.login-pending-details.v1": [],
+          // What the login's item holds, for its record after a worker restart (ADR 0055).
+          "pateat.login-methods.v1": [
+            { attemptId: expect.any(String), held: ["password"], used: [], marks: {} },
+          ],
         });
         // The time the popup offered the choice is the person's, in the login's times too
         // (ADR 0019).
@@ -347,6 +351,7 @@ describe("production login document admission", () => {
             "pateat.login-relogins.v1": [],
             "pateat.login-detail-offers.v1": [],
             "pateat.login-pending-details.v1": [],
+            "pateat.login-methods.v1": [],
           }),
         );
       });
