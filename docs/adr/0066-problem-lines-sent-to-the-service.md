@@ -278,8 +278,16 @@ Now:
   passkey can no longer come as its second factor (`RESULT_CORRECTION_MS`, 30 seconds,
   the window [ADR 0029](0029-local-sign-in-state.md) gives such a request); a passkey
   the login's item answers before then leaves it out. The timer bounds a wait for that
-  answer and never holds the login ([ADR 0082](0082-waits-on-signals.md)). A worker that
-  stops before then loses the line.
+  answer and never holds the login ([ADR 0082](0082-waits-on-signals.md)); the worker
+  stays up for it as for a model call, so a stopped worker does not lose the line.
+- An end that says nothing of the method logs nothing: a cancel, a change of settings,
+  vault or account, a page that left the origin, a wrong or unlisted account
+  (`cancelled`, `policy-changed`, `account-switched`, `wrong-account`,
+  `account-not-listed`, `left-origin`), and a login on the passkey's own route that
+  ended before it answered and never went back to the password (`not-answered`), which
+  its own `login.attempt` line covers. A passkey the item answers counts for the tab's
+  login after the tab moved to another origin too, as it can then
+  ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
 - The line carries no page path: it is logged after the login submitted, which
   `pathAllowed` never lets leave. Its fields are codes and counts only.
 

@@ -379,6 +379,12 @@ export type LoginRuntimeOptions = {
    */
   keepAwake?: (awake: boolean) => void;
   /**
+   * Keeps the worker up until `work` settles, as for a model call: a signed-in login's
+   * `login.route` warning waits out its second factor's window (ADR 0066, amended
+   * 2026-11-18).
+   */
+  keepAlive?: (work: Promise<void>) => void;
+  /**
    * Told once the runtime has handled a tab's top-frame announcement, which may count
    * the site's items for the toolbar badge (ADR 0021).
    */

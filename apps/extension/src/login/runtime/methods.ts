@@ -60,6 +60,8 @@ type Pending = {
   methods: AttemptMethods;
   kept: Kept;
   timer: ReturnType<typeof setTimeout>;
+  /** Lets the worker stop again. */
+  done: () => void;
 };
 
 /** Logins whose methods are kept at once; the oldest goes first. */
@@ -122,6 +124,7 @@ export function methodUsed(rt: Runtime, attemptId: string, method: LoginMethod):
   waiting.kept.used.add(method);
   clearTimeout(waiting.timer);
   pending.delete(attemptId);
+  waiting.done();
   writeWarning(rt, waiting.metadata, summary(waiting.metadata, waiting.kept));
 }
 
@@ -136,10 +139,26 @@ function whyOf(
   if (marks.picked) return "picked";
   if (missed === "sso") return metadata.route === "password" ? "sso-not-automatic" : "unknown";
   if (marks.routeChange) return marks.routeChange;
+  // The login took the passkey's own route and ended before an answer: it passed nothing
+  // over, and its own line says how it ended.
+  if (metadata.route === "passkey") return "not-answered";
   if (marks.passkeyRefused) return "passkey-refused";
   if (marks.later) return "later-start";
   return metadata.route === "password" ? "no-passkey-route" : "unknown";
 }
+
+/**
+ * Ends that say nothing of the method: the person's cancel, a change of settings, vault or
+ * account, a page that left the origin, or a list without the account. They warn of none.
+ */
+const QUIET_OUTCOMES: ReadonlySet<string> = new Set([
+  "cancelled",
+  "policy-changed",
+  "account-switched",
+  "wrong-account",
+  "account-not-listed",
+  "left-origin",
+]);
 
 function summary(metadata: LoginAttemptMetadata, kept: Kept): AttemptMethods {
   const held = [...kept.held];
@@ -154,7 +173,7 @@ function summary(metadata: LoginAttemptMetadata, kept: Kept): AttemptMethods {
 }
 
 function writeWarning(rt: Runtime, metadata: LoginAttemptMetadata, methods: AttemptMethods) {
-  if (!methods.why || !loginMethodSuspect(methods.why)) return;
+  if (!methods.why || !warns(metadata, methods)) return;
   try {
     rt.options.report?.({
       type: "route",
@@ -174,6 +193,17 @@ function writeWarning(rt: Runtime, metadata: LoginAttemptMetadata, methods: Atte
   }
 }
 
+function warns(metadata: LoginAttemptMetadata, methods: AttemptMethods): boolean {
+  return (
+    !!methods.why && loginMethodSuspect(methods.why) && !QUIET_OUTCOMES.has(metadata.outcome ?? "")
+  );
+}
+
+/** Drops attempt `attemptId`'s methods, as for an SSO hop's own login, which has no record. */
+export function dropMethods(rt: Runtime, attemptId: string): void {
+  tablesOf(rt).kept.delete(attemptId);
+}
+
 /**
  * Attempt `metadata.id`'s methods, taken once when its login ended, for its record; nothing
  * for a login whose methods were not kept. A login that passed over a better method for a
@@ -189,23 +219,39 @@ export function takeMethods(
   const found = kept.get(metadata.id);
   if (!found) return undefined;
   kept.delete(metadata.id);
+  // An item that holds no method Pateat can use here, as one with only a passkey that is
+  // not discoverable, names none.
+  if (!found.held.size) return undefined;
   const methods = summary(metadata, found);
-  if (!methods.why || !loginMethodSuspect(methods.why)) return methods;
+  if (!warns(metadata, methods)) return methods;
   if (metadata.state !== "authenticated") {
     writeWarning(rt, metadata, methods);
     return methods;
+  }
+  let done = () => {};
+  // The worker stays up for the window, as a stopped one would lose the warning.
+  try {
+    rt.options.keepAlive?.(
+      new Promise<void>((resolve) => {
+        done = resolve;
+      }),
+    );
+  } catch {
+    // Keeping the worker up never changes the login.
   }
   const timer = setTimeout(() => {
     const waiting = pending.get(metadata.id);
     if (!waiting) return;
     pending.delete(metadata.id);
+    waiting.done();
     writeWarning(rt, waiting.metadata, waiting.methods);
   }, RESULT_CORRECTION_MS);
-  pending.set(metadata.id, { metadata, methods, kept: found, timer });
+  pending.set(metadata.id, { metadata, methods, kept: found, timer, done });
   for (const [old, waiting] of pending) {
     if (pending.size <= KEPT_ATTEMPTS) break;
     clearTimeout(waiting.timer);
     pending.delete(old);
+    waiting.done();
     writeWarning(rt, waiting.metadata, waiting.methods);
   }
   return methods;

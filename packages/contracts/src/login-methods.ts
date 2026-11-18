@@ -33,6 +33,8 @@ export type LoginMethod = (typeof LOGIN_METHODS)[number];
  *   (ADR 0035).
  * - `sso-not-automatic`: none of the item's SSO methods is chosen automatically, so the
  *   chooser takes the password (ADR 0085).
+ * - `not-answered`: the login took the passkey's own route and ended before it answered,
+ *   without going back to the password; its own line says how it ended.
  */
 export const LOGIN_METHOD_WHYS = {
   "no-passkey-route": true,
@@ -47,6 +49,7 @@ export const LOGIN_METHOD_WHYS = {
   "fill-only": false,
   "sign-in-fill": false,
   "sso-not-automatic": false,
+  "not-answered": false,
 } as const satisfies Record<string, boolean>;
 export type LoginMethodWhy = keyof typeof LOGIN_METHOD_WHYS;
 export const loginMethodWhySchema = v.picklist(

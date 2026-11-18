@@ -35,7 +35,7 @@ import {
 import { pauseOf } from "./pause";
 import { saveSession, reportAttempt, publish, report, startTiming, save } from "./attempt";
 import { addSpan, openSpans } from "./spans";
-import { openMethods } from "./methods";
+import { dropMethods, openMethods } from "./methods";
 import { clearChoice, offerChoice } from "./choice";
 import { type Readiness, type Execution } from "./types";
 import { listClick, showsNow } from "./markers";
@@ -799,6 +799,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   }
   const ssoParent = ssoChildOn(rt, ctx.document);
   if (ssoParent && metadata.id !== ssoParent.childId) {
+    // An SSO hop's own login sends no record; its parent names the method.
+    dropMethods(rt, metadata.id);
     if (!registerSsoChild(rt.sso, ssoParent, metadata)) return ctx.refuse("sso-child-changed");
     delete run.choice;
   }

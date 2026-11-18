@@ -149,6 +149,34 @@ describe("sign-in methods of a login (ADR 0055, amended 2026-11-18)", () => {
     ]);
   });
 
+  it("warns of no passkey route that ended before its answer, nor of a cancel", () => {
+    const { rt, reports } = runtime();
+    openMethods(rt, "a", ["passkey", "password"]);
+    expect(takeMethods(rt, ended("a", "passkey", "blocked"))?.why).toBe("not-answered");
+    openMethods(rt, "b", ["passkey", "password"]);
+    methodUsed(rt, "b", "password");
+    expect(
+      takeMethods(rt, { ...ended("b", "password", "blocked"), outcome: "cancelled" })?.why,
+    ).toBe("no-passkey-route");
+    expect(reports).toEqual([]);
+  });
+
+  it("keeps the worker up for a held warning, and names nothing for an item with no method", async () => {
+    const { rt } = runtime();
+    const kept: Promise<void>[] = [];
+    rt.options.keepAlive = (work) => {
+      kept.push(work);
+    };
+    openMethods(rt, "a", ["passkey", "password"]);
+    methodUsed(rt, "a", "password");
+    takeMethods(rt, ended("a", "password"));
+    expect(kept).toHaveLength(1);
+    vi.advanceTimersByTime(RESULT_CORRECTION_MS);
+    await expect(kept[0]).resolves.toBeUndefined();
+    openMethods(rt, "b", []);
+    expect(takeMethods(rt, ended("b", "password"))).toBeUndefined();
+  });
+
   it("names the corrected outcome of a warning still held", () => {
     const { rt, reports } = runtime();
     openMethods(rt, "a", ["passkey", "password"]);

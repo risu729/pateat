@@ -183,7 +183,8 @@ carries:
   the login used (`missedLoginMethod`), why it did not use it (`LOGIN_METHOD_WHYS`):
   `no-passkey-route`, `request-missing`, `answer-failed`, `sign-in-rejected`,
   `sign-in-shown`, `passkey-refused`, `later-start` or `unknown`, each of which may be a
-  bug, or `picked`, `fill-only`, `sign-in-fill` or `sso-not-automatic`, which are the
+  bug, or `picked`, `fill-only`, `sign-in-fill`, `sso-not-automatic` or `not-answered`
+  (the passkey's own route ended before it answered), which are the
   person's choice or a setting.
 
 The same login logs a `login.route` warning for a reason that may be a bug, which goes
@@ -205,6 +206,8 @@ Not confirmed by the owner (the agent's choices):
   `passkey-refused`. A site whose passkeys go to the browser
   ([ADR 0007](0007-existing-passkey-assertions.md)) and a page where passkeys cannot run
   read no passkey for the item, so the item holds none there.
+- An item that holds none of these here, as one with only a passkey that is not
+  discoverable, names none of them.
 - A login with no record, such as an item without a password stopping before it
   ([ADR 0036](0036-passkey-after-the-identifier.md)), still logs its warning.
 

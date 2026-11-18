@@ -38,6 +38,6 @@ describe("sign-in methods (ADR 0055, amendment of 2026-11-18)", () => {
       Object.entries(LOGIN_METHOD_WHYS)
         .filter(([why]) => !loginMethodSuspect(why as keyof typeof LOGIN_METHOD_WHYS))
         .map(([why]) => why),
-    ).toEqual(["picked", "fill-only", "sign-in-fill", "sso-not-automatic"]);
+    ).toEqual(["picked", "fill-only", "sign-in-fill", "sso-not-automatic", "not-answered"]);
   });
 });
