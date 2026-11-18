@@ -868,16 +868,18 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   // A page of the IdP's own origin that is neither its sign-in form nor a finite step, as a
   // risk check or a method chooser after the IdP's own submit, is that login's next page:
   // it is admitted with its record, as a direct login of the IdP goes on to its handlers
-  // or its watch there. Before that login began, such a page, as a redirect through an
-  // interstitial, waits as a sign-in in progress; the flow's own time bounds it (ADR 0026,
-  // amendment of 2026-11-18). An unsafe page still ends the flow.
+  // or its watch there (ADR 0026, amendment of 2026-11-18). An unsafe page still ends the
+  // flow.
   if (parsed.output.kind === "unknown") {
     if (childRuns) return undefined;
-    // So does such a page after the IdP's own login signed in, as one the IdP shows on its
-    // way back to the RP: nothing is pressed, and only the RP's own evidence completes the
-    // flow. One after that login stopped ends it.
+    // Before that login began, or after it signed in, only a page that offers the person
+    // nothing to choose, as an interstitial that sends the tab on by itself, waits as a
+    // sign-in in progress: nothing is pressed, the flow's own time bounds it, and only the
+    // RP's own evidence completes the flow. A page with its own choices, and any page
+    // after that login stopped, ends it.
     const ended = child?.metadata.id === work.childId ? child?.metadata : work.childRecord;
-    if (!work.childId || ended?.state === "authenticated") return ctx.refuse("sso-in-progress");
+    if (!parsed.output.controls && (!work.childId || ended?.state === "authenticated"))
+      return ctx.refuse("sso-in-progress");
   }
   cancelSso(rt, ctx.document.tabId, "sso-idp-stop");
   return ctx.refuse("sso-idp-stop");

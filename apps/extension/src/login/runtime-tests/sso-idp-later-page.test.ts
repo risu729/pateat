@@ -105,7 +105,8 @@ const idpRecipe: LoginRecipe = {
 const cleanup: ReturnType<typeof createRuntimeState>[] = [];
 const delivery = vi.spyOn(fake.browser.tabs, "sendMessage");
 /** What the IdP page reads as, for `login.sso.idp`. */
-let reading: Record<string, unknown> = { kind: "unknown" };
+/** What the IdP page reads as: by default, a page that offers nothing to choose. */
+let reading: Record<string, unknown> = { kind: "unknown", controls: false };
 async function harness() {
   const catalog = {
     connections: [connection("rp-vault", rpItem, rp), connection("idp-vault", idpItem, idp)],
@@ -384,21 +385,21 @@ beforeEach(() => {
   fake.state.tabUrls = {};
   fake.state.incognito = new Set();
   fake.state.granted = true;
-  reading = { kind: "unknown" };
+  reading = { kind: "unknown", controls: false };
 });
 afterEach(() => {
   for (const rt of cleanup.splice(0)) cancelSso(rt, 7, "synthetic-test-finished");
 });
 
 describe("an IdP page that is neither its sign-in form nor a finite step", () => {
-  it("waits as a sign-in in progress before the IdP's own login began, through a risk check and a method chooser", async () => {
+  it("waits as a sign-in in progress before the IdP's own login began, through pages that offer nothing", async () => {
     const h = await harness();
-    // The IdP's first page shows no identifier input, then a risk check, then its method
-    // chooser, all on its own origin: none ends the flow.
+    // The IdP's first page shows no identifier input and nothing else to choose, then a
+    // risk check that sends the tab on by itself, both on its own origin: neither ends the
+    // flow.
     for (const [documentId, path] of [
       ["idp-first", "/authsvc"],
       ["idp-risk", "/risk/v3.0/authz/pages/compute"],
-      ["idp-methods", "/authsvc"],
     ] as const) {
       const page = h.idpPage(documentId, path);
       // oxlint-disable-next-line no-await-in-loop -- the tab's pages come one after another
@@ -414,6 +415,44 @@ describe("an IdP page that is neither its sign-in form nor a finite step", () =>
         ["login.sso.prepare", "login.fill", "login.click"].includes(String(message["type"])),
       ),
     ).toHaveLength(1);
+    // A method chooser that no login reached offers its own choices: no login starts at a
+    // handler yet (proposal of ADR 0026, amendment of 2026-11-18), so the flow stops there.
+    reading = { kind: "unknown", controls: true };
+    const methods = h.idpPage("idp-methods", "/authsvc");
+    expect(await ssoAdmit(h.rt, methods.ctx)).toEqual({ ok: false, reason: "sso-idp-stop" });
+    expect(h.work.ended).toBe(true);
+  });
+  it.each([
+    ["before the IdP's own login began", false],
+    ["after the IdP's own login signed in", true],
+  ])("stops on a page that offers its own choices %s", async (_name, signedIn) => {
+    const h = await harness();
+    if (signedIn) {
+      const first = h.idpPage("idp-first", "/authsvc");
+      const run = idpChild(h, first.live, submitted);
+      run.metadata = transitionLoginAttempt(run.metadata, {
+        type: "OBSERVED",
+        result: "authenticated",
+        document: first.live.document,
+      });
+      ssoChildChanged(h.rt, run);
+    }
+    // As a browser-identity button or a link to another provider: the page asks the
+    // person to choose, so the flow does not wait on it (ADR 0026, hardening of
+    // 2026-11-16).
+    reading = { kind: "unknown", controls: true };
+    const page = h.idpPage("idp-choice", "/choose");
+    expect(await ssoAdmit(h.rt, page.ctx)).toEqual({ ok: false, reason: "sso-idp-stop" });
+    expect(h.work.ended).toBe(true);
+  });
+  it("admits a page with its own choices with the IdP's own login while it runs", async () => {
+    const h = await harness();
+    const first = h.idpPage("idp-first", "/authsvc");
+    idpChild(h, first.live, submitted);
+    reading = { kind: "unknown", controls: true };
+    const page = h.idpPage("idp-methods", "/authsvc");
+    expect(await ssoAdmit(h.rt, page.ctx)).toBeUndefined();
+    expect(h.work.ended).toBe(false);
   });
   it("admits the risk check and the method chooser with the IdP's own login that submitted", async () => {
     const h = await harness();
@@ -424,6 +463,8 @@ describe("an IdP page that is neither its sign-in form nor a finite step", () =>
       ["idp-risk", "/risk/v3.0/authz/pages/compute"],
       ["idp-methods", "/authsvc"],
     ] as const) {
+      // The method chooser offers its method buttons; the risk check offers nothing.
+      reading = { kind: "unknown", controls: documentId === "idp-methods" };
       const page = h.idpPage(documentId, path);
       // The page goes on to the tab's ordinary admission, which resumes the IdP's own login
       // there, as a direct login of the IdP goes on to its handlers after its submit.
@@ -535,6 +576,7 @@ describe("the tab's own admission of the IdP's pages", () => {
         origin: idp,
         url,
       };
+      reading = { kind: "unknown", controls: documentId === "idp-methods" };
       h.rt.hellos.set("hello-" + documentId, 1);
       // oxlint-disable-next-line no-await-in-loop -- the tab's pages come one after another
       await admit(h.rt, sender as never, documentId + "-token", "hello-" + documentId, 1);

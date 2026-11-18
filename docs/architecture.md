@@ -5016,9 +5016,12 @@ admitted with the IdP child's record while that child runs, so it goes on to its
 handlers or its watch there as a direct login of the IdP does. That includes an account
 confirmation over its 16-letter text allowance, on which the child acts only through
 its own recipe's targets. Before any child began, or after the child signed in, such a
-page refuses `sso-in-progress` and the flow waits, pressing nothing, bounded by its ten
-minutes (`sso-expired`); only the RP's own evidence completes it. An `unsafe` reading,
-or an `unknown` one after the child ended `blocked`, still ends the flow `sso-idp-stop`.
+page waits only when it offers no visible control of its own (the reading's `controls`
+is false: no button, link, field or frame with an area): it refuses `sso-in-progress`
+and the flow waits, pressing nothing, bounded by its ten minutes (`sso-expired`); only
+the RP's own evidence completes it. An `unknown` page with its own controls at those
+times, an `unsafe` reading, or an `unknown` one after the child ended `blocked`, still
+ends the flow `sso-idp-stop`.
 A child whose result settled as unknown, or that is watched after a challenge, keeps the
 flow; only a `blocked` child ends it (`sso-idp-child-stopped`). The child's
 `login.attempt` lines are logged on the device with `ssoChild`, also its end when the

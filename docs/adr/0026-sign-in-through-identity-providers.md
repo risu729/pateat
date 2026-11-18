@@ -571,16 +571,24 @@ Decisions, all the agent's and awaiting the owner's decision:
    That includes an account confirmation over its text allowance, which before stopped
    the flow: the child's ordinary admission acts only on its own recipe's targets, never
    on the page's confirmation control.
-3. **Otherwise such a page waits.** An IdP page that reads `unknown` before the IdP's
-   own login began, as an interstitial on the way to the sign-in form, or after that
-   login signed in, as a page on the IdP's way back to the RP, refuses `sso-in-progress`
-   and the flow waits for the tab's next page, bounded by the flow's ten minutes
-   (`sso-expired`). Nothing is pressed or filled on it, and only the RP's own evidence
-   completes the flow. This changes the
-   [hardening of 2026-11-16](#review-hardening-2026-11-16-finite-idp-steps-named-by-the-page),
-   under which such a page stopped the flow; a page that reads `unsafe`, and an
-   `unknown` page after the child ended `blocked`, including one the flow detached
-   before a finite step, still stop it with `sso-idp-stop`.
+3. **Otherwise only a page with nothing to choose waits.** Each `unknown` reading says
+   whether the page offers the person a visible control of its own: a button, a link, a
+   field, a list, a frame or an element with such a role, with an area greater than
+   zero (`controls`, from `offersControls` in `content-sso.ts`, read also when the
+   page's observation is incomplete). An IdP page that reads `unknown` with no control,
+   before the IdP's own login began, as an interstitial on the way to the sign-in form,
+   or after that login signed in, as a page on the IdP's way back to the RP, refuses
+   `sso-in-progress` and the flow waits for the tab's next page, bounded by the flow's
+   ten minutes (`sso-expired`). Nothing is pressed or filled on it, and only the RP's
+   own evidence completes the flow. An `unknown` page that offers its own choices at
+   those times, as a browser-identity button, a link to another provider, a "Verify
+   it's you" page with its Next button or a method chooser no login of the IdP reads,
+   still stops the flow with `sso-idp-stop`, as under the
+   [hardening of 2026-11-16](#review-hardening-2026-11-16-finite-idp-steps-named-by-the-page):
+   the flow cannot tell which choice the person wants, and a page with choices does not
+   move on by itself. So do a page that reads `unsafe` and an `unknown` page after the
+   child ended `blocked`, including one the flow detached before a finite step. While
+   the child runs, decision 2 holds whatever the page offers.
 4. **A watched child keeps the flow.** Only a child that ended `blocked` ends the flow
    (`sso-idp-child-stopped`). One whose result settled as unknown or that is watched
    after a challenge keeps it: its watch may enter a handler on the IdP's next page, and
