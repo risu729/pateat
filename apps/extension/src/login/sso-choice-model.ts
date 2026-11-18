@@ -27,8 +27,14 @@ export type SsoChoiceInput = {
    */
   basis?: Saved;
   native: { passkey: boolean; password: boolean };
-  /** Explicit choices remain per offer; they never change a site or IdP default. */
-  automatic?: boolean;
+  /**
+   * Explicit choices remain per offer; they never change a site or IdP default. `sso` is
+   * **Log in now**'s: only an SSO method the automatic order decides runs by itself, and
+   * the explicit chooser stays open otherwise (ADR 0088 amendment of 2026-11-18).
+   */
+  automatic?: boolean | "sso";
+  /** For `automatic: "sso"`: whether the request's scope reaches the IdP's origin. */
+  hopAllowed?: (origin: string) => Promise<boolean>;
   /** An IdP hop can use only that account's native routes; never another SSO hop. */
   asIdentityProvider?: boolean;
   /** URL-form entries come from a local observation, never from a guessed provider label. */
@@ -36,6 +42,14 @@ export type SsoChoiceInput = {
   entryCurrent?: (entryId: string) => Promise<boolean>;
   /** A fresh explicit HTTP destination of the entry matches this selected origin; never a label guess. */
   entryOrigin?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
+  /**
+   * A broker page's entry (ADR 0085 amendment of 2026-11-18): an SSO layout the site's
+   * recipe holds for this page names it, a flow pressed it there and reached
+   * `selectedOrigin`, and a fresh inspection finds it going nowhere but the page's own
+   * origin. Only with a saved mapping, and only when no entry's own destination names
+   * the mapped origin.
+   */
+  entryLearned?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
   signal?: AbortSignal;
 };
 export type SsoResolvedChoice =

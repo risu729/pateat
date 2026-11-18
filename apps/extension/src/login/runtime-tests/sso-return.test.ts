@@ -21,7 +21,7 @@ const io = vi.hoisted(() => ({
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { createRuntimeState } = await import("../runtime/state");
-const { ssoAdmit } = await import("../runtime/sso/flow");
+const { ssoAdmit, ssoWaiting } = await import("../runtime/sso/flow");
 const { heldElsewhere } = await import("../runtime/hold");
 const { manualOffer, manualStart } = await import("../runtime/manual");
 const { createLoginSites } = await import("../sites");
@@ -57,6 +57,7 @@ function harness(
     | { ok: true; identity: "match" | "different" | "absent" }
     | { ok: false; reason: string },
   marker = true,
+  at = rp,
 ) {
   const catalog = {
     connections: [connection("rp-vault", rpItem, rp), connection("idp-vault", idpItem, idp)],
@@ -164,9 +165,9 @@ function harness(
   rt.attemptRecords.write = vi.fn(async () => undefined);
   const timing = { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 };
   const live: LiveDocument = {
-    document: { origin: rp, tabId: 7, frameId: 0, documentId: "returned-rp" },
+    document: { origin: at, tabId: 7, frameId: 0, documentId: "returned-rp" },
     token: "return-token",
-    url: rp + "/home",
+    url: at + "/home",
     path: "/home",
     incognito: false,
     seenAt: Date.now(),
@@ -174,7 +175,7 @@ function harness(
   };
   const rpLive = {
     ...live,
-    document: { ...live.document, documentId: "initial-rp" },
+    document: { ...live.document, origin: rp, documentId: "initial-rp" },
     path: "/signin",
     url: rp + "/signin",
   };
@@ -328,6 +329,46 @@ describe("actual SSO RP-return admission and final evidence", () => {
       false,
     );
     expect(h.signedIn).toHaveBeenCalledWith(7, rp);
+  });
+  // A broker such as flow.idp.hashicorp.com hands the tab back to the site's portal on
+  // another origin of the same registrable site (ADR 0085 amendment of 2026-11-18).
+  it("completes a return to another origin of the RP's own site, for the RP's account", async () => {
+    const portal = "https://portal.example.test";
+    const h = harness({ ok: true, identity: "absent" }, true, portal);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    // The RP item must still match the page, as its URIs under a Domain rule do.
+    h.saved.catalog.connections[0]!.items[0]!.allowedOrigins.push(portal);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.work.parent?.state).toBe("authenticated");
+    expect(h.work.parent?.account).toEqual(h.work.account);
+    expect(h.signedIn).toHaveBeenCalledWith(7, rp);
+  });
+  it("never completes a same-site return the RP item does not match", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true, "https://portal.example.test");
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-scope-changed" });
+    expect(h.signedIn).not.toHaveBeenCalled();
+  });
+  it("learns which IdP a pressed URL-form entry reached, once the tab is there", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true, idp);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    const target = { by: "id" as const, value: "provider-entry" };
+    h.work.phase = "entering-idp";
+    h.work.form = "url";
+    h.work.entry = { path: "/signin", target };
+    await ssoAdmit(h.rt, h.ctx);
+    await vi.waitFor(() =>
+      expect(io.setItem).toHaveBeenCalledWith("local:pateat.login.sso-entries.v1", [
+        { origin: rp, path: "/signin", target, idp },
+      ]),
+    );
+  });
+  it("keeps a return to another site forbidden", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true, "https://portal.elsewhere.test");
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-forbidden-origin" });
+    expect(h.work.parent?.state).not.toBe("authenticated");
+    expect(h.signedIn).not.toHaveBeenCalled();
   });
   it("absence of both exact local identity and a fresh marker never authenticates", async () => {
     const h = harness({ ok: true, identity: "absent" }, false);
@@ -661,6 +702,44 @@ describe("an RP page before and after the IdP is reached", () => {
     expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
     expect(h.work.parent?.state).toBe("authenticated");
     expect(h.signedIn).toHaveBeenCalledWith(7, rp);
+  });
+  // An IdP with a live session and grant, as GitHub's, shows no page: the completion is
+  // where the pressed entry led, so the next Log in now presses it by itself.
+  it("learns the pressed entry when the IdP sent the tab straight back", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.work, { form: "url", entry: { path: "/signin", target } });
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    await vi.waitFor(() =>
+      expect(io.setItem).toHaveBeenCalledWith("local:pateat.login.sso-entries.v1", [
+        { origin: rp, path: "/signin", target, idp },
+      ]),
+    );
+  });
+  it("learns nothing from an instant return that completes nothing", async () => {
+    const h = harness({ ok: true, identity: "absent" }, false);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    spent(h);
+    const target = { by: "id" as const, value: "provider-entry" };
+    Object.assign(h.work, { form: "url", entry: { path: "/signin", target } });
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(io.setItem.mock.calls.some(([key]) => String(key).includes("sso-entries"))).toBe(false);
+  });
+  it("lets Log in now on another origin of the RP's site end a waiting flow", async () => {
+    const portal = "https://portal.example.test";
+    const h = harness({ ok: true, identity: "absent" }, false, portal);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    h.saved.catalog.connections[0]!.items[0]!.allowedOrigins.push(portal);
+    spent(h);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(ssoWaiting(h.rt, h.ctx.live, h.work.parent!)).toBe(true);
+    const manual = { ...h.ctx, manual: { request: "manual-request" } } as unknown as AdmitContext;
+    expect(await ssoAdmit(h.rt, manual)).toBeUndefined();
+    expect(h.work.ended).toBe(true);
+    expect(h.rt.sso.flows.has(7)).toBe(false);
   });
   it("never completes a bracket-form method on a marker alone after an instant return", async () => {
     // The IdP may have signed in another of the person's accounts: a marker says nothing

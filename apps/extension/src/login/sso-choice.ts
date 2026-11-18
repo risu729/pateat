@@ -48,9 +48,13 @@ type Receipt = {
   selection: SsoResolvedChoice;
   /** Only an automatic URL-form choice requires this exact destination again when consumed. */
   entryOrigin?: string;
+  /** An automatic choice of a broker page's learned entry requires it again when consumed. */
+  learned?: true;
   /** The person picked it in the popup, rather than the automatic order (ADR 0085). */
   picked?: true;
 };
+/** What a receipt keeps beside its selection, for {@link Receipt}. */
+type ReceiptFacts = Pick<Receipt, "entryOrigin" | "learned" | "picked">;
 type Refusal = { reason: string; field?: string };
 type SsoSelection = Extract<SsoChooseRequest["selection"], { kind: "sso" }>;
 const failure = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
@@ -228,19 +232,15 @@ export function createSsoChoiceController(options: {
     if (!checked.ok) return refusal(checked);
     return (await current(offer)) ? undefined : { reason: "scope-changed" };
   }
-  function resolve(
-    offer: Offer,
-    selection: SsoResolvedChoice,
-    entryOrigin?: string,
-    picked?: true,
-  ) {
+  function resolve(offer: Offer, selection: SsoResolvedChoice, facts: ReceiptFacts = {}) {
     if (!retained(offer) || offer.settled) return failure("offer-gone");
     const choiceId = newId();
     receipts.set(choiceId, {
       offer,
       selection,
-      ...(entryOrigin ? { entryOrigin } : {}),
-      ...(picked ? { picked } : {}),
+      ...(facts.entryOrigin ? { entryOrigin: facts.entryOrigin } : {}),
+      ...(facts.learned ? { learned: facts.learned } : {}),
+      ...(facts.picked ? { picked: facts.picked } : {}),
     });
     finish(offer, { ok: true, choiceId });
     return { ok: true as const };
@@ -251,8 +251,39 @@ export function createSsoChoiceController(options: {
    * else waits for the person to choose the entry; a label is never guessed.
    */
   async function automaticUrl(offer: Offer, method: Method): Promise<Refusal | undefined> {
-    const { entryCurrent, entryOrigin, entries } = offer.input;
+    const found = await urlEntry(offer, method);
+    if (found === "withdrawn") return { reason: "scope-changed" };
+    if (!found) {
+      offer.reason = "entry-required";
+      return undefined;
+    }
+    // After the entries' own awaits, so a vault or document change during them refuses.
+    const refused = await validateSso(offer, method);
+    if (refused) return refused;
+    resolveUrl(offer, method, found);
+    return undefined;
+  }
+  type UrlEntry = { entry: { id: string; label: string }; exact: boolean };
+  function resolveUrl(offer: Offer, method: Method, { entry, exact }: UrlEntry) {
     const selected = selectedOf(method)!.selected;
+    resolve(
+      offer,
+      { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
+      exact ? { entryOrigin: selected.origin } : { learned: true },
+    );
+  }
+  /**
+   * The one entry the automatic order presses for a mapped URL-form method: the one whose
+   * own destination is the mapped origin, or, on a broker page where none is, the one the
+   * page learned for that origin (owner, 2026-11-18, ADR 0085). Undefined when none or
+   * several qualify.
+   */
+  async function urlEntry(
+    offer: Offer,
+    method: Method,
+  ): Promise<UrlEntry | "withdrawn" | undefined> {
+    const { entryCurrent, entryOrigin, entryLearned, entries } = offer.input;
+    const origin = selectedOf(method)!.selected.origin;
     const matches: { id: string; label: string }[] = [];
     for (const entry of entryCurrent && entryOrigin ? (entries ?? []) : []) {
       // oxlint-disable-next-line no-await-in-loop -- each entry's evidence is its own
@@ -260,24 +291,63 @@ export function createSsoChoiceController(options: {
       const same =
         present &&
         // oxlint-disable-next-line no-await-in-loop -- destination evidence belongs to this entry
-        (await entryOrigin?.(entry.id, selected.origin).catch(() => false));
-      if (!retained(offer)) return { reason: "scope-changed" };
+        (await entryOrigin?.(entry.id, origin).catch(() => false));
+      if (!retained(offer)) return "withdrawn";
       if (same) matches.push(entry);
       if (matches.length > 1) break;
     }
-    const [entry] = matches;
-    if (matches.length !== 1 || !entry) {
-      offer.reason = "entry-required";
-      return undefined;
+    if (matches.length)
+      return matches.length === 1 ? { entry: matches[0]!, exact: true } : undefined;
+    // On a broker page no entry names the mapped origin: its provider button submits to
+    // the site, which sends the tab on.
+    const learned: { id: string; label: string }[] = [];
+    for (const entry of entryCurrent && entryLearned ? (entries ?? []) : []) {
+      const known =
+        // oxlint-disable-next-line no-await-in-loop -- each entry's evidence is its own
+        (await entryCurrent?.(entry.id).catch(() => false)) &&
+        // oxlint-disable-next-line no-await-in-loop -- what the page learned belongs to this entry
+        (await entryLearned?.(entry.id, origin).catch(() => false));
+      if (!retained(offer)) return "withdrawn";
+      if (known) learned.push(entry);
+      if (learned.length > 1) break;
     }
-    // After the entries' own awaits, so a vault or document change during them refuses.
-    const refused = await validateSso(offer, method);
-    if (refused) return refused;
-    resolve(
-      offer,
-      { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
-      selected.origin,
-    );
+    return learned.length === 1 ? { entry: learned[0]!, exact: false } : undefined;
+  }
+  /**
+   * **Log in now** (ADR 0088 amendment of 2026-11-18): it presses by itself only the SSO
+   * method the automatic order decides, on an item with no numbered method and no passkey
+   * the order would take first, where its hop is allowed. Anything else leaves the
+   * explicit chooser open, as before.
+   */
+  async function automaticSso(offer: Offer): Promise<Refusal | undefined> {
+    const { native, hopAllowed } = offer.input;
+    const preferred = offer.methods.find((entry) => entry.automatic);
+    const chosen = preferred && selectedOf(preferred);
+    if (
+      !preferred ||
+      !chosen ||
+      !hopAllowed ||
+      native.passkey ||
+      offer.methods.some((entry) => !entry.automatic)
+    )
+      return undefined;
+    const found = preferred.form === "url" ? await urlEntry(offer, preferred) : undefined;
+    if (found === "withdrawn") return { reason: "scope-changed" };
+    if (preferred.form === "url" && !found) return undefined;
+    const allowed = await hopAllowed(chosen.selected.origin).catch(() => false);
+    if (!retained(offer)) return { reason: "scope-changed" };
+    if (!allowed) return undefined;
+    // A refusal the person would meet in the chooser leaves the chooser to show it.
+    const refused = await validateSso(offer, preferred);
+    if (refused) return refused.reason === "scope-changed" ? refused : undefined;
+    if (found) resolveUrl(offer, preferred, found);
+    else
+      resolve(offer, {
+        kind: "sso",
+        source: preferred.source,
+        selected: chosen.selected,
+        ...(preferred.label ? { label: preferred.label } : {}),
+      });
     return undefined;
   }
   /** Lists the saved IdP accounts and origins a method may use; keeps a chosen one. */
@@ -441,8 +511,7 @@ export function createSsoChoiceController(options: {
         ...(label ? { label } : {}),
         ...(selection.entryId ? { entryId: selection.entryId } : {}),
       },
-      undefined,
-      true,
+      { picked: true },
     );
   }
   async function choose(request: SsoChooseRequest): Promise<SsoActionResponse> {
@@ -456,7 +525,7 @@ export function createSsoChoiceController(options: {
       // A native route needs no SSO method to be mapped or valid (ADR 0085).
       if (selection.kind === "native") {
         if (!offer.input.native[selection.route]) return failure("method-unavailable");
-        return resolve(offer, selection, undefined, true);
+        return resolve(offer, selection, { picked: true });
       }
       const method = methodOf(offer, selection.method.number);
       if (!method) return failure("method-unavailable");
@@ -566,6 +635,7 @@ export function createSsoChoiceController(options: {
       if (!(await prepare(offer, entry, saved))) return { reason: "scope-changed" };
     }
     if (!(await current(offer))) return { reason: "scope-changed" };
+    if (input.automatic === "sso") return automaticSso(offer);
     return input.automatic ? automatic(offer) : undefined;
   }
   return {
@@ -576,6 +646,8 @@ export function createSsoChoiceController(options: {
     async request(input: SsoChoiceInput): Promise<{
       offerId: string;
       result: Promise<SsoChoiceOutcome>;
+      /** The offer is open and waits for the person's choice in the popup. */
+      waiting?: true;
     }> {
       const { tabId, frameId } = input.document;
       const early = (reason: string) => ({
@@ -629,6 +701,9 @@ export function createSsoChoiceController(options: {
         done,
         releaseAbort: () => undefined,
       };
+      // A request whose owner ended while the settings were read never fires `abort` again:
+      // no offer is kept for it, nor a timer.
+      if (input.signal?.aborted) return early("cancelled");
       offers.set(tabId, offer);
       const abort = () => invalidateTab(tabId, "cancelled");
       input.signal?.addEventListener("abort", abort, { once: true });
@@ -645,7 +720,11 @@ export function createSsoChoiceController(options: {
       }
       // Ready only after the automatic decision, so no popup choice races it.
       offer.ready = true;
-      return { offerId: offer.id, result };
+      return {
+        offerId: offer.id,
+        result,
+        ...(offer.settled ? {} : { waiting: true as const }),
+      };
     },
     async get(tabId: number): Promise<SsoResponse> {
       const offer = offers.get(tabId);
@@ -723,12 +802,15 @@ export function createSsoChoiceController(options: {
         const refused = await validateSso(offer, method);
         if (refused) return failure(refused.reason);
         if (selection.entryId) {
-          const { entryCurrent, entryOrigin } = offer.input;
+          const { entryCurrent, entryOrigin, entryLearned } = offer.input;
           if (
             !entryCurrent ||
             !(await entryCurrent(selection.entryId)) ||
             (receipt.entryOrigin !== undefined &&
-              (!entryOrigin || !(await entryOrigin(selection.entryId, receipt.entryOrigin))))
+              (!entryOrigin || !(await entryOrigin(selection.entryId, receipt.entryOrigin)))) ||
+            (receipt.learned &&
+              (!entryLearned ||
+                !(await entryLearned(selection.entryId, selection.selected.origin))))
           )
             return failure("entry-changed");
           // The entry's own awaits may have outlived a vault, policy or document change.

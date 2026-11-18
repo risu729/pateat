@@ -2,6 +2,14 @@ import type { TFunction } from "i18next";
 
 /** What the person can do about each reason an SSO method or choice stops for. */
 export function ssoReasonText(t: TFunction, reason: string): string {
+  return (
+    ssoReason(t, reason) ??
+    t("This sign-in method is unavailable or changed. Check the vault and reopen the choice.")
+  );
+}
+
+/** The text of a reason only an SSO method or choice stops for, or undefined for others. */
+export function ssoReason(t: TFunction, reason: string | undefined): string | undefined {
   switch (reason) {
     case "duplicate-idp":
       return t(
@@ -62,8 +70,6 @@ export function ssoReasonText(t: TFunction, reason: string): string {
     case "source-item":
       return t("An identity provider must use a different account and origin from this site.");
     default:
-      return t(
-        "This sign-in method is unavailable or changed. Check the vault and reopen the choice.",
-      );
+      return undefined;
   }
 }

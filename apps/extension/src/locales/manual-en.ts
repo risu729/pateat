@@ -59,4 +59,13 @@ export const manualEn = {
     "The page could not be checked, so nothing was filled. Check Diagnostics for availability or limits, then try later.",
   "Nothing was filled. Check Diagnostics for the reason, then try again.":
     "Nothing was filled. Check Diagnostics for the reason, then try again.",
+  // The sign-in method choice a **Log in now** opens (ADR 0085, amended 2026-11-18).
+  "Choose how to sign in under Sign-in method below. The login starts then.":
+    "Choose how to sign in under Sign-in method below. The login starts then.",
+  "No sign-in method was chosen in time. Nothing will start from this request. Press Log in now again.":
+    "No sign-in method was chosen in time. Nothing will start from this request. Press Log in now again.",
+  "The page, vault or settings changed before the sign-in method was used. Press Log in now again.":
+    "The page, vault or settings changed before the sign-in method was used. Press Log in now again.",
+  "Signing in through a provider needs automatic sign-in on this site and the provider, with neither paused. Choose another method, or change Page behavior or resume the site.":
+    "Signing in through a provider needs automatic sign-in on this site and the provider, with neither paused. Choose another method, or change Page behavior or resume the site.",
 };

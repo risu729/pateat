@@ -50,9 +50,13 @@ export const confirmFillResponseSchema = v.variant("ok", [
   }),
   v.strictObject({ ok: v.literal(false), reason: v.pipe(v.string(), v.maxLength(100)) }),
 ]);
+/**
+ * `choosing`: the request waits for the person's sign-in method choice in the popup, as
+ * for an item with SSO methods (ADR 0085, amendment of 2026-11-18).
+ */
 export const manualStatusSchema = v.strictObject({
   requestId: ref,
-  state: v.picklist(["evaluating", "generating", "started", "blocked"]),
+  state: v.picklist(["evaluating", "generating", "choosing", "started", "blocked"]),
   reason: v.optional(v.pipe(v.string(), v.maxLength(100))),
 });
 export const manualOfferResponseSchema = v.variant("ok", [
@@ -83,7 +87,7 @@ export const manualOfferResponseSchema = v.variant("ok", [
 export const manualStartResponseSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(true),
-    state: v.picklist(["evaluating", "generating", "started"]),
+    state: v.picklist(["evaluating", "generating", "choosing", "started"]),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.pipe(v.string(), v.maxLength(100)) }),
 ]);

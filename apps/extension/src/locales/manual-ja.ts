@@ -59,4 +59,13 @@ export const manualJa = {
     "ページを確認できなかったため、何も入力しませんでした。診断で利用状況や制限を確認し、時間をおいてお試しください。",
   "Nothing was filled. Check Diagnostics for the reason, then try again.":
     "何も入力しませんでした。診断で理由を確認してから、もう一度お試しください。",
+  // The sign-in method choice a **Log in now** opens (ADR 0085, amended 2026-11-18).
+  "Choose how to sign in under Sign-in method below. The login starts then.":
+    "下の「ログイン方法」でログインの方法を選んでください。選ぶとログインを始めます。",
+  "No sign-in method was chosen in time. Nothing will start from this request. Press Log in now again.":
+    "時間内にログイン方法が選ばれませんでした。このリクエストからは何も始まりません。もう一度「今すぐログイン」を押してください。",
+  "The page, vault or settings changed before the sign-in method was used. Press Log in now again.":
+    "ログイン方法を使う前に、ページ、保管庫、または設定が変わりました。もう一度「今すぐログイン」を押してください。",
+  "Signing in through a provider needs automatic sign-in on this site and the provider, with neither paused. Choose another method, or change Page behavior or resume the site.":
+    "ID プロバイダー経由でログインするには、このサイトと ID プロバイダーの両方で自動ログインが有効で、どちらも一時停止していない必要があります。別の方法を選ぶか、「ページでの動作」を変更するか、サイトを再開してください。",
 };

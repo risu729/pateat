@@ -15,7 +15,14 @@ execution. Also amended by the
 and on 2026-11-16 by the owner's decision that
 [SSO mappings sync with the settings](#amendment-2026-11-16-sso-mappings-sync-with-the-settings).
 Amended on 2026-11-17 by an agent's fix that
-[keeps an open method offer over settings it does not read](#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read).
+[keeps an open method offer over settings it does not read](#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read),
+and on 2026-11-18 by an agent's fix that
+[ends a Log in now method offer with its request](#amendment-2026-11-18-a-log-in-now-offer-ends-with-its-request).
+Amended on 2026-11-18 by the owner (03:01 UTC,
+[below](#amendment-2026-11-18-a-broker-pages-provider-entry)): a URL-form method with a
+saved mapping presses a broker page's provider entry automatically; and by an agent's
+choice the same day, a flow's
+[RP return may land on another origin of the same site](#amendment-2026-11-18-an-rp-return-on-another-origin-of-the-same-site).
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
 no separate provider and username fields or JSON. The selection and validation rules
@@ -547,3 +554,109 @@ check therefore ended the choice the person was about to answer.
   unless it changed what the offer reads. Running logins and the other work fenced on
   a settings revision keep the rules of the
   [amendment of 2026-11-16](#amendment-2026-11-16-sso-mappings-sync-with-the-settings).
+
+## Amendment 2026-11-18: a Log in now offer ends with its request
+
+Chosen by an agent to fix [#1687](https://github.com/risu729/pateat/issues/1687), where
+the owner expects **Log in now** to work on a page whose method offer expired; not
+confirmed by the owner. The popup side is in
+[ADR 0088](0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now).
+
+- The method offer **Log in now** opens for the person's explicit choice is bound to
+  that request (`signal`): the request ending withdraws it with `cancelled`, and the
+  request ends at once with the reason of an offer that ends first, such as
+  `settings-changed` under the
+  [amendment of 2026-11-17](#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read).
+- `request` says whether the offer it made still waits for the person (`waiting`), so
+  the request is marked `choosing` only then, never for an offer already decided or
+  refused.
+- Offers of automatic logins are unchanged: they still wait up to ten minutes, and the
+  choice they wait for is the page's own.
+
+## Amendment 2026-11-18: a broker page's provider entry
+
+The owner wrote on 2026-11-18 at 03:01 UTC, about
+[#1687](https://github.com/risu729/pateat/issues/1687): 「i opened a new tab but didn't
+work. also, pateat should automatically login even if using sso, no?」. The owner's
+decision: on a broker page such as `flow.idp.hashicorp.com/login`, Pateat signs in by
+itself with the site's item, and where that item's route is SSO through its saved
+mapping, it presses that SSO method's entry automatically. The
+[URL-form rule above](#amendment-2026-11-12-local-method-discovery-and-mapping-validation)
+left such an entry to the person's explicit choice. Every other guard stays: pause,
+private windows, the repeated-login limit, master-password re-prompt, the settings scope
+and the saved mapping, with no IdP guessed where none is saved.
+
+**The cause in the fresh tab.** The page's provider button submits the page's own form
+to its own origin, and the site then sends the tab to the IdP. The automatic choice of a
+URL-form method pressed only an entry whose own observed destination is the mapped
+origin (`automaticUrl` in `sso-choice.ts`), so it found none, recorded `entry-required`
+and waited the offer's ten minutes for the popup's entry choice. A waiting offer writes
+no log line until it ends, which matches the fresh tab's log: no `login.start`,
+`recipe.generate` or `sso.*` line, and in another tab only `replaced` when
+**Log in now** replaced the waiting offer.
+
+The rest of this section is the agent's choice, not confirmed by the owner:
+
+- **Which entry.** An entry whose own destination is the mapped origin is still pressed
+  first, as before. Only when there is none, the automatic choice presses the one
+  current entry that a flow pressed on this page before and that reached this very
+  mapped origin, that an SSO layout of the site's recipe for this page names, and whose
+  fresh inspection finds it going nowhere but the page's own origin, or nowhere explicit
+  (`entryLearned`). None, or more than one, leaves the choice to the person as before,
+  and an entry going to another origin is never pressed this way.
+- **Where an entry led.** A layout names a page's entries but not where each one goes,
+  and it is shared by every account and method on the page. So when a flow presses a
+  URL-form method's entry and the tab then reaches its mapped origin (its URL there, or
+  an IdP page admitted there), or the flow completes on the RP's own evidence after an
+  IdP with a live session and grant sent the tab straight back without a page, the
+  device records that this page's entry reached that origin
+  (`pateat.login.sso-entries.v1` in local
+  storage, at most 200 records, the newest per entry, with no account, username or
+  credential). An entry is pressed by itself only for the IdP origin it last reached, so
+  an entry learned for another provider, by this or another account, is never pressed
+  for this method. The record stays on the device and is not synced. No settings path
+  forgets a site's local login records, so this record has none either; it holds no
+  secret and only ever narrows what is pressed.
+- **Checked again.** The receipt of such a choice checks the entry against its record,
+  the layout and its destinations again just before the flow uses it, as an
+  exact-origin entry is checked again.
+- **Only with a saved mapping.** A method without one still waits with
+  `mapping-required`, and nothing lists or guesses an IdP account.
+- **Log in now too.** By the owner's later decision the same day, **Log in now** presses
+  such an entry too, under its own hop guard, and shows the explicit chooser in every
+  other case
+  ([ADR 0088](0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)).
+- **The first visit.** A page whose entry no flow has pressed yet still offers the
+  choice once, as does a device that has not recorded it. The person's entry choice
+  there records it, and later visits press it by themselves. Whether a first visit
+  should press without that is for the owner.
+- **Known limit.** An entry that once led to one provider and now leads to another is
+  pressed once more for the old one: the flow stops on the other provider's origin
+  (`sso-forbidden-origin`) without releasing anything, and the record keeps the old
+  origin until a flow reaches the new one.
+
+## Amendment 2026-11-18: an RP return on another origin of the same site
+
+Chosen by an agent for [#1687](https://github.com/risu729/pateat/issues/1687), not
+confirmed by the owner. A flow started on a broker page such as `flow.idp.hashicorp.com`
+may come back on another origin of the site, such as its portal or its own callback,
+rather than on the broker page's origin. Such a page ended the flow with
+`sso-forbidden-origin`, so a sign-in that succeeded was not recorded.
+
+- A page on another origin of the RP's registrable site (`siteOf`, Bitwarden's Domain
+  match) with the RP's own scheme, and that is not the selected IdP's origin, is now
+  read as the RP's return (`ssoReturnOrigin`), on the tab's navigation and on the page's
+  admission alike. An https RP never returns to http, and an RP on `localhost` or an IP
+  address has no other origin. The return completes only on the same evidence as the
+  RP's own origin (`returned`), and the RP item must still match its URL, as items saved
+  with a Domain rule do. Where it does not, as under a Host rule, the tab's navigation
+  there ends the flow with `sso-forbidden-origin` and the page's admission with
+  `sso-scope-changed`.
+- **Log in now** on such a page ends a flow that only waits there, as on the RP's own
+  origin.
+- The attempt keeps its RP document, since an attempt belongs to its account's origin.
+- Every other origin stays forbidden.
+- **Known limit.** A host that serves many tenants under one registrable domain but is
+  missing from the public suffix list reads its tenants as one site. Only the RP item's
+  URI match fences them apart there, so an item saved with a Domain rule on such a host
+  accepts a return on another tenant's origin.

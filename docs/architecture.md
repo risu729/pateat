@@ -864,7 +864,15 @@ announcement cannot use or cancel it. Starting the login clears the tab's ask af
 rejected or stopped login of the origin (`stoppedAsks`, `rejectedAsks`), as an ordinary
 popup pick does. Once an attempt starts, only the ordinary
 attempt-scoped account pick and its manual provenance persist. The popup distinguishes
-preparation and generation from a started login and displays actionable blockers.
+preparation and generation from a started login and displays actionable blockers. On an
+item with SSO methods the request presses a mapped preferred SSO method's single
+qualifying entry at once, as an automatic login would, where no numbered method or
+passkey stands beside it and its scope reaches the IdP; otherwise it opens the item's
+explicit method offer for the person's choice
+and is `choosing` while it waits, so the popup's start answers at once and points to
+**Sign-in method**; the offer ends with the request, and the request with the offer and
+its reason
+([ADR 0088, amended 2026-11-18](adr/0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)).
 This action saves no default, keeps no session account, changes no ask-every-time
 policy and resumes no pause, including after a successful login.
 
@@ -4941,7 +4949,20 @@ account and its selected and mapped IdP accounts, the rules and saved defaults o
 site and those IdP origins, and private-window pausing; amended on 2026-11-17 by
 [ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-17-an-open-offer-outlasts-settings-it-does-not-read)),
 a catalog change behind the offer's accounts, and a new document or path in the offer's
-own frame or the top frame. An SSO route validates its own method
+own frame or the top frame. One that **Log in now** opened is also withdrawn when that
+request ends
+([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-log-in-now-offer-ends-with-its-request)).
+An automatic URL-form choice with a saved mapping presses the entry whose own
+destination is the mapped origin or, on a broker page where none is, the one entry the
+page's SSO layout learned, that goes nowhere but the page's own origin and that a flow
+pressed before to reach this very IdP origin (`pateat.login.sso-entries.v1`, local); the
+receipt checks it again
+([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)).
+A flow's RP return may land on another origin of the RP's registrable site, with its
+scheme, that is not the IdP's and that the RP item matches (`ssoReturnOrigin`; never for
+a `localhost` or IP RP); every other origin stays forbidden
+([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-an-rp-return-on-another-origin-of-the-same-site)).
+An SSO route validates its own method
 and refuses another mapped method on the same IdP account, even through different
 connections; a native route needs no SSO method. A URL-form choice names one of at most
 100 observed entries by opaque ID and checks it again locally; no mapping or exact

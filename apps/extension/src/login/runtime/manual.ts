@@ -8,7 +8,7 @@ import { clearChoice } from "./choice";
 import { manualHeldElsewhere, tabAttempt, recordFor } from "./hold";
 import { terminal, passiveFillWaiting } from "./attempt-state";
 import { forget } from "./session-store";
-import { MANUAL_START_MS, endManual, type ManualStart } from "./manual-scope";
+import { MANUAL_START_MS, endManual, manualTimedOut, type ManualStart } from "./manual-scope";
 import { cancelSso, ssoWaiting } from "./sso/flow";
 import { endConfirmPick } from "./confirm-pick-scope";
 import { confirmFillPage } from "./confirm-pick";
@@ -105,7 +105,8 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
     .handle({ version: 1, type: "settings.get" })
     .catch(() => undefined);
   const request = rt.manualStarts.get(tabId);
-  if (request?.pick && Date.now() >= request.expiresAt) endManual(rt, tabId, "timed-out", request);
+  if (request?.pick && Date.now() >= request.expiresAt)
+    endManual(rt, tabId, manualTimedOut(request), request);
   if (request?.pick && tab.url !== request.topUrl) endManual(rt, tabId, "page-changed", request);
   // The tab's latest **Fill** press: while it runs, nothing else is offered.
   const press = rt.confirmFill.picks.get(tabId);
@@ -229,7 +230,7 @@ export async function manualStart(
   rt.manualStarts.set(tabId, pending);
   pending.timer = setTimeout(() => {
     if (rt.manualStarts.get(tabId) === pending && pending.pick)
-      endManual(rt, tabId, "timed-out", pending);
+      endManual(rt, tabId, manualTimedOut(pending), pending);
   }, MANUAL_START_MS);
   try {
     let recorded = recordFor(rt, tabId, live.document.origin);
@@ -276,15 +277,25 @@ export async function manualStart(
     }
     rt.picked.set(tabId, pick);
     clearChoice(rt, tabId);
-    await browser.tabs.sendMessage(
-      tabId,
-      { version: 1, type: "login.reconnect", fresh: true },
-      {
-        frameId: live.document.frameId,
-        documentId: live.document.documentId,
-      },
-    );
-    await rt.admitting.get(tabId + ":" + live.document.frameId)?.catch(() => undefined);
+    // The page's admission answers the announcement once it ends; one that waits for the
+    // person's sign-in method choice in the popup answers the popup now (ADR 0085).
+    const choosing = new Promise<void>((resolve) => {
+      pending.choosing = resolve;
+    });
+    const admitted = (async () => {
+      await browser.tabs.sendMessage(
+        tabId,
+        { version: 1, type: "login.reconnect", fresh: true },
+        {
+          frameId: live.document.frameId,
+          documentId: live.document.documentId,
+        },
+      );
+      await rt.admitting.get(tabId + ":" + live.document.frameId)?.catch(() => undefined);
+    })();
+    // An admission that fails after the start answered `choosing` ends the request itself.
+    admitted.catch(() => undefined);
+    await Promise.race([admitted, choosing]);
     if (pending.status.state === "blocked") return refuse(pending.status.reason ?? "not-started");
     return { ok: true, state: pending.status.state };
   } catch {
