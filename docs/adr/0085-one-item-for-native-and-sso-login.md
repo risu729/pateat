@@ -20,7 +20,9 @@ and on 2026-11-18 by an agent's fix that
 [ends a Log in now method offer with its request](#amendment-2026-11-18-a-log-in-now-offer-ends-with-its-request).
 Amended on 2026-11-18 by the owner (03:01 UTC,
 [below](#amendment-2026-11-18-a-broker-pages-provider-entry)): a URL-form method with a
-saved mapping presses a broker page's provider entry automatically.
+saved mapping presses a broker page's provider entry automatically; and by an agent's
+choice the same day, a flow's
+[RP return may land on another origin of the same site](#amendment-2026-11-18-an-rp-return-on-another-origin-of-the-same-site).
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
 no separate provider and username fields or JSON. The selection and validation rules
@@ -597,26 +599,50 @@ The rest of this section is the agent's choice, not confirmed by the owner:
 
 - **Which entry.** An entry whose own destination is the mapped origin is still pressed
   first, as before. Only when there is none, the automatic choice presses the one
-  current entry that an SSO layout of the site's recipe for this page names and whose
+  current entry that a flow pressed on this page before and that reached this very
+  mapped origin, that an SSO layout of the site's recipe for this page names, and whose
   fresh inspection finds it going nowhere but the page's own origin, or nowhere explicit
-  (`entryLearned`). Such a layout is what the flow stores after the person's first
-  explicit entry choice on the page, so the entry is one the person chose before, never
-  one picked by its text. None, or more than one, leaves the choice to the person as
-  before, and an entry going to another origin is never pressed this way.
-- **Checked again.** The receipt of such a choice checks the entry against the layout
-  and its destinations again just before the flow uses it, as an exact-origin entry is
-  checked again.
+  (`entryLearned`). None, or more than one, leaves the choice to the person as before,
+  and an entry going to another origin is never pressed this way.
+- **Where an entry led.** A layout names a page's entries but not where each one goes,
+  and it is shared by every account and method on the page. So when a flow presses a
+  URL-form method's entry and the tab then reaches its mapped origin, the device records
+  that this page's entry reached that origin (`pateat.login.sso-entries.v1` in local
+  storage, at most 200 records, the newest per entry, with no account, username or
+  credential). An entry is pressed by itself only for the IdP origin it last reached, so
+  an entry learned for another provider, by this or another account, is never pressed
+  for this method. The record stays on the device and is not synced.
+- **Checked again.** The receipt of such a choice checks the entry against its record,
+  the layout and its destinations again just before the flow uses it, as an
+  exact-origin entry is checked again.
 - **Only with a saved mapping.** A method without one still waits with
   `mapping-required`, and nothing lists or guesses an IdP account.
-- **Log in now too.** By the owner's later decision the same day, **Log in now** takes
-  the same automatic order and presses such an entry too, under its own hop guard, and
-  shows the chooser only where the order cannot decide
+- **Log in now too.** By the owner's later decision the same day, **Log in now** presses
+  such an entry too, under its own hop guard, and shows the explicit chooser in every
+  other case
   ([ADR 0088](0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)).
-- **The first visit.** A page whose layout has not learned the entry yet still offers
-  the choice once. The person's entry choice there stores the layout, and later visits
-  press it by themselves. Whether a first visit should press without that is for the
-  owner.
-- **Known limit.** A site's SSO layouts are kept per page, not per item or method. Where
-  another account's method taught the page another provider's button and only that one
-  is shown, the flow presses it and stops on the other provider's origin
-  (`sso-forbidden-origin`) without releasing anything.
+- **The first visit.** A page whose entry no flow has pressed yet still offers the
+  choice once, as does a device that has not recorded it. The person's entry choice
+  there records it, and later visits press it by themselves. Whether a first visit
+  should press without that is for the owner.
+- **Known limit.** An entry that once led to one provider and now leads to another is
+  pressed once more for the old one: the flow stops on the other provider's origin
+  (`sso-forbidden-origin`) without releasing anything, and the record keeps the old
+  origin until a flow reaches the new one.
+
+## Amendment 2026-11-18: an RP return on another origin of the same site
+
+Chosen by an agent for [#1687](https://github.com/risu729/pateat/issues/1687), not
+confirmed by the owner. A flow started on a broker page such as `flow.idp.hashicorp.com`
+may come back on another origin of the site, such as its portal or its own callback,
+rather than on the broker page's origin. Such a page ended the flow with
+`sso-forbidden-origin`, so a sign-in that succeeded was not recorded.
+
+- A page on another origin of the RP's registrable site (`siteOf`, Bitwarden's Domain
+  match) that is not the selected IdP's origin is now read as the RP's return
+  (`ssoReturnOrigin`), on the tab's navigation and on the page's admission alike. It
+  completes only on the same evidence as the RP's own origin (`returned`), and the RP
+  item must still match its URL, as items saved with a Domain rule do; otherwise the
+  flow ends with `sso-scope-changed`.
+- The attempt keeps its RP document, since an attempt belongs to its account's origin.
+- Every other origin stays forbidden.

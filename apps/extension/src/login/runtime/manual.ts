@@ -293,6 +293,8 @@ export async function manualStart(
       );
       await rt.admitting.get(tabId + ":" + live.document.frameId)?.catch(() => undefined);
     })();
+    // An admission that fails after the start answered `choosing` ends the request itself.
+    admitted.catch(() => undefined);
     await Promise.race([admitted, choosing]);
     if (pending.status.state === "blocked") return refuse(pending.status.reason ?? "not-started");
     return { ok: true, state: pending.status.state };

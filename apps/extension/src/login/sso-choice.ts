@@ -251,8 +251,40 @@ export function createSsoChoiceController(options: {
    * else waits for the person to choose the entry; a label is never guessed.
    */
   async function automaticUrl(offer: Offer, method: Method): Promise<Refusal | undefined> {
-    const { entryCurrent, entryOrigin, entries } = offer.input;
+    const found = await urlEntry(offer, method);
+    if (found === "withdrawn") return { reason: "scope-changed" };
+    if (!found) {
+      offer.reason = "entry-required";
+      return undefined;
+    }
+    // After the entries' own awaits, so a vault or document change during them refuses.
+    const refused = await validateSso(offer, method);
+    if (refused) return refused;
+    resolveUrl(offer, method, found);
+    return undefined;
+  }
+  type UrlEntry = { entry: { id: string; label: string }; exact: boolean };
+  function resolveUrl(offer: Offer, method: Method, { entry, exact }: UrlEntry) {
     const selected = selectedOf(method)!.selected;
+    resolve(
+      offer,
+      { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
+      exact ? selected.origin : undefined,
+      exact ? undefined : true,
+    );
+  }
+  /**
+   * The one entry the automatic order presses for a mapped URL-form method: the one whose
+   * own destination is the mapped origin, or, on a broker page where none is, the one the
+   * page learned for that origin (owner, 2026-11-18, ADR 0085). Undefined when none or
+   * several qualify.
+   */
+  async function urlEntry(
+    offer: Offer,
+    method: Method,
+  ): Promise<UrlEntry | "withdrawn" | undefined> {
+    const { entryCurrent, entryOrigin, entryLearned, entries } = offer.input;
+    const origin = selectedOf(method)!.selected.origin;
     const matches: { id: string; label: string }[] = [];
     for (const entry of entryCurrent && entryOrigin ? (entries ?? []) : []) {
       // oxlint-disable-next-line no-await-in-loop -- each entry's evidence is its own
@@ -260,48 +292,64 @@ export function createSsoChoiceController(options: {
       const same =
         present &&
         // oxlint-disable-next-line no-await-in-loop -- destination evidence belongs to this entry
-        (await entryOrigin?.(entry.id, selected.origin).catch(() => false));
-      if (!retained(offer)) return { reason: "scope-changed" };
+        (await entryOrigin?.(entry.id, origin).catch(() => false));
+      if (!retained(offer)) return "withdrawn";
       if (same) matches.push(entry);
       if (matches.length > 1) break;
     }
+    if (matches.length)
+      return matches.length === 1 ? { entry: matches[0]!, exact: true } : undefined;
     // On a broker page no entry names the mapped origin: its provider button submits to
-    // the site, which sends the tab on. The one entry the site's own SSO layout learned
-    // there is pressed instead, as the owner decided on 2026-11-18 (ADR 0085).
-    const learned = matches.length ? [] : await learnedEntries(offer);
-    if (!learned) return { reason: "scope-changed" };
-    const found = matches.length ? matches : learned;
-    const [entry] = found;
-    if (found.length !== 1 || !entry) {
-      offer.reason = "entry-required";
-      return undefined;
-    }
-    // After the entries' own awaits, so a vault or document change during them refuses.
-    const refused = await validateSso(offer, method);
-    if (refused) return refused;
-    resolve(
-      offer,
-      { kind: "sso", source: method.source, selected, entryId: entry.id, label: entry.label },
-      matches.length ? selected.origin : undefined,
-      matches.length ? undefined : true,
-    );
-    return undefined;
-  }
-  /** The present entries a broker page's learned layout names; undefined once withdrawn. */
-  async function learnedEntries(offer: Offer) {
-    const { entryCurrent, entryLearned, entries } = offer.input;
-    const found: { id: string; label: string }[] = [];
+    // the site, which sends the tab on.
+    const learned: { id: string; label: string }[] = [];
     for (const entry of entryCurrent && entryLearned ? (entries ?? []) : []) {
       const known =
         // oxlint-disable-next-line no-await-in-loop -- each entry's evidence is its own
         (await entryCurrent?.(entry.id).catch(() => false)) &&
-        // oxlint-disable-next-line no-await-in-loop -- the layout evidence belongs to this entry
-        (await entryLearned?.(entry.id).catch(() => false));
-      if (!retained(offer)) return undefined;
-      if (known) found.push(entry);
-      if (found.length > 1) break;
+        // oxlint-disable-next-line no-await-in-loop -- what the page learned belongs to this entry
+        (await entryLearned?.(entry.id, origin).catch(() => false));
+      if (!retained(offer)) return "withdrawn";
+      if (known) learned.push(entry);
+      if (learned.length > 1) break;
     }
-    return found;
+    return learned.length === 1 ? { entry: learned[0]!, exact: false } : undefined;
+  }
+  /**
+   * **Log in now** (ADR 0088 amendment of 2026-11-18): it presses by itself only the SSO
+   * method the automatic order decides, on an item with no numbered method and no passkey
+   * the order would take first, where its hop is allowed. Anything else leaves the
+   * explicit chooser open, as before.
+   */
+  async function automaticSso(offer: Offer): Promise<Refusal | undefined> {
+    const { native, hopAllowed } = offer.input;
+    const preferred = offer.methods.find((entry) => entry.automatic);
+    const chosen = preferred && selectedOf(preferred);
+    if (
+      !preferred ||
+      !chosen ||
+      !hopAllowed ||
+      native.passkey ||
+      offer.methods.some((entry) => !entry.automatic)
+    )
+      return undefined;
+    const found = preferred.form === "url" ? await urlEntry(offer, preferred) : undefined;
+    if (found === "withdrawn") return { reason: "scope-changed" };
+    if (preferred.form === "url" && !found) return undefined;
+    const allowed = await hopAllowed(chosen.selected.origin).catch(() => false);
+    if (!retained(offer)) return { reason: "scope-changed" };
+    if (!allowed) return undefined;
+    // A refusal the person would meet in the chooser leaves the chooser to show it.
+    const refused = await validateSso(offer, preferred);
+    if (refused) return refused.reason === "scope-changed" ? refused : undefined;
+    if (found) resolveUrl(offer, preferred, found);
+    else
+      resolve(offer, {
+        kind: "sso",
+        source: preferred.source,
+        selected: chosen.selected,
+        ...(preferred.label ? { label: preferred.label } : {}),
+      });
+    return undefined;
   }
   /** Lists the saved IdP accounts and origins a method may use; keeps a chosen one. */
   async function discover(offer: Offer, method: Method): Promise<Refusal | undefined> {
@@ -584,6 +632,7 @@ export function createSsoChoiceController(options: {
       if (!(await prepare(offer, entry, saved))) return { reason: "scope-changed" };
     }
     if (!(await current(offer))) return { reason: "scope-changed" };
+    if (input.automatic === "sso") return automaticSso(offer);
     return input.automatic ? automatic(offer) : undefined;
   }
   return {
@@ -649,6 +698,9 @@ export function createSsoChoiceController(options: {
         done,
         releaseAbort: () => undefined,
       };
+      // A request whose owner ended while the settings were read never fires `abort` again:
+      // no offer is kept for it, nor a timer.
+      if (input.signal?.aborted) return early("cancelled");
       offers.set(tabId, offer);
       const abort = () => invalidateTab(tabId, "cancelled");
       input.signal?.addEventListener("abort", abort, { once: true });
@@ -749,7 +801,9 @@ export function createSsoChoiceController(options: {
             !(await entryCurrent(selection.entryId)) ||
             (receipt.entryOrigin !== undefined &&
               (!entryOrigin || !(await entryOrigin(selection.entryId, receipt.entryOrigin)))) ||
-            (receipt.learned && (!entryLearned || !(await entryLearned(selection.entryId))))
+            (receipt.learned &&
+              (!entryLearned ||
+                !(await entryLearned(selection.entryId, selection.selected.origin))))
           )
             return failure("entry-changed");
           // The entry's own awaits may have outlived a vault, policy or document change.

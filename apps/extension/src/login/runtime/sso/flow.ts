@@ -30,10 +30,11 @@ import { withChoice } from "../steps";
 import { hideUsernames, markerProofs, showsMarkers } from "../markers";
 import { openPasswordWindow } from "../master-password";
 import { countRelogin } from "../relogin";
-import { ssoCurrent, ssoScope } from "../sso-scope";
+import { ssoCurrent, ssoReturnOrigin, ssoScope } from "../sso-scope";
 import { ssoPress } from "../sso-effects";
 import { ssoChild, type SsoWork } from "../sso-state";
 import { ssoObservation, inspectSsoTarget } from "./entry";
+import { learnSsoEntry } from "./learned-entries";
 import type { AdmitContext } from "../admit-context";
 import type { Choice, Execution, LiveDocument } from "../types";
 import type { Runtime } from "../state";
@@ -235,7 +236,9 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
   const before = work.parent;
   const ended = parseAttemptMetadata({
     ...before,
-    document: live.document,
+    // A return to another origin of the RP's site keeps the record on the RP's own
+    // document, since an attempt belongs to its account's origin.
+    document: live.document.origin === before.account.origin ? live.document : before.document,
     state: "authenticated",
     outcome: "authenticated",
     ...(unconfirmed ? { unconfirmed: true as const } : {}),
@@ -690,6 +693,7 @@ export async function beginSso(
       };
     if (chosen.pick) chosen.pick.attemptId = work.id;
     work.phase = "entering-idp";
+    if (method.form === "url") work.entry = { path: ctx.live.path, target };
     await rt.sso.write();
     if (!(await ssoPress(rt, work, ctx.live, target, "rp-entry")))
       throw new Error(work.stopReason ?? "sso-entry-stopped");
@@ -713,7 +717,7 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   }
   if (ctx.document.frameId !== 0) return ctx.refuse("sso-top-document-only");
   if (work.parent?.state === "authenticated") return ctx.refuse("sso-completed");
-  if (ctx.document.origin !== work.account.origin && ctx.document.origin !== work.selected.origin) {
+  if (!ssoReturnOrigin(work, ctx.document.origin) && ctx.document.origin !== work.selected.origin) {
     cancelSso(rt, ctx.document.tabId, "sso-forbidden-origin");
     return ctx.refuse("sso-forbidden-origin");
   }
@@ -722,7 +726,7 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     cancelSso(rt, ctx.document.tabId, "sso-scope-changed");
     return ctx.refuse("sso-scope-changed");
   }
-  if (ctx.document.origin === work.account.origin) {
+  if (ssoReturnOrigin(work, ctx.document.origin)) {
     const original = ctx.live.document.documentId === work.rpLive.document.documentId;
     if (work.phase === "prepared" || work.phase === "entering-idp") {
       // An IdP with an existing grant and session can send the tab straight back, so no
@@ -759,6 +763,15 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     cancelSso(rt, ctx.document.tabId, "sso-return-unconfirmed");
     return ctx.refuse("sso-return-unconfirmed");
   }
+  // The pressed URL-form entry reached the mapped IdP: a later automatic press of it on
+  // this page is for this IdP only (ADR 0085 amendment of 2026-11-18).
+  if (work.phase === "entering-idp" && work.entry)
+    void learnSsoEntry(
+      work.account.origin,
+      work.entry.path,
+      work.entry.target,
+      work.selected.origin,
+    ).catch(() => undefined);
   work.phase = "at-idp";
   const child = rt.attempts.get(ctx.document.tabId);
   if (!(await ssoReprompt(rt, work, ctx.live, true))) {
@@ -836,7 +849,7 @@ export function installSsoLifecycle(rt: Runtime) {
     // A tab that went on to another site ends its interrupted hold.
     if (url) releaseInterrupted(rt, tabId, url.origin);
     if (!work || !change.url) return;
-    if (!url || ![work.account.origin, work.selected.origin].includes(url.origin))
+    if (!url || (!ssoReturnOrigin(work, url.origin) && url.origin !== work.selected.origin))
       cancelSso(rt, tabId, "sso-forbidden-origin");
   });
   browser.tabs.onCreated?.addListener((tab) => {

@@ -268,7 +268,6 @@ describe("actual explicit SSO-method admission after the chooser", () => {
   it("starts numbered SSO 2 when both origins already allow automatic sign-in", async () => {
     const h = await harness("auto");
     expect(await offerSso(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    expect(h.offered).toHaveBeenCalledWith(expect.objectContaining({ automatic: true }));
     expect(h.rt.sso.flows.get(7)).toMatchObject({
       source: { method: { number: 2 } },
       operation: { stage: "spent" },
@@ -311,20 +310,13 @@ describe("actual explicit SSO-method admission after the chooser", () => {
       false,
     );
   });
-  it.each([true, false])(
-    "names a Log in now native route the person's own only when they picked it (waiting: %s)",
-    async (waiting) => {
-      const h = await harness("auto", true);
-      h.offered.mockResolvedValueOnce({
-        offerId: "offer",
-        result: Promise.resolve({ ok: true as const, choiceId: "opaque-choice" }),
-        ...(waiting ? { waiting: true as const } : {}),
-      } as never);
-      expect(await offerSso(h.rt, h.ctx)).toBeUndefined();
-      // The automatic order's pick is the automatic one, as ADR 0085's refused passkey reads it.
-      expect(h.rt.sso.native.get(7)?.automatic).toBe(waiting ? undefined : true);
-    },
-  );
+  it("names a Log in now native route the person's own, so a refused passkey stops (ADR 0085)", async () => {
+    const h = await harness("auto", true);
+    expect(await offerSso(h.rt, h.ctx)).toBeUndefined();
+    // Log in now never takes a native route by itself; a passkey the site refuses then
+    // stops with sso-passkey-refused and the popup offers the methods again.
+    expect(h.rt.sso.native.get(7)?.automatic).toBeUndefined();
+  });
   it("chooses again without the passkey the tab's site refused, once (ADR 0085)", async () => {
     const h = await harness("auto", true);
     h.rt.options.passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));

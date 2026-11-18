@@ -25,6 +25,8 @@ import { askFor } from "../choice";
 import { reloginLimited } from "../relogin";
 import { asksEveryTime } from "../entry-press";
 import { beginSso } from "./flow";
+import { ssoEntryReaches } from "./learned-entries";
+import type { Saved } from "../../sso-choice-model";
 import type { AdmitContext } from "../admit-context";
 import type { Runtime } from "../state";
 import type { LiveDocument } from "../types";
@@ -48,6 +50,19 @@ export async function ssoObservation(
     if (!("detail" in accepted) && accepted.observation.complete) return accepted.observation;
   }
   return undefined;
+}
+/**
+ * Whether the person's one-page request may hop to `origin`: existing `auto` sign-in on
+ * both the page and the IdP, with neither paused. A one-page grant never reaches the IdP.
+ */
+async function manualHopAllowed(rt: Runtime, ctx: AdmitContext, saved: Saved, origin: string) {
+  const { settings } = saved.snapshot;
+  return (
+    resolvePagePermission(settings, ctx.live.url, "sign-in")?.permission === "auto" &&
+    resolvePagePermission(settings, origin, "sign-in")?.permission === "auto" &&
+    !(await pauseOf(rt, ctx.live)) &&
+    !(await pauseOf(rt, { url: origin, incognito: ctx.incognito }))
+  );
 }
 export async function inspectSsoTarget(rt: Runtime, live: LiveDocument, target: LoginTarget) {
   const inspected = v.safeParse(
@@ -154,10 +169,10 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     refused?.origin === account.origin &&
     refused.connectionId === account.connectionId &&
     refused.itemId === account.itemId;
-  // The person's own request takes the automatic order where it decides, and otherwise
-  // opens the method offer they choose from (ADR 0088 amendment of 2026-11-18). The offer
-  // ends with that request, as on its time running out or the person's cancel, so it
-  // never waits for a choice nothing could still use.
+  // The person's own request presses by itself only an SSO method the automatic order
+  // decides and its scope reaches; otherwise it opens the method offer they choose from
+  // (ADR 0088 amendment of 2026-11-18). The offer ends with that request, as on its time
+  // running out or the person's cancel, so it never waits for a choice nothing could use.
   if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
     return ctx.refuse("manual-request-ended");
   const methodOffer = ctx.manual ? new AbortController() : undefined;
@@ -169,7 +184,10 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     basis: saved,
     ...(methodOffer ? { signal: methodOffer.signal } : {}),
     native: { passkey: facts.discoverablePasskey && !passkeyRefused, password: facts.password },
-    automatic: true,
+    automatic: ctx.manual ? "sso" : true,
+    ...(ctx.manual
+      ? { hopAllowed: (origin: string) => manualHopAllowed(rt, ctx, saved, origin) }
+      : {}),
     entries: [...targets].map(([id, entry]) => ({ id, label: entry.label })),
     entryOrigin: async (id: string, origin: string) => {
       const entry = targets.get(id);
@@ -184,8 +202,9 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       return !!entry && !!(await inspectSsoTarget(rt, ctx.live, entry.target));
     },
     // A broker page's provider button submits to the site itself (ADR 0085 amendment of
-    // 2026-11-18): it may be pressed only as the entry the page's own SSO layout learned.
-    entryLearned: async (id: string) => {
+    // 2026-11-18): it may be pressed only as the entry the page's own SSO layout learned
+    // and a flow pressed there to reach this very IdP origin.
+    entryLearned: async (id: string, selectedOrigin: string) => {
       const entry = targets.get(id);
       const inspected = entry && (await inspectSsoTarget(rt, ctx.live, entry.target));
       if (
@@ -193,6 +212,10 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
         inspected.destinations.some(
           (destination) => URL.parse(destination)?.origin !== ctx.document.origin,
         )
+      )
+        return false;
+      if (
+        !(await ssoEntryReaches(ctx.document.origin, ctx.live.path, entry.target, selectedOrigin))
       )
         return false;
       const heads = (await rt.recipes.sso?.(ctx.document.origin, ctx.live.path)) ?? [];
@@ -227,8 +250,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       account,
       chosen,
       route: receipt.selection.route,
-      // Only a route the person picked in the popup is theirs (ADR 0085, a refused passkey).
-      ...(ctx.manual && requested.waiting ? {} : { automatic: true as const }),
+      // Log in now never takes a native route by itself: it is the person's pick.
+      ...(ctx.manual ? {} : { automatic: true as const }),
       ...(described.data.methods.length ? { methods: true as const } : {}),
     });
     return undefined;
@@ -237,14 +260,7 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     if (!manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
       return ctx.refuse("manual-request-ended");
     // A one-page grant cannot authorize a hop. Existing auto permission on both sites can.
-    if (
-      resolvePagePermission(saved.snapshot.settings, ctx.live.url, "sign-in")?.permission !==
-        "auto" ||
-      resolvePagePermission(saved.snapshot.settings, receipt.selection.selected.origin, "sign-in")
-        ?.permission !== "auto" ||
-      (await pauseOf(rt, ctx.live)) ||
-      (await pauseOf(rt, { url: receipt.selection.selected.origin, incognito: ctx.incognito }))
-    )
+    if (!(await manualHopAllowed(rt, ctx, saved, receipt.selection.selected.origin)))
       return ctx.refuse("sso-manual-scope-unavailable");
     endManual(rt, ctx.document.tabId, undefined, ctx.manual.request);
   }

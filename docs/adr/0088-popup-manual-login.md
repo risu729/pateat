@@ -16,8 +16,8 @@ Amended on 2026-11-17 by the owner (13:15 UTC,
 2026-11-18 by an agent's fix of [#1687](https://github.com/risu729/pateat/issues/1687)
 ([below](#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)): a request that
 waits for the person's sign-in method choice says so, and ends with its method offer,
-also in a fresh tab; amended the same day by the owner: **Log in now** takes the item's
-automatic method order where it decides, and shows the chooser only otherwise.
+also in a fresh tab; amended the same day by the owner: **Log in now** presses an SSO
+entry the automatic order decides, and shows the chooser otherwise.
 
 Date: 2026-11-11
 
@@ -166,9 +166,9 @@ The following are the agent's choices, not confirmed by the owner:
 
 The owner reported in [#1687](https://github.com/risu729/pateat/issues/1687) on
 2026-11-18 that **Log in now** did nothing on `flow.idp.hashicorp.com/login` and expects
-it to work there. That **Log in now** takes the automatic order first is the owner's
-decision, as noted below; the rest of this section is the agent's choice, not confirmed
-by the owner.
+it to work there. That **Log in now** presses an SSO entry the order decides is the
+owner's decision, as noted below; the rest of this section is the agent's choice, not
+confirmed by the owner.
 
 The page's SSO method offer had waited its ten minutes for the person's provider mapping
 and entry and ended (`expired`). **Log in now** then opened the offer again for the
@@ -186,24 +186,27 @@ its five minutes while the offer stayed open five more, then ended with
   The request replaced it (`replaced` in the log) with its own offer, and the popup
   again said only "Preparing this login…" until the request ended
   (`manual-request-ended`). The rules below apply to both cases.
-- **The automatic order first.** The owner then decided, on 2026-11-18 after the
+- **An SSO entry the order decides.** The owner then decided, on 2026-11-18 after the
   03:01 UTC report, that **Log in now** should just work: where the automatic order
-  decides by itself, it presses as an automatic login would, and only otherwise shows
-  the chooser. A request on an item with SSO methods therefore re-runs the page's
-  admission as the person's request and takes the item's automatic method order
-  (passkey, then the preferred SSO method, then the password, ADR 0085). With a saved
-  mapping and exactly one qualifying entry, one whose own destination is the mapped
-  origin or the one a broker page's layout learned
-  ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)),
-  it presses that entry at once; the popup's start answers `started`. A route the order
-  picked counts as the automatic one, so a passkey it picked and the site refused is
-  chosen again without the passkey, as for an automatic login (ADR 0085); only a route
-  the person picks in the popup is theirs.
-- **The chooser otherwise.** Where the order cannot decide, as with no saved mapping,
-  no learned entry or several, the item's method offer stays open for the person's
-  choice. While it waits, the request's status is `choosing`: the popup's start answers
-  at once, and the section says to choose under **Sign-in method**. Once chosen, the
-  request is `evaluating` until the login starts.
+  decides an SSO entry by itself, it presses that entry as an automatic login would, and
+  otherwise shows the chooser. The rest of this bullet is the agent's reading of that
+  decision. A request on an item with SSO methods re-runs the page's admission as the
+  person's request. It presses by itself only when all of these hold: the item's
+  preferred SSO method has a saved mapping, it has no numbered method beside it, no
+  passkey would come first in the order, exactly one entry qualifies (one whose own
+  destination is the mapped origin, or the one a broker page learned for that origin,
+  [ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)),
+  and the request's scope reaches the IdP (below). The popup's start then answers
+  `started`. **Log in now** never takes the passkey or the password by itself, so a
+  route it starts natively is always the person's pick, and a passkey the site refuses
+  stops with `sso-passkey-refused` and offers the methods again without it, as before.
+- **The chooser otherwise.** In every other case, as with no saved mapping, no learned
+  entry or several, a numbered method, a passkey, or a scope that does not reach the
+  IdP, the explicit chooser opens, with every method and the password as before. While
+  it waits, the request's status is `choosing`: the popup's start answers at once, and
+  the section says to choose under **Sign-in method**. Once chosen, the request is
+  `evaluating` until the login starts. An SSO method picked there on a page whose scope
+  does not reach the IdP ends at once with `sso-manual-scope-unavailable`.
 - **One lifetime.** The offer belongs to the request. The request ending withdraws it at
   once: its five minutes, with `choice-timed-out`, **Cancel this login**, or a page
   change. A request that ended while its page was read opens no offer. An offer that
@@ -217,6 +220,6 @@ its five minutes while the offer stayed open five more, then ended with
   page permissions for its own page only. A hop to the identity provider still needs
   `auto` sign-in on both origins with neither paused (`sso-manual-scope-unavailable`),
   and site access, item eligibility and master-password re-prompt still apply.
-- **What it gives up.** Where the order decides, **Log in now** no longer offers the
-  person another method or the password for that press. They pick one in the method
-  offer of a later sign-in, or after the decided route stops.
+- **The first visit.** A broker page whose entry no flow has pressed yet still shows the
+  chooser once, also for **Log in now**
+  ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-a-broker-pages-provider-entry)).

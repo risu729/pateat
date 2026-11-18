@@ -57,6 +57,7 @@ function harness(
     | { ok: true; identity: "match" | "different" | "absent" }
     | { ok: false; reason: string },
   marker = true,
+  at = rp,
 ) {
   const catalog = {
     connections: [connection("rp-vault", rpItem, rp), connection("idp-vault", idpItem, idp)],
@@ -164,9 +165,9 @@ function harness(
   rt.attemptRecords.write = vi.fn(async () => undefined);
   const timing = { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 };
   const live: LiveDocument = {
-    document: { origin: rp, tabId: 7, frameId: 0, documentId: "returned-rp" },
+    document: { origin: at, tabId: 7, frameId: 0, documentId: "returned-rp" },
     token: "return-token",
-    url: rp + "/home",
+    url: at + "/home",
     path: "/home",
     incognito: false,
     seenAt: Date.now(),
@@ -174,7 +175,7 @@ function harness(
   };
   const rpLive = {
     ...live,
-    document: { ...live.document, documentId: "initial-rp" },
+    document: { ...live.document, origin: rp, documentId: "initial-rp" },
     path: "/signin",
     url: rp + "/signin",
   };
@@ -328,6 +329,46 @@ describe("actual SSO RP-return admission and final evidence", () => {
       false,
     );
     expect(h.signedIn).toHaveBeenCalledWith(7, rp);
+  });
+  // A broker such as flow.idp.hashicorp.com hands the tab back to the site's portal on
+  // another origin of the same registrable site (ADR 0085 amendment of 2026-11-18).
+  it("completes a return to another origin of the RP's own site, for the RP's account", async () => {
+    const portal = "https://portal.example.test";
+    const h = harness({ ok: true, identity: "absent" }, true, portal);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    // The RP item must still match the page, as its URIs under a Domain rule do.
+    h.saved.catalog.connections[0]!.items[0]!.allowedOrigins.push(portal);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.work.parent?.state).toBe("authenticated");
+    expect(h.work.parent?.account).toEqual(h.work.account);
+    expect(h.signedIn).toHaveBeenCalledWith(7, rp);
+  });
+  it("never completes a same-site return the RP item does not match", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true, "https://portal.example.test");
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-scope-changed" });
+    expect(h.signedIn).not.toHaveBeenCalled();
+  });
+  it("learns which IdP a pressed URL-form entry reached, once the tab is there", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true, idp);
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    const target = { by: "id" as const, value: "provider-entry" };
+    h.work.phase = "entering-idp";
+    h.work.form = "url";
+    h.work.entry = { path: "/signin", target };
+    await ssoAdmit(h.rt, h.ctx);
+    await vi.waitFor(() =>
+      expect(io.setItem).toHaveBeenCalledWith("local:pateat.login.sso-entries.v1", [
+        { origin: rp, path: "/signin", target, idp },
+      ]),
+    );
+  });
+  it("keeps a return to another site forbidden", async () => {
+    const h = harness({ ok: true, identity: "absent" }, true, "https://portal.elsewhere.test");
+    await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-forbidden-origin" });
+    expect(h.work.parent?.state).not.toBe("authenticated");
+    expect(h.signedIn).not.toHaveBeenCalled();
   });
   it("absence of both exact local identity and a fresh marker never authenticates", async () => {
     const h = harness({ ok: true, identity: "absent" }, false);

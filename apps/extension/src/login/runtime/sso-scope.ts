@@ -9,7 +9,7 @@ import {
   type LoginDocument,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { frameKey } from "./steps";
+import { frameKey, siteOf } from "./steps";
 import { pauseOf } from "./pause";
 import { itemMatchesUrl } from "./plan";
 import { ssoDependenciesKept } from "./sso/dependencies";
@@ -17,6 +17,17 @@ import type { Runtime } from "./state";
 import type { SsoWork } from "./sso-state";
 import type { LiveDocument } from "./types";
 
+/**
+ * Where the flow's RP return may land: the RP's own origin, or another origin of its
+ * registrable site that is not the selected IdP's, as a broker that hands the tab to the
+ * site's portal or its own callback does (ADR 0085 amendment of 2026-11-18). Any other
+ * origin stays forbidden.
+ */
+export function ssoReturnOrigin(work: SsoWork, origin: string) {
+  if (origin === work.account.origin) return true;
+  const site = siteOf(work.account.origin);
+  return origin !== work.selected.origin && site !== undefined && siteOf(origin) === site;
+}
 export const ssoCurrent = (rt: Runtime, work: SsoWork, live = work.live) =>
   rt.sso.flows.get(work.rpLive.document.tabId) === work &&
   !work.ended &&
@@ -36,7 +47,7 @@ export const ssoCurrent = (rt: Runtime, work: SsoWork, live = work.live) =>
   !heldElsewhere(rt, live.document.tabId, work.selected.origin) &&
   live.document.frameId === 0 &&
   rt.documents.get(frameKey(live.document)) === live &&
-  (live.document.origin === work.account.origin || live.document.origin === work.selected.origin);
+  (ssoReturnOrigin(work, live.document.origin) || live.document.origin === work.selected.origin);
 export const ssoChildOn = (rt: Runtime, document: LoginDocument) => {
   const work = rt.sso.flows.get(document.tabId);
   return work && !work.ended && document.frameId === 0 && document.origin === work.selected.origin
@@ -94,7 +105,7 @@ export async function ssoScope(
       return undefined;
   }
   if (
-    live.document.origin === work.account.origin &&
+    ssoReturnOrigin(work, live.document.origin) &&
     !isSiteAllowed(saved.snapshot.settings, work.selected.origin)
   )
     return undefined;

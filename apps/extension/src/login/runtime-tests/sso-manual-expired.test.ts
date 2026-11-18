@@ -8,7 +8,7 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, connectionId, itemId, otherItemId, snapshotId, uriMatch, harness } =
+const { origin, connectionId, itemId, otherItemId, snapshotId, userId, uriMatch, harness } =
   createRuntimeTestHarness(fake);
 const popup = {
   id: "synthetic-extension",
@@ -162,6 +162,30 @@ afterEach(() => {
 });
 
 describe("Log in now after the page's SSO method offer expired (#1687)", () => {
+  // A mapped label-form method whose hop a fill-only page's scope refuses: Log in now does
+  // not dead-end on it but offers the chooser, where the password still starts.
+  it("offers the chooser, with the password, where the scope refuses the preferred method's hop", async () => {
+    const s = setup();
+    const account = { provider: "bitwarden", server: "cloud-us", userId };
+    s.h.settings.settings.ssoMappings = [
+      { ...account, itemId, method: 1, idp: { ...account, itemId: otherItemId, origin: idp } },
+    ];
+    // The site only fills: the page starts nothing by itself.
+    s.h.settings.settings.sitePagePermissions = [
+      { hostname: "login.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+    ];
+    expect(await s.h.signIn()).toMatchObject({ ok: false });
+    expect(await s.methods()).toEqual({ ok: true });
+    const { started } = await s.logInNow();
+    expect(await started).toEqual({ ok: true, state: "choosing" });
+    expect(await s.shown()).toMatchObject({
+      password: true,
+      methods: [{ method: { number: 1 }, mapped: true }],
+    });
+    expect(await s.choose({ kind: "native", route: "password" })).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executes()).not.toHaveLength(0));
+  });
+
   it("opens the method offer again and starts the login the person chooses there", async () => {
     const s = setup();
     await s.expire();

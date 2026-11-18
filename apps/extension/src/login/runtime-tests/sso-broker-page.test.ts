@@ -8,6 +8,7 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
+const { learnSsoEntry } = await import("../runtime/sso/learned-entries");
 const { origin, connectionId, itemId, otherItemId, userId, uriMatch, harness } =
   createRuntimeTestHarness(fake);
 const popup = {
@@ -37,7 +38,7 @@ const pressed = () => {
  * `SSO` method signs in at `idp`, and the page's provider button submits a form to the
  * page's own origin, which sends the tab on. No entry names the mapped origin itself.
  */
-function setup(options: { mapped?: boolean; learned?: boolean } = {}) {
+function setup(options: { mapped?: boolean; learned?: boolean; reached?: string } = {}) {
   const sso = {
     describe: vi.fn(async () => ({
       ok: true as const,
@@ -99,12 +100,17 @@ function setup(options: { mapped?: boolean; learned?: boolean } = {}) {
     },
   };
   const recipes = h.recipes as typeof h.recipes & Record<string, unknown>;
-  let learned = options.learned !== false;
+  let learned = false;
   recipes["sso"] = vi.fn(async () => (learned ? [layout] : []));
-  /** The page's SSO layout arrives, as generation stores it after a first explicit choice. */
+  /**
+   * The page's SSO layout arrives, as generation stores it after a first explicit choice,
+   * and the flow that pressed the entry reached `reached` (ADR 0085).
+   */
   const learn = () => {
     learned = true;
+    void learnSsoEntry(origin, "/signin", provider, options.reached ?? idp);
   };
+  if (options.learned !== false) learn();
   recipes["ssoFence"] = vi.fn(async () => () => true);
   fake.state.extracted = {
     login: {
@@ -298,14 +304,35 @@ describe("a fresh tab on a broker page (#1687)", () => {
     expect(await s.methods()).toEqual({ ok: true });
   });
 
-  it("Log in now with a learned entry keeps the hop's guard and ends at once", async () => {
+  it("Log in now whose hop the scope refuses shows the chooser, and its SSO choice says why", async () => {
     const s = setup({ learned: false });
     await expiredThenLearned(s);
     // The one-page grant never reaches the IdP: it needs automatic sign-in there.
     s.h.settings.settings.sitePagePermissions = [
       { hostname: "idp.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
     ];
-    expect(await s.logInNow()).toEqual({ ok: false, reason: "sso-manual-scope-unavailable" });
+    expect(await s.logInNow()).toEqual({ ok: true, state: "choosing" });
+    expect(prepared()).toHaveLength(0);
+    const shown = await s.shown();
+    const entry = shown.entries.find((item) => item.label === "Continue with the provider")!;
+    const candidateId = shown.methods[0]!.selectedId!;
+    expect(
+      await s.choose({ kind: "sso", method: { number: 1 }, candidateId, entryId: entry.id }),
+    ).toEqual({ ok: true });
+    await vi.waitFor(async () =>
+      expect(await s.offer()).toMatchObject({
+        status: { state: "blocked", reason: "sso-manual-scope-unavailable" },
+      }),
+    );
+    expect(prepared()).toHaveLength(0);
+  });
+
+  it("never presses an entry the page learned for another provider", async () => {
+    const s = setup({ reached: "https://other-provider.example" });
+    void s.h.signIn();
+    await vi.waitFor(async () =>
+      expect(await s.methods()).toMatchObject({ offer: { reason: "entry-required" } }),
+    );
     expect(prepared()).toHaveLength(0);
   });
 });

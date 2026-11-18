@@ -431,7 +431,8 @@ describe("historical SSO-child holds keep evidence without blocking another logi
 });
 
 describe("actual SSO lifecycle uses browser event delivery", () => {
-  it.each([rp + "/callback", idp + "/login"])(
+  // Another origin of the RP's own site is a return too (ADR 0085 amendment of 2026-11-18).
+  it.each([rp + "/callback", idp + "/login", "https://portal.example.test/home"])(
     "keeps an allowed same-tab origin update %s",
     async (url) => {
       const h = harness();
@@ -446,7 +447,7 @@ describe("actual SSO lifecycle uses browser event delivery", () => {
     const h = harness();
     await h.rt.sso.loaded;
     installSsoLifecycle(h.rt);
-    fake.emitUpdated(7, { url: "https://unexpected.example.test/continuation" });
+    fake.emitUpdated(7, { url: "https://unexpected.other.test/continuation" });
     expect(h.rt.sso.flows.has(7)).toBe(false);
     expect(h.flow.abort.signal.aborted).toBe(true);
     expect(h.rt.sso.interrupted.has(7)).toBe(true);

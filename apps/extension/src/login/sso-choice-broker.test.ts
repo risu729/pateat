@@ -167,3 +167,100 @@ describe("a broker page's learned entry", () => {
     expect(await h.offer()).toMatchObject({ id: replacement.offerId });
   });
 });
+
+describe("Log in now presses by itself only an SSO entry the automatic order decides", () => {
+  const manual = (hop = true, passkey = false) => ({
+    automatic: "sso" as const,
+    native: { passkey, password: true },
+    hopAllowed: vi.fn(async () => hop),
+    entries,
+    entryCurrent: async () => true,
+    entryOrigin: async () => false,
+    entryLearned: vi.fn(async (id: string) => id === "provider"),
+  });
+
+  it("presses the learned entry for the mapped origin, with the hop allowed", async () => {
+    const h = await mapped();
+    const input = manual();
+    const pending = await h.request(input);
+    expect(pending.waiting).toBeUndefined();
+    const answer = await pending.result;
+    if (!answer.ok) throw new Error(answer.reason);
+    expect(input.entryLearned).toHaveBeenCalledWith("provider", idpOrigin);
+    expect(input.hopAllowed).toHaveBeenCalledWith(idpOrigin);
+    expect(await h.controller.consume(answer.choiceId)).toMatchObject({
+      selection: { kind: "sso", entryId: "provider" },
+    });
+  });
+
+  it.each([
+    ["the hop is not allowed", () => manual(false)],
+    ["a passkey comes first in the order", () => manual(true, true)],
+    ["nothing is learned", () => ({ ...manual(), entryLearned: async () => false })],
+    [
+      "no scope check is given",
+      () => {
+        const { hopAllowed: _, ...rest } = manual();
+        return rest;
+      },
+    ],
+  ])("keeps the explicit chooser when %s", async (_, input) => {
+    const h = await mapped();
+    const pending = await h.request(input());
+    expect(pending.waiting).toBe(true);
+    expect(await pendingOf(pending)).toBeUndefined();
+    // The chooser shows no automatic refusal: the person picks any method there.
+    expect(await h.offer()).not.toHaveProperty("reason");
+  });
+
+  it("keeps the explicit chooser beside a numbered method", async () => {
+    const h = ssoHarness([
+      { method: { number: 1 }, automatic: true, form: "bracket", label: "Provider" },
+      { method: { number: 2 }, automatic: false, form: "bracket", label: "Other" },
+    ]);
+    fixtures.push(h);
+    // The preferred method is mapped: only the numbered one beside it keeps the chooser.
+    await h.request();
+    expect(await h.choose()).toEqual({ ok: true });
+    const pending = await h.request(manual());
+    expect(pending.waiting).toBe(true);
+    expect(await pendingOf(pending)).toBeUndefined();
+  });
+
+  it("leaves a refusal of the decided method to the chooser, which shows it", async () => {
+    const h = await mapped();
+    const valid = h.source.validate.getMockImplementation()!;
+    h.source.validate
+      .mockImplementationOnce(valid)
+      .mockResolvedValueOnce({ ok: false, reason: "source-changed" });
+    const pending = await h.request(manual());
+    expect(pending.waiting).toBe(true);
+    expect(await pendingOf(pending)).toBeUndefined();
+  });
+
+  it("keeps the explicit chooser where the order would take the password", async () => {
+    const h = ssoHarness([
+      { method: { number: 2 }, automatic: false, form: "bracket", label: "Other" },
+    ]);
+    fixtures.push(h);
+    const pending = await h.request(manual());
+    expect(pending.waiting).toBe(true);
+    expect(await pendingOf(pending)).toBeUndefined();
+  });
+
+  it("keeps no offer, nor its timer, for a request already ended", async () => {
+    const h = await mapped();
+    const ended = new AbortController();
+    ended.abort();
+    const pending = await h.request({ ...manual(), signal: ended.signal });
+    expect(await pending.result).toEqual({ ok: false, reason: "cancelled" });
+    expect(await h.controller.get(7)).toEqual({ ok: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the explicit chooser while the preferred method has no mapping", async () => {
+    const h = await mapped(false);
+    const pending = await h.request(manual());
+    expect(pending.waiting).toBe(true);
+  });
+});
