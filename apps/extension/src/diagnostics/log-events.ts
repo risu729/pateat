@@ -200,6 +200,11 @@ export const LOG_EVENTS = {
       layout: "code",
       layoutFrom: "code",
       stop: "code",
+      // The sign-in methods a login that ended used and its item holds, and why it did not
+      // use a better one (ADR 0055, amended 2026-11-18).
+      used: "code",
+      held: "code",
+      why: "code",
       // How long a login that ended took (ADR 0019, amended 2026-10-18).
       totalMs: "count",
       serviceMs: "count",

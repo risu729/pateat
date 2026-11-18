@@ -148,7 +148,11 @@ export const reportAttempt = (
           ...(metadata.fillDone ? { fillDone: true as const } : {}),
         }
       : {}),
-    ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
+    // A login that went on after its passkey button stops past its layout's steps, whose
+    // item may hold a password (ADR 0060 amendment of 2026-11-18): it ran the whole layout.
+    ...(metadata.stopAt === undefined
+      ? {}
+      : { stop: metadata.passkeyButton ? ("passkey-button" as const) : ("password" as const) }),
     ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
     ...(stop ? { cause: stop } : {}),
     ...marks,

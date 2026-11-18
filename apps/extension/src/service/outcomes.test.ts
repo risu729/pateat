@@ -178,6 +178,20 @@ describe("loginOutcomeOf", () => {
     ).toEqual({ version: 1, revision: 3, branch: "1000", outcome: "unknown-submit", step: 1 });
   });
 
+  it("reports how a login that went on after its passkey button ended (ADR 0060)", () => {
+    // It ran all the steps of the layout the button led to, then stopped for the passkey.
+    expect(
+      loginOutcomeOf(
+        attempt({
+          state: "authenticated",
+          outcome: "authenticated",
+          settled: undefined,
+          stop: "passkey-button",
+        }),
+      )?.report,
+    ).toEqual({ version: 1, revision: 3, branch: "1000", outcome: "authenticated", step: 1 });
+  });
+
   it("lets a listed cause take precedence over the settled flag", () => {
     expect(loginOutcomeOf(attempt({ cause: "sign-in-shown" }))?.report.cause).toBe("sign-in-shown");
   });

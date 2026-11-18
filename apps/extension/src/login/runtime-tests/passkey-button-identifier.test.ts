@@ -11,6 +11,7 @@ import type { LiveUriMatcher } from "../../vault/site-candidates";
 import type { LoginGeneration } from "../runtime/deps";
 import type { LoginReport } from "../runtime/report";
 import { laterReadiness } from "../wire";
+import { loginRecordOf } from "../../service/login-records";
 import type { ConditionalDecision } from "../../passkeys/runtime";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
@@ -250,6 +251,61 @@ describe("a passkey button that leads to a step asking for the account (ADR 0060
       expect(passwordRead(h)).toBe(false);
     },
   );
+  // As Qantas's login in the owner's Chrome on 2026-11-18 at 11:17 UTC (build ce71c5f0): the
+  // item's passkey answered the step's request, the page moved on, and the login signed in,
+  // but the service got no login record of it.
+  it("sends a record of the password route that signed in with the item's passkey", async () => {
+    vi.useFakeTimers();
+    const { h, reports } = start([form, identifierStep()], discoverable);
+    shows(startPage, undefined, () => {
+      h.login.passkeyAnswered(
+        1,
+        origin,
+        "login.example",
+        { connectionId, itemId },
+        { incognito: false, documentId: "synthetic-document" },
+      );
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(
+      () => status()?.[0]?.["state"] === "reconciling" && status()?.[0]?.["submissions"] === 3,
+    );
+    // The site's next page, on another origin of its site, shows no sign-in form.
+    fake.state.signs = {
+      password: false,
+      code: false,
+      captcha: false,
+      invalid: false,
+      alert: false,
+    };
+    fake.state.tabUrls[1] = "https://www.login.example/home";
+    void h.hello({ documentId: "home-document", url: "https://www.login.example/home" }, false);
+    await until(() => status()?.[0]?.["state"] === "authenticated");
+    const ended = reports.findLast(
+      (entry): entry is Extract<LoginReport, { type: "attempt" }> =>
+        entry.type === "attempt" && entry.times !== undefined,
+    )!;
+    expect(ended).toMatchObject({
+      state: "authenticated",
+      route: "password",
+      branch: STEP,
+      stop: "passkey-button",
+      methods: { route: "password", used: "passkey", held: "passkey.password" },
+    });
+    expect(ended.methods).not.toHaveProperty("why");
+    expect(loginRecordOf(ended, "development")).toMatchObject({
+      recipeId: form.id,
+      record: {
+        revision: 2,
+        branch: STEP,
+        outcome: "authenticated",
+        route: "password",
+        used: "passkey",
+        held: "passkey.password",
+      },
+    });
+    expect(passwordRead(h)).toBe(false);
+  });
   it("answers the conditional request the step makes after Continue with the item", async () => {
     vi.useFakeTimers();
     const { h } = start([form, identifierStep()], discoverable);

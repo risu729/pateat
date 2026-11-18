@@ -1,4 +1,7 @@
+import * as v from "valibot";
+import { storage } from "wxt/utils/storage";
 import {
+  LOGIN_METHODS,
   loginMethodList,
   loginMethodSuspect,
   missedLoginMethod,
@@ -8,6 +11,7 @@ import {
 } from "@pateat/contracts";
 import { RESULT_CORRECTION_MS } from "./constants";
 import type { RouteChange } from "./report";
+import { METHODS_KEY } from "./session-schemas";
 import type { Runtime } from "./state";
 
 /**
@@ -17,8 +21,10 @@ import type { Runtime } from "./state";
  * a login that passed over a passkey or SSO method for a reason that may be a bug logs a
  * `login.route` warning, which goes to the service with the other problem lines.
  *
- * Kept in memory only, for logins that started in this worker, as the parts of a login's
- * own time are (`spans.ts`): one that a restarted worker resumed names none of them.
+ * Kept for the logins that started in this worker, and in session storage
+ * (`METHODS_KEY`), so a login a restarted worker ends still names them, as one whose result
+ * stayed watched long after the worker stopped (USI, 2026-11-18). A warning held for a
+ * second factor is kept in memory only, with the worker kept up for it.
  */
 
 /** What made the login take the route it did, read when it started and as it ran. */
@@ -67,16 +73,105 @@ type Pending = {
 /** Logins whose methods are kept at once; the oldest goes first. */
 const KEPT_ATTEMPTS = 64;
 
-type Tables = { kept: Map<string, Kept>; pending: Map<string, Pending> };
+type Tables = {
+  kept: Map<string, Kept>;
+  pending: Map<string, Pending>;
+  /** The last write of `kept` to session storage; each write follows the one before. */
+  saving: Promise<void>;
+  /** What a stopped worker stored, read before this worker writes anything. */
+  stored?: Promise<unknown>;
+};
 const tables = new WeakMap<Runtime, Tables>();
 
 function tablesOf(rt: Runtime): Tables {
   let found = tables.get(rt);
   if (!found) {
-    found = { kept: new Map(), pending: new Map() };
+    found = { kept: new Map(), pending: new Map(), saving: Promise.resolve() };
     tables.set(rt, found);
   }
   return found;
+}
+
+const loginMethodSchema = v.picklist(LOGIN_METHODS);
+const keptMethodsSchema = v.pipe(
+  v.array(
+    v.strictObject({
+      attemptId: v.pipe(v.string(), v.maxLength(64)),
+      held: v.pipe(v.array(loginMethodSchema), v.maxLength(LOGIN_METHODS.length)),
+      used: v.pipe(v.array(loginMethodSchema), v.maxLength(LOGIN_METHODS.length)),
+      marks: v.strictObject({
+        fillOnly: v.exactOptional(v.literal(true)),
+        signInFill: v.exactOptional(v.literal(true)),
+        picked: v.exactOptional(v.literal(true)),
+        passkeyRefused: v.exactOptional(v.literal(true)),
+        later: v.exactOptional(v.literal(true)),
+        routeChange: v.exactOptional(
+          v.picklist(["request-missing", "answer-failed", "sign-in-rejected", "sign-in-shown"]),
+        ),
+      }),
+    }),
+  ),
+  v.maxLength(KEPT_ATTEMPTS),
+);
+
+/**
+ * Writes the kept methods to session storage, as they are when the write runs. Never
+ * throws or holds the login: a failed write only loses them after a restart.
+ */
+function save(rt: Runtime): void {
+  const found = tablesOf(rt);
+  found.saving = found.saving
+    .then(() =>
+      storage.setItem(
+        METHODS_KEY,
+        [...found.kept].map(([attemptId, { held, used, marks }]) => ({
+          attemptId,
+          held: [...held],
+          used: [...used],
+          marks,
+        })),
+      ),
+    )
+    .catch(() => undefined);
+}
+
+/**
+ * Reads what a stopped worker kept when this worker starts, before it writes anything, so
+ * its first write does not lose it. Never throws.
+ */
+export function loadMethods(rt: Runtime): void {
+  const found = tablesOf(rt);
+  const stored = Promise.try(() => storage.getItem(METHODS_KEY)).catch(() => undefined);
+  found.stored = stored;
+  found.saving = stored.then(() => undefined);
+}
+
+/**
+ * Takes the methods a stopped worker kept (`loadMethods`) for its logins that still have a
+ * record (`attemptIds`), before any of them can end; a login this worker opened meanwhile
+ * keeps its own. Never throws.
+ */
+export async function restoreMethods(rt: Runtime, attemptIds: ReadonlySet<string>): Promise<void> {
+  const found = tablesOf(rt);
+  const stored = await found.stored;
+  delete found.stored;
+  const parsed = v.safeParse(keptMethodsSchema, stored ?? []);
+  const { kept } = found;
+  const restored = new Map<string, Kept>();
+  if (parsed.success)
+    for (const { attemptId, held, used, marks } of parsed.output)
+      if (attemptIds.has(attemptId))
+        restored.set(attemptId, { held: new Set(held), used: new Set(used), marks });
+  // The restored ones are older than any opened since, so they go first.
+  const opened = [...kept];
+  kept.clear();
+  for (const [attemptId, entry] of [...restored, ...opened]) kept.set(attemptId, entry);
+  for (const old of kept.keys()) {
+    if (kept.size <= KEPT_ATTEMPTS) break;
+    kept.delete(old);
+  }
+  // Those of logins that ended while the worker was stopped go.
+  save(rt);
 }
 
 /**
@@ -98,6 +193,7 @@ export function openMethods(
     if (kept.size <= KEPT_ATTEMPTS) break;
     kept.delete(old);
   }
+  save(rt);
 }
 
 /** The login went back from its passkey to its password (ADR 0034), for this reason. */
@@ -107,7 +203,9 @@ export function methodRouteChanged(
   routeChange: Exclude<RouteChange, "page-request" | "passkey-button">,
 ): void {
   const found = tablesOf(rt).kept.get(attemptId);
-  if (found) found.marks.routeChange = routeChange;
+  if (!found) return;
+  found.marks.routeChange = routeChange;
+  save(rt);
 }
 
 /**
@@ -118,7 +216,11 @@ export function methodRouteChanged(
  */
 export function methodUsed(rt: Runtime, attemptId: string, method: LoginMethod): void {
   const { kept, pending } = tablesOf(rt);
-  kept.get(attemptId)?.used.add(method);
+  const found = kept.get(attemptId);
+  if (found && !found.used.has(method)) {
+    found.used.add(method);
+    save(rt);
+  }
   const waiting = pending.get(attemptId);
   if (!waiting) return;
   waiting.kept.used.add(method);
@@ -202,7 +304,7 @@ function warns(metadata: LoginAttemptMetadata, methods: AttemptMethods): boolean
 
 /** Drops attempt `attemptId`'s methods, as for an SSO hop's own login, which has no record. */
 export function dropMethods(rt: Runtime, attemptId: string): void {
-  tablesOf(rt).kept.delete(attemptId);
+  if (tablesOf(rt).kept.delete(attemptId)) save(rt);
 }
 
 /**
@@ -220,6 +322,7 @@ export function takeMethods(
   const found = kept.get(metadata.id);
   if (!found) return undefined;
   kept.delete(metadata.id);
+  save(rt);
   // An item that holds no method Pateat can use here, as one with only a passkey that is
   // not discoverable, names none.
   if (!found.held.size) return undefined;

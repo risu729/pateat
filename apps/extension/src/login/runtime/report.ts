@@ -208,8 +208,12 @@ export type LoginReport = (
        * its recipe part (ADR 0060).
        */
       layoutFrom?: string;
-      /** The login stops before the password its item lacks (ADR 0036). */
-      stop?: "password";
+      /**
+       * The login stops before the password its item lacks (`password`, ADR 0036), or just
+       * past the steps of the layout its passkey button led to (`passkey-button`, ADR 0060
+       * amendment of 2026-11-18), where its page's passkey request is answered.
+       */
+      stop?: "password" | "passkey-button";
       /** For a login that just ended, signed in or blocked: how long it took (ADR 0019). */
       times?: AttemptTimes;
       /**

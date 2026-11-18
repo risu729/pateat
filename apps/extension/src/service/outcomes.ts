@@ -85,15 +85,17 @@ const notEnded = new Set(["policy-changed", "account-switched"]);
  * unknown. A watched login (ADR 0027) reports how its watch ends, as signed in or blocked
  * with the outcome the watch left, never where it first stopped. A fill-only login and one
  * of an item without a password run only part of the revision, so they report nothing:
- * every report of the latter names its stop, so it reports nothing even when it fails
- * before the stop. A listed cause is sent as it is and takes precedence over the
+ * every report of the latter names its stop (`password`), so it reports nothing even when
+ * it fails before the stop. A login that went on after its passkey button to a layout that
+ * asks for the account first ran all of that layout's steps (`passkey-button`, ADR 0060
+ * amendment of 2026-11-18), so it reports how it ended. A listed cause is sent as it is and takes precedence over the
  * `settled` and `unconfirmed` flags, which stand in only when there is none.
  */
 export function loginOutcomeOf(
   report: LoginReport,
 ): { recipeId: string; report: LoginOutcomeReport } | undefined {
   if (report.type !== "attempt" || report.recipeRevision < 1) return undefined;
-  if (report.reason === "fill-only" || report.stop !== undefined) return undefined;
+  if (report.reason === "fill-only" || report.stop === "password") return undefined;
   const ended =
     report.state === "authenticated" ||
     report.state === "blocked" ||

@@ -290,6 +290,12 @@ Now:
   ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
 - The line carries no page path: it is logged after the login submitted, which
   `pathAllowed` never lets leave. Its fields are codes and counts only.
+- The `login.attempt` line where a login ended names the same `used`, `held` and `why`
+  codes, so a failed login's problem line, and the local log of one that signed in, say
+  which method it used. Added on 2026-11-18 after Qantas's login, which signed in with
+  the item's passkey at the stop after its passkey button, ended on a line that named
+  neither the passkey nor that stop (`stop` was `password`; it is now `passkey-button`).
 
 Not confirmed by the owner (the agent's choices): the line's name and fields, the 30
-seconds, and logging it for a login that sends no record.
+seconds, logging it for a login that sends no record, and the methods on the
+`login.attempt` line.

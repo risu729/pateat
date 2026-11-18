@@ -35,11 +35,11 @@ export type FoundLoginRecord =
  * times (`times`: signed in or blocked, a watched one when its watch ended, and never a
  * repeat report) and that would report a result code (`loginOutcomeOf`) sends one: a login
  * without a service recipe revision, a fill-only login, any login of an item without a
- * password, and a `policy-changed`, `account-switched` or cause-less `cancelled` end send
- * nothing, as for the first login's result code. A result that settled as unknown without
- * a watch has no end and no times, so it sends nothing here either. A record the contract
- * refuses, such as one with a time over a day or a build it does not accept, is not sent
- * but returned as `invalid`, so the local log says so.
+ * password that stops before it, and a `policy-changed`, `account-switched` or cause-less
+ * `cancelled` end send nothing, as for the first login's result code. A result that
+ * settled as unknown without a watch has no end and no times, so it sends nothing here
+ * either. A record the contract refuses, such as one with a time over a day or a build it
+ * does not accept, is not sent but returned as `invalid`, so the local log says so.
  */
 export function loginRecordOf(
   report: LoginReport,
