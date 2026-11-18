@@ -154,8 +154,9 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     refused?.origin === account.origin &&
     refused.connectionId === account.connectionId &&
     refused.itemId === account.itemId;
-  // The person's own request opens the method offer they choose from (ADR 0085). It ends
-  // with that request, as on its time running out or the person's cancel, so the offer
+  // The person's own request takes the automatic order where it decides, and otherwise
+  // opens the method offer they choose from (ADR 0088 amendment of 2026-11-18). The offer
+  // ends with that request, as on its time running out or the person's cancel, so it
   // never waits for a choice nothing could still use.
   if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
     return ctx.refuse("manual-request-ended");
@@ -168,7 +169,7 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     basis: saved,
     ...(methodOffer ? { signal: methodOffer.signal } : {}),
     native: { passkey: facts.discoverablePasskey && !passkeyRefused, password: facts.password },
-    automatic: !ctx.manual,
+    automatic: true,
     entries: [...targets].map(([id, entry]) => ({ id, label: entry.label })),
     entryOrigin: async (id: string, origin: string) => {
       const entry = targets.get(id);
@@ -226,7 +227,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       account,
       chosen,
       route: receipt.selection.route,
-      ...(ctx.manual ? {} : { automatic: true as const }),
+      // Only a route the person picked in the popup is theirs (ADR 0085, a refused passkey).
+      ...(ctx.manual && requested.waiting ? {} : { automatic: true as const }),
       ...(described.data.methods.length ? { methods: true as const } : {}),
     });
     return undefined;

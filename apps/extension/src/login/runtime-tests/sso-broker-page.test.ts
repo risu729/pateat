@@ -258,7 +258,7 @@ describe("a fresh tab on a broker page (#1687)", () => {
     const entry = shown.entries.find((item) => item.label === "Continue with the provider");
     const candidateId = shown.methods[0]!.selectedId!;
     expect(entry && candidateId).toBeTruthy();
-    // The person's explicit request never presses a learned entry by itself.
+    // A layout that arrives once the choice is open leaves that choice to the person.
     s.learn();
     expect(prepared()).toHaveLength(0);
     expect(
@@ -277,5 +277,35 @@ describe("a fresh tab on a broker page (#1687)", () => {
     expect(await first).toEqual({ ok: false, reason: "expired" });
     expect(await s.logInNow()).toEqual({ ok: true, state: "choosing" });
     expect(await s.shown()).toMatchObject({ methods: [{ method: { number: 1 } }] });
+  });
+
+  /** The page's own offer waited and expired; the entry is learned only afterwards. */
+  async function expiredThenLearned(s: ReturnType<typeof setup>) {
+    const first = s.h.signIn();
+    await vi.waitFor(async () =>
+      expect(await s.methods()).toMatchObject({ offer: { reason: "entry-required" } }),
+    );
+    await vi.advanceTimersByTimeAsync(OFFER_MS);
+    expect(await first).toEqual({ ok: false, reason: "expired" });
+    s.learn();
+  }
+
+  it("Log in now presses a learned entry as an automatic login would, with no choice", async () => {
+    const s = setup({ learned: false });
+    await expiredThenLearned(s);
+    expect(await s.logInNow()).toEqual({ ok: true, state: "started" });
+    pressed();
+    expect(await s.methods()).toEqual({ ok: true });
+  });
+
+  it("Log in now with a learned entry keeps the hop's guard and ends at once", async () => {
+    const s = setup({ learned: false });
+    await expiredThenLearned(s);
+    // The one-page grant never reaches the IdP: it needs automatic sign-in there.
+    s.h.settings.settings.sitePagePermissions = [
+      { hostname: "idp.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+    ];
+    expect(await s.logInNow()).toEqual({ ok: false, reason: "sso-manual-scope-unavailable" });
+    expect(prepared()).toHaveLength(0);
   });
 });

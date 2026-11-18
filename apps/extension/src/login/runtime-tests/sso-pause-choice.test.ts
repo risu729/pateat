@@ -133,11 +133,13 @@ async function harness(pauses: ReturnType<typeof createLoginPauses>) {
           data: {
             sourceEvidence: source.sourceEvidence,
             policyRevision: saved.snapshot.revision,
+            // The item's preferred method, not mapped yet: Log in now's automatic order
+            // cannot decide, so the chooser waits for the person (ADR 0088).
             methods: [
               {
                 method: { number: 2 },
                 form: "bracket" as const,
-                automatic: false,
+                automatic: true,
                 label: "Alternative provider",
               },
             ],

@@ -608,7 +608,9 @@ The rest of this section is the agent's choice, not confirmed by the owner:
   checked again.
 - **Only with a saved mapping.** A method without one still waits with
   `mapping-required`, and nothing lists or guesses an IdP account.
-- **Only automatic logins.** **Log in now** keeps the explicit chooser
+- **Log in now too.** By the owner's later decision the same day, **Log in now** takes
+  the same automatic order and presses such an entry too, under its own hop guard, and
+  shows the chooser only where the order cannot decide
   ([ADR 0088](0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)).
 - **The first visit.** A page whose layout has not learned the entry yet still offers
   the choice once. The person's entry choice there stores the layout, and later visits

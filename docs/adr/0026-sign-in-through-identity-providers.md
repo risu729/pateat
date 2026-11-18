@@ -287,7 +287,10 @@ login history success and automatic relogin counts even after the parent is canc
 The coordinator resolves the mapping before pressing an entry. Account selection
 includes SSO-only items. Automatic method order is passkey, unsuffixed SSO, then
 password; numbered methods require an explicit choice. A current-page manual request
-offers an explicit method choice. It may use SSO only under existing automatic
+offers an explicit method choice (since 2026-11-18 only where the automatic order cannot
+decide:
+[ADR 0088](0088-popup-manual-login.md#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)).
+It may use SSO only under existing automatic
 permission on both origins and without a pause; its one-page grant never expands to the
 IdP. Frames, extra origins, new contexts, nested SSO, consent, sharing and account
 creation stop the flow.

@@ -865,7 +865,9 @@ rejected or stopped login of the origin (`stoppedAsks`, `rejectedAsks`), as an o
 popup pick does. Once an attempt starts, only the ordinary
 attempt-scoped account pick and its manual provenance persist. The popup distinguishes
 preparation and generation from a started login and displays actionable blockers. On an
-item with SSO methods the request opens the item's method offer for the person's choice
+item with SSO methods the request takes the item's automatic method order, pressing a
+mapped SSO method's single qualifying entry at once as an automatic login would; where
+the order cannot decide, it opens the item's method offer for the person's choice
 and is `choosing` while it waits, so the popup's start answers at once and points to
 **Sign-in method**; the offer ends with the request, and the request with the offer and
 its reason
