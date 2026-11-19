@@ -508,7 +508,20 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   `sign-in` result does not replace the authenticated record, start another login or
   start a classification loop. An explicit manual login retains its separate scope.
   A returned recipe re-admits the current document rather than executing a stale
-  result directly.
+  result directly. Until 2026-11-18 this classification never ran outside tests: the
+  content script announces its sign-in input only after an answer that offers the page
+  (`generate`), and the authenticated record's `logged-in` answer did not, so a
+  verification page on a path without a recipe in the tab of its confirmed login, as
+  WILLER's membership cancellation page
+  ([#1714](https://github.com/risu729/pateat/issues/1714)), was never classified and
+  never offered **Fill**. That answer now offers the page, once per document and path
+  (an agent's fix of the recorded behavior, `offersConfirmGeneration`). So such a page
+  is now filled by itself, without a press, when it comes back `confirm` or `unclear`
+  and `confirm` is `fill` for it, which is the default: the automatic fill of this
+  delivery, with the confirmed login's account, pressing nothing. Where `confirm` is
+  `off`, the page is still classified once and nothing fills it, and the popup offers
+  no **Fill** there. No SSO offer acts on the page while it waits for its
+  classification (`confirmClassifies`).
 - Every delivery rechecks the original authentication, exact document and top-page
   identity, site access, pause/private-window policy, account and field eligibility,
   URI matching, master-password requirements, settings/profile scope, recipe mutation

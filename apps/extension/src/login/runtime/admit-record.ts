@@ -19,7 +19,7 @@ import { pageOff, recordedFillShows } from "./sign-in-fill";
 import { probeRecipe } from "../dummy";
 import { explicitlyPicked, pagePermission } from "./page-permission";
 import { terminal } from "./attempt-state";
-import { admitConfirm } from "./confirm-admit";
+import { admitConfirm, offersConfirmGeneration } from "./confirm-admit";
 import { admitRecipe } from "./admit-recipe";
 import type { AdmitContext } from "./admit-context";
 
@@ -331,6 +331,10 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
       if (off) return off;
       // Not a recipe's first step on its path, so the login stays (ADR 0021 D).
       const visit = confirm && confirmPage(rt, ctx.live, confirm);
+      // A page without a recipe in a tab whose login was confirmed may be classified once:
+      // the document announces its sign-in input only after an answer that offers it.
+      const offer = !confirm && (await offersConfirmGeneration(rt, ctx, ctx.recorded));
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
       if (visit) ctx.notStarted("confirm-unsupported", visit);
       else ctx.notStarted("logged-in");
       return {
@@ -338,6 +342,7 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
         reason: "logged-in",
         starts,
         ...(visit ? { confirm: visit.first } : {}),
+        ...(offer ? { generate: true as const } : {}),
       };
     }
     // It shows again after a finished login, as after a logout. Only this tab's record
