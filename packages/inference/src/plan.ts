@@ -591,7 +591,13 @@ export type GeneratedPageRejection =
   /** A request with slots was answered with a sign-in entry (ADR 0031). */
   | "unexpected-entry"
   /** A logout answer's control logs out elsewhere or ends the account (ADR 0063). */
-  | "unsafe-control";
+  | "unsafe-control"
+  /**
+   * A `confirm` or `unclear` plan fills a form that also sets a new password anywhere but
+   * its current password input, or with anything but the password
+   * (`verificationPlanRejection`, ADR 0035).
+   */
+  | "password-change-field";
 
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks

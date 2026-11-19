@@ -68,10 +68,15 @@ describe("recipe generation role", () => {
     expect(report.falseSubmits).toBe(0);
     expect(report.calls).toBe(evaluationCorpus.length);
     expect(report.usage.inputTokens).toBe(120 * evaluationCorpus.length);
-    // Every corpus page is a sign-in page (ADR 0035).
+    // Every corpus plan is a sign-in page's but those whose truth names a kind (ADR 0035).
+    const plans = evaluationCorpus.flatMap((entry) =>
+      entry.expected.kind === "plan" ? [entry.expected] : [],
+    );
+    const confirms = plans.filter((expected) => expected.pageKind === "confirm").length;
+    expect(confirms).toBe(2);
     expect(report.pageKinds).toEqual({
-      "sign-in": evaluationCorpus.filter((entry) => entry.expected.kind === "plan").length,
-      confirm: 0,
+      "sign-in": plans.length - confirms,
+      confirm: confirms,
       unclear: 0,
     });
     expect(report.cases.find((entry) => entry.plan)?.plan).toMatchObject({ pageKind: "sign-in" });

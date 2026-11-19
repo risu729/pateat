@@ -124,7 +124,9 @@ const matches = (expected: Extract<ExpectedResult, { kind: "plan" }>, plan: Vali
 
 /**
  * Scores one outcome. Any answer other than the truth's own decision is a false submit:
- * a form plan on a list of accounts, a list or an entry on a sign-in form.
+ * a form plan on a list of accounts, a list or an entry on a sign-in form, and a plan
+ * that answers `sign-in`, or no kind, on a page whose truth is `confirm` (ADR 0035), as it
+ * would press that page's button. `unclear` is handled as `confirm`, so it counts.
  */
 export function judge(expected: ScoredResult, outcome: InferenceOutcome<ScoredAnswer>): Verdict {
   if (outcome.status === "failed") return "failed";
@@ -132,7 +134,12 @@ export function judge(expected: ScoredResult, outcome: InferenceOutcome<ScoredAn
     return expected.kind === "abstain" ? "correct-abstention" : "missed";
   const answer = outcome.value;
   if (isPlan(answer))
-    return expected.kind === "plan" && matches(expected, answer) ? "correct" : "false-submit";
+    return expected.kind === "plan" &&
+      matches(expected, answer) &&
+      (expected.pageKind === undefined ||
+        (answer.pageKind !== undefined && answer.pageKind !== "sign-in"))
+      ? "correct"
+      : "false-submit";
   if ("accountList" in answer)
     return expected.kind === "account-list" &&
       answer.other === expected.other &&

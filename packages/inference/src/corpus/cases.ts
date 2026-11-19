@@ -23,6 +23,11 @@ export type ExpectedResult =
        * Scored apart from the plan verdict, like the passkey button.
        */
       accountSwitch?: string;
+      /**
+       * The page's kind when it is not a sign-in page (ADR 0035). A plan answering
+       * `sign-in` there is a false submit, as it would press the page's button.
+       */
+      pageKind?: "confirm";
     }
   | { kind: "abstain" };
 
@@ -135,7 +140,10 @@ export const expectedAlternatives = (expected: Extract<ExpectedResult, { kind: "
     action: { candidate: alternative.action, purpose: "submit" as const },
   }));
 
-const submit = (fields: Record<string, string>, action: string): ExpectedResult => ({
+const submit = (
+  fields: Record<string, string>,
+  action: string,
+): Extract<ExpectedResult, { kind: "plan" }> => ({
   kind: "plan",
   fields,
   action,
@@ -468,5 +476,74 @@ export const evaluationCorpus: EvaluationCase[] = [
     ]),
     slots: [slots.username, slots.password],
     expected: submit({ username: "login-name", password: "login-secret" }, "primary"),
+  },
+  {
+    id: "en-account-password-change",
+    locale: "en",
+    summary:
+      "Signed-in account details that save only with the current password, beside new and confirmation password fields",
+    observation: page(
+      "parcels",
+      "/account",
+      "en",
+      [
+        email("account-email", "Email", { group: "account", autocomplete: "email" }),
+        password("current-password", "Current Password (required)", { group: "account" }),
+        password("new-password", "New Password", { group: "account" }),
+        password("confirm-password", "Confirm New Password", { group: "account" }),
+        text("first-name", "First Name", { group: "account", autocomplete: "given-name" }),
+        text("last-name", "Last Name", { group: "account", autocomplete: "family-name" }),
+        tel("phone", "Phone", { group: "account", autocomplete: "tel" }),
+        button("update-account", "Update My Account", { group: "account" }),
+        link("sign-out", "Sign out"),
+      ],
+      { title: "My Account", headings: ["My Account", "Additional Recipients"] },
+    ),
+    slots: [slots.email, slots.password],
+    expected: {
+      ...submit({ password: "current-password" }, "update-account"),
+      pageKind: "confirm",
+    },
+  },
+  {
+    id: "ja-account-password-change",
+    locale: "ja",
+    summary: "ログイン中の会員情報変更。現在のパスワードを入力して保存し、新しいパスワード欄もある",
+    observation: page(
+      "members",
+      "/mypage/profile",
+      "ja",
+      [
+        email("mail", "メールアドレス", { group: "profile" }),
+        password("pass-now", "現在のパスワード", { group: "profile" }),
+        password("pass-next", "新しいパスワード", { group: "profile" }),
+        password("pass-next-again", "新しいパスワード（確認用）", { group: "profile" }),
+        button("save", "変更を保存する", { group: "profile" }),
+      ],
+      { title: "会員情報の変更", headings: ["会員情報の変更"] },
+    ),
+    slots: [slots.email, slots.password],
+    expected: { ...submit({ password: "pass-now" }, "save"), pageKind: "confirm" },
+  },
+  {
+    id: "en-password-reset-token",
+    locale: "en",
+    summary: "Password reset from an emailed link: a new password and its confirmation only",
+    observation: page(
+      "reset",
+      "/password/reset",
+      "en",
+      [
+        password("reset-new", "New password", { group: "reset", autocomplete: "new-password" }),
+        password("reset-again", "Confirm new password", {
+          group: "reset",
+          autocomplete: "new-password",
+        }),
+        button("reset-save", "Reset password", { group: "reset" }),
+      ],
+      { headings: ["Choose a new password"] },
+    ),
+    slots: [slots.username, slots.password],
+    expected: { kind: "abstain" },
   },
 ];

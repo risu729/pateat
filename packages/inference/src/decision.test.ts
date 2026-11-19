@@ -83,9 +83,12 @@ describe("finite-choice decision role", () => {
     const decide = decider(oracleDecider());
     const sets = (entry: (typeof evaluationCorpus)[number]) =>
       entry.expected.kind === "plan" && entry.expected.alternatives !== undefined;
+    // A verification page's kind is generation's to answer (ADR 0035).
+    const verifies = (entry: (typeof evaluationCorpus)[number]) =>
+      entry.expected.kind === "plan" && entry.expected.pageKind !== undefined;
     // Pages with custom-field slots too, which are named from the page (ADR 0027).
     const report = await evaluateRole({
-      cases: evaluationCorpus.filter((entry) => !sets(entry)),
+      cases: evaluationCorpus.filter((entry) => !sets(entry) && !verifies(entry)),
       run: (entry) => decide({ observation: entry.observation, slots: entry.slots }),
     });
     expect(report.semanticAccuracy).toBe(1);
@@ -97,6 +100,14 @@ describe("finite-choice decision role", () => {
     );
     for (const outcome of outcomes)
       expect(outcome).toMatchObject({ status: "abstained", reason: "ambiguous" });
+    const verifications = evaluationCorpus.filter(verifies);
+    expect(verifications.length).toBeGreaterThan(0);
+    for (const entry of verifications)
+      // oxlint-disable-next-line no-await-in-loop -- Each page is decided on its own.
+      expect(await decide({ observation: entry.observation, slots: entry.slots })).toMatchObject({
+        status: "abstained",
+        reason: "no-login-form",
+      });
   });
 
   it("asks each element and each slot with role-compatible options, and always offers none", () => {
