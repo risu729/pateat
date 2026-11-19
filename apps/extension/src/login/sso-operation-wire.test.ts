@@ -103,8 +103,13 @@ describe("SSO operation results", () => {
   it("accepts only finite native and intermediate IdP results", () => {
     for (const kind of ["account", "continue", "stay-signed-in"])
       expect(accepted(ssoIdpResultSchema, { kind, target })).toBe(true);
-    for (const kind of ["native", "unknown"])
-      expect(accepted(ssoIdpResultSchema, { kind })).toBe(true);
+    expect(accepted(ssoIdpResultSchema, { kind: "native" })).toBe(true);
+    // An unknown page says whether it offers the person anything to choose (ADR 0026,
+    // amendment of 2026-11-18).
+    for (const controls of [true, false])
+      expect(accepted(ssoIdpResultSchema, { kind: "unknown", controls })).toBe(true);
+    expect(accepted(ssoIdpResultSchema, { kind: "unknown" })).toBe(false);
+    expect(accepted(ssoIdpResultSchema, { kind: "unknown", controls: "yes" })).toBe(false);
     expect(accepted(ssoIdpResultSchema, { kind: "unsafe", reason: "consent" })).toBe(true);
     for (const kind of ["consent", "sign-up", "sharing", "nested-sso", "fedcm", "success"])
       expect(accepted(ssoIdpResultSchema, { kind, target })).toBe(false);

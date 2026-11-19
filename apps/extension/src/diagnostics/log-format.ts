@@ -147,7 +147,8 @@ function emailSegment(segment: string): boolean {
 /**
  * Whether an entry goes to the service (ADR 0066): every problem line ({@link problemEntry}:
  * `warn`, `error`, and an `info` line that says why Pateat did nothing on a page), except a
- * passkey report or a fill-only login's line, which stay local (`problemLocalOnly`).
+ * passkey report, a fill-only login's line and an SSO hop's own login's line, which stay
+ * local (`problemLocalOnly`).
  */
 export function sentToService(entry: Pick<LogEntry, "level" | "event" | "fields">): boolean {
   return !problemLocalOnly(entry.event, entry.fields) && problemEntry(entry);

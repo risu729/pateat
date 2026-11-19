@@ -70,7 +70,15 @@ export const ssoAuthorizeSchema = v.strictObject({
 export const ssoIdpResultSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("native") }),
   v.strictObject({ kind: v.literal("unsafe"), reason: id }),
-  v.strictObject({ kind: v.literal("unknown") }),
+  v.strictObject({
+    kind: v.literal("unknown"),
+    /**
+     * The page offers the person something to choose: a visible button, link, field or
+     * other control, or a visible frame (ADR 0026, amendment of 2026-11-18). Only a page
+     * without one, as an interstitial that sends the tab on by itself, may hold the flow.
+     */
+    controls: v.boolean(),
+  }),
   v.strictObject({
     kind: v.picklist(["account", "continue", "stay-signed-in"]),
     target: loginTargetSchema,
