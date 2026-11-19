@@ -26,6 +26,7 @@ import { askFor } from "../choice";
 import { reloginLimited } from "../relogin";
 import { asksEveryTime } from "../entry-press";
 import { beginSso } from "./flow";
+import { confirmClassifies } from "../confirm-admit";
 import { ssoEntryReaches, ssoEntryReachesOther } from "./learned-entries";
 import type { Saved } from "../../sso-choice-model";
 import type { AdmitContext } from "../admit-context";
@@ -110,6 +111,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
         !ctx.entryHello))
   )
     return undefined;
+  // A confirmed tab's page that is classified first offers no SSO (ADR 0035 delivery 3).
+  if (existing?.state === "authenticated" && (await confirmClassifies(rt, ctx))) return undefined;
   const saved = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!saved.ok || rt.documents.get(ctx.key) !== ctx.live)
     return ctx.refuse("settings-unavailable");

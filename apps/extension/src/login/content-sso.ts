@@ -138,6 +138,20 @@ function idpStep(document: Document, username: string) {
     }),
   };
 }
+/** Anything a page offers the person to choose or type, or a frame that may hold one. */
+const CONTROLS =
+  "button,a[href],input:not([type=hidden]),select,textarea,summary,iframe,frame,[role=button],[role=link],[role=menuitem],[role=option],[role=radio],[role=checkbox],[role=switch],[role=tab],[contenteditable=true]";
+/**
+ * Whether an IdP page offers the person anything to choose, read from the whole page
+ * whatever its observation says (ADR 0026, amendment of 2026-11-18).
+ */
+export const offersControls = (document: Document) =>
+  queryAll<HTMLElement>(document, CONTROLS).some((element) => {
+    if (!visible(element)) return false;
+    // A control without an area, as a tracking frame of no size, offers nothing.
+    const box = element.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  });
 /**
  * Generic finite IdP pages; no provider catalogue and no consent-as-continue rule. A
  * finite step needs a page whose own title or heading names it: an account list, an
@@ -147,7 +161,8 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
   if (ssoUnsafePage(document)) return { kind: "unsafe", reason: "permission-or-account-creation" };
   let observation = extractSignedInObservation(document);
   if (!observation.ok) observation = extractEntryObservation(document);
-  if (!observation.ok || !observation.observation.complete) return { kind: "unknown" };
+  if (!observation.ok || !observation.observation.complete)
+    return { kind: "unknown", controls: offersControls(document) };
   if (extractPasskeyObservation(document).ok) return { kind: "native" };
   const page = observation.observation;
   if (
@@ -190,7 +205,8 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
     accounts.some((account) => normalized(account) === normalized(username)) ||
     exactIdentityShown(document, username);
   const { stays } = step;
-  if (!stays && !step.confirms.length) return { kind: "unknown" };
+  if (!stays && !step.confirms.length)
+    return { kind: "unknown", controls: offersControls(document) };
   const candidates = controls.filter((candidate) => {
     if (candidate.target.by === "href") return false;
     const label = candidate.label?.trim() ?? "";
@@ -200,7 +216,7 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
     return named !== undefined && normalized(named) === normalized(username);
   });
   if (!sameAccount || candidates.length !== 1 || candidates[0]!.target.by === "href")
-    return { kind: "unknown" };
+    return { kind: "unknown", controls: offersControls(document) };
   const target = candidates[0]!.target;
   const pressed = findTargets(document, target, { links: true });
   // A confirmation says nothing but which account continues: any other text may be what
@@ -216,7 +232,7 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
         candidates[0]!.label ?? "",
       ) > CONFIRM_TEXT_LETTERS)
   )
-    return { kind: "unknown" };
+    return { kind: "unknown", controls: offersControls(document) };
   return { kind: stays ? "stay-signed-in" : "continue", target };
 }
 /** Explicit wrong identity defeats a generic signed-in marker on the RP return. */

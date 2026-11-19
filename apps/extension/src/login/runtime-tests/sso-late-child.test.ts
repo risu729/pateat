@@ -251,9 +251,11 @@ describe("actual native-child completion callbacks", () => {
       expect(h.rt.picked.get(7)).toBe(originalPick);
       expect(h.run.choice).toBeUndefined();
       expect(h.signedIn).not.toHaveBeenCalled();
-      expect(h.report.mock.calls.flat()).not.toContainEqual(
-        expect.objectContaining({ type: "attempt" }),
-      );
+      // Its lines are only logged, marked as the hop's own login (ADR 0026, amendment of
+      // 2026-11-18): the background sends them nowhere else.
+      const attempts = h.report.mock.calls.flat().filter((entry) => entry?.type === "attempt");
+      expect(attempts.length).toBeGreaterThan(0);
+      for (const entry of attempts) expect(entry).toMatchObject({ ssoChild: true });
       expect(io.setItem.mock.calls.some(([key]) => key === "session:pateat.confirm-fills.v1")).toBe(
         false,
       );

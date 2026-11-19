@@ -226,6 +226,12 @@ export type LoginReport = (
        * the login record (ADR 0055, amendment of 2026-11-18).
        */
       methods?: AttemptMethods;
+      /**
+       * The IdP's own login inside an SSO flow (ADR 0026, amendment of 2026-11-18): logged on
+       * the device only. It sends no record or result and shows nothing on the badge; its
+       * parent stands for the login.
+       */
+      ssoChild?: true;
     }
   | {
       /**
@@ -844,3 +850,11 @@ export type StopCause =
   | "captcha-shown"
   | "sign-in-shown"
   | ExecutionDetail;
+
+/**
+ * Whether a report goes beyond the local log: to the badge, the first-login result, the
+ * login records and the recipe use. The IdP's own login inside an SSO flow is only logged
+ * (ADR 0026, amendment of 2026-11-18); its parent stands for the login there.
+ */
+export const reportLeavesLog = (report: LoginReport): boolean =>
+  !(report.type === "attempt" && report.ssoChild === true);

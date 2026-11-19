@@ -207,6 +207,9 @@ export const LOG_EVENTS = {
       used: "code",
       held: "code",
       why: "code",
+      // The IdP's own login inside an SSO flow, logged on the device only (ADR 0026,
+      // amendment of 2026-11-18).
+      ssoChild: "flag",
       // How long a login that ended took (ADR 0019, amended 2026-10-18).
       totalMs: "count",
       serviceMs: "count",

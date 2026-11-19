@@ -6,6 +6,11 @@ import { userEvent } from "vitest/browser";
 import { recordFillEdits } from "../page/fill-edits";
 import { observedPath } from "../observation/path";
 import { installLoginContent } from "./content";
+import {
+  accountFormWithPasswordChange,
+  passwordBesideShownLoginId,
+  shownEmail,
+} from "../../test/login/verification-pages";
 
 type Listener = (
   message: unknown,
@@ -96,6 +101,15 @@ async function fill(
     value = "fixture@example.com",
     secret = "",
     attemptId = "confirm:authenticated-login",
+    fields = [{ slot, target: { by: "id", value: target } }] as {
+      slot: string;
+      target: { by: string; value: string };
+    }[],
+    values = [{ slot, value, ...(secret ? { secret } : {}) }] as {
+      slot: string;
+      value: string;
+      secret?: string;
+    }[],
   } = {},
 ) {
   const token = sent.find((entry) => typeof entry["token"] === "string")?.["token"];
@@ -118,10 +132,10 @@ async function fill(
         kind: "fill",
         effect: "prepare",
         path: observedPath(location.pathname),
-        fields: [{ slot, target: { by: "id", value: target } }],
+        fields,
       },
     },
-    values: [{ slot, value, ...(secret ? { secret } : {}) }],
+    values,
   };
   for (const listener of listeners)
     listener(message, { id: "synthetic-extension" }, (reply) => {
@@ -529,4 +543,71 @@ test("a page whose classification runs keeps watching the origin's starts in pla
       expect.objectContaining({ start: { path } }),
     ]),
   );
+});
+
+/** Counts what would act on the page: a click, Enter or a form's submission. */
+function watchEffects() {
+  const effects = { click: 0, enter: 0, submit: 0 };
+  document.addEventListener("click", () => (effects.click += 1), true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") effects.enter += 1;
+  });
+  document.addEventListener("submit", (event) => {
+    event.preventDefault();
+    effects.submit += 1;
+  });
+  return effects;
+}
+const pressed = "confirm:pick:press";
+const password = { slot: "password", value: "Synthetic-only!", secret: "password" };
+
+// The person's **Fill** on the pages of #1709 and #1714, with the steps a `confirm` recipe
+// generated for each would hold (ADR 0035, amended 2026-11-17).
+test.each([
+  { marks: false, email: true },
+  { marks: false, email: false },
+  { marks: true, email: true },
+])(
+  "the person's Fill on an account form fills only its current password (marked: $marks, email in the recipe: $email)",
+  async ({ marks, email }) => {
+    await install(accountFormWithPasswordChange(marks));
+    const before = Object.fromEntries(
+      [...document.querySelectorAll("input")].map((field) => [field.id, field.value]),
+    );
+    const effects = watchEffects();
+    const current = { slot: "password", target: { by: "id", value: "CurrentPassword" } };
+    const username = { slot: "username", target: { by: "id", value: "Email" } };
+    expect(
+      await fill("CurrentPassword", {
+        attemptId: pressed,
+        fields: email ? [username, current] : [current],
+        values: email ? [{ slot: "username", value: "fixture@example.com" }, password] : [password],
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      Object.fromEntries(
+        [...document.querySelectorAll("input")].map((field) => [field.id, field.value]),
+      ),
+    ).toEqual({ ...before, CurrentPassword: "Synthetic-only!" });
+    expect(input("Email").value).toBe(shownEmail);
+    expect([input("NewPassword").value, input("ConfirmNewPassword").value]).toEqual(["", ""]);
+    expect(effects).toEqual({ click: 0, enter: 0, submit: 0 });
+  },
+);
+
+test("the person's Fill on a cancellation page fills its password beside the shown login ID", async () => {
+  await install(passwordBesideShownLoginId);
+  const effects = watchEffects();
+  expect(
+    await fill("password", {
+      attemptId: pressed,
+      fields: [{ slot: "password", target: { by: "name", value: "password" } }],
+      values: [password],
+    }),
+  ).toMatchObject({ ok: true });
+  expect(document.querySelector<HTMLInputElement>('[name="password"]')!.value).toBe(
+    "Synthetic-only!",
+  );
+  expect(input("login-id").value).toBe(shownEmail);
+  expect(effects).toEqual({ click: 0, enter: 0, submit: 0 });
 });

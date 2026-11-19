@@ -316,7 +316,7 @@ describe("finite local IdP page reading", () => {
   it("does not infer account authority from a Continue or stay-signed-in button alone", () => {
     for (const title of ["Confirm your account", "Stay signed in?"]) {
       html("<h1>" + title + '</h1><button id="entry">Continue</button>', title);
-      expect(readSsoIdp(document, username)).toEqual({ kind: "unknown" });
+      expect(readSsoIdp(document, username)).toEqual({ kind: "unknown", controls: true });
     }
   });
   it.each([
@@ -347,16 +347,55 @@ describe("finite local IdP page reading", () => {
     expect(readSsoIdp(document, username).kind).toBe("unsafe");
   });
   it.each([
-    '<h1>Sign in</h1><button id="entry">Continue with another provider</button>',
-    '<h1>Choose a provider</h1><a href="https://other-idp.example.test/">Other IdP</a>',
-    '<h1>Browser sign-in</h1><div data-fedcm="true"></div>',
-  ])(
+    ['<h1>Sign in</h1><button id="entry">Continue with another provider</button>', true],
+    ['<h1>Choose a provider</h1><a href="https://other-idp.example.test/">Other IdP</a>', true],
+    ['<h1>Browser sign-in</h1><div data-fedcm="true"></div>', false],
+  ] as const)(
     "does not turn nested SSO or browser-owned identity UI into an intermediate operation %#",
-    (markup) => {
+    (markup, controls) => {
       html(markup);
-      expect(readSsoIdp(document, username)).toEqual({ kind: "unknown" });
+      expect(readSsoIdp(document, username)).toEqual({ kind: "unknown", controls });
     },
   );
+  // Whether an unknown page offers the person anything to choose (ADR 0026, amendment of
+  // 2026-11-18): an interstitial that sends the tab on by itself offers nothing.
+  it.each([
+    [
+      "an interstitial with a message and a spinner",
+      "<h1>Please wait</h1><p>Checking your device</p><div class=spinner></div>",
+      false,
+    ],
+    [
+      "a hidden button and a frame of no size",
+      '<h1>Please wait</h1><button hidden>Go</button><iframe style="width:0;height:0;border:0"></iframe>',
+      false,
+    ],
+    [
+      "a hidden form field",
+      "<h1>Please wait</h1><form><input type=hidden name=txn value=1></form>",
+      false,
+    ],
+    [
+      "a button",
+      "<h1>Sign in with browser identity</h1><button id=unsafe>Use browser identity</button>",
+      true,
+    ],
+    [
+      "an element acting as a button",
+      "<h1>Verify your identity</h1><div role=button tabindex=0 id=totp_0_item>Authenticator App</div>",
+      true,
+    ],
+    ["a link", '<h1>Something went wrong</h1><a href="/start">Try again</a>', true],
+    ["a field", "<h1>One more step</h1><textarea></textarea>", true],
+    [
+      "a visible frame",
+      '<h1>Please wait</h1><iframe style="width:300px;height:150px"></iframe>',
+      true,
+    ],
+  ])("says whether an unknown page offers controls: %s", (_name, markup, controls) => {
+    html(markup);
+    expect(readSsoIdp(document, username)).toEqual({ kind: "unknown", controls });
+  });
   it("recognizes a full exact non-email username on a finite Continue page", () => {
     html('<h1>Confirm your account</h1><p>synthetic-user</p><button id="entry">Continue</button>');
     expect(readSsoIdp(document, "synthetic-user")).toMatchObject({

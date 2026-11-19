@@ -299,6 +299,9 @@ async function pauseNativeChild(rt: Runtime, work: SsoWork): Promise<boolean> {
           watch: undefined,
           settled: undefined,
         });
+  // The child's end is logged as any of its lines is (ADR 0026, amendment of 2026-11-18).
+  if (child.metadata.state !== "authenticated")
+    reportAttempt(rt, work.childRecord, child.recipe, undefined, { reason: "sso-detached" });
   const sameDocument =
     sameLoginDocument(child.live.document, work.live.document) &&
     child.live.token === work.live.token;
@@ -325,6 +328,10 @@ async function releaseChild(rt: Runtime, work: SsoWork) {
   work.childRecord = parseAttemptMetadata({
     ...metadata,
     ssoChild: { parentId: work.id, attemptId: metadata.id, released: true },
+  });
+  reportAttempt(rt, work.childRecord, undefined, undefined, {
+    repeat: true,
+    reason: "sso-released",
   });
   await keep(rt, work.childRecord);
 }
@@ -823,17 +830,17 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     cancelSso(rt, ctx.document.tabId);
     return ctx.refuse("sso-idp-unreadable");
   }
+  // The IdP's own login runs in the tab: it has not ended signed in or stopped, and it is
+  // watched only for its result (ADR 0027).
+  const childRuns =
+    child !== undefined &&
+    child.metadata.id === work.childId &&
+    !["authenticated", "blocked"].includes(child.metadata.state);
   if (
     parsed.output.kind === "native" ||
     (parsed.output.kind === "unknown" && ctx.signIn?.passkey)
   ) {
-    if (
-      !work.childId ||
-      (child &&
-        child.metadata.id === work.childId &&
-        !["authenticated", "blocked"].includes(child.metadata.state))
-    )
-      return undefined;
+    if (!work.childId || childRuns) return undefined;
   }
   if (
     parsed.output.kind === "account" ||
@@ -857,6 +864,23 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     if (!pressed) cancelSso(rt, ctx.document.tabId, "sso-idp-stopped");
     return { ok: false as const, reason: "sso-in-progress" };
   }
+  value = undefined;
+  // A page of the IdP's own origin that is neither its sign-in form nor a finite step, as a
+  // risk check or a method chooser after the IdP's own submit, is that login's next page:
+  // it is admitted with its record, as a direct login of the IdP goes on to its handlers
+  // or its watch there (ADR 0026, amendment of 2026-11-18). An unsafe page still ends the
+  // flow.
+  if (parsed.output.kind === "unknown") {
+    if (childRuns) return undefined;
+    // Before that login began, or after it signed in, only a page that offers the person
+    // nothing to choose, as an interstitial that sends the tab on by itself, waits as a
+    // sign-in in progress: nothing is pressed, the flow's own time bounds it, and only the
+    // RP's own evidence completes the flow. A page with its own choices, and any page
+    // after that login stopped, ends it.
+    const ended = child?.metadata.id === work.childId ? child?.metadata : work.childRecord;
+    if (!parsed.output.controls && (!work.childId || ended?.state === "authenticated"))
+      return ctx.refuse("sso-in-progress");
+  }
   cancelSso(rt, ctx.document.tabId, "sso-idp-stop");
   return ctx.refuse("sso-idp-stop");
 }
@@ -865,7 +889,11 @@ export function ssoChildChanged(rt: Runtime, run: Execution) {
   const work = rt.sso.flows.get(run.metadata.document.tabId);
   if (!work || work.childId !== run.metadata.id || work.ended) return;
   work.childRecord = run.metadata;
-  if (run.metadata.state === "blocked" || run.metadata.state === "watching" || run.metadata.settled)
+  // A result that settled as unknown or a challenge is watched (ADR 0027): its next IdP page
+  // may enter a handler, or the IdP may send the tab back to the RP, whose own evidence
+  // completes the flow. Only a login that stopped ends it (ADR 0026, amendment of
+  // 2026-11-18).
+  if (run.metadata.state === "blocked")
     cancelSso(rt, run.metadata.document.tabId, "sso-idp-child-stopped");
   else if (run.metadata.state === "authenticated") {
     work.phase = "returning-rp";

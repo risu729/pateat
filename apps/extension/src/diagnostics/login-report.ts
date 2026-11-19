@@ -530,6 +530,7 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             used: report.methods?.used,
             held: report.methods?.held,
             why: report.methods?.why,
+            ssoChild: report.ssoChild,
             ...report.times,
             ...report.spans,
           },
