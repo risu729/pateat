@@ -154,6 +154,20 @@ export function sameFormRecipe(
 }
 
 /**
+ * Whether the recipe generated for the origin and path is active: a path whose own recipe
+ * was revoked holds only its tombstone, so no recipe starts there and the path may become
+ * another recipe's start path (ADR 0060 amendment of 2026-11-18, agent's choice), as when
+ * a second recipe generated there by mistake was revoked.
+ */
+async function ownRecipeStarts(
+  backend: GenerationBackend,
+  origin: string,
+  path: string,
+): Promise<boolean> {
+  return active(await backend.readHead(await generatedRecipeId(origin, path))) !== undefined;
+}
+
+/**
  * The answer to a first page on a path no recipe of its own starts on (ADR 0060 amendment of
  * 2026-11-18): the origin's recipe that already starts there, or the one that shows the same
  * form, written with the path added to its `starts`. `undefined` generates the page as
@@ -165,7 +179,7 @@ export async function startAlias(
   observation: LoginObservation,
 ): Promise<AnsweredChange | undefined> {
   const { origin, path } = observation;
-  if ((await backend.readHead(await generatedRecipeId(origin, path))) !== null) return undefined;
+  if (await ownRecipeStarts(backend, origin, path)) return undefined;
   const first = await aliasOnce(backend, observation);
   if (first !== "raced") return first;
   const second = await aliasOnce(backend, observation);
@@ -237,7 +251,7 @@ export async function aliasedStart(
   { recipeId: string; change: SyncRecipeChange; observation: LoginObservation } | undefined
 > {
   const { origin, path } = observation;
-  if ((await backend.readHead(await generatedRecipeId(origin, path))) !== null) return undefined;
+  if (await ownRecipeStarts(backend, origin, path)) return undefined;
   const owners = (await backend.originRecipes(origin)).filter((change) => {
     const recipe = active(change)?.recipe;
     return recipe !== undefined && storedRecipeStartPaths(recipe).includes(path);

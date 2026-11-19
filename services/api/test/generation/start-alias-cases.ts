@@ -150,6 +150,52 @@ export function registerStartAliasCases({
     expect(await heads(device)).toEqual([{ recipe_id: recipeId, revision: 2 }]);
   });
 
+  it("starts the learned recipe on a path whose own recipe was revoked", async () => {
+    const device = await owner();
+    const { recipeId, document } = await learned(device);
+    // A second recipe generated on the path by mistake, then revoked: its tombstone stays.
+    const stray = await learned(device, "/student");
+    const revoked = await post(
+      device,
+      `/v1/recipes/${stray.recipeId}`,
+      { version: 1, expectedRevision: 1, state: "revoked" },
+      "PUT",
+    );
+    expect(revoked.status).toBe(200);
+    // No reply is queued: a model call would fail the request.
+    expect(await generate(device, form("/student"))).toMatchObject({
+      status: "recipe",
+      change: { recipeId, revision: 2 },
+    });
+    expect(await storedHead(device.ownerId, recipeId)).toEqual({
+      ...document,
+      revision: 2,
+      starts: ["/student"],
+    });
+    expect(state.sent).toEqual([]);
+    // The tombstone is left as it was, and its path answers the learned recipe from now on.
+    expect(await heads(device)).toEqual(
+      [
+        { recipe_id: recipeId, revision: 2 },
+        { recipe_id: stray.recipeId, revision: 2 },
+      ].sort((left, right) => left.recipe_id.localeCompare(right.recipe_id)),
+    );
+    const list = {
+      ...observation("/student", [element("other", "button", "Use another account")]),
+      accounts: ["Taro [email]"],
+    };
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: list,
+      slots: [],
+    });
+    expect(await response.json()).toMatchObject({
+      status: "recipe",
+      change: { recipeId, revision: 2 },
+    });
+    expect(state.sent).toEqual([]);
+  });
+
   it("answers a page of another kind on such a path with its recipe too", async () => {
     const device = await owner();
     const { recipeId } = await learned(device, LEARNED, ["/student"]);

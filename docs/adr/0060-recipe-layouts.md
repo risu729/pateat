@@ -526,10 +526,15 @@ page. "A page whose start path changes is still a new recipe" above records that
   every document stored before this amendment does (agent's choice). Paths in `starts`
   have no aging of their own: they live, are used and go with the recipe (ADR 0058,
   agent's choice).
-- A first page on a path where no recipe of its own was generated (no head under the ID
-  of that origin and path, not even a revoked one) is compared with the origin's active
-  recipes before any model call. The page shows a sign-in layout's first page unchanged
-  when (agent's choice, the criterion the owner's coordinator set on 2026-11-19):
+- A first page on a path where no recipe of its own starts (no active head under the ID
+  of that origin and path) is compared with the origin's active recipes before any model
+  call. A revoked recipe's tombstone on the path counts as none (agent's choice, added
+  on 2026-11-19 with the extension part): no active recipe starts there, so taking the
+  path into another recipe's `starts` lets a site recover once a second recipe generated
+  on the path by mistake is revoked, as USI's on `/student`. Without the match such a
+  page is generated again as the revision after its tombstone, as before. The page shows
+  a sign-in layout's first page unchanged when (agent's choice, the criterion the
+  owner's coordinator set on 2026-11-19):
   - every element the layout's first page names resolves to exactly one candidate of the
     page's description, by the same locator. The first page is each variant's steps from
     its first, all on the start path, up to and including the first that advances or
