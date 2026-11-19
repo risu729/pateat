@@ -12,6 +12,9 @@ import {
   storedLoginRecipeSchema,
   storedRecipeSlots,
   storedRecipeStartPath,
+  storedRecipeStartPaths,
+  startPathFor,
+  MAX_RECIPE_START_PATHS,
   withoutLayout,
   type RecipeDocument,
 } from "./index";
@@ -124,5 +127,61 @@ describe("a recipe document with a sign-in form and a list of accounts", () => {
     expect(withoutLayout(parsed, "1000")).toEqual({ ...listOnly, revision: 4 });
     expect(withoutLayout(parsed, "3000")).toBeUndefined();
     expect(withoutLayout(v.parse(storedLoginRecipeSchema, listOnly), "2000")).toBeUndefined();
+  });
+});
+
+// A site may show its sign-in form on whatever page it guards: a recipe document starts on
+// up to seven more paths where its form showed (ADR 0060 amendment of 2026-11-18).
+describe("a recipe document's other start paths", () => {
+  const document = (starts?: unknown): unknown => ({
+    version: 1,
+    id: "gen-starts",
+    revision: 2,
+    origin: "https://login.example",
+    layouts: [
+      {
+        key: "1000",
+        createdAt: 1000,
+        pageKind: "sign-in",
+        slots: ["password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            effect: "prepare",
+            fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+          },
+          { kind: "click", path: "/signin", target: { by: "id", value: "go" }, purpose: "submit" },
+        ],
+        maxSubmissions: 1,
+      },
+    ],
+    ...(starts === undefined ? {} : { starts }),
+  });
+  const issues = (value: unknown) =>
+    v.safeParse(recipeDocumentSchema, value).issues?.map((issue) => issue.message) ?? [];
+
+  it("reads a document without them as starting on its start path alone", () => {
+    const parsed = v.parse(storedLoginRecipeSchema, document());
+    expect(storedRecipeStartPaths(parsed)).toEqual(["/signin"]);
+    expect(startPathFor(parsed, "/home")).toBe("/home");
+  });
+
+  it("reads a page on one of them as one on the start path", () => {
+    const parsed = v.parse(storedLoginRecipeSchema, document(["/home", "/account"]));
+    expect(storedRecipeStartPaths(parsed)).toEqual(["/signin", "/home", "/account"]);
+    expect(startPathFor(parsed, "/account")).toBe("/signin");
+    expect(startPathFor(parsed, "/signin")).toBe("/signin");
+    expect(startPathFor(parsed, "/other")).toBe("/other");
+  });
+
+  it("holds at most seven, each once, none of them the start path", () => {
+    const seven = Array.from({ length: MAX_RECIPE_START_PATHS - 1 }, (_, index) => `/p${index}`);
+    expect(issues(document(seven))).toEqual([]);
+    expect(issues(document([...seven, "/p7"]))).not.toEqual([]);
+    expect(issues(document([]))).not.toEqual([]);
+    expect(issues(document(["/home", "/home"]))).toContain("Duplicate start paths");
+    expect(issues(document(["/signin"]))).toContain("Other start paths differ from the start path");
+    expect(issues(document(["home"]))).not.toEqual([]);
   });
 });

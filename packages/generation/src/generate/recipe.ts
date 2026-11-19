@@ -72,6 +72,7 @@ import {
   sameRoute,
 } from "./policy";
 import { rebaseNativeOverSso } from "../sso-write";
+import { aliasedStart, onStartPath, startAlias } from "./start-alias";
 import { stored, newLayoutMeta, markWritten, buildLoginLayout } from "./layout";
 
 /**
@@ -87,7 +88,13 @@ export async function generateRecipe(
   backend: GenerationBackend,
   request: RecipeGenerationRequest,
 ): Promise<RecipeGenerationResult | undefined> {
-  const { observation, slots, base, branch, passkeyOnly, signedIn, repair } = request;
+  const { slots, base, branch, passkeyOnly, signedIn, repair } = request;
+  // A later page or a repair of a recipe, described on one of its other start paths, is
+  // read on its start path (ADR 0060 amendment of 2026-11-18).
+  const continued = base?.recipeId ?? repair?.recipeId;
+  const observation = continued
+    ? onStartPath(await backend.readHead(continued), request.observation)
+    : request.observation;
   const { origin, path } = observation;
   // A first page starts its own recipe; a later page continues the one in `base`, and a
   // repair names the recipe whose page it is (ADR 0041).
@@ -143,6 +150,26 @@ export async function generateRecipe(
   const replacesLast = base?.replacesLast === true;
   if (replacesLast && branch !== undefined && parseRecipeBranch(branch)?.branch !== undefined)
     return unsent(failed("invalid-request"));
+  // A sign-in form on a path no recipe of its own starts on may be the start page of
+  // another recipe of the origin (ADR 0060 amendment of 2026-11-18): it answers with that
+  // recipe, written with the path among its start paths, and no model call.
+  // A first page of any kind on a path that already is one answers with its recipe, so no
+  // second recipe ever starts there.
+  if (!base && !repair && !branch) {
+    const aliased = await aliasedStart(backend, observation);
+    const alias = aliased
+      ? answerable(aliased.change)
+      : !list && !passkeyOnly && signedIn !== true && !request.manual
+        ? await startAlias(backend, observation)
+        : undefined;
+    if (aliased && !alias) return unsent(unavailable("recipe-conflict"));
+    if (alias)
+      return answerUnsent(
+        backend,
+        { ...logged, recipe: { ...logged.recipe, recipeId: alias.recipeId } },
+        { version: 1, status: "recipe", change: alias },
+      );
+  }
   /** Whether a stored recipe is the one generated for this origin under this ID. */
   const generatedHere = async (recipe: StoredLoginRecipe) =>
     recipe.origin === origin &&
@@ -563,7 +590,15 @@ export async function generateRecipe(
       origin,
       chooser: { path, layouts: [layout] },
     };
-    const recipe = (kept && document({ ...listOnly, layouts: kept.layouts })) || document(listOnly);
+    // The kept form keeps the other paths it starts on (ADR 0060 amendment of 2026-11-18).
+    const recipe =
+      (kept &&
+        document({
+          ...listOnly,
+          layouts: kept.layouts,
+          ...(kept.starts ? { starts: kept.starts } : {}),
+        })) ||
+      document(listOnly);
     if (!recipe) return failed("recipe-invalid");
     // This call named the button again, so the passkey route's page is its own; a copied
     // layout's handlers and markers keep the calls that made them.

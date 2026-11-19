@@ -55,6 +55,11 @@ Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20
 implemented): the service also revokes an active recipe that has not been written or
 reported in a login for 90 days, so the owner is no longer the only one who revokes.
 
+Amended on 2026-11-18 by
+[ADR 0060](0060-recipe-layouts.md#amendment-2026-11-18-the-same-form-on-another-path-starts-the-recipe-there)
+(owner, 2026-11-19 01:37 UTC): a recipe starts on the other paths in its `starts` too
+([Recipe lookup](#recipe-lookup)).
+
 Date: 2026-10-10
 
 ## Context
@@ -158,6 +163,12 @@ step detection can replace the selector later without changing the stored format
 Since [ADR 0049](0049-start-at-a-later-step.md) (2026-10-18) the extension's runtime,
 beside this selector, also starts an attempt at a later `fill` step the page shows when
 no recipe's first step does, with the stored format unchanged.
+
+Since
+[ADR 0060](0060-recipe-layouts.md#amendment-2026-11-18-the-same-form-on-another-path-starts-the-recipe-there)
+(amended 2026-11-18, owner 2026-11-19 01:37 UTC), a recipe also starts on the other
+paths in its `starts`, where a page showed one of its sign-in layouts' first page
+unchanged; the one-recipe-per-page rule counts those paths too.
 
 The owner decided on 2026-10-11 when an attempt starts and how long it waits:
 

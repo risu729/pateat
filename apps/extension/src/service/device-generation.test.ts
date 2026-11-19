@@ -252,6 +252,22 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("starts the recipe kept here on another path that shows its form, without a call", async () => {
+    const { generation, recipes, sent } = setup({ replies: [plan] });
+    const answer = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    if (answer.kind !== "result" || answer.result.status !== "recipe") throw new Error("no recipe");
+    const { change } = answer.result;
+    // The same form on the site's top page (ADR 0060 amendment of 2026-11-18).
+    const top = { ...request, observation: { ...page, path: "/" } };
+    const aliased = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", top);
+    expect(aliased).toMatchObject({
+      kind: "result",
+      result: { status: "recipe", change: { recipeId: change.recipeId, revision: 2 } },
+    });
+    expect(await recipes.list()).toEqual([{ ...change.recipe, revision: 2, starts: ["/"] }]);
+    expect(sent).toHaveLength(1);
+  });
+
   it("finds an account switch's logout control with this device's key and keeps it here (ADR 0063)", async () => {
     const reply = JSON.stringify({
       result: { decision: "logout", control: "c1", purpose: "logout" },

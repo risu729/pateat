@@ -237,9 +237,14 @@ export function registerGenerationAdmissionCases({
     });
     expect(state.sent).toHaveLength(2);
 
-    // Two recipes that both lead to the same page each get it generated once.
-    const widgetPage = { ...emailPage, path: "/" };
-    state.replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    // Two recipes that both lead to the same page each get it generated once. The second
+    // start page is another form: one that showed the first recipe's form unchanged would
+    // start that recipe (ADR 0060 amendment of 2026-11-18).
+    const widgetPage = observation("/", [
+      element("widget-email", "email", "Email"),
+      element("widget-next", "button", "Next"),
+    ]);
+    state.replies.push({ text: plan([["email", "widget-email"]], "widget-next", "advance") });
     const widget = await generate(device, widgetPage);
     if (widget.status !== "recipe") throw new Error(widget.status);
     const next = observation("/next", [
@@ -410,7 +415,13 @@ export function registerGenerationAdmissionCases({
         1,
     );
     const limited = { version: 1, status: "unavailable", reason: "recipe-limit" };
-    expect(await generate(device, observation("/other", emailPage.candidates))).toEqual(limited);
+    // Another form: the same one would start the recipe there (ADR 0060 amendment of
+    // 2026-11-18), with no model call.
+    const otherForm = observation("/other", [
+      element("other-email", "email", "Email"),
+      element("other-next", "button", "Next"),
+    ]);
+    expect(await generate(device, otherForm)).toEqual(limited);
     expect(
       await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
     ).toEqual(limited);

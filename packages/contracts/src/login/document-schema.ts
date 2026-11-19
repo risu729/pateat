@@ -271,6 +271,11 @@ export const loginSsoRoutesSchema = createSsoRoutesSchema({
   language: recipeLanguageSchema,
   layouts: MAX_RECIPE_LAYOUTS,
 });
+/**
+ * How many paths a stored recipe document starts on (ADR 0060 amendment of 2026-11-18): its
+ * start path and up to seven more in `starts`.
+ */
+export const MAX_RECIPE_START_PATHS = 8;
 /** A stored recipe document's members, before the checks that relate them. */
 const recipeDocumentEntriesSchema = v.strictObject({
   version: v.literal(1),
@@ -280,7 +285,25 @@ const recipeDocumentEntriesSchema = v.strictObject({
   layouts: v.optional(loginLayoutsSchema),
   chooser: v.optional(storedChooserSchema),
   sso: v.optional(loginSsoRoutesSchema),
+  /**
+   * Other paths the recipe starts on (ADR 0060 amendment of 2026-11-18): each a path where
+   * the service saw a page show the first page of one of its sign-in layouts unchanged, as
+   * a site that shows its sign-in form on whatever page it guards. A page on one of them is
+   * the start page: every member's path that is the start path counts there too, and the
+   * steps after the start page keep their own paths. Stored in the order they were added.
+   */
+  starts: v.optional(
+    v.pipe(
+      v.array(path),
+      v.minLength(1),
+      v.maxLength(MAX_RECIPE_START_PATHS - 1),
+      v.check(unique, "Duplicate start paths"),
+    ),
+  ),
 });
+/** A recipe document's own start path, which every kind it holds shares. */
+const documentStartPath = (recipe: v.InferOutput<typeof recipeDocumentEntriesSchema>) =>
+  recipe.layouts?.[0]?.steps[0]?.path ?? recipe.chooser?.path ?? recipe.sso?.path;
 /** Each route a stored recipe's chooser layouts hold: their branches and passkey routes. */
 const chooserBranchBodies = (chooser: v.InferOutput<typeof storedChooserSchema> | undefined) =>
   (chooser?.layouts ?? []).flatMap((layout) =>
@@ -331,6 +354,10 @@ export const recipeDocumentSchema = v.pipe(
       ((!layouts || layouts[0]!.steps[0]!.path === sso.path) &&
         (!chooser || chooser.path === sso.path)),
     "SSO entries share the recipe start path",
+  ),
+  v.check(
+    (recipe) => !recipe.starts?.includes(documentStartPath(recipe) ?? ""),
+    "Other start paths differ from the start path",
   ),
   v.check(
     (recipe) => ssoTargetsSeparate(recipe, chooserBranchBodies(recipe.chooser), handlerTargets),

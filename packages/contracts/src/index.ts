@@ -37,6 +37,7 @@ export {
   chooserClickBranch,
   CHOOSER_ENTRY_TARGET,
   chooserRoute,
+  MAX_RECIPE_START_PATHS,
 } from "./login/document-schema";
 export * from "./login/layouts";
 export {

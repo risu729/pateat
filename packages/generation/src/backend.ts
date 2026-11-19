@@ -261,6 +261,11 @@ export interface GenerationBackend {
   readonly deviceId: string;
   readHead(recipeId: string): Promise<SyncRecipeChange | null>;
   /**
+   * The heads of the owner's active recipes of `origin`, read as sync changes, for the
+   * recipe a first page on a new path may start (ADR 0060 amendment of 2026-11-18).
+   */
+  originRecipes(origin: string): Promise<SyncRecipeChange[]>;
+  /**
    * One kept revision of a recipe, read as a sync change is: `null` when the revision is
    * not kept, is a tombstone or no longer validates.
    */

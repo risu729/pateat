@@ -187,6 +187,12 @@ export function createDeviceRecipes(options: {
       return (await load()).recipes.find((recipe) => recipe.id === recipeId);
     },
 
+    /** The recipes kept here for `origin`; rejects when the recipes cannot be read. */
+    async ofOrigin(origin: string): Promise<StoredLoginRecipe[]> {
+      await queue;
+      return (await load()).recipes.filter((recipe) => recipe.origin === origin);
+    },
+
     /**
      * How many recipes are kept here and their documents' UTF-8 bytes, as the service
      * counts its active recipes (ADR 0040).

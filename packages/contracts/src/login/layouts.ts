@@ -46,6 +46,25 @@ export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   if ("sso" in recipe && recipe.sso) return recipe.sso.path;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(recipe)}`);
 }
+/**
+ * Every path a stored recipe starts on: its start path, then a recipe document's other
+ * start paths (`starts`, ADR 0060 amendment of 2026-11-18). An entry or logout recipe has
+ * its own path only.
+ */
+export function storedRecipeStartPaths(recipe: StoredLoginRecipe): string[] {
+  return [
+    storedRecipeStartPath(recipe),
+    ...("starts" in recipe && recipe.starts ? recipe.starts : []),
+  ];
+}
+/**
+ * The start path a page on `path` stands for in a stored recipe: the start path itself
+ * for a page on one of the recipe's other start paths (ADR 0060 amendment of 2026-11-18),
+ * so the service reads that page as one of the start path; any other path as it is.
+ */
+export function startPathFor(recipe: StoredLoginRecipe, path: string): string {
+  return "starts" in recipe && recipe.starts?.includes(path) ? storedRecipeStartPath(recipe) : path;
+}
 /** A layout's key, language and creation time, without its route. */
 export function layoutMeta(layout: LayoutMeta): LayoutMeta {
   return {

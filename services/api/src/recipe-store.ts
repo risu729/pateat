@@ -139,6 +139,20 @@ export async function readHead(db: D1Database, ownerId: string, recipeId: string
 }
 
 /**
+ * The owner's active recipe heads of one origin, read as sync changes: a head whose
+ * document no longer validates is left out, as `readChange` reads it as revoked.
+ */
+export async function readOriginHeads(db: D1Database, ownerId: string, origin: string) {
+  const rows = await selectHeads(
+    db,
+    ownerId,
+    eq(recipeHeads.state, "active"),
+    sql`json_extract(${recipeRevisions.document}, '$.origin') = ${origin}`,
+  );
+  return rows.map(toChange).filter((change) => change.state === "active");
+}
+
+/**
  * One kept revision of the owner's recipe, read as a sync change is: `null` when the
  * revision is not kept, is a tombstone or no longer validates.
  */

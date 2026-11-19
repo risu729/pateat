@@ -23,6 +23,7 @@ import {
   ssoObservation,
 } from "@pateat/inference";
 import type { GenerationBackend, UnsentRequest } from "../backend";
+import { aliasedStart } from "./start-alias";
 import { SSO_UNIT } from "../units";
 import {
   active,
@@ -65,9 +66,13 @@ export async function generateSso(
   backend: GenerationBackend,
   request: SsoGenerationRequest,
 ): Promise<SsoGenerationResult> {
-  const { observation, labels, repair } = request;
+  const { labels, repair } = request;
+  // A page on another recipe's other start path keeps its entries in that recipe, read on
+  // its start path (ADR 0060 amendment of 2026-11-18).
+  const aliased = await aliasedStart(backend, request.observation);
+  const observation = aliased?.observation ?? request.observation;
   const { origin, path } = observation;
-  const recipeId = await generatedRecipeId(origin, path);
+  const recipeId = aliased?.recipeId ?? (await generatedRecipeId(origin, path));
   const headAtStart = await backend.readHead(recipeId);
   const startRecipe = active(headAtStart)?.recipe;
   const startDocument =

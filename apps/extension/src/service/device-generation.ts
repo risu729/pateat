@@ -153,7 +153,10 @@ const activeChange = (recipe: StoredLoginRecipe): SyncRecipeChange => ({
   recipe,
 });
 
-type DeviceRecipes = Pick<ReturnType<typeof createDeviceRecipes>, "head" | "usage" | "write">;
+type DeviceRecipes = Pick<
+  ReturnType<typeof createDeviceRecipes>,
+  "head" | "ofOrigin" | "usage" | "write"
+>;
 type DeviceKey = ReturnType<typeof createDeviceModel>["direct"];
 
 /**
@@ -366,6 +369,9 @@ export function createDeviceGenerationBackend(options: {
     async readHead(recipeId) {
       const recipe = await recipes.head(recipeId);
       return recipe ? activeChange(recipe) : null;
+    },
+    async originRecipes(origin) {
+      return (await recipes.ofOrigin(origin)).map((recipe) => activeChange(recipe));
     },
     // Only the head is kept here.
     async readRevision(recipeId, revision) {

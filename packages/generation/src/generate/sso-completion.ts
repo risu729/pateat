@@ -25,6 +25,7 @@ import {
 } from "./responses";
 import { JUDGEMENTS_PER_RECIPE_DAY, staleHead, utcDayStart } from "./policy";
 import { markWritten } from "./layout";
+import { onStartPath } from "./start-alias";
 import { ssoMarkerUnit } from "../units";
 
 /** The most signed-in markers one SSO layout keeps on the site's return page. */
@@ -44,7 +45,9 @@ export async function judgeSsoCompletion(
 ): Promise<RecipeCompletionResult | undefined | null> {
   const head = await backend.readHead(recipeId);
   if (!head) return undefined;
-  const { observation } = request;
+  // A return to one of the recipe's other start paths is judged as one to its start path
+  // (ADR 0060 amendment of 2026-11-18).
+  const observation = onStartPath(head, request.observation);
   const recipe = head.state === "active" ? head.recipe : undefined;
   if (recipe && recipe.origin !== observation.origin) return null;
   const promptVersion = await completionPromptVersion();
