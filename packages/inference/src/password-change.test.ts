@@ -6,7 +6,12 @@ import {
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { describe, expect, it } from "vitest";
 import { createRecipeGenerator, generatedPlanSchema, generationInstructions } from "./generation";
-import { passwordChangeForm, verificationPlanRejection } from "./password-change";
+import {
+  passwordChangeForm,
+  readsAsPasswordChange,
+  signInPlanRejection,
+  verificationPlanRejection,
+} from "./password-change";
 import { validateGeneratedPage } from "./plan";
 import { textModel, textResult } from "./testing/fake-models";
 
@@ -92,10 +97,14 @@ describe("forms that also set a new password (ADR 0035, 2026-11-19)", () => {
         "f1",
       ),
     ).toEqual({ current: "p1" });
-    // Three password inputs without words: the first is the current one.
+    // Three password inputs, one naming the current password and none a new one.
     expect(
       passwordChangeForm(
-        page([field("p1", "password"), field("p2", "password"), field("p3", "password")]),
+        page([
+          field("p1", "password", "Current password"),
+          field("p2", "password", "Password"),
+          field("p3", "password", "Password again"),
+        ]),
         "f1",
       ),
     ).toEqual({ current: "p1" });
@@ -106,6 +115,51 @@ describe("forms that also set a new password (ADR 0035, 2026-11-19)", () => {
         "f1",
       ),
     ).toEqual({ current: "p1" });
+  });
+
+  it("reads a label above a placeholder that mentions the current password", () => {
+    for (const [current, fresh, hint, again] of [
+      [
+        "Current password",
+        "New password",
+        "Must differ from your current password",
+        "Confirm new password",
+      ],
+      [
+        "現在のパスワード",
+        "新しいパスワード",
+        "現在のパスワードと異なるもの",
+        "新しいパスワード（確認）",
+      ],
+    ]) {
+      const form = page([
+        field("p1", "password", current),
+        field("p2", "password", fresh, { placeholder: hint! }),
+        field("p3", "password", again),
+        field("save", "button", "Save"),
+      ]);
+      expect(passwordChangeForm(form, "f1")).toEqual({ current: "p1" });
+      expect(verify(form, [["password", "p2"]])).toBe("password-change-field");
+      // Two inputs are such a form too, as the new one names a new password.
+      const two = page([
+        field("p1", "password", current),
+        field("p2", "password", fresh, { placeholder: hint! }),
+      ]);
+      expect(passwordChangeForm(two, "f1")).toEqual({ current: "p1" });
+      // A placeholder alone that sets the password apart from the current one reads new.
+      const hinted = page([
+        field("p1", "password", undefined, { placeholder: current! }),
+        field("p2", "password", undefined, { placeholder: hint! }),
+        field("p3", "password", undefined, { placeholder: again! }),
+      ]);
+      expect(passwordChangeForm(hinted, "f1")).toEqual({ current: "p1" });
+      // Also with two inputs, where only the hint tells the new one apart.
+      const hintOnly = page([
+        field("p1", "password", current),
+        field("p2", "password", undefined, { placeholder: hint! }),
+      ]);
+      expect(passwordChangeForm(hintOnly, "f1")).toEqual({ current: "p1" });
+    }
   });
 
   it("finds no current password on a reset form", () => {
@@ -132,6 +186,69 @@ describe("forms that also set a new password (ADR 0035, 2026-11-19)", () => {
         "f1",
       ),
     ).toEqual({ current: undefined });
+  });
+
+  it("finds no current password labelled only Password after the new ones", () => {
+    // A known gap: such a form is refused rather than guessed (ADR 0035).
+    const last = page([
+      field("p1", "password", "New password"),
+      field("p2", "password", "Confirm new password"),
+      field("p3", "password", "Password"),
+      field("save", "button", "Save"),
+    ]);
+    expect(passwordChangeForm(last, "f1")).toEqual({ current: undefined });
+    expect(verify(last, [["password", "p3"]])).toBe("password-change-field");
+  });
+
+  it("leaves three password inputs without new or current words alone", () => {
+    for (const labels of [
+      ["ログインパスワード", "暗証番号", "第2暗証番号"],
+      ["Password", "PIN", "Security code"],
+      [undefined, undefined, undefined],
+    ]) {
+      const transfer = page([
+        ...labels.map((label, index) => field(`p${index + 1}`, "password", label)),
+        field("go", "button", "Transfer"),
+      ]);
+      expect(passwordChangeForm(transfer, "f1")).toBe(undefined);
+      expect(verify(transfer, [["password", "p2"]], "go")).toBe(undefined);
+    }
+  });
+
+  it("does not read 更新 as a new password", () => {
+    expect(
+      passwordChangeForm(
+        page([field("p1", "password", "パスワード"), field("p2", "password", "更新パスワード")]),
+        "f1",
+      ),
+    ).toBe(undefined);
+    expect(
+      passwordChangeForm(
+        page([field("p1", "password", "パスワード"), field("p2", "password", "新パスワード")]),
+        "f1",
+      ),
+    ).toEqual({ current: "p1" });
+  });
+
+  it("fills no identifier into a new email beside the current password", () => {
+    for (const label of ["New email", "新しいメールアドレス", "新メールアドレス"]) {
+      const email = page([
+        field("mail", "email", label),
+        field("pw", "password", "Current password"),
+        field("go", "button", "Change email"),
+      ]);
+      expect(verify(email, [["password", "pw"]], "go")).toBe(undefined);
+      expect(
+        verify(
+          email,
+          [
+            ["username", "mail"],
+            ["password", "pw"],
+          ],
+          "go",
+        ),
+      ).toBe("password-change-field");
+    }
   });
 
   it("leaves other forms alone", () => {
@@ -263,11 +380,46 @@ describe("generated plans on such a form", () => {
       }
   });
 
-  it("leaves a sign-in plan to the sign-in checks", async () => {
-    // Unchanged for sign-in pages: this check is the verification's own.
+  it("refuses a sign-in plan on a form that reads as changing the password", async () => {
+    // Its button would save the account's changes, and a sign-in presses it.
     expect(await generate("sign-in", [["password", "current"]])).toMatchObject({
-      status: "ok",
-      value: { pageKind: "sign-in" },
+      status: "failed",
+      error: "invalid-output",
+      detail: "password-change-form",
     });
+    // Marks alone are not words: an unlabelled form marked current and new.
+    const marked = page([
+      field("p1", "password", undefined, { autocomplete: "current-password" }),
+      field("p2", "password", undefined, { autocomplete: "new-password" }),
+      field("save", "button", "Save"),
+    ]);
+    expect(signInPlanRejection(marked, set([["password", "p1"]]))).toBe(undefined);
+    expect(readsAsPasswordChange(account, "f1")).toBe(true);
+  });
+
+  it("keeps a sign-in plan on one page-wide form with a sign-in and a registration", () => {
+    const both = page([
+      field("login-user", "text", "Username", { autocomplete: "username" }),
+      field("login-pass", "password", "Password", { autocomplete: "current-password" }),
+      field("login", "button", "Sign in"),
+      field("reg-email", "email", "Email"),
+      field("reg-pass", "password", "Password", { autocomplete: "new-password" }),
+      field("reg-again", "password", "Confirm password", { autocomplete: "new-password" }),
+      field("register", "button", "Create account"),
+    ]);
+    const plan = validateGeneratedPage(
+      both,
+      slots,
+      set(
+        [
+          ["username", "login-user"],
+          ["password", "login-pass"],
+        ],
+        "login",
+      ),
+    );
+    if (!plan.ok) throw new Error(plan.reason);
+    expect(readsAsPasswordChange(both, "f1")).toBe(false);
+    expect(signInPlanRejection(both, plan.plan)).toBe(undefined);
   });
 });

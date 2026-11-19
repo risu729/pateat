@@ -21,7 +21,7 @@ import {
   type ValidatedEntry,
   type ValidatedGeneratedPage,
 } from "./plan";
-import { verificationPlanRejection } from "./password-change";
+import { signInPlanRejection, verificationPlanRejection } from "./password-change";
 import { described, type Interpreted } from "./structured";
 import { createStructuredRole, type StructuredRoleConfig } from "./structured-role";
 
@@ -439,10 +439,11 @@ export function createRecipeGenerator(config: StructuredRoleConfig) {
           }) as const;
         if (!validated.ok) return refused(validated.reason);
         // A verification fills a form that also sets a new password only at its current
-        // password (owner, 2026-11-19, ADR 0035); a `sign-in` plan keeps the checks above.
+        // password, and a sign-in fills no form that reads as one, whose button would save
+        // the account's changes (owner, 2026-11-19, ADR 0035).
         const rejection =
           pageKind === "sign-in"
-            ? undefined
+            ? signInPlanRejection(observation.output, validated.plan)
             : verificationPlanRejection(observation.output, slots.output, validated.plan);
         return rejection === undefined
           ? { status: "ok", value: { ...validated.plan, pageKind, irreversible } }

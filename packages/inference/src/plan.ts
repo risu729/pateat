@@ -597,7 +597,12 @@ export type GeneratedPageRejection =
    * its current password input, or with anything but the password
    * (`verificationPlanRejection`, ADR 0035).
    */
-  | "password-change-field";
+  | "password-change-field"
+  /**
+   * A `sign-in` plan fills a form that reads as changing the password, whose button would
+   * save the account's changes (`signInPlanRejection`, ADR 0035).
+   */
+  | "password-change-form";
 
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks

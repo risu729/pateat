@@ -420,6 +420,19 @@ describe("finite-choice decision role", () => {
     ).toMatchObject({ status: "abstained", reason: "inconsistent-mapping" });
   });
 
+  it("leaves a form that also sets a new password to generation (ADR 0035)", async () => {
+    // A sure sign-in answer on an account form would press its save button.
+    const account = evaluationCorpus.find((entry) => entry.id === "en-account-password-change")!;
+    const sure = answering({
+      "el:current-password": "s:password",
+      "slot:password": "c:current-password",
+      action: "c:update-account",
+    });
+    expect(
+      await decider(sure)({ observation: account.observation, slots: account.slots }),
+    ).toMatchObject({ status: "abstained", reason: "no-login-form" });
+  });
+
   it("maps refusal, rate limits and timeouts to explicit failures", async () => {
     const refusing = answering(correct, 0.9, { action: { type: "refusal" } as never });
     expect(await decider(refusing)(request)).toMatchObject({ status: "failed", error: "refused" });

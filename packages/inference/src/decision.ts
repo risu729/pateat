@@ -23,6 +23,7 @@ import {
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
+import { passwordChangeForm } from "./password-change";
 import {
   actionPurpose,
   isActionRole,
@@ -506,6 +507,12 @@ function interpret(
   // `new-password` field without an identifier of its form, or an account switch that
   // does not fit; generation answers those.
   if (!validated.ok) return { status: "abstained", reason: "inconsistent-mapping" };
+  // A form that also sets a new password is generation's to answer: its kind, and the one
+  // input a verification may fill there (owner, 2026-11-19, ADR 0035). A sign-in plan
+  // here would press the button that saves the account's changes.
+  const groups = new Map(observation.candidates.map((entry) => [entry.id, entry.group]));
+  if (fields.some((field) => passwordChangeForm(observation, groups.get(field.candidate))))
+    return { status: "abstained", reason: "no-login-form" };
   const irreversibleYes = yes.get("irreversible");
   const irreversible: Irreversible =
     irreversibleYes === undefined
