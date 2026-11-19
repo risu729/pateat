@@ -24,7 +24,7 @@
     "@vitest/istanbul-lib-coverage": "2.1.0",
     "@vitest/ui": "5.1.0",
     "cf": "1.0.0-rc.1",
-    "fast-check": "4.10.2",
+    "fast-check": "4.10.3",
     "miniflare": "5.20261117.0-beta",
     "react": "19.3.1",
     "react-dom": "19.3.1",
