@@ -505,8 +505,8 @@ for the option "If it is the same form as before, add that URL to the current re
 AI call, and the two-step verification settings are carried over." The rules below
 marked as the agent's choice were taken for the most conservative reading and are not
 confirmed by the owner. Implemented in two parts: the contracts and the service (both
-generation backends) first, then the extension; until the extension part lands, no login
-starts on such a path. Local tests only; not tried on the site or deployed.
+generation backends) first, then the extension (2026-11-19). Local tests only; not tried
+on the site or deployed.
 
 ### Context
 
@@ -568,7 +568,29 @@ page. "A page whose start path changes is still a new recipe" above records that
   sign-in paths, continuation, repair, the chooser, the SSO entries and the generation
   offer. It runs the recipe there with every member's path that is the start path
   replaced by the page's, and records that path in the attempt, so a resumed login runs
-  the same projection.
+  the same projection. In detail (agent's choice):
+  - The device's recipe cache answers a lookup on such a path with the recipe's
+    projection moved onto it: the steps and alternatives' steps, the passkey button,
+    handlers, a chooser's list path and the steps of its branches whose path is the
+    start path. Signed-in markers, including a link's path, stay as they are, since they
+    prove a sign-in on any path. An SSO recipe has only its entries' path moved. The
+    cache lists one start per path, and counts these paths in the ADR 0013 rule: a path
+    on which two recipes start, by their own path or by `starts`, starts neither, and is
+    not offered for generation.
+  - The attempt's `start` holds the path only when it is one of the recipe's other start
+    paths; a login on the start path records none, as before. A login reads that path
+    from the cache before it starts and does not start when the cache cannot be read.
+  - A resumed login (a new document, a restarted worker, a chooser login after its
+    click, a sign-in fill whose form posts back), a layout switch, and the fence on its
+    recipe use `start`. A recorded path the recipe no longer lists resumes nothing, as a
+    removed layout does; the sibling layouts of such a login are then those on the start
+    path, which do not fit its steps.
+  - A revision the service sends or the cache holds for a running login, which the
+    service stores on the start path, is moved onto the login's `start` before it is
+    compared with or replaces the running recipe; a chooser revision is moved too.
+  - A later page of such a login on the recipe's own start path itself would be read on
+    `start` too; a site that shows the form on one path and leads to the other is not
+    supported.
 - The page's description is the only input; no site name is read
   ([ADR 0033](0033-no-site-specific-features.md)).
 
