@@ -475,6 +475,10 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   if (manual && (!("chosen" in plan) || plan.chosen?.pick !== manual.pick))
     return ctx.refuse("manual-request-ended");
 
+  // The other start path of its recipe a new login starts on, if it is one (ADR 0060
+  // amendment of 2026-11-18).
+  let start: string | undefined;
+
   if (!ctx.previous) {
     // The lookup answered from the cache while the sync it started may be revoking the
     // recipe, as one removed on the dashboard minutes ago: that sync ends first, and a
@@ -489,6 +493,22 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       return ctx.refuse("recipe-not-found", "withdrawn");
     }
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    // A login on another path its recipe starts on (`starts`) runs the recipe's projection
+    // there and records the path, so a resumed login runs that projection again (ADR 0060
+    // amendment of 2026-11-18). An unread answer starts nothing, as its steps' paths could
+    // not be told on the next page.
+    const startPath = ctx.recipe.steps[0]!.path;
+    const aliased =
+      probeMode && ctx.document.origin === rt.vars.origin
+        ? false
+        : rt.recipes.startAlias
+          ? await rt.recipes
+              .startAlias(ctx.document.origin, ctx.recipe.id, startPath)
+              .catch(() => undefined)
+          : false;
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    if (aliased === undefined) return ctx.refuse("recipe-not-found", "start-unread");
+    if (aliased) start = startPath;
     // Another login's account choice, being saved now or saved since this snapshot was read,
     // bumps the revision this new login would be checked against: it is admitted again.
     await choicesSaved(rt);
@@ -716,6 +736,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         ...(startAt !== undefined && ctx.later?.partial.has(`${startVariant}:${startAt}`)
           ? { startPartial: true }
           : {}),
+        ...(start === undefined ? {} : { start }),
         timing,
       }),
       { type: "RESOLVE" },

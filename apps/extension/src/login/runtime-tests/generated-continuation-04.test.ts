@@ -335,7 +335,8 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(fake.state.messages.some((entry) => entry.type === "login.extract")).toBe(false);
       // The login's next document loads the same layout, which is not chosen again.
       await h.hello({ documentId: "synthetic-document-2" });
-      expect(h.recipes.chooser).toHaveBeenLastCalledWith(origin, "/signin", listed.id, "1000");
+      const resumed = [origin, "/signin", listed.id, "1000", undefined] as const;
+      expect(h.recipes.chooser).toHaveBeenLastCalledWith(...resumed);
       expect(choosers).toHaveBeenCalledTimes(1);
     });
     it("ends a resumed login whose chooser revision dropped the route of its click", async () => {

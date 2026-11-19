@@ -16,6 +16,7 @@ import {
   type LoginAttemptEvent,
   isLoginRouteRecipe,
   chooserRoute,
+  projectionOn,
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRouteChoice,
@@ -55,6 +56,7 @@ export async function takeOver(
   taking: () => void,
   stop?: { end: () => Promise<void> },
 ): Promise<boolean> {
+  answered = onLoginStart(run, answered);
   const next = routeOf(rt, run, answered);
   if (!next || next.id !== run.recipe.id || !extendsRecipe(run.recipe, next)) return false;
   const event: LoginAttemptEvent = { type: "REVISED", recipeRevision: next.revision };
@@ -69,16 +71,29 @@ export async function takeOver(
 }
 
 /**
+ * A recipe the service sent or the cache holds, on the other start path of its recipe the
+ * login started on (`start`, ADR 0060 amendment of 2026-11-18): the service answers on the
+ * recipe's own start path, and the login runs the projection on its own.
+ */
+export function onLoginStart<Recipe extends LoginRecipe | LoginChooserRecipe>(
+  run: Execution,
+  next: Recipe,
+): Recipe {
+  return run.metadata.start === undefined ? next : projectionOn(next, run.metadata.start);
+}
+
+/**
  * The route a login runs of a recipe the service sent or the cache holds: a chooser
  * login's is the route of its click on the chooser (ADR 0028), and a chooser is never
- * another login's.
+ * another login's. It is on the login's own start path (`onLoginStart`).
  */
 export function routeOf(
   _rt: Runtime,
   run: Execution,
-  next: LoginRecipe | LoginChooserRecipe | undefined,
+  answered: LoginRecipe | LoginChooserRecipe | undefined,
 ): LoginRecipe | undefined {
-  if (!next) return undefined;
+  if (!answered) return undefined;
+  const next = onLoginStart(run, answered);
   const click = run.metadata.chooser?.click;
   if (isLoginRouteRecipe(next)) return click ? undefined : next;
   return click ? chooserRoute(next, click) : undefined;
@@ -91,10 +106,16 @@ export async function cachedRoute(
   path: string,
 ): Promise<LoginRecipe | undefined> {
   const { origin: pageOrigin } = run.live.document;
-  // The layout the login started on (ADR 0060).
-  const { layout } = run.metadata;
-  if (!run.metadata.chooser) return rt.recipes.recipe(pageOrigin, path, run.recipe.id, layout);
-  return routeOf(rt, run, await rt.recipes.chooser?.(pageOrigin, path, run.recipe.id, layout));
+  // The layout the login started on (ADR 0060), on the other start path it started on, if
+  // any (ADR 0060 amendment of 2026-11-18).
+  const { layout, start } = run.metadata;
+  if (!run.metadata.chooser)
+    return rt.recipes.recipe(pageOrigin, path, run.recipe.id, layout, start);
+  return routeOf(
+    rt,
+    run,
+    await rt.recipes.chooser?.(pageOrigin, path, run.recipe.id, layout, start),
+  );
 }
 
 /**
@@ -120,9 +141,10 @@ export async function siblingsAt(rt: Runtime, run: Execution, at: number): Promi
     return [];
   const plan = attemptPlan(recipe, metadata);
   if (!plan || plan.length !== metadata.stepCount) return [];
-  const layouts = await Promise.resolve(rt.recipes.layoutsOf(recipe.origin, recipe.id)).catch(
-    () => [],
-  );
+  // On the other start path the login started on, if any (ADR 0060 amendment of 2026-11-18).
+  const layouts = await Promise.resolve(
+    rt.recipes.layoutsOf(recipe.origin, recipe.id, metadata.start),
+  ).catch(() => []);
   // A recipe may hold a list of accounts beside its sign-in form (ADR 0028), whose branch
   // routes come with its layouts for their markers: only the form's own layouts, those
   // that start on its start path, are siblings, never a branch reached by a click there.
@@ -512,7 +534,7 @@ export async function continueOn(
     const revised: LoginAttemptEvent = { type: "REVISED", recipeRevision: newer.revision };
     if (transitionLoginAttempt(run.metadata, revised).recipeRevision === newer.revision) {
       run.recipe = newer;
-      run.chooser = answer.recipe;
+      run.chooser = onLoginStart(run, answer.recipe);
       await change(rt, run, revised);
       if (!current(rt, run)) return "moved";
       await change(rt, run, { type: "UNCONTINUED", operationId });
@@ -593,7 +615,7 @@ export async function continueWith(
     return false;
   };
   const route = attemptRouteChoice(run.metadata);
-  const answered = next;
+  const answered = onLoginStart(run, next);
   const converted = routeOf(rt, run, next);
   if (!current(rt, run)) return refuse("left");
   if (!converted) return refuse("route-missing");

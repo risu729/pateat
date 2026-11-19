@@ -87,11 +87,14 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       : // A chooser login resumes on its list's layout, never on the recipe's sign-in form.
         ctx.previous?.chooser
         ? undefined
-        : await rt.recipes.recipe(
+        : // A resumed login runs on the other start path it started on, if any (ADR 0060
+          // amendment of 2026-11-18).
+          await rt.recipes.recipe(
             ctx.document.origin,
             ctx.live.path,
             ctx.previous?.recipeId,
             ctx.previous?.layout,
+            ctx.previous?.start,
           );
 
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
@@ -193,6 +196,7 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
         ctx.live.path,
         ctx.previous?.recipeId,
         ctx.previous?.layout,
+        ctx.previous?.start,
       ),
     ).catch(() => undefined);
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
