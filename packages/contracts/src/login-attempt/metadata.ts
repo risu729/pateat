@@ -2,7 +2,7 @@ import * as v from "valibot";
 import { chooserClickSchema } from "../login/branch-schema";
 import { loginItemFactsSchema } from "../login/routes";
 import { loginAccountSchema, loginDocumentSchema, loginOutcomeSchema } from "../login/account";
-import { loginOriginSchema } from "../login/targets";
+import { loginOriginSchema, loginPathSchema } from "../login/targets";
 import { MAX_PASSWORD_ALTERNATIVES, recipeLayoutKeySchema } from "../login/route-schema";
 import { ssoAttemptEntries, ssoChildShape, ssoParentShape } from "../login-attempt-sso";
 import {
@@ -30,6 +30,13 @@ export const attemptMetadataSchema = v.pipe(
      * login and a later revision it takes over keep it.
      */
     layout: v.optional(recipeLayoutKeySchema),
+    /**
+     * The other start path of the recipe (`starts`, ADR 0060 amendment of 2026-11-18) the
+     * login started on: it runs the recipe's projection on that path (`projectionOn`), and
+     * a resumed login, a later revision it takes over and a layout it switches to run on
+     * it too. None on the recipe's own start path.
+     */
+    start: v.optional(loginPathSchema),
     policyRevision: integer(Number.MAX_SAFE_INTEGER - 1),
     account: loginAccountSchema,
     /** The route chosen when the login started (ADR 0027). */

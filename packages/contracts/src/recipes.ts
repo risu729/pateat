@@ -1,5 +1,12 @@
 import * as v from "valibot";
-import { isLoginRecipeDocument, newestLayout, recipeLayouts, runsLogin } from "./login/layouts";
+import {
+  isLoginRecipeDocument,
+  newestLayout,
+  projectionOn,
+  recipeLayouts,
+  runsLogin,
+  startsOnPath,
+} from "./login/layouts";
 import { passwordVariants, routeSteps } from "./login/routes";
 import { sameLoginTarget, type LoginStep, type LoginTarget } from "./login/targets";
 import type { LoginRecipe, RecipeLanguage } from "./login/route-schema";
@@ -195,20 +202,25 @@ export type LoginRecipeSelection =
  * Chooses the recipe and step a new attempt starts on. For now only a recipe's first
  * step can start an attempt, and two recipes starting on one page refuse rather than
  * guess. The layouts of the one recipe that starts there are all offered (ADR 0060); the
- * runtime chooses between them from what the page shows.
+ * runtime chooses between them from what the page shows. A recipe starts on its start
+ * path and on each path in its `starts` (ADR 0060 amendment of 2026-11-18), where its
+ * layouts are offered on that path (`projectionOn`); both count towards two recipes.
  */
 export function selectLoginRecipe(
   recipes: readonly StoredLoginRecipe[],
   origin: string,
   path: string,
 ): LoginRecipeSelection {
-  const starting = loginRecipesForOrigin(recipes, origin).filter(
-    (recipe) => recipe.layouts[0]?.steps[0]?.path === path,
+  const starting = loginRecipesForOrigin(recipes, origin).filter((recipe) =>
+    startsOnPath(recipe, path),
   );
   if (starting.length > 1) return { ok: false, reason: "recipe-ambiguous" };
   const [recipe] = starting;
   if (!recipe) return { ok: false, reason: "recipe-not-found" };
-  const layouts = loginLayoutCandidates(recipe);
+  const layouts = loginLayoutCandidates(recipe).map((candidate) => ({
+    ...candidate,
+    recipe: projectionOn(candidate.recipe, path),
+  }));
   return { ok: true, recipe: newestLayout(layouts)!.recipe, layouts, stepIndex: 0 };
 }
 
