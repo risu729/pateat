@@ -5030,4 +5030,4 @@ parent's scope no longer authorizes logs `login.refused` `sso-scope-changed` wit
 `idp-step`, at info the first time for its document and path, which goes to the service
 as a problem line, and at debug for each repeat there
 ([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit);
-awaiting the owner's decision).
+its waiting rule approved by the owner on 2026-11-19).

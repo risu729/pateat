@@ -14,8 +14,8 @@ identity providers or of their pages; the IdP's origin comes from the item and i
 are handled as any site's. Amended on 2026-11-07 by
 [ADR 0085](0085-one-item-for-native-and-sso-login.md) (owner, 12:51 UTC;
 [amendment](#amendment-2026-11-07-one-item-for-password-and-sso)). Amended on 2026-11-18
-by an agent, awaiting the owner's decision: the IdP's own login is logged and goes on
-past its submit
+by an agent, its waiting rule approved by the owner on 2026-11-19 (01:37 UTC): the IdP's
+own login is logged and goes on past its submit
 ([amendment](#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit)).
 Researched from
 public documentation only; no real site or account has been used.
@@ -499,8 +499,10 @@ does ([ADR 0027](0027-per-account-login-routes.md)), which ends the flow with it
 
 ## Amendment 2026-11-18: the IdP's own login is logged and goes on past its submit
 
-Status: awaiting the owner's decision. An agent made every decision below and
-implemented it; the owner has been asked and has not confirmed any of it yet.
+Status: accepted. An agent made every decision below and implemented it. The owner
+approved decision 3, that an IdP page with nothing to choose waits and presses nothing
+instead of stopping the flow, on 2026-11-19 at 01:37 UTC (「待つ(何も押さない)」); the
+other decisions are the agent's.
 
 On 2026-11-18 at 18:02 UTC, in the owner's Chrome, the flow of
 [#1687](https://github.com/risu729/pateat/issues/1687) pressed "Sign in with IBMid" on
@@ -550,7 +552,7 @@ What the code shows (agent's reading, 2026-11-18):
   never at a handler. Handlers are entered only after an effect step, when its result is
   read or during the watch.
 
-Decisions, all the agent's and awaiting the owner's decision:
+Decisions (3 approved by the owner, the others the agent's):
 
 1. **The child's lines are logged.** Each `login.attempt` line of the IdP's own login
    carries `ssoChild` and goes to the local log only: not to the badge, the first-login
