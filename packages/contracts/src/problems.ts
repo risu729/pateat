@@ -59,11 +59,12 @@ export type ProblemFieldKind = keyof typeof PROBLEM_FIELD_KINDS;
  */
 export const LOCAL_ONLY_EVENTS = ["passkey.request", "passkey.create"] as const;
 /**
- * The flag each line of a fill-only login of a tab that asks (ADR 0062 B) carries, which keeps
- * the line on the device (ADR 0066). No event of {@link PROBLEM_EVENT_FIELDS} carries it,
- * so the service refuses such a line too.
+ * The flags that keep a line on the device (ADR 0066): each line of a fill-only login of a
+ * tab that asks (ADR 0062 B), and each line of the IdP's own login inside an SSO flow,
+ * whose parent stands for the login (ADR 0026, amendment of 2026-11-18). No event of
+ * {@link PROBLEM_EVENT_FIELDS} carries them, so the service refuses such a line too.
  */
-export const LOCAL_ONLY_FLAG = "fillOnly";
+export const LOCAL_ONLY_FLAGS = ["fillOnly", "ssoChild"] as const;
 
 /**
  * Fields of a local log event that a problem line leaves out: where a login's own time went
@@ -109,14 +110,15 @@ export function problemLocalOnly(
   fields: Readonly<Record<string, unknown>>,
 ): boolean {
   return (
-    (LOCAL_ONLY_EVENTS as readonly string[]).includes(event) || fields[LOCAL_ONLY_FLAG] === true
+    (LOCAL_ONLY_EVENTS as readonly string[]).includes(event) ||
+    LOCAL_ONLY_FLAGS.some((flag) => fields[flag] === true)
   );
 }
 
 /**
  * The fields each local log event may carry to the service, by kind. The extension's test
  * holds it equal to its log's events, less {@link LOCAL_ONLY_EVENTS}, item and connection
- * pseudonyms, {@link LOCAL_ONLY_FLAG} and {@link LOCAL_ONLY_FIELDS}.
+ * pseudonyms, {@link LOCAL_ONLY_FLAGS} and {@link LOCAL_ONLY_FIELDS}.
  */
 export const PROBLEM_EVENT_FIELDS = {
   "runtime.started": { build: "revision" },

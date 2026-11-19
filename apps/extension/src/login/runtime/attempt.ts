@@ -101,7 +101,9 @@ export const reportAttempt = (
     endedAt?: number;
   } = {},
 ) => {
-  if (ssoChild(rt.sso, metadata)) return;
+  // An SSO hop's own login is still logged on the device, so it never runs unseen; its
+  // parent stands for the login everywhere else (ADR 0026, amendment of 2026-11-18).
+  const hop = ssoChild(rt.sso, metadata);
   const { stop, endedAt, ...marks } = flags;
   // A login that just ended, signed in or blocked, says how long it took (ADR 0019); a
   // watched one only when its watch ends, which may have been before it was noticed.
@@ -112,7 +114,7 @@ export const reportAttempt = (
   // Where its own time went, for the local log and the login record (ADR 0019, ADR 0055).
   const spans = times ? takeSpans(rt, metadata.id) : undefined;
   // Which sign-in method it used, for the login record (ADR 0055, amended 2026-11-18).
-  const methods = times ? takeMethods(rt, metadata) : undefined;
+  const methods = times && !hop ? takeMethods(rt, metadata) : undefined;
   // An end without its times, as a repeat or a correction, keeps no methods either.
   if (!times && terminal(metadata)) dropMethods(rt, metadata.id);
   if (flags.corrected) methodsCorrected(rt, metadata);
@@ -162,6 +164,7 @@ export const reportAttempt = (
     ...(times ? { times } : {}),
     ...(spans ? { spans } : {}),
     ...(methods ? { methods } : {}),
+    ...(hop ? { ssoChild: true as const } : {}),
   });
 };
 
