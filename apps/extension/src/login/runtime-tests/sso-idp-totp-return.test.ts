@@ -327,6 +327,35 @@ describe("the RP's pages on the way back", () => {
     expect(await ssoAdmit(h.rt, discovery.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     expect(h.work.ended).toBe(false);
   });
+  it.each(["code", "captcha"] as const)(
+    "ends the flow on an RP %s page after the IdP, and waits on one before it",
+    async (sign) => {
+      const state = () => ({
+        ok: true,
+        loaded: true,
+        signs: {
+          password: false,
+          code: sign === "code",
+          captcha: sign === "captcha",
+          invalid: false,
+          alert: false,
+          username: false,
+        },
+      });
+      const { h, judgeSso, page } = await answering("login.state", state);
+      expect(await ssoAdmit(h.rt, page.ctx)).toEqual(ended);
+      expect(judgeSso).not.toHaveBeenCalled();
+      // Before any IdP page, the RP's own step on its way to the IdP waits.
+      const before = await harness();
+      const base = delivery.getMockImplementation()!;
+      delivery.mockImplementation(async (tabId, message, options) =>
+        message["type"] === "login.state" ? state() : base(tabId, message, options),
+      );
+      const own = before.page(rp, "rp-verify", "/verify");
+      expect(await ssoAdmit(before.rt, own.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+      expect(before.work.ended).toBe(false);
+    },
+  );
   it("ends the flow on an RP page the judge reads as a rejected sign-in", async () => {
     const { h, judgeSso, page } = await answering("login.extract", () => ({
       ok: true,
