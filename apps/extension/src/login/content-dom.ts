@@ -15,7 +15,7 @@ import { inputValueMismatch } from "../page/fill-checks";
 import { typeValue } from "../page/enter-value";
 import { nextFrame } from "../page/frames";
 import { pageWatch } from "../page/quiet";
-import { presence } from "../observation/extract";
+import { extractSignedInObservation, presence } from "../observation/extract";
 import { clickableSwitch, entryLike, listControls } from "../page/account-list";
 import { listsAccounts } from "./no-input-offer";
 import { observedPath } from "../observation/path";
@@ -285,8 +285,31 @@ const untyped: ReadonlySet<string> = new Set([
   "image",
   "hidden",
 ]);
-/** Whether the page shows no text yet, as a page still rendering in place (ADR 0026). */
-export const showsNoText = () => !(document.body?.innerText ?? "").trim();
+/** Whether the signed-in extractor finds nothing to describe (`no-candidates`). */
+export function describesNothing(): boolean {
+  try {
+    return (
+      (extractSignedInObservation(document) as { reason?: unknown }).reason === "no-candidates"
+    );
+  } catch {
+    // A page the extractor cannot read is not reported as describing something.
+    return true;
+  }
+}
+/**
+ * Whether the page shows nothing yet, as a page still rendering in place (ADR 0026,
+ * amendment of 2026-11-20): no visible text, in its own tree or its shadow trees, and
+ * nothing the signed-in extractor would describe, as an icon control with only a label.
+ */
+export function showsNothing(): boolean {
+  if ((document.body?.innerText ?? "").trim()) return false;
+  const text = (root: ShadowRoot) =>
+    Array.from(root.children).some(
+      (child) => child instanceof HTMLElement && child.innerText.trim() !== "",
+    );
+  if (shadowRoots(document).some(text)) return false;
+  return describesNothing();
+}
 /**
  * The sign-in inputs the page shows that a generated recipe can continue on after its final
  * `advance` step (ADR 0018), other than the inputs the recipe's own `targets` each find

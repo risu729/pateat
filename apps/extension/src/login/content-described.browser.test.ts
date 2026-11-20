@@ -113,3 +113,26 @@ describe("the watch for a page that described nothing", () => {
     expect(reports()).toEqual([]);
   });
 });
+
+// ADR 0026, amendment of 2026-11-20: the RP return's watch of a page that shows nothing.
+describe("the watch for a page that shows nothing yet (`shown`)", () => {
+  const watch = (token: string) =>
+    command({ version: 1, type: "login.extract.watch", token, timeoutMs: 60_000, shown: true });
+  it("says once that the page shows text, even with nothing to describe", async () => {
+    const token = await open(`<main></main>`);
+    expect(watch(token)).toEqual({ ok: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reports()).toEqual([]);
+    document.querySelector("main")!.innerHTML = `<h1>Welcome back</h1>`;
+    await vi.advanceTimersByTimeAsync(200);
+    expect(reports()).toEqual([{ version: 1, type: "login.document.described", token }]);
+  });
+  it("says it at once for a shell whose only control is an icon link with a label", async () => {
+    const token = await open(
+      `<main><a href="/account" aria-label="Account"><svg width="24" height="24"></svg></a></main>`,
+    );
+    watch(token);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reports()).toHaveLength(1);
+  });
+});

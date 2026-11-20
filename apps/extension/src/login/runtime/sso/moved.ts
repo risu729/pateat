@@ -90,6 +90,7 @@ export function watchReturn(rt: Runtime, work: SsoWork, live: LiveDocument) {
   void send(rt, live, {
     type: "login.extract.watch",
     timeoutMs: Math.min(Math.ceil(left), WATCH_MS),
+    shown: true,
   }).catch(() => undefined);
 }
 

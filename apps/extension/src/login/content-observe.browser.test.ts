@@ -144,6 +144,22 @@ describe("login.observe's page that shows no text yet (ADR 0026, 2026-11-20)", (
       await read(`<div id="root"></div><p hidden>Signed in</p><div style="display:none">x</div>`),
     ).toMatchObject({ signIn: { blank: true } });
   });
+  it("reads a shell whose only control is an icon link with a label as one that shows something", async () => {
+    expect(
+      await read(`<a href="/account" aria-label="Account"><svg width="24" height="24"></svg></a>`),
+    ).toMatchObject({ signIn: { blank: false } });
+  });
+  it("reads text shown only in a shadow tree as something shown", async () => {
+    document.body.innerHTML = `<portal-app></portal-app>`;
+    document
+      .querySelector("portal-app")!
+      .attachShadow({ mode: "open" }).innerHTML = `<h1>Welcome back</h1>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await observe({ targets: [], signIn: true })).toMatchObject({
+      signIn: { blank: false },
+    });
+  });
   it("reads a page with a visible heading as one that shows something", async () => {
     expect(await read(`<h1>Returned to relying party</h1>`)).toMatchObject({
       signIn: { blank: false },
