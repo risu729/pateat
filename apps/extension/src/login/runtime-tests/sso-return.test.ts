@@ -376,7 +376,7 @@ describe("actual SSO RP-return admission and final evidence", () => {
     // The page proves nothing yet, as the RP's own callback on the way to its signed-in
     // page: the flow waits for the tab's next page (ADR 0026, amendment of 2026-11-20).
     expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    expect(h.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return");
+    expect(h.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:no-evidence");
     expect(h.work.ended).toBe(false);
     expect(h.work.parent?.state).toBe("reconciling");
     expect(h.update).not.toHaveBeenCalled();

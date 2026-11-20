@@ -5,6 +5,7 @@ import {
   type RecipeCompletionResult,
   type SsoCompletionRequest,
 } from "@pateat/contracts";
+import { loginMoveFits } from "@pateat/contracts/site";
 import {
   completionBesidePromptVersion,
   completionInstructions,
@@ -49,7 +50,10 @@ export async function judgeSsoCompletion(
   // (ADR 0060 amendment of 2026-11-18).
   const observation = onStartPath(head, request.observation);
   const recipe = head.state === "active" ? head.recipe : undefined;
-  if (recipe && recipe.origin !== observation.origin) return null;
+  // The return lands on the RP's own origin or another origin of its registrable site, as
+  // a broker hands the tab to the site's portal (ADR 0085 amendment of 2026-11-18, ADR 0026
+  // amendment of 2026-11-20).
+  if (recipe && !loginMoveFits(recipe.origin, observation.origin, false)) return null;
   const promptVersion = await completionPromptVersion();
   const sso = recipe && isSsoDocument(recipe) ? recipe.sso : undefined;
   const layout = sso?.layouts.find((entry) => entry.key === request.layout);

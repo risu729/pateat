@@ -315,6 +315,17 @@ export async function markerProofs(
   return proofs;
 }
 
+/**
+ * The RP's markers an SSO return page can show: the ones its native login learned on the
+ * page's own origin (ADR 0022), then, on another origin of the RP's site, the RP origin's
+ * own ones too, as a same-site return completes on the RP's evidence (ADR 0085, amendment
+ * of 2026-11-18; ADR 0026, amendment of 2026-11-20).
+ */
+export async function returnMarkerProofs(rt: Runtime, rpOrigin: string, pageOrigin: string) {
+  const own = await markerProofs(rt, rpOrigin, pageOrigin);
+  return pageOrigin === rpOrigin ? own : [...own, ...(await markerProofs(rt, rpOrigin, rpOrigin))];
+}
+
 /** Whether the document shows one of `proofs`' markers (E1); one that cannot be read does not. */
 export async function showsMarkers(
   rt: Runtime,

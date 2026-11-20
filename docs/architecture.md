@@ -4999,6 +4999,10 @@ A flow's RP return may land on another origin of the RP's registrable site, with
 scheme, that is not the IdP's and that the RP item matches (`ssoReturnOrigin`; never for
 a `localhost` or IP RP); every other origin stays forbidden
 ([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-an-rp-return-on-another-origin-of-the-same-site)).
+Such a page is read with the RP's markers learned on its own origin and then the RP
+origin's, and the RP-return judge (`judgeSsoCompletion`) judges a page of any origin a
+login of the recipe's origin may move to (`loginMoveFits`), not only of the recipe's own
+([ADR 0026, amended 2026-11-20](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-20-a-return-to-another-origin-of-the-rps-site)).
 An SSO route validates its own method
 and refuses another mapped method on the same IdP account, even through different
 connections; a native route needs no SSO method. A URL-form choice names one of at most
@@ -5050,8 +5054,9 @@ the service as a problem line, and at debug for each repeat there; when the tab'
 no longer the document's, the login stops reading it and asks it once to announce again
 (`leftDocument`). After the IdP, an RP page that shows neither the sign-in nor the
 site's sign-in form, another account or an unsafe page waits (`sso-in-progress`, detail
-`rp-return`) for the tab's next page, and the RP-return judge is asked once per RP
-document
+`rp-return:` and why, such as `no-evidence` or `loading`) for the tab's next page or its
+URL changed in place, which asks the page to announce again (`ssoReturnMoved`); one page
+is read at a time, and the RP-return judge is asked once per RP document
 ([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit),
 its waiting rule approved by the owner on 2026-11-19, and
 [2026-11-20](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).

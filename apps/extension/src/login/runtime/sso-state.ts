@@ -74,6 +74,8 @@ export type SsoWork = {
    * 2026-11-20).
    */
   detached?: LoginDocument;
+  /** An RP page's reading on the return, which a page announcing meanwhile waits for. */
+  reading?: Promise<void>;
   operation?: {
     id: string;
     handle: string;

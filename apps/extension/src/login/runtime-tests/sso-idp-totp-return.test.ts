@@ -32,7 +32,7 @@ vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { createRuntimeState } = await import("../runtime/state");
 const { offerSso } = await import("../runtime/sso/entry");
-const { cancelSso, ssoAdmit } = await import("../runtime/sso/flow");
+const { cancelSso, installSsoLifecycle, ssoAdmit } = await import("../runtime/sso/flow");
 const { authorizeSso } = await import("../runtime/sso-effects");
 const { allowed } = await import("../runtime/plan-2");
 const { reconcileBounded } = await import("../runtime/sign-in");
@@ -41,6 +41,8 @@ const { createLoginSites } = await import("../sites");
 const { createLoginBadge, memoryBadgeStorage } = await import("../badge");
 const rp = "https://rp.example.test";
 const idp = "https://idp.other.test";
+/** Another origin of the RP's site, which the RP item matches, as a broker's portal. */
+const portal = "https://portal.example.test";
 const rpItem = "a0000000-0000-4000-8000-000000000001";
 const idpItem = "a0000000-0000-4000-8000-000000000002";
 const snapshotId = "b0000000-0000-4000-8000-000000000001";
@@ -57,7 +59,7 @@ const connection = (id: string, itemId: string, origin: string): VaultConnection
     {
       id: itemId,
       label: "Synthetic item",
-      allowedOrigins: [origin],
+      allowedOrigins: origin === rp ? [rp, portal] : [origin],
       groupIds: [],
       fields: [
         { id: "login.username", label: "Username", name: null, kind: "text" },
@@ -425,7 +427,7 @@ describe("an SSO sign-in through the IdP's password, risk check, method chooser 
     // The RP's own callback, which shows nothing of the sign-in yet: the flow waits.
     const callback = h.page(rp, "rp-callback", "/callback", "?code=synthetic");
     expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return");
+    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:no-evidence");
     expect(h.work.ended).toBe(false);
     expect(h.work.parent?.state).toBe("reconciling");
     // The IdP's login no longer acts, and nothing recorded it as ended yet.
@@ -610,5 +612,147 @@ describe("an IdP step whose tab has left its document", () => {
     expect(run.metadata.state).toBe("awaiting-result");
     expect(h.rt.attempts.get(7)).toBe(run);
     expect(h.work.ended).toBe(false);
+  });
+});
+
+// HCP's broker on flow.idp.hashicorp.com hands the tab back to portal.cloud.hashicorp.com,
+// another origin of its site with no recipe of its own (2026-11-20, 14:35:33 UTC).
+describe("a return to another origin of the RP's site", () => {
+  /** The RP's native recipe, whose login learned its signed-in marker on the portal. */
+  const rpNative: LoginRecipe = {
+    ...idpRecipe,
+    id: "native-rp",
+    revision: 2,
+    origin: rp,
+    handlers: undefined,
+    completion: [{ target: target("account-menu"), origin: portal }],
+  };
+  it("completes on the RP's marker learned on that origin", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    h.rt.recipes.routes = async (origin: string) => (origin === rp ? [rpNative] : []);
+    const base = delivery.getMockImplementation()!;
+    delivery.mockImplementation(async (tabId, message, options) => {
+      if (
+        message["type"] === "login.observe" &&
+        (message["targets"] as { value?: string }[]).some((entry) => entry.value === "account-menu")
+      )
+        return { path: "/home", targets: ["unique"] };
+      return base(tabId, message, options);
+    });
+    const home = h.page(portal, "portal-home", "/home");
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.work.parent).toMatchObject({ state: "authenticated", account: { origin: rp } });
+  });
+  // HCP's case of 2026-11-20: the SSO recipe is the broker's, the portal has no recipe of
+  // its own and shows neither the selected identity nor a known marker, so only the judge
+  // can tell its signed-in page.
+  it("asks the RP-return judge about that origin's page and completes on its answer", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    const learned = structuredClone(h.ssoRecipe);
+    learned.revision++;
+    learned.sso.layouts[0]!.completion = [{ target: target("portal-menu") }];
+    const judgeSso = vi.fn(async () => {
+      h.rt.recipes.sso = async () => [learned];
+      return { signedIn: true, recipe: learned };
+    });
+    h.rt.generation = {
+      available: async () => true as const,
+      generate: vi.fn(),
+      generateEntry: vi.fn(),
+      slotFields: async () => undefined,
+      judge: vi.fn(),
+      judgeSso,
+    };
+    const base = delivery.getMockImplementation()!;
+    delivery.mockImplementation(async (tabId, message, options) => {
+      if (message["type"] === "login.extract")
+        return {
+          ok: true,
+          observation: {
+            version: 1,
+            origin: portal,
+            path: "/home",
+            language: "en",
+            complete: true,
+            candidates: [
+              { id: "menu", role: "button", target: target("portal-menu"), label: "Account" },
+            ],
+          },
+        };
+      if (
+        message["type"] === "login.observe" &&
+        (message["targets"] as { value?: string }[]).some((entry) => entry.value === "portal-menu")
+      )
+        return { path: "/home", targets: ["unique"] };
+      return base(tabId, message, options);
+    });
+    const home = h.page(portal, "portal-home", "/home");
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(judgeSso).toHaveBeenCalledTimes(1);
+    expect(judgeSso).toHaveBeenCalledWith(
+      h.ssoRecipe.id,
+      expect.objectContaining({ observation: expect.objectContaining({ origin: portal }) }),
+    );
+    expect(h.work.parent).toMatchObject({ state: "authenticated", account: { origin: rp } });
+  });
+  it("reads the portal again once it routed in place from its callback to its signed-in page", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    installSsoLifecycle(h.rt);
+    const callback = h.page(portal, "portal-doc", "/callback", "?code=synthetic");
+    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:no-evidence");
+    // The portal's own routing changes the URL of the same document, which then shows the
+    // selected identity.
+    delivery.mockClear();
+    identities.set("portal-doc", "match");
+    fake.emitUpdated(7, { url: portal + "/home" });
+    await vi.waitFor(() =>
+      expect(delivery).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ type: "login.reconnect" }),
+        expect.objectContaining({ documentId: "portal-doc" }),
+      ),
+    );
+    // The document announces again, as the content script does on that request.
+    const home = h.page(portal, "portal-doc", "/home");
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.work.parent?.state).toBe("authenticated");
+  });
+  it("asks a page whose URL changed in place since it announced to announce again", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    const callback = h.page(portal, "portal-doc", "/callback", "?code=synthetic");
+    fake.state.tabUrls[7] = portal + "/home";
+    delivery.mockClear();
+    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:moved");
+    expect(h.work.ended).toBe(false);
+    await vi.waitFor(() =>
+      expect(delivery).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ type: "login.reconnect" }),
+        expect.objectContaining({ documentId: "portal-doc" }),
+      ),
+    );
+  });
+  it("reads one announcement of an RP page at a time, completing the flow once", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    identities.set("portal-doc", "match");
+    const first = h.page(portal, "portal-doc", "/home");
+    const both = await Promise.all([ssoAdmit(h.rt, first.ctx), ssoAdmit(h.rt, first.ctx)]);
+    expect(both).toEqual([
+      { ok: false, reason: "sso-completed" },
+      { ok: false, reason: "sso-completed" },
+    ]);
+    const completions = h.report.mock.calls.filter(
+      ([line]) =>
+        (line as { route?: string; state?: string }).route === "sso" &&
+        (line as { state?: string }).state === "authenticated",
+    );
+    expect(completions).toHaveLength(1);
   });
 });

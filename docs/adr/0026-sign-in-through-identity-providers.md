@@ -19,7 +19,9 @@ own login is logged and goes on past its submit
 ([amendment](#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit)).
 Amended on 2026-11-20 by an agent: the RP return waits for the RP's own evidence and the
 IdP's login ends with its true state
-([amendment](#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).
+([amendment](#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)), and a
+return to another origin of the RP's site completes on that origin's evidence
+([amendment](#amendment-2026-11-20-a-return-to-another-origin-of-the-rps-site)).
 Researched from
 public documentation only; no real site or account has been used.
 
@@ -687,6 +689,53 @@ Checked with local runtime tests only
 (`apps/extension/src/login/runtime-tests/sso-idp-totp-return.test.ts`), not on the real
 site.
 
+## Amendment 2026-11-20: a return to another origin of the RP's site
+
+Status: accepted. An agent made these decisions within this ADR and within the
+[same-site return of ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-an-rp-return-on-another-origin-of-the-same-site),
+and implemented them.
+
+In the same run (build `1f892101`), the tab came back from IBMid to
+`portal.cloud.hashicorp.com`, another origin of the site of the flow's broker page
+`flow.idp.hashicorp.com`, which has no recipe of its own. The flow ended there with
+`sso-return-unconfirmed` five seconds after the IdP's login was detached, with no
+`recipe.judge` line. What the code showed (agent's reading, 2026-11-20):
+
+- **The RP-return judge refused any origin but the recipe's.** `judgeSsoCompletion`
+  (`packages/generation/src/generate/sso-completion.ts`) answered `null` for a page
+  whose origin is not the SSO recipe's, which the service sends as 400 and the device as
+  no answer. The extension logs no line for the RP-return judge, so its absence in the
+  log does not show it was not asked.
+- **The RP's markers were read for the RP's origin only.** The return read the RP's
+  native markers learned on the RP's own origin, never those its native login learned on
+  the page's origin (ADR 0022), so a portal's marker never counted there.
+- **A page that changes its URL in place was not read again**, the known limit of the
+  amendment above, which an SPA portal's callback hits.
+
+Decisions:
+
+1. **The judge judges a page of the RP's site.** The RP-return judge accepts a page of
+   any origin a login of the recipe's origin may move to (`loginMoveFits`, before a
+   second factor), as the native completion judge does. The extension asks it only for a
+   page `ssoReturnOrigin` admits, which also needs the RP item to match.
+2. **Markers of the page's origin first.** The return reads the RP's markers learned on
+   the page's origin, then, on another origin of its site, the RP origin's own.
+3. **An RP page that changes its URL in place is read again.** When the tab's URL of a
+   waiting RP page changes in place, or differs from its announcement when admitted, the
+   page is asked to announce again (`login.reconnect`), as the IdP's left documents are
+   in decision 4 above, and its admission refuses with detail `rp-return:moved`.
+4. **One reading of an RP page at a time.** A second announcement waits for the reading
+   in progress and is then read afresh, or answers `sso-completed`, so a flow completes
+   once.
+5. **Why the return waits is logged.** The `sso-in-progress` refusal's detail is
+   `rp-return:` and its reason: `unscoped`, `unread`, `loading`, `code`, `captcha`,
+   `alert`, `incomplete`, `no-evidence`, `unobserved`, `not-signed-in` or `moved`. An
+   `unsafe-return` reading now ends the flow on the instant path too.
+
+The judge's change reaches service-backed devices only with a service release. Checked
+with local tests only (`sso-idp-totp-return.test.ts`, `sso-completion-backend.test.ts`),
+not on the real site.
+
 ## Known limits 2026-11-16
 
 - **A layout full of unseen markers.** An SSO layout keeps at most four RP-return
@@ -695,10 +744,6 @@ site.
   return needs a marker, then never completes on that layout until its recipe is revoked
   or ages out and is generated again. A bracket-form method still completes on the
   selected identity.
-- **An RP that reaches its signed-in page in place** (added 2026-11-20). An RP page that
-  waits is read again only when the tab shows its next document: a document reports a
-  URL change only for an IdP step, so an RP whose callback becomes its signed-in page in
-  the same document waits until the flow's ten minutes end it (`sso-expired`).
 - **Settings changes during the IdP's own login.** The IdP's native login stops on any
   settings change, as every native login does
   ([ADR 0027](0027-per-account-login-routes.md)), and the flow ends with it, even when

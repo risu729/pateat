@@ -320,4 +320,21 @@ describe("SSO completion through the real device backend and model adapters", ()
     expect(h.calls).toHaveLength(1);
     expect(await h.recipes.head(h.recipeId)).toEqual(h.recipe);
   });
+  // A broker hands the tab back to the site's portal on another origin of its site, as
+  // HCP's flow.idp.hashicorp.com to portal.cloud.hashicorp.com (2026-11-20).
+  it("judges a return to another origin of the RP's site, and none of another site", async () => {
+    const h = await setup([{ decision: "signed-in", marker: "logout" }]);
+    const portal = { ...page, origin: "https://portal.example.test" };
+    expect(await h.judge({ ...h.request, observation: portal })).toMatchObject({
+      kind: "result",
+      result: { status: "signed-in", change: { state: "active", revision: 2 } },
+    });
+    expect(h.calls).toHaveLength(1);
+    const other = await setup();
+    const elsewhere = { ...page, origin: "https://portal.elsewhere.test" };
+    expect(await other.judge({ ...other.request, observation: elsewhere })).not.toMatchObject({
+      result: { status: "signed-in" },
+    });
+    expect(other.calls).toEqual([]);
+  });
 });
