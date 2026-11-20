@@ -360,7 +360,7 @@ export const observationSchema = v.strictObject({
        * An `identifier` input that asks for the account: the page's only input to type
        * into, or one with a password input in its form (ADR 0026, amendment of 2026-11-20).
        */
-      signInIdentifier: v.optional(v.boolean()),
+      signInIdentifier: v.boolean(),
     }),
   ),
   /** With `explain` asked: per target, the check that decided its state. */

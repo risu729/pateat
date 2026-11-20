@@ -89,13 +89,8 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
     !state.success ||
     !state.output.ok ||
     !state.output.loaded ||
-    [
-      state.output.signs.password,
-      state.output.signs.code,
-      state.output.signs.captcha,
-      state.output.signs.invalid,
-      state.output.signs.alert,
-    ].some(Boolean)
+    // A return page's reading has no submitted form, so it never says invalid or alert.
+    [state.output.signs.password, state.output.signs.code, state.output.signs.captcha].some(Boolean)
   )
     return false;
   const layout = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
@@ -208,7 +203,7 @@ async function asksSignIn(rt: Runtime, live: LiveDocument): Promise<boolean | un
   );
   if (!reading.success) return undefined;
   const shown = reading.output.signIn;
-  return !!shown?.loaded && (shown.signInIdentifier === true || shown.password);
+  return !!shown?.loaded && (shown.signInIdentifier || shown.password);
 }
 async function ssoEntryShown(
   rt: Runtime,
@@ -332,9 +327,9 @@ export async function returned(
   if (!reading.output.loaded) return "loading";
   if (!(await ssoScope(rt, work, live))) return "unscoped";
   const signs = reading.output.signs;
-  // A sign-in form, or one the site marked invalid, is the site's sign-in again. Its alert
-  // is read only after a submission in the same document, never on a return page.
-  if (signs.password || signs.invalid) return "refused";
+  // A sign-in form is the site's sign-in again. Its invalid marks and alert are read only
+  // after a submission in the same document, never on a return page.
+  if (signs.password) return "refused";
   if (signs.code) return "code";
   if (signs.captcha) return "captcha";
   const own = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);

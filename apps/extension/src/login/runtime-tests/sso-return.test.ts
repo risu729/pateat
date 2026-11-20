@@ -838,7 +838,8 @@ describe("an RP page before and after the IdP is reached", () => {
     expect(h.signedIn).not.toHaveBeenCalled();
     expect(h.rt.picked.get(7)).toBeUndefined();
   });
-  it.each(["password", "invalid"] as const)(
+  // `invalid` is read only after a submission in the same document, never on a return page.
+  it.each(["password"] as const)(
     "ends the flow when an instant return lands on the RP's sign-in again (%s)",
     async (sign) => {
       const h = harness({ ok: true, identity: "absent" }, false);

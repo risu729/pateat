@@ -322,11 +322,17 @@ export function createBrowserFake() {
               ? {
                   signIn:
                     typeof state.signIn === "boolean"
-                      ? { loaded: state.signIn, password: state.signIn, identifier: false }
+                      ? {
+                          loaded: state.signIn,
+                          password: state.signIn,
+                          identifier: false,
+                          signInIdentifier: false,
+                        }
                       : {
                           loaded: true,
                           password: state.signIn.password === true,
                           identifier: state.signIn.identifier === true,
+                          signInIdentifier: state.signIn.identifier === true,
                         },
                 }
               : {}),
