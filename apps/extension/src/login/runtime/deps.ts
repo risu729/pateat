@@ -189,7 +189,13 @@ export interface LoginGeneration {
   judgeSso?(
     recipeId: string,
     request: SsoCompletionRequest,
-  ): Promise<{ signedIn: boolean; recipe?: SsoRecipeDocument; rejected?: true }>;
+  ): Promise<{
+    signedIn: boolean;
+    recipe?: SsoRecipeDocument;
+    rejected?: true;
+    /** The judge refused the page as one it never judges (`not-judgeable`). */
+    unjudgeable?: true;
+  }>;
   generateSso?(
     request: SsoGenerationRequest,
   ): Promise<

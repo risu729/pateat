@@ -265,9 +265,34 @@ describe("the RP's pages on the way back", () => {
     expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
   });
   it("waits on an RP page whose email input is one of others, as a newsletter field", async () => {
-    const { h, page } = await identifierPage(false);
+    const { h, judgeSso, page } = await identifierPage(false);
+    judgeSso.mockResolvedValue({ signedIn: false } as never);
     expect(await ssoAdmit(h.rt, page.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     expect(h.work.ended).toBe(false);
+  });
+  it("ends the flow on such a page the judge never judges, as it shows a text field", async () => {
+    const { h, judgeSso, page } = await identifierPage(false);
+    judgeSso.mockResolvedValue({ signedIn: false, unjudgeable: true } as never);
+    const base = delivery.getMockImplementation()!;
+    delivery.mockImplementation(async (tabId, message, options) =>
+      message["type"] === "login.extract"
+        ? {
+            ok: true,
+            observation: {
+              version: 1,
+              origin: rp,
+              path: "/callback",
+              language: "en",
+              complete: true,
+              candidates: [
+                { id: "invite", role: "email", target: target("invite"), label: "Invite" },
+              ],
+            },
+          }
+        : base(tabId, message, options),
+    );
+    expect(await ssoAdmit(h.rt, page.ctx)).toEqual(ended);
+    expect(judgeSso).toHaveBeenCalledTimes(1);
   });
   it("waits on an RP page asking for the work email on the way to the IdP", async () => {
     const h = await harness();

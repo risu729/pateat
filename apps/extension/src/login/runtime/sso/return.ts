@@ -187,11 +187,14 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
   return true;
 }
 /**
- * Whether the loaded page asks for the account: a visible password input, or an identifier
- * input that is its only input to type into or has a password input in its form; undefined
- * when it cannot be read.
+ * Whether the loaded page asks for the account (`asks`): a visible password input, or an
+ * identifier input that is its only input to type into or has a password input in its
+ * form; and whether it shows an identifier input at all. Undefined when it cannot be read.
  */
-async function asksSignIn(rt: Runtime, live: LiveDocument): Promise<boolean | undefined> {
+async function asksSignIn(
+  rt: Runtime,
+  live: LiveDocument,
+): Promise<{ asks: boolean; identifier: boolean } | undefined> {
   const reading = v.safeParse(
     observationSchema,
     await send(rt, live, {
@@ -203,7 +206,10 @@ async function asksSignIn(rt: Runtime, live: LiveDocument): Promise<boolean | un
   );
   if (!reading.success) return undefined;
   const shown = reading.output.signIn;
-  return !!shown?.loaded && (shown.signInIdentifier || shown.password);
+  return {
+    asks: !!shown?.loaded && (shown.signInIdentifier || shown.password),
+    identifier: shown?.identifier === true,
+  };
 }
 async function ssoEntryShown(
   rt: Runtime,
@@ -357,9 +363,12 @@ export async function returned(
   // site's sign-in again, as one asking for the email first (ADR 0026, amendment of
   // 2026-11-20). Before it (`instant`), such a page is the RP's own way to its IdP, as a
   // page asking for the work email to find the provider, and waits.
+  let identifier = false;
   if (!instant) {
-    const asks = await asksSignIn(rt, live);
-    if (asks !== false) return asks === true ? "refused" : "unread";
+    const shown = await asksSignIn(rt, live);
+    if (!shown) return "unread";
+    if (shown.asks) return "refused";
+    identifier = shown.identifier;
   }
   // The judge is asked once per RP document: the RP's own callback or an interstitial on
   // the way back is not the page that shows the sign-in (ADR 0026, amendment of
@@ -397,7 +406,9 @@ export async function returned(
     layout: work.layout,
     observation: hidden.observation,
   });
-  if (judged.rejected) return "refused";
+  // The judge refuses a page with a text field, which no later reading of this page asks
+  // again: one that shows an identifier input is then read as the site's sign-in.
+  if (judged.rejected || (judged.unjudgeable && identifier)) return "refused";
   if (!judged.signedIn) return "not-signed-in";
   if (judged.recipe) {
     work.recipe = judged.recipe;

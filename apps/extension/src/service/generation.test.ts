@@ -5,7 +5,7 @@ import {
   type RecipeGenerationRequest,
   type SemanticSlot,
 } from "@pateat/contracts";
-import { describe, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createLoginGeneration } from "./generation";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTransport } from "./transport";
@@ -698,4 +698,24 @@ describe("claiming the repair of a recipe the chosen item cannot run (ADR 0058 A
     ).replacements;
 
   registerRepairClaimCases({ connection, recipeId, shared, claimSetup, entries });
+});
+
+describe("the RP-return judge's answers, as the SSO flow reads them (ADR 0026)", () => {
+  it.each([
+    ["a refused sign-in", { status: "rejected" }, { signedIn: false, rejected: true }],
+    [
+      "a page it never judges",
+      { status: "unavailable", reason: "not-judgeable" },
+      { signedIn: false, unjudgeable: true },
+    ],
+    ["the day's limit", { status: "unavailable", reason: "judgement-limit" }, { signedIn: false }],
+    ["an unclear page", { status: "unclear" }, { signedIn: false }],
+  ])("answers %s apart from a plain wait", async (_, result, expected) => {
+    const h = setup();
+    h.transport.judgeCompletion.mockResolvedValue({
+      kind: "result",
+      result: { version: 1, ...result },
+    } as never);
+    await expect(h.generation.judgeSso?.("gen-sso", {} as never)).resolves.toEqual(expected);
+  });
 });

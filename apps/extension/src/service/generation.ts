@@ -404,6 +404,12 @@ export function createLoginGeneration(options: {
       // The judge's `rejected`: the site's sign-in was refused (ADR 0026, 2026-11-20).
       if (answer.kind === "result" && answer.result.status === "rejected")
         return { signedIn: false, rejected: true };
+      if (
+        answer.kind === "result" &&
+        answer.result.status === "unavailable" &&
+        answer.result.reason === "not-judgeable"
+      )
+        return { signedIn: false, unjudgeable: true };
       if (answer.kind !== "result" || answer.result.status !== "signed-in")
         return { signedIn: false };
       await refresh().catch(() => undefined);
