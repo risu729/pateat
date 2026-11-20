@@ -1,6 +1,7 @@
 import { loginObservationSchema, semanticSlotsSchema } from "@pateat/contracts";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
+import { verificationPlanRejection } from "../password-change";
 import { validateGeneratedPage } from "../plan";
 import { evaluationCorpus, expectedAlternatives, expectedFields } from "./cases";
 
@@ -27,6 +28,11 @@ describe("synthetic corpus", () => {
         alternatives: expectedAlternatives(entry.expected),
       });
       expect(result.ok, entry.id).toBe(true);
+      // A verification page's truth passes its own check too (ADR 0035).
+      if (entry.expected.pageKind !== undefined && result.ok)
+        expect(verificationPlanRejection(observation, slots, result.plan), entry.id).toBe(
+          undefined,
+        );
       // Without alternatives, the purpose read from the page matches the ground truth
       // whatever the model answers (#834).
       if (!expectedAlternatives(entry.expected)?.length)

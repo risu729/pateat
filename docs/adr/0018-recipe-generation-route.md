@@ -123,7 +123,11 @@ owner decisions (`loneNewPassword` and `validatePagePlan` in
 
 A sign-up form with only an email and one password still passes these checks, so the
 model's `no-login-form` abstention remains the guard there; its description in the
-response format now names sign-up and password-change forms. The same holds for a
+response format now names sign-up forms and forms that set a new password without the
+current one (since
+[ADR 0035's amendment of 2026-11-19](0035-page-kinds-per-site.md#amendment-2026-11-19-forms-that-save-changes-with-the-current-password),
+a form that saves changes with the current password is a `confirm` page instead). The
+same holds for a
 widget that shows its sign-up tab while the sign-in tab is hidden, since hidden inputs
 are not observed, and for a sign-up form whose name or phone inputs carry no
 `autocomplete` token. If the model misses one, the existing username and password are

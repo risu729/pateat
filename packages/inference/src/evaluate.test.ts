@@ -86,10 +86,39 @@ describe("evaluation harness", () => {
           action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
         });
         if (!result.ok) throw new Error(entry.id);
-        return { status: "ok", value: result.plan, calls: 0, usage };
+        const { pageKind } = entry.expected;
+        return {
+          status: "ok",
+          value: { ...result.plan, ...(pageKind ? { pageKind } : {}) },
+          calls: 0,
+          usage,
+        };
       },
     });
     expect(report.semanticAccuracy).toBe(1);
+  });
+
+  it("scores a sign-in plan on a verification's truth as a false submit", () => {
+    const entry = evaluationCorpus.find((item) => item.id === "en-account-password-change")!;
+    if (entry.expected.kind !== "plan") throw new Error("expected a plan truth");
+    const result = validatePagePlan(entry.observation, entry.slots, {
+      fields: expectedFields(entry.expected),
+      action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
+    });
+    if (!result.ok) throw new Error(result.reason);
+    const answered = (pageKind?: "sign-in" | "confirm" | "unclear") =>
+      judge(entry.expected, {
+        status: "ok",
+        value: { ...result.plan, ...(pageKind ? { pageKind } : {}) },
+        calls: 1,
+        usage,
+      });
+    expect(answered("confirm")).toBe("correct");
+    // `unclear` is handled as `confirm` (ADR 0035), so it fills without pressing too.
+    expect(answered("unclear")).toBe("correct");
+    // A sign-in plan would press the form's button.
+    expect(answered("sign-in")).toBe("false-submit");
+    expect(answered()).toBe("false-submit");
   });
 
   it("separates abstentions, misses and failures", async () => {
