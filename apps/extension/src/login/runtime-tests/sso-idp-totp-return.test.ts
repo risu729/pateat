@@ -585,21 +585,71 @@ describe("a return to another origin of the RP's site", () => {
     expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:no-evidence");
     // The portal's own routing changes the URL of the same document, which then shows the
-    // selected identity.
-    delivery.mockClear();
+    // selected identity; the document announces again only when asked, as its content
+    // script does on login.reconnect.
     identities.set("portal-doc", "match");
+    const sender = {
+      id: fake.browser.runtime.id,
+      tab: { id: 7, incognito: false },
+      frameId: 0,
+      documentId: "portal-doc",
+      origin: portal,
+      url: portal + "/home",
+    };
+    const base = delivery.getMockImplementation()!;
+    const reannounced = Promise.withResolvers<unknown>();
+    delivery.mockImplementation(async (tabId, message, options) => {
+      if (message["type"] !== "login.reconnect") return base(tabId, message, options);
+      h.rt.hellos.set("portal-doc", 2);
+      reannounced.resolve(await admit(h.rt, sender as never, callback.live.token, "portal-doc", 2));
+      return { ok: true };
+    });
+    fake.state.tabUrls[7] = portal + "/home";
     fake.emitUpdated(7, { url: portal + "/home" });
-    await vi.waitFor(() =>
-      expect(delivery).toHaveBeenCalledWith(
-        7,
-        expect.objectContaining({ type: "login.reconnect" }),
-        expect.objectContaining({ documentId: "portal-doc" }),
-      ),
-    );
-    // The document announces again, as the content script does on that request.
-    const home = h.page(portal, "portal-doc", "/home");
-    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(await reannounced.promise).toEqual({ ok: false, reason: "sso-completed" });
     expect(h.work.parent?.state).toBe("authenticated");
+  });
+  /** A portal page that describes nothing yet, read once more each time it announces. */
+  const empty = async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    h.rt.generation = {
+      available: async () => true as const,
+      generate: vi.fn(),
+      generateEntry: vi.fn(),
+      slotFields: async () => undefined,
+      judge: vi.fn(),
+      judgeSso: vi.fn(),
+    };
+    const base = delivery.getMockImplementation()!;
+    delivery.mockImplementation(async (tabId, message, options) =>
+      message["type"] === "login.extract"
+        ? { ok: false, reason: "no-candidates" }
+        : base(tabId, message, options),
+    );
+    const watches = () =>
+      delivery.mock.calls
+        .filter(([, message]) => message["type"] === "login.extract.watch")
+        .map(([, message]) => message["timeoutMs"] as number);
+    return { h, watches };
+  };
+  it("asks an empty page to say when it describes something at most three times", async () => {
+    const { h, watches } = await empty();
+    for (let round = 0; round < 5; round++) {
+      const home = h.page(portal, "portal-doc", "/home");
+      // oxlint-disable-next-line no-await-in-loop -- each announcement is read in turn
+      expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    }
+    expect(watches()).toHaveLength(3);
+  });
+  it("asks an empty page for no longer than the flow has left", async () => {
+    const { h, watches } = await empty();
+    h.work.startedAt = Date.now() - 600_000 + 5_000;
+    const home = h.page(portal, "portal-doc", "/home");
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(watches()).toHaveLength(1);
+    expect(watches()[0]).toBeLessThanOrEqual(5_000);
+    expect(watches()[0]).toBeGreaterThan(0);
   });
   it("asks a page whose URL changed in place since it announced to announce again", async () => {
     const h = await harness();
