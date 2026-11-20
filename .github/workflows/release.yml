@@ -43,7 +43,7 @@ jobs:
       # A PR or tag made with GITHUB_TOKEN starts no workflow, so the release PR would get no
       # CI Check; the bot App's token does.
       - name: Create the bot GitHub App token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: github-app
         with:
           client-id: ${{ vars.BOT_APP_CLIENT_ID }}

@@ -176,8 +176,8 @@ then answered 04:51 and 04:54 UTC):
     amendment of 2026-11-08); one generated since learns a `totp` handler. The passkey
     route's button counts when visible, as before.
   - S2: a visible password field, except one with `autocomplete="new-password"` and the
-    password fields of a form with two or more of them (a password change or
-    registration form, where the current password must never go).
+    password fields of a form with two or more of them, as a password change or
+    registration form has; such a form does not show a sign-in.
   - S3: a code field (`isCodeField`: `one-time-code`, or a group of one-digit boxes).
   - S4: a visible CAPTCHA widget, recognised by the reCAPTCHA, hCaptcha or Turnstile
     frame origin; invisible ones do not count. Pateat does not solve CAPTCHAs

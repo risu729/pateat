@@ -753,7 +753,8 @@ to 100 entries `{ seq, time, level, event, fields }`: the calling device's `warn
 (32 hex digits), `seq` the local log's key, `time` the device's, `level` `warn`, `error`
 or, for an event and outcome of `PROBLEM_INFO_LINES`, `info`, `event` a log event name
 of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), never a passkey report
-(`LOCAL_ONLY_EVENTS`) or a fill-only login's line (`LOCAL_ONLY_FLAG`), and `fields` only
+(`LOCAL_ONLY_EVENTS`), a fill-only login's line or an SSO hop's own login's line
+(`LOCAL_ONLY_FLAGS`: `fillOnly`, `ssoChild`), and `fields` only
 the fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error
 names, counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
 pseudonym), script positions and page paths. No string but a stack holds whitespace,

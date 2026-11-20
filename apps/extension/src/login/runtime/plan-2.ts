@@ -7,20 +7,28 @@ import { planFor } from "./plan";
 import { signInPermission } from "./page-permission";
 import type { Runtime } from "./state";
 import { manualExecutionConflict } from "./hold";
+import { note } from "./generation";
+
+/**
+ * Whether an SSO hop's own login may still act: its parent flow runs and owns it, and the
+ * flow's scope holds for its document. A scope that no longer holds, as when the tab's URL
+ * moved on before its document announced it, is logged once for its page, so a step that
+ * does not run says why (ADR 0026, amendment of 2026-11-18); the flow's own time bounds it.
+ */
+async function hopScope(rt: Runtime, run: Execution): Promise<boolean> {
+  const parent = rt.sso.flows.get(run.metadata.document.tabId);
+  if (!parent || parent.childId !== run.metadata.id) return false;
+  if ((await ssoScope(rt, parent, run.live))?.()) return true;
+  if (current(rt, run) && !parent.ended)
+    note(rt, run.live.document, run.live.url, "sso-scope-changed", "idp-step");
+  return false;
+}
 
 /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
 export async function allowed(rt: Runtime, run: Execution): Promise<Authorized | undefined> {
   if (!current(rt, run) || !rt.vars.storageHealthy || manualExecutionConflict(rt, run))
     return undefined;
-  if (ssoChild(rt.sso, run.metadata)) {
-    const parent = rt.sso.flows.get(run.metadata.document.tabId);
-    if (
-      !parent ||
-      parent.childId !== run.metadata.id ||
-      !(await ssoScope(rt, parent, run.live))?.()
-    )
-      return undefined;
-  }
+  if (ssoChild(rt.sso, run.metadata) && !(await hopScope(rt, run))) return undefined;
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!current(rt, run) || manualExecutionConflict(rt, run)) return undefined;
   // A watched login only reads, so newer settings stop it only when they no longer plan
@@ -83,15 +91,7 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
       return undefined;
   }
   if (manualExecutionConflict(rt, run)) return undefined;
-  if (ssoChild(rt.sso, run.metadata)) {
-    const parent = rt.sso.flows.get(run.metadata.document.tabId);
-    if (
-      !parent ||
-      parent.childId !== run.metadata.id ||
-      !(await ssoScope(rt, parent, run.live))?.()
-    )
-      return undefined;
-  }
+  if (ssoChild(rt.sso, run.metadata) && !(await hopScope(rt, run))) return undefined;
   return {
     connection: plan.connection,
     binding: plan.binding,

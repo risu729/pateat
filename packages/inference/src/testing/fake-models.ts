@@ -68,8 +68,9 @@ export const oracleGenerator = () =>
         ? { decision: "abstain", reason: "ambiguous" }
         : {
             decision: "plan",
-            // Every synthetic page is a sign-in page whose submission can be undone.
-            pageKind: "sign-in",
+            // Every synthetic page is a sign-in page unless its truth says otherwise, and
+            // its submission can be undone.
+            pageKind: expected.pageKind ?? "sign-in",
             irreversible: "no",
             fields: expectedFields(expected),
             action: { candidate: expected.action, purpose: expected.purpose },
@@ -126,6 +127,7 @@ export function oracleAnswer(
   if (options === undefined) {
     if (id === "signin") return plan ? 0.95 : 0.05;
     if (id === "otherSets") return plan?.alternatives ? 0.95 : 0.05;
+    if (id === "confirm") return plan?.pageKind === "confirm" ? 0.95 : 0.05;
     return 0.05;
   }
   let choice = "none";

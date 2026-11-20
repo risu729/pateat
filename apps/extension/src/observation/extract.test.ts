@@ -22,6 +22,11 @@ import { registerLoginShadowRedaction } from "../../test/observation/login-shado
 import { registerSignedInReaders } from "../../test/observation/signed-in-readers";
 import { registerSignedInNearButtons } from "../../test/observation/signed-in-near-buttons";
 import { registerSignedInCandidates } from "../../test/observation/signed-in-candidates";
+import {
+  accountFormWithPasswordChange,
+  passwordBesideShownLoginId,
+  shownEmail,
+} from "../../test/login/verification-pages";
 
 /** Closed shadow roots, which a content script reaches through `dom.openOrClosedShadowRoot`. */
 const closedRoots = vi.hoisted(() => new WeakMap<Element, ShadowRoot>());
@@ -71,6 +76,68 @@ describe("extractLoginObservation", () => {
   registerLoginVisibility({ page, shadow, observe, summary });
   registerLoginKnownFields({ page, observe, summary });
   registerLoginShadowRedaction({ page, shadow, observe, summary });
+
+  // The pages of #1709 and #1714 are sent whole, so generation can answer them `confirm`
+  // with the current password alone (ADR 0035); values never leave the page.
+  describe("verification pages a signed-in person reported (2026-11-18)", () => {
+    it.each([false, true])(
+      "describes an account form with a current and a new password (marked: %s)",
+      (marks) => {
+        page(accountFormWithPasswordChange(marks));
+        const observation = observe();
+        expect(observation.complete).toBe(true);
+        expect(JSON.stringify(observation)).not.toContain(shownEmail);
+        expect(
+          observation.candidates.map(({ role, target, label, autocomplete, group }) => ({
+            role,
+            target: target.value,
+            label,
+            autocomplete,
+            group,
+          })),
+        ).toEqual(
+          [
+            ["email", "Email", "Email"],
+            ["password", "CurrentPassword", "Current Password", "current-password"],
+            ["password", "NewPassword", "New Password", "new-password"],
+            ["password", "ConfirmNewPassword", "Confirm New Password", "new-password"],
+            ["text", "FirstName", "First Name"],
+            ["text", "LastName", "Last Name"],
+            ["tel", "PhoneNumber", "Phone Number"],
+            ["text", "AdditionalRecipients", "Additional Recipients"],
+            ["button", "update", "Update My Account"],
+          ].map(([role, target, label, autocomplete]) => ({
+            role,
+            target,
+            label,
+            autocomplete: marks ? autocomplete : undefined,
+            group: "f1",
+          })),
+        );
+      },
+    );
+
+    it("leaves out the login ID a cancellation page shows read-only beside its password", () => {
+      page(passwordBesideShownLoginId);
+      const observation = observe();
+      expect(observation.complete).toBe(true);
+      expect(JSON.stringify(observation)).not.toContain(shownEmail);
+      expect(summary(observation)).toEqual([
+        {
+          role: "password",
+          target: { by: "name", value: "password" },
+          label: "パスワード",
+          group: "f1",
+        },
+        {
+          role: "button",
+          target: { by: "id", value: "cancel-membership" },
+          label: "退会する",
+          group: "f1",
+        },
+      ]);
+    });
+  });
 });
 
 describe("extractSignedInObservation", () => {

@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 import {
   LOCAL_ONLY_EVENTS,
   LOCAL_ONLY_FIELDS,
-  LOCAL_ONLY_FLAG,
+  LOCAL_ONLY_FLAGS,
   PROBLEM_EVENT_FIELDS,
   problemEntrySchema,
 } from "@pateat/contracts";
@@ -404,8 +404,9 @@ export function registerProblemCases({ setup }: Pick<LogTestContext, "setup">) {
           Object.entries(definition.fields as Record<string, string>)
             .filter(([, kind]) => kind !== "item" && kind !== "connection")
             .filter(([field, kind]) => kind !== "url" || field === "url")
-            // The flag of a fill-only login, whose lines stay on the device.
-            .filter(([field]) => field !== LOCAL_ONLY_FLAG)
+            // The flags of a fill-only login and of an SSO hop's own login, whose lines
+            // stay on the device.
+            .filter(([field]) => !(LOCAL_ONLY_FLAGS as readonly string[]).includes(field))
             // Where a login's own time went, which stays on the device (ADR 0019).
             .filter(
               ([field]) =>
@@ -516,6 +517,50 @@ export function registerProblemCases({ setup }: Pick<LogTestContext, "setup">) {
     expect(found.map(({ entry }) => entry.fields["fillOnly"] ?? entry.event)).toEqual([
       "login.attempt",
     ]);
+    vi.restoreAllMocks();
+  });
+
+  it("keeps an SSO hop's own login lines on the device (ADR 0026, amended 2026-11-18)", async () => {
+    const onProblem = vi.fn();
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      onProblem,
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const { logger } = log;
+    const attempt = {
+      type: "attempt",
+      tabId: 3,
+      origin: "https://idp.example",
+      url: "https://idp.example/authsvc",
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      state: "blocked",
+      stepIndex: 0,
+      stepCount: 4,
+      outcome: "timeout",
+      cause: "elements-timeout",
+    } as const;
+    log.login({ ...attempt, ssoChild: true });
+    log.login(attempt);
+    await vi.waitFor(async () => expect(await logger.entries()).toHaveLength(2));
+    const entries = await logger.entries();
+    expect(entries.map(({ level, event }) => `${level} ${event}`)).toEqual([
+      "warn login.attempt",
+      "warn login.attempt",
+    ]);
+    expect(entries[0]!.fields["ssoChild"]).toBe(true);
+    expect(entries.map((entry) => sentToService(entry))).toEqual([false, true]);
+    expect(onProblem).toHaveBeenCalledTimes(1);
     vi.restoreAllMocks();
   });
 

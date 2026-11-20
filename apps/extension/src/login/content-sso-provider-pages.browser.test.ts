@@ -128,7 +128,7 @@ describe("IdP pages whose heading names no finite step", () => {
     ],
   ])("presses nothing on %s", (_name, title, body) => {
     html(title, body);
-    expect(readSsoIdp(document, username)).toEqual({ kind: "unknown" });
+    expect(readSsoIdp(document, username)).toEqual({ kind: "unknown", controls: true });
   });
 });
 

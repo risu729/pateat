@@ -27,7 +27,7 @@ function oracleClaude(
         ? { decision: "abstain", reason: "ambiguous" }
         : {
             decision: "plan",
-            pageKind: "sign-in",
+            pageKind: expected.pageKind ?? "sign-in",
             irreversible: "no",
             fields: expectedFields(expected),
             action: { candidate: expected.action, purpose: expected.purpose },

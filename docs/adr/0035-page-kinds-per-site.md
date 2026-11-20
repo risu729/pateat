@@ -63,6 +63,12 @@ form whose only field is such a value is refused `no-candidates`, so no page kin
 generated for it, and a signed-in page whose only field it is is complete and goes to
 the judge.
 
+Amended on 2026-11-19 by the owner (01:37 UTC,
+[below](#amendment-2026-11-19-forms-that-save-changes-with-the-current-password)): a
+signed-in form that saves its changes only with the current password, beside new and
+confirmation password fields, is a `confirm` page whose **Fill** fills the current
+password alone. Implemented on a branch, synthetic tests only.
+
 Date: 2026-10-12
 
 ## Context
@@ -306,7 +312,9 @@ these readings of the text:
   conditional request is left to ADR 0034, since it belongs to a sign-in field. The
   request is handed on as `confirm-fill`, the default setting for `confirm` pages.
 - The benchmark report counts the kind each plan answered (`pageKinds`); every corpus
-  page is a sign-in page.
+  page was a sign-in page until the
+  [amendment of 2026-11-19](#amendment-2026-11-19-forms-that-save-changes-with-the-current-password)
+  added two `confirm` ones.
 
 The evaluation fields of `confirm-unsupported` pages and the counts of pages not sent
 followed the same day, all local, with these readings:
@@ -508,7 +516,20 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   `sign-in` result does not replace the authenticated record, start another login or
   start a classification loop. An explicit manual login retains its separate scope.
   A returned recipe re-admits the current document rather than executing a stale
-  result directly.
+  result directly. Until 2026-11-18 this classification never ran outside tests: the
+  content script announces its sign-in input only after an answer that offers the page
+  (`generate`), and the authenticated record's `logged-in` answer did not, so a
+  verification page on a path without a recipe in the tab of its confirmed login, as
+  WILLER's membership cancellation page
+  ([#1714](https://github.com/risu729/pateat/issues/1714)), was never classified and
+  never offered **Fill**. That answer now offers the page, once per document and path
+  (an agent's fix of the recorded behavior, `offersConfirmGeneration`). So such a page
+  is now filled by itself, without a press, when it comes back `confirm` or `unclear`
+  and `confirm` is `fill` for it, which is the default: the automatic fill of this
+  delivery, with the confirmed login's account, pressing nothing. Where `confirm` is
+  `off`, the page is still classified once and nothing fills it, and the popup offers
+  no **Fill** there. No SSO offer acts on the page while it waits for its
+  classification (`confirmClassifies`).
 - Every delivery rechecks the original authentication, exact document and top-page
   identity, site access, pause/private-window policy, account and field eligibility,
   URI matching, master-password requirements, settings/profile scope, recipe mutation
@@ -690,3 +711,77 @@ The agent's fix, not confirmed by the owner (`announceUnknownPage` in
   [ADR 0085's amendment of 2026-11-18](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page),
   so a sign-in the restart lost starts again. After a restart the
   popup still says no sign-in form was found on them until their page announces again.
+
+## Amendment 2026-11-19: forms that save changes with the current password
+
+An account details page
+([#1709](https://github.com/risu729/pateat/issues/1709)) shows one form with an email,
+a required **Current Password**, **New Password** and **Confirm New Password**, names
+and a phone number, and saves with **Update My Account**. Generation abstained on it
+twice in production, while the response format named every password-change form as no
+login form, so the popup never offered **Fill** there. The owner decided on 2026-11-19
+at 01:37 UTC (「対象にする」, on a card that read "With 入力, fill only the
+current-password field. Leave the new-password fields empty, and press no button."):
+such a page is a verification page, and **Fill** fills its current password alone.
+
+The details below are the agent's choices, not confirmed by the owner:
+
+- The generation instructions say that a form that saves changes to the signed-in
+  account, such as its details or a new password, only once the current password is
+  entered is `confirm`: the secret maps to the current password field alone, never to a
+  new or confirmation password field, and no other field is filled. A form that sets a
+  new password without asking for the current one, such as a reset from an emailed link,
+  is still no login form and abstains. The response format's `no-login-form` now names
+  sign-up forms and forms that set a new password without the current one, and its
+  `confirm` names the current password a form asks for before it saves changes. The
+  response format is shared, so the prompt versions of generation, account-list,
+  passkey-only and entry requests all change. No paid benchmark was run for this
+  change.
+- A local check refuses a `confirm` or `unclear` plan that fills such a form anywhere
+  else (`password-change-field`, `verificationPlanRejection` and `passwordChangeForm` in
+  `packages/inference/src/password-change.ts`). It reads structure and labels only,
+  never a site ([ADR 0033](0033-no-site-specific-features.md)). An input's words come
+  from its label, then its `id`, `name` or test ID locator, then its placeholder, and
+  the first text that tells decides (`fieldReading`): one that names the current
+  password and no new value reads as current, one that names a new value, or the current
+  password beside words that set a value apart from it ("Must differ from your current
+  password", 「現在のパスワードと異なるもの」), reads as new, and one that names both
+  tells nothing. So a label outweighs a placeholder that mentions the current password.
+  新 counts only where no other kanji comes before it, so 更新パスワード is not new.
+- A form counts when it holds two or more password inputs and one of them is marked
+  `new-password`, names a new value in any text or reads as new, or when it holds three
+  or more and one reads as current. Three password inputs without such words, as a login
+  password, a PIN and a second PIN asked before a transfer, are no such form. Its
+  current password input is the one marked `current-password`, else the one that reads
+  as current, else its first password input unless that one is marked `new-password` or
+  reads as new. Each set of such a plan may then fill only the `secret` slot, into that
+  input; a form with no current password input by these rules, or with two, takes
+  nothing, so a reset form is refused even when the model answers it with a plan.
+- Every other password input of such a form is refused, also one placed before the
+  current password, as when a form puts its current password last. Two password inputs
+  without a new-password mark or word, as a sign-in password beside a transaction
+  password, are not such a form and keep the usual checks.
+- Known gap: a form that puts its current password last and labels it only "Password",
+  after the new password and its confirmation, has no current password input by these
+  rules, so its verification plan is refused and **Fill** is not offered there.
+- A form that changes the email with the current password, with one password input, is
+  not such a form. The check covers it in part: a `confirm` or `unclear` plan never puts
+  an identifier into an input that reads as new, such as "New email" or
+  「新しいメールアドレス」. Which other field such a form may fill is left to the model.
+- A `sign-in` plan from generation is refused (`password-change-form`,
+  `signInPlanRejection`) when its form has a password input that reads as current beside
+  another that reads as new or is marked `new-password`, as its button would save the
+  account's changes. It goes by words, never by marks alone, so one page-wide form that
+  holds a sign-in marked `current-password` and a registration marked `new-password`
+  still signs in. The ordinary checks already refuse an input marked `new-password` in a
+  sign-in plan unless it is the form's only password field (ADR 0018).
+- The finite-choice decision role abstains as `no-login-form`, leaving the page to
+  generation, when a field it maps is in a form `passwordChangeForm` counts, whatever
+  its confirmation question answered ([ADR 0083](0083-clef-first-for-sign-in-forms.md)):
+  it only answers `sign-in`.
+- A `confirm` page is never pressed, so **Update My Account** is not clicked; the
+  recipe still names it as its action, as for any verification page.
+- The synthetic corpus gains an English and a Japanese account form answered `confirm`
+  with the current password alone, and a reset form that abstains. A truth may now name
+  its kind, and a plan answering `sign-in` on a `confirm` truth scores as a false
+  submit, since it would press the button.

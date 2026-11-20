@@ -75,7 +75,10 @@ condition that no value leaves.
   fill-only logins stay local, at any level: the events are `LOCAL_ONLY_EVENTS` in
   `packages/contracts/src/problems.ts`, and every line of a fill-only login that may be
   a `warn` (`login.attempt`, `login.exception`), and its `login.start`, carries the
-  local log's `fillOnly` flag (`LOCAL_ONLY_FLAG`). Such a login writes no `recipe.judge`
+  local log's `fillOnly` flag (`LOCAL_ONLY_FLAGS`, which since 2026-11-18 also holds the
+  `ssoChild` flag of the IdP's own login inside an SSO flow,
+  [ADR 0026](0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit)).
+  Such a login writes no `recipe.judge`
   line: it never takes a step with an effect, and the attempt contract refuses it a
   judgement at its stop. Neither is in
   `PROBLEM_EVENT_FIELDS`, so the service refuses them too. The tab's asking after the

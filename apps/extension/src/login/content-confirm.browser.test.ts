@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { observedPath } from "../observation/path";
 import { installLoginContent } from "./content";
+import { passwordBesideShownLoginId } from "../../test/login/verification-pages";
 
 const { sent, reply } = vi.hoisted(() => ({
   sent: [] as Record<string, unknown>[],
@@ -237,5 +238,27 @@ describe("a page that looks like a verification but is not sent (ADR 0035)", () 
     } finally {
       history.replaceState(null, "", home);
     }
+  });
+});
+
+describe("a verification page in the tab of a confirmed login (ADR 0035 delivery 3)", () => {
+  it("announces its password input once the login's answer offers the page", async () => {
+    vi.useFakeTimers();
+    reply.value = { ok: false, reason: "logged-in", starts: [], generate: true };
+    document.body.innerHTML = passwordBesideShownLoginId;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(10_100);
+    expect(ready().filter((message) => message["signIn"])).toEqual([
+      expect.objectContaining({ signIn: { path: path() } }),
+    ]);
+  });
+
+  it("announces nothing more while the login's answer does not offer it", async () => {
+    vi.useFakeTimers();
+    reply.value = { ok: false, reason: "logged-in", starts: [] };
+    document.body.innerHTML = passwordBesideShownLoginId;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(10_100);
+    expect(ready().filter((message) => message["signIn"])).toEqual([]);
   });
 });
