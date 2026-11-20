@@ -371,6 +371,39 @@ describe("an IdP step whose tab has left its document", () => {
     expect(h.rt.attempts.get(7)).toBe(run);
     expect(h.work.ended).toBe(false);
   });
+  it("ends nothing when that document announces after the tab left it", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    const current = h.page(idp, "idp-stay", "/stay");
+    h.work.live = current.live;
+    // The left document answers its request to announce again only once the flow pressed
+    // its finite step and the tab went on to its next page.
+    const left = h.page(idp, "idp-continue", "/continue-in-place");
+    fake.state.tabUrls[7] = idp + "/stay";
+    expect(await ssoAdmit(h.rt, left.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(left.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "idp:left");
+    expect(h.work.ended).toBe(false);
+    expect(h.work.live).toBe(current.live);
+  });
+  it("ends nothing when the tab leaves that document while its scope is checked", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    const current = h.page(idp, "idp-stay", "/stay");
+    h.work.live = current.live;
+    const left = h.page(idp, "idp-continue", "/continue-in-place");
+    // The tab still shows it when it announces, and goes on to the next page meanwhile.
+    const get = fake.browser.tabs.get;
+    let reads = 0;
+    vi.spyOn(fake.browser.tabs, "get").mockImplementation(async (id: number) => {
+      if (++reads === 2) fake.state.tabUrls[7] = idp + "/stay";
+      return get(id);
+    });
+    expect(await ssoAdmit(h.rt, left.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(left.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "idp:left");
+    expect(h.work.ended).toBe(false);
+    expect(h.work.live).toBe(current.live);
+    vi.mocked(fake.browser.tabs.get).mockRestore();
+  });
 });
 
 describe("an IdP page that announces again after its login left it", () => {

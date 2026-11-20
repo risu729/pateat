@@ -393,8 +393,23 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
     cancelSso(rt, ctx.document.tabId, "sso-forbidden-origin");
     return ctx.refuse("sso-forbidden-origin");
   }
+  // An IdP document the tab has left, as one asked to announce again (`leftDocument`) that
+  // answers after the flow pressed its finite step, or the tab leaves while it is checked,
+  // ends nothing and is not read: the tab's next document is (ADR 0026, amendment of
+  // 2026-11-20).
+  const leftIdp = async () => {
+    if (ctx.document.origin !== work.selected.origin) return false;
+    const url = await tabUrl(ctx.document.tabId);
+    return url !== undefined && url !== ctx.live.url;
+  };
+  if (await leftIdp()) return ctx.refuse("sso-in-progress", "idp:left");
+  const prior = work.live;
   work.live = ctx.live;
   if (!(await ssoScope(rt, work))) {
+    if (await leftIdp()) {
+      if (work.live === ctx.live) work.live = prior;
+      return ctx.refuse("sso-in-progress", "idp:left");
+    }
     // An RP page after the IdP whose URL changed in place since it announced is asked to
     // announce again, as it now shows (ADR 0026, amendment of 2026-11-20).
     if (ssoReturnMoved(rt, ctx.document.tabId, await tabUrl(ctx.document.tabId)))

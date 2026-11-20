@@ -699,7 +699,10 @@ Decisions:
    document is asked once to announce again (`login.reconnect`), so a URL it changed in
    place is admitted again through the
    [refresh of 2026-11-12](#review-hardening-2026-11-12-in-place-idp-path-changes). The
-   refusal is logged once.
+   refusal is logged once. An IdP document whose URL is no longer the tab's when it
+   announces, or by the time its scope is checked, as one that answers that request only
+   after the flow pressed its finite step there, refuses `sso-in-progress` with detail
+   `idp:left` and ends nothing: the tab's next document is read instead.
 
 Checked with local runtime tests only
 (`apps/extension/src/login/runtime-tests/sso-idp-totp-return.test.ts`), not on the real
