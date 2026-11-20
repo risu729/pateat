@@ -332,7 +332,9 @@ the plan check's code (such as `incompatible-role`).
   generated for this origin and its start path answers `recipe-conflict`. A first page
   on a path with no active recipe of its own (none, or only its tombstone) that shows
   exactly one of the origin's sign-in layouts' first page unchanged (each locator one
-  candidate of the right role, and no other password input) answers with that recipe,
+  candidate of the right role, an identifier field among them, and no other password
+  input), read as signed out (`signedIn: false`, not `manual`) and on a path none of the
+  origin's recipes names for a step, handler or passkey route, answers with that recipe,
   its path added to the recipe's `starts` (at most seven), without a model call; a first
   page on a path already in a recipe's `starts` answers with that recipe, and later
   pages, repairs, judgements and SSO requests on such a path are read on the recipe's
