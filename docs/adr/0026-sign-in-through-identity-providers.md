@@ -672,8 +672,12 @@ Decisions:
    a fresh return, which completes only on its own evidence or the learned marker.
 3. **The IdP's login ends with its true state.** The RP return withdraws its authority
    at once and records its end only when the flow ends: `authenticated` when the RP
-   showed the sign-in, else as a login whose tab left its origin after its submission
-   (`left-origin`). It is released from its IdP hold either way and logged once with
+   showed the sign-in, else as its state machine ends a login whose tab left its origin:
+   `blocked` `left-origin` after a submission it awaited, `blocked` with the outcome it
+   had while watched (as `challenge`) or once its result settled as unknown
+   (`unknown-submit`), and `interrupted` before any step; a login that had already
+   ended keeps its end (corrected by the amendment below). It is released from its IdP
+   hold either way and logged once with
    `sso-released`, and still gives no IdP default, account pick or authentication proof.
    A login the flow detaches before a finite step still ends `cancelled` with
    `sso-detached`.
@@ -729,8 +733,31 @@ Decisions:
    once.
 5. **Why the return waits is logged.** The `sso-in-progress` refusal's detail is
    `rp-return:` and its reason: `unscoped`, `unread`, `loading`, `code`, `captcha`,
-   `alert`, `incomplete`, `no-evidence`, `unobserved`, `not-signed-in` or `moved`. An
-   `unsafe-return` reading now ends the flow on the instant path too.
+   `incomplete`, `no-evidence`, `unobserved`, `not-signed-in` or `moved`. An
+   `unsafe-return` reading now ends the flow on the instant path too; any other refusal
+   of the identity check, as `cancelled`, is an unread page that waits.
+6. **A page rendered in place is read again.** The judge's question is used once per RP
+   document and path, and only once the judge is asked. A waiting RP page that describes
+   nothing yet is asked, at most three times per document and never past the flow's ten
+   minutes, to say once it describes something (`login.extract.watch`); it is then asked
+   to announce again, so a portal that renders its signed-in view in the same document
+   and at the same URL is read as it now shows.
+7. **The site's sign-in ends the wait.** A waiting page holds the RP's and the IdP's
+   origins in the tab's other logins' way for up to ten minutes, so a page that is the
+   site's sign-in ends the flow with `sso-return-unconfirmed`: besides a password form,
+   one whose sign-in reads as rejected (`alert`), one without the RP's evidence that
+   shows a visible identifier input (as a page asking for the email first), and one the
+   judge reads as `rejected`. A signed-in page with such an input and no known marker is
+   never judged (the judge already refuses a page with a text field), so it ends there
+   too.
+8. **A completion that cannot be recorded ends the flow.** When the page or the flow's
+   scope changes while the signed-in record is written, the parent is recorded
+   `cancelled` (`sso-scope-changed`) and the flow ends, rather than waiting with its
+   timer cleared. Once recorded, the flow ends whatever a later write does.
+9. **A restart leaves the IdP's login no hold.** The RP return stores the IdP's login
+   released at once, as the flow holds both origins while it runs and its interrupted
+   hold does after a worker restart; its end is still recorded with the flow's. After a
+   restart that end line is not written.
 
 The judge's change reaches service-backed devices only with a service release. Checked
 with local tests only (`sso-idp-totp-return.test.ts`, `sso-completion-backend.test.ts`),
@@ -744,6 +771,10 @@ not on the real site.
   return needs a marker, then never completes on that layout until its recipe is revoked
   or ages out and is generated again. A bracket-form method still completes on the
   selected identity.
+- **An RP page that changes in place but never goes empty** (added 2026-11-20). A
+  waiting RP page that already describes something, keeps its URL and shows no known
+  marker is not read again: only a new URL, a new document or a page that described
+  nothing brings a new reading, so such a page waits until `sso-expired`.
 - **Settings changes during the IdP's own login.** The IdP's native login stops on any
   settings change, as every native login does
   ([ADR 0027](0027-per-account-login-routes.md)), and the flow ends with it, even when

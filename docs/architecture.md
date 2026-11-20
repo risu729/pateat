@@ -5047,7 +5047,9 @@ challenge, keeps the flow; only a `blocked` child ends it (`sso-idp-child-stoppe
 child's `login.attempt` lines are logged on the device with `ssoChild`, also its end
 when the flow detaches it before a finite step (`sso-detached`). On the RP return its
 authority is withdrawn at once and its end recorded with the flow's, once, with
-`sso-released`: `authenticated` when the RP showed the sign-in, else `left-origin`. A
+`sso-released`: `authenticated` when the RP showed the sign-in, else as a login whose
+tab left its origin ends from its state (`left-origin`, `unknown-submit`, `challenge` or
+`interrupted`); it is stored released at once, so a worker restart leaves it no hold. A
 step its parent's scope no longer authorizes logs `login.refused` `sso-scope-changed`
 with detail `idp-step`, at info the first time for its document and path, which goes to
 the service as a problem line, and at debug for each repeat there; when the tab's URL is
@@ -5055,8 +5057,13 @@ no longer the document's, the login stops reading it and asks it once to announc
 (`leftDocument`). After the IdP, an RP page that shows neither the sign-in nor the
 site's sign-in form, another account or an unsafe page waits (`sso-in-progress`, detail
 `rp-return:` and why, such as `no-evidence` or `loading`) for the tab's next page or its
-URL changed in place, which asks the page to announce again (`ssoReturnMoved`); one page
-is read at a time, and the RP-return judge is asked once per RP document
+URL changed in place, which asks the page to announce again (`ssoReturnMoved`), or for a
+page that described nothing to describe something (`login.extract.watch`, at most three
+times per document); one page is read at a time, and the RP-return judge is asked once
+per RP document and path. The site's sign-in ends the wait with
+`sso-return-unconfirmed`: a password form, a rejected sign-in, a visible identifier
+input without the RP's evidence or the judge's `rejected`. A completion whose record
+cannot be written ends the flow `cancelled` (`sso-scope-changed`)
 ([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit),
 its waiting rule approved by the owner on 2026-11-19, and
 [2026-11-20](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).
