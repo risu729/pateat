@@ -59,6 +59,7 @@ import {
   checkGapMs,
   pause,
   credentialInputs,
+  showsNoText,
 } from "./content-dom";
 import { executeNative } from "./content-execute";
 import { codePageDigest } from "../page/code-page";
@@ -763,6 +764,7 @@ export function createContentListener(context: ContentSession) {
                 signIn: {
                   loaded: document.readyState === "complete",
                   ...credentialInputs(command.targets),
+                  blank: showsNoText(),
                 },
               }
             : {}),

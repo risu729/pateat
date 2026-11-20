@@ -189,12 +189,12 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
 /**
  * Whether the loaded page asks for the account (`asks`): a visible password input, or an
  * identifier input that is its only input to type into or has a password input in its
- * form; and whether it shows an identifier input at all. Undefined when it cannot be read.
+ * form; and whether it shows no text yet (`blank`). Undefined when it cannot be read.
  */
 async function asksSignIn(
   rt: Runtime,
   live: LiveDocument,
-): Promise<{ asks: boolean; identifier: boolean } | undefined> {
+): Promise<{ asks: boolean; blank: boolean } | undefined> {
   const reading = v.safeParse(
     observationSchema,
     await send(rt, live, {
@@ -208,7 +208,7 @@ async function asksSignIn(
   const shown = reading.output.signIn;
   return {
     asks: !!shown?.loaded && (shown.signInIdentifier || shown.password),
-    identifier: shown?.identifier === true,
+    blank: shown?.blank === true,
   };
 }
 async function ssoEntryShown(
@@ -258,18 +258,10 @@ async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
   );
 }
 /**
- * Whether the RP page completes the flow: `completed`, `refused` when it shows the site's
- * sign-in again (its SSO entry, a password form or a rejected sign-in) or another account,
- * or false when it proves nothing. A return must carry positive RP authentication
- * evidence, never just an absent form. With `instant`, after an IdP that showed no page,
- * only the page's own evidence counts and the RP-return judge is never asked.
- */
-/**
  * Why an RP page did not complete the flow and waits, for the log: the flow's scope no
  * longer held (as after the page changed its URL in place), the page could not be read,
- * was still loading or showed a code or CAPTCHA, the completion's own checks
- * failed, nothing proved the sign-in, the page could not be described, or the judge said
- * it was not signed in.
+ * was still loading, the completion's own checks failed, or it shows no text yet. Before
+ * the IdP (`instant`), also a code or CAPTCHA, or nothing that proves the sign-in.
  */
 export type Waiting =
   | "unscoped"
@@ -279,8 +271,15 @@ export type Waiting =
   | "captcha"
   | "incomplete"
   | "no-evidence"
-  | "unobserved"
-  | "not-signed-in";
+  | "unobserved";
+/**
+ * Whether the RP page completes the flow: `completed`, `refused` when it shows the site's
+ * sign-in again (its SSO entry, a password form or an identifier asking for the account),
+ * another account, or, after the IdP, proves nothing that a judge could still confirm; or
+ * why it waits. A return must carry positive RP authentication evidence, never just an
+ * absent form. With `instant`, after an IdP that showed no page, only the page's own
+ * evidence counts and the RP-return judge is never asked.
+ */
 export async function returned(
   rt: Runtime,
   work: SsoWork,
@@ -336,8 +335,8 @@ export async function returned(
   // A sign-in form is the site's sign-in again. Its invalid marks and alert are read only
   // after a submission in the same document, never on a return page.
   if (signs.password) return "refused";
-  if (signs.code) return "code";
-  if (signs.captcha) return "captcha";
+  // After the IdP, a code or CAPTCHA page of the RP proves nothing the flow can confirm.
+  if (signs.code || signs.captcha) return instant ? (signs.code ? "code" : "captcha") : "refused";
   const own = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
   for (const entry of own?.entries ?? []) {
     // oxlint-disable-next-line no-await-in-loop -- any original entry still shown prevents completion
@@ -359,35 +358,25 @@ export async function returned(
       : (await completeSso(rt, work, live, instant))
         ? "completed"
         : "incomplete";
-  // After the IdP, a page without evidence that asks for an account identifier is the
-  // site's sign-in again, as one asking for the email first (ADR 0026, amendment of
-  // 2026-11-20). Before it (`instant`), such a page is the RP's own way to its IdP, as a
-  // page asking for the work email to find the provider, and waits.
-  let identifier = false;
-  if (!instant) {
-    const shown = await asksSignIn(rt, live);
-    if (!shown) return "unread";
-    if (shown.asks) return "refused";
-    identifier = shown.identifier;
-  }
-  // The judge is asked once per RP document: the RP's own callback or an interstitial on
-  // the way back is not the page that shows the sign-in (ADR 0026, amendment of
-  // 2026-11-20).
-  if (
-    instant ||
-    work.judged === judgedKey(live) ||
-    !work.recipe ||
-    !work.layout ||
-    !rt.generation?.judgeSso
-  )
-    return "no-evidence";
-  const page = await ssoObservation(rt, live);
-  if (!page) {
-    // A page that describes nothing yet, as a portal still rendering in place, is read
-    // again once it describes something (ADR 0026, amendment of 2026-11-20).
+  // Before the IdP (`instant`), a page without evidence is the RP's own way to its IdP, as
+  // one asking for the work email to find the provider, and waits.
+  if (instant) return "no-evidence";
+  // After it, a page without evidence that asks for an account identifier is the site's
+  // sign-in again, as one asking for the email first (ADR 0026, amendment of 2026-11-20).
+  const shown = await asksSignIn(rt, live);
+  if (!shown) return "unread";
+  if (shown.asks) return "refused";
+  // A page that shows no text yet, as a portal still rendering in place, is read again
+  // once it describes something. Any other page that proves nothing ends the flow once no
+  // judge can confirm it: none is asked, or the judge answered for this page and path.
+  if (shown.blank) {
     if (!check) watchReturn(rt, work, live);
     return "unobserved";
   }
+  if (work.judged === judgedKey(live) || !work.recipe || !work.layout || !rt.generation?.judgeSso)
+    return "refused";
+  const page = await ssoObservation(rt, live);
+  if (!page) return "refused";
   const rp = await username(rt, work, live, false);
   const idp = await username(rt, work, live, true);
   const hidden = hideUsernames(
@@ -396,7 +385,7 @@ export async function returned(
     rp !== undefined && idp !== undefined ? [rp, idp] : undefined,
     live,
   );
-  if ("reason" in hidden) return "unobserved";
+  if ("reason" in hidden) return "refused";
   if (!(await ssoScope(rt, work, live))) return "unscoped";
   work.judged = judgedKey(live);
   const judged = await rt.generation.judgeSso(work.recipe.id, {
@@ -406,10 +395,8 @@ export async function returned(
     layout: work.layout,
     observation: hidden.observation,
   });
-  // The judge refuses a page with a text field, which no later reading of this page asks
-  // again: one that shows an identifier input is then read as the site's sign-in.
-  if (judged.rejected || (judged.unjudgeable && identifier)) return "refused";
-  if (!judged.signedIn) return "not-signed-in";
+  // Any answer but `signed-in`, as `rejected`, `unclear` or a page it never judges, ends it.
+  if (!judged.signedIn) return "refused";
   if (judged.recipe) {
     work.recipe = judged.recipe;
     if (work.parent)
@@ -419,8 +406,8 @@ export async function returned(
       });
   }
   // The page is read again with the learned marker, as a fresh return: its own evidence
-  // completes it, another account or the site's sign-in ends the flow, and the judge is not
-  // asked again on this document.
+  // completes it, and anything else ends the flow, as the judge is not asked again on this
+  // document and path.
   return returned(rt, work, live, instant, check);
 }
 /** The RP page the RP-return judge is asked about once: its document and path. */

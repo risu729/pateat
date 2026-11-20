@@ -285,6 +285,8 @@ const untyped: ReadonlySet<string> = new Set([
   "image",
   "hidden",
 ]);
+/** Whether the page shows no text yet, as a page still rendering in place (ADR 0026). */
+export const showsNoText = () => !(document.body?.innerText ?? "").trim();
 /**
  * The sign-in inputs the page shows that a generated recipe can continue on after its final
  * `advance` step (ADR 0018), other than the inputs the recipe's own `targets` each find

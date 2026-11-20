@@ -193,8 +193,6 @@ export interface LoginGeneration {
     signedIn: boolean;
     recipe?: SsoRecipeDocument;
     rejected?: true;
-    /** The judge refused the page as one it never judges (`not-judgeable`). */
-    unjudgeable?: true;
   }>;
   generateSso?(
     request: SsoGenerationRequest,

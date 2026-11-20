@@ -706,11 +706,11 @@ describe("the RP-return judge's answers, as the SSO flow reads them (ADR 0026)",
     [
       "a page it never judges",
       { status: "unavailable", reason: "not-judgeable" },
-      { signedIn: false, unjudgeable: true },
+      { signedIn: false },
     ],
     ["the day's limit", { status: "unavailable", reason: "judgement-limit" }, { signedIn: false }],
     ["an unclear page", { status: "unclear" }, { signedIn: false }],
-  ])("answers %s apart from a plain wait", async (_, result, expected) => {
+  ])("answers %s", async (_, result, expected) => {
     const h = setup();
     h.transport.judgeCompletion.mockResolvedValue({
       kind: "result",

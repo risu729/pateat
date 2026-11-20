@@ -132,6 +132,25 @@ describe("login.observe's identifier that asks for the account (ADR 0026, 2026-1
   });
 });
 
+describe("login.observe's page that shows no text yet (ADR 0026, 2026-11-20)", () => {
+  const read = async (html: string) => {
+    document.body.innerHTML = html;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    return observe({ targets: [], signIn: true });
+  };
+  it("reads a page with only an empty root or hidden text as blank", async () => {
+    expect(
+      await read(`<div id="root"></div><p hidden>Signed in</p><div style="display:none">x</div>`),
+    ).toMatchObject({ signIn: { blank: true } });
+  });
+  it("reads a page with a visible heading as one that shows something", async () => {
+    expect(await read(`<h1>Returned to relying party</h1>`)).toMatchObject({
+      signIn: { blank: false },
+    });
+  });
+});
+
 describe("login.entry.check's list of accounts (ADR 0079)", () => {
   async function check() {
     const token = sent.find((message) => typeof message["token"] === "string")?.["token"];

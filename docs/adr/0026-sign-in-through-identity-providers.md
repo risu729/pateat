@@ -660,16 +660,28 @@ What the code showed (agent's reading, 2026-11-20):
 
 Decisions:
 
-1. **An RP page that proves nothing waits.** After the IdP, an RP page completes the
+1. **An RP page that proves nothing yet waits.** After the IdP, an RP page completes the
    flow on its own evidence as before. One that shows the site's sign-in, another
    account or a page that is never a return (`unsafe-return`: a permission, sharing or
    account creation page, also after an IdP that showed none) ends it with
-   `sso-return-unconfirmed`. Any other refuses `sso-in-progress` with detail
-   `rp-return`, and the flow waits for the tab's next page, bounded by its ten minutes.
-2. **The RP-return judge once per RP document**, not once per flow, so the RP's callback
-   does not use up the question its signed-in page needs. Each question still counts
-   toward the recipe's daily judgements. A `signed-in` answer has the page read again as
-   a fresh return, which completes only on its own evidence or the learned marker.
+   `sso-return-unconfirmed`. A page that is still loading, cannot be read, shows no text
+   yet (`blank` in the `login.observe` reading, as the RP's own callback or a portal
+   still rendering in place) or changed its URL in place refuses `sso-in-progress` with
+   detail `rp-return`, and the flow waits for the tab's next page or the page's next
+   reading, bounded by its ten minutes. Any other loaded page that proves nothing ends
+   the flow `sso-return-unconfirmed` once no judge can confirm it: none can be asked (no
+   generation service, or a page that cannot be described or sent), or the judge
+   answered for that page and path with anything but `signed-in`. A code or CAPTCHA
+   page ends it too. Narrowed the same day from "any other page waits": the
+   packaged-extension specs end such a page blocked (`sso-flow.spec.ts`'s wrong-account
+   and unidentified returns, `sso-generation.spec.ts`'s fresh RP document without its
+   learned marker), and a ten-minute wait on a page that proves nothing is the
+   experience the owner had complained of.
+2. **The RP-return judge once per RP document and path**, not once per flow, and only on
+   a page that shows something, so the RP's blank callback does not use up the question
+   its signed-in page needs. Each question still counts toward the recipe's daily
+   judgements. A `signed-in` answer has the page read again as a fresh return, which
+   completes only on its own evidence or the learned marker and otherwise ends.
 3. **The IdP's login ends with its true state.** The RP return withdraws its authority
    at once and records its end only when the flow ends: `authenticated` when the RP
    showed the sign-in, else as its state machine ends a login whose tab left its origin:
@@ -740,13 +752,14 @@ Decisions:
    in progress and is then read afresh, or answers `sso-completed`, so a flow completes
    once.
 5. **Why the return waits is logged.** The `sso-in-progress` refusal's detail is
-   `rp-return:` and its reason: `unscoped`, `unread`, `loading`, `code`, `captcha`,
-   `incomplete`, `no-evidence`, `unobserved`, `not-signed-in` or `moved`. An
+   `rp-return:` and its reason: `unscoped`, `unread`, `loading`, `incomplete`,
+   `unobserved` (a page that shows no text yet) or `moved`, and before the IdP also
+   `code`, `captcha` or `no-evidence`. An
    `unsafe-return` reading now ends the flow on the instant path too; any other refusal
    of the identity check, as `cancelled`, is an unread page that waits.
 6. **A page rendered in place is read again.** The judge's question is used once per RP
-   document and path, and only once the judge is asked. A waiting RP page that describes
-   nothing yet is asked, at most three times per document and never past the flow's ten
+   document and path, and only once the judge is asked. A waiting RP page that shows no
+   text yet is asked, at most three times per document and never past the flow's ten
    minutes, to say once it describes something (`login.extract.watch`); it is then asked
    to announce again, so a portal that renders its signed-in view in the same document
    and at the same URL is read as it now shows.
@@ -757,10 +770,9 @@ Decisions:
    account (`signInIdentifier`: the page's only input to type into, as a page asking for
    the email first, or one with a password input in its form), and one the judge reads
    as `rejected`. An email input beside other inputs, as a newsletter or invite field,
-   does not count while the judge can judge the page; the judge refuses a page with a
-   text field as `not-judgeable` and never judges that page again, so one without the
-   RP's evidence that shows an identifier input and gets that answer ends the flow too,
-   rather than holding both origins until `sso-expired`. Before any IdP page (the
+   does not end it by itself: such a page goes to the judge, which refuses a page with a
+   text field as `not-judgeable`, and that answer ends the flow as any other but
+   `signed-in` does (decision 1 of the amendment above). Before any IdP page (the
    instant path), such a page is the RP's own way to its IdP, as one asking for the work
    email to find the provider, and waits. A rejected sign-in's `alert` or an invalid
    field is never read on a return page, as `login.state` reads them only after a
@@ -792,10 +804,13 @@ not on the real site.
   return needs a marker, then never completes on that layout until its recipe is revoked
   or ages out and is generated again. A bracket-form method still completes on the
   selected identity.
-- **An RP page that changes in place but never goes empty** (added 2026-11-20). A
-  waiting RP page that already describes something, keeps its URL and shows no known
-  marker is not read again: only a new URL, a new document or a page that described
-  nothing brings a new reading, so such a page waits until `sso-expired`.
+- **A portal judged while it shows part of its content** (added 2026-11-20). An RP page
+  after the IdP that shows some text but not yet its signed-in view, as a portal still
+  rendering or a path it routes on from, is read (and judged, where a judge can be
+  asked) as it shows then, and the flow ends `sso-return-unconfirmed` when that proves
+  nothing; it is not read again once the page completes in place. Only a page that
+  shows no text at all, as an empty root or a spinner without words, waits for that. A
+  page whose text is only inside shadow roots reads as showing none and waits.
 - **An IdP on the RP's own site** (added 2026-11-20). An RP return may land on any
   origin of the RP's site but the selected IdP's own. Where the IdP shares that site,
   its other origins, as a second host of the same IdP, read as the RP's return too,

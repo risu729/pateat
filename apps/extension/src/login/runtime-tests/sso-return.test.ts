@@ -373,12 +373,9 @@ describe("actual SSO RP-return admission and final evidence", () => {
   it("absence of both exact local identity and a fresh marker never authenticates", async () => {
     const h = harness({ ok: true, identity: "absent" }, false);
     await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
-    // The page proves nothing yet, as the RP's own callback on the way to its signed-in
-    // page: the flow waits for the tab's next page (ADR 0026, amendment of 2026-11-20).
-    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    expect(h.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:no-evidence");
-    expect(h.work.ended).toBe(false);
-    expect(h.work.parent?.state).toBe("reconciling");
+    // A loaded page that proves nothing, with no judge to confirm it, ends the flow unsigned.
+    expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-return-unconfirmed" });
+    expect(h.work.parent?.state).toBe("blocked");
     expect(h.update).not.toHaveBeenCalled();
     expect(h.rt.confirmFill.proofs).toEqual([]);
     expect(h.signedIn).not.toHaveBeenCalled();
@@ -466,14 +463,9 @@ describe("actual SSO judge continuation rechecks local RP evidence", () => {
         expect(h.update).toHaveBeenCalledTimes(1);
         expect(h.rt.confirmFill.proofs).toContainEqual(expect.objectContaining({ origin: rp }));
       } else {
-        // A page whose marker went proves nothing and waits for the tab's next page; the
-        // others refuse (ADR 0026, amendment of 2026-11-20).
-        const waits = change === "marker-disappears";
-        expect(result).toEqual({
-          ok: false,
-          reason: waits ? "sso-in-progress" : "sso-return-unconfirmed",
-        });
-        expect(h.work.parent?.state).toBe(waits ? "reconciling" : "blocked");
+        // Each ends the flow: a page whose marker went is not judged again (ADR 0026).
+        expect(result).toEqual({ ok: false, reason: "sso-return-unconfirmed" });
+        expect(h.work.parent?.state).toBe("blocked");
         expect(h.update).not.toHaveBeenCalled();
         expect(h.rt.confirmFill.proofs).toEqual([]);
         expect(h.signedIn).not.toHaveBeenCalled();
@@ -514,7 +506,7 @@ describe("URL-form RP return does not compare the IdP identifier as an RP userna
       });
       expect(await ssoAdmit(h.rt, h.ctx)).toEqual({
         ok: false,
-        reason: marker ? "sso-completed" : "sso-in-progress",
+        reason: marker ? "sso-completed" : "sso-return-unconfirmed",
       });
       expect(h.fields).not.toHaveBeenCalled();
       if (marker) {
@@ -522,7 +514,7 @@ describe("URL-form RP return does not compare the IdP identifier as an RP userna
         expect(h.update).toHaveBeenCalledTimes(1);
         expect(h.rt.confirmFill.proofs).toContainEqual(expect.objectContaining({ origin: rp }));
       } else {
-        expect(h.work.parent?.state).toBe("reconciling");
+        expect(h.work.parent?.state).toBe("blocked");
         expect(h.update).not.toHaveBeenCalled();
         expect(h.rt.confirmFill.proofs).toEqual([]);
       }

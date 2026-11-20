@@ -361,6 +361,11 @@ export const observationSchema = v.strictObject({
        * into, or one with a password input in its form (ADR 0026, amendment of 2026-11-20).
        */
       signInIdentifier: v.boolean(),
+      /**
+       * The page shows no text yet, as a page still rendering in place: the RP return waits
+       * for it to describe something (ADR 0026, amendment of 2026-11-20).
+       */
+      blank: v.boolean(),
     }),
   ),
   /** With `explain` asked: per target, the check that decided its state. */

@@ -105,6 +105,8 @@ export function ssoReturnFixture(fake: ReturnType<typeof createBrowserFake>, io:
   const idpReadings = new Map<string, Record<string, unknown>>();
   /** What each RP page shows of the selected identity, for `login.sso.return`, by document. */
   const identities = new Map<string, string>();
+  /** The documents that show no text yet, as a callback or a portal still rendering. */
+  const blanks = new Set<string>();
   async function harness() {
     const catalog = {
       connections: [connection("rp-vault", rpItem, rp), connection("idp-vault", idpItem, idp)],
@@ -283,6 +285,17 @@ export function ssoReturnFixture(fake: ReturnType<typeof createBrowserFake>, io:
         return {
           path: new URL(fake.state.tabUrls[7] ?? rpLive.url).pathname,
           targets: (message["targets"] as unknown[]).map(() => "missing"),
+          ...(message["signIn"]
+            ? {
+                signIn: {
+                  loaded: true,
+                  password: false,
+                  identifier: false,
+                  signInIdentifier: false,
+                  blank: blanks.has(documentId),
+                },
+              }
+            : {}),
         };
       return { ok: true };
     });
@@ -362,6 +375,7 @@ export function ssoReturnFixture(fake: ReturnType<typeof createBrowserFake>, io:
     fake.state.granted = true;
     idpReadings.clear();
     identities.clear();
+    blanks.clear();
   });
   afterEach(() => {
     for (const rt of cleanup.splice(0)) cancelSso(rt, 7, "synthetic-test-finished");
@@ -375,6 +389,7 @@ export function ssoReturnFixture(fake: ReturnType<typeof createBrowserFake>, io:
     delivery,
     idpReadings,
     identities,
+    blanks,
     harness,
     idpChild,
     step,

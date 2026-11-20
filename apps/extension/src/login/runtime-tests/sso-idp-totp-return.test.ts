@@ -30,6 +30,7 @@ const {
   delivery,
   idpReadings,
   identities,
+  blanks,
   harness,
   idpChild,
   step,
@@ -82,10 +83,11 @@ describe("an SSO sign-in through the IdP's password, risk check, method chooser 
     expect(run.metadata.state).toBe("awaiting-result");
     expect(h.work.ended).toBe(false);
     h.report.mockClear();
-    // The RP's own callback, which shows nothing of the sign-in yet: the flow waits.
+    // The RP's own callback, which shows no text yet: the flow waits.
+    blanks.add("rp-callback");
     const callback = h.page(rp, "rp-callback", "/callback", "?code=synthetic");
     expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:no-evidence");
+    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:unobserved");
     expect(h.work.ended).toBe(false);
     expect(h.work.parent?.state).toBe("reconciling");
     // The IdP's login no longer acts, and nothing recorded it as ended yet.
@@ -132,6 +134,7 @@ describe("an SSO sign-in through the IdP's password, risk check, method chooser 
       ...fill("password"),
       ...click("submit"),
     ]);
+    blanks.add("rp-callback");
     const callback = h.page(rp, "rp-callback", "/callback", "?code=synthetic");
     expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     h.report.mockClear();
@@ -153,21 +156,10 @@ describe("an SSO sign-in through the IdP's password, risk check, method chooser 
 });
 
 describe("the RP's pages on the way back", () => {
-  it("asks the RP-return judge again on the RP's next document", async () => {
+  it("ends the flow once the RP-return judge answers an RP page other than signed in", async () => {
     const h = await harness();
     h.work.phase = "at-idp";
-    const learned = structuredClone(h.ssoRecipe);
-    learned.revision++;
-    learned.sso.layouts[0]!.completion = [{ target: target("learned-marker") }];
-    // The RP's callback is judged not signed in; its signed-in page is, and the marker the
-    // judge names shows there.
-    const judgeSso = vi
-      .fn()
-      .mockResolvedValueOnce({ signedIn: false })
-      .mockImplementationOnce(async () => {
-        h.rt.recipes.sso = async () => [learned];
-        return { signedIn: true, recipe: learned };
-      });
+    const judgeSso = vi.fn(async () => ({ signedIn: false }));
     h.rt.generation = {
       available: async () => true as const,
       generate: vi.fn(),
@@ -177,44 +169,39 @@ describe("the RP's pages on the way back", () => {
       judgeSso,
     };
     const base = delivery.getMockImplementation()!;
-    delivery.mockImplementation(async (tabId, message, options) => {
-      const documentId = (options as { documentId?: string } | undefined)?.documentId;
-      if (message["type"] === "login.extract")
-        return {
-          ok: true,
-          observation: {
-            version: 1,
-            origin: rp,
-            path: new URL(fake.state.tabUrls[7]!).pathname,
-            language: "en",
-            complete: true,
-            candidates: [
-              { id: "marker", role: "button", target: target("learned-marker"), label: "Menu" },
-            ],
-          },
-        };
-      if (
-        message["type"] === "login.observe" &&
-        documentId === "rp-home" &&
-        (message["targets"] as { value?: string }[]).some(
-          (entry) => entry.value === "learned-marker",
-        )
-      )
-        return { path: "/home", targets: ["unique"] };
-      return base(tabId, message, options);
+    delivery.mockImplementation(async (tabId, message, options) =>
+      message["type"] === "login.extract"
+        ? {
+            ok: true,
+            observation: {
+              version: 1,
+              origin: rp,
+              path: "/complete",
+              language: "en",
+              complete: true,
+              candidates: [{ id: "help", role: "link", target: target("help"), label: "Help" }],
+            },
+          }
+        : base(tabId, message, options),
+    );
+    // A loaded page that shows text but nothing that proves the sign-in.
+    const complete = h.page(rp, "rp-complete", "/complete");
+    expect(await ssoAdmit(h.rt, complete.ctx)).toEqual({
+      ok: false,
+      reason: "sso-return-unconfirmed",
     });
-    const callback = h.page(rp, "rp-callback", "/callback", "?code=synthetic");
-    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    // The same document is not judged twice.
-    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     expect(judgeSso).toHaveBeenCalledTimes(1);
-    const home = h.page(rp, "rp-home", "/home");
-    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
-    expect(judgeSso).toHaveBeenCalledTimes(2);
-    expect(h.work.parent).toMatchObject({
-      state: "authenticated",
-      recipeRevision: learned.revision,
+    expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
+  });
+  it("ends the flow on a loaded RP page that proves nothing when no judge can be asked", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    const complete = h.page(rp, "rp-complete", "/complete");
+    expect(await ssoAdmit(h.rt, complete.ctx)).toEqual({
+      ok: false,
+      reason: "sso-return-unconfirmed",
     });
+    expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
   });
   it("ends the flow on an RP page that is never a return, also after an IdP that showed none", async () => {
     const h = await harness();
@@ -255,7 +242,15 @@ describe("the RP's pages on the way back", () => {
       path: "/callback",
       targets: (message["targets"] as unknown[]).map(() => "missing"),
       ...(message["signIn"]
-        ? { signIn: { loaded: true, password: false, identifier: true, signInIdentifier } }
+        ? {
+            signIn: {
+              loaded: true,
+              password: false,
+              identifier: true,
+              signInIdentifier,
+              blank: false,
+            },
+          }
         : {}),
     }));
   it("ends the flow on an RP page that asks for an account identifier, unjudged", async () => {
@@ -264,15 +259,9 @@ describe("the RP's pages on the way back", () => {
     expect(judgeSso).not.toHaveBeenCalled();
     expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
   });
-  it("waits on an RP page whose email input is one of others, as a newsletter field", async () => {
+  it("asks the judge about an RP page whose email input is one of others, as a newsletter field", async () => {
     const { h, judgeSso, page } = await identifierPage(false);
     judgeSso.mockResolvedValue({ signedIn: false } as never);
-    expect(await ssoAdmit(h.rt, page.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    expect(h.work.ended).toBe(false);
-  });
-  it("ends the flow on such a page the judge never judges, as it shows a text field", async () => {
-    const { h, judgeSso, page } = await identifierPage(false);
-    judgeSso.mockResolvedValue({ signedIn: false, unjudgeable: true } as never);
     const base = delivery.getMockImplementation()!;
     delivery.mockImplementation(async (tabId, message, options) =>
       message["type"] === "login.extract"
@@ -291,6 +280,7 @@ describe("the RP's pages on the way back", () => {
           }
         : base(tabId, message, options),
     );
+    // Not ended for the input alone: the judge is asked, and its answer ends the flow.
     expect(await ssoAdmit(h.rt, page.ctx)).toEqual(ended);
     expect(judgeSso).toHaveBeenCalledTimes(1);
   });
@@ -535,10 +525,14 @@ describe("a return to another origin of the RP's site", () => {
         ? { path: new URL(fake.state.tabUrls[7]!).pathname, targets: ["unique"] }
         : base(tabId, message, options),
     );
+    // The RP's own page shows the portal's marker, which proves nothing there: with no
+    // judge to ask, the flow ends unsigned.
     const own = h.page(rp, "rp-home", "/home");
-    expect(await ssoAdmit(h.rt, own.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    const home = h.page(portal, "portal-home", "/home");
-    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(await ssoAdmit(h.rt, own.ctx)).toEqual({
+      ok: false,
+      reason: "sso-return-unconfirmed",
+    });
+    expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
   });
   it("asks the RP-return judge about that origin's page and completes on its answer", async () => {
     const { h, judgeSso } = await judging();
@@ -551,20 +545,23 @@ describe("a return to another origin of the RP's site", () => {
     );
     expect(h.work.parent).toMatchObject({ state: "authenticated", account: { origin: rp } });
   });
-  it("asks the judge again once the same document routed in place to another path", async () => {
+  it("ends the flow on a portal path the judge answers not signed in, before it routes on", async () => {
     const { h, judgeSso } = await judging();
     judgeSso.mockResolvedValueOnce({ signedIn: false });
+    // A known limit: a portal judged while it shows only part of its content is not read
+    // again on the path it routes to.
     const callback = h.page(portal, "portal-doc", "/callback");
-    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({
+      ok: false,
+      reason: "sso-return-unconfirmed",
+    });
     expect(judgeSso).toHaveBeenCalledTimes(1);
-    const home = h.page(portal, "portal-doc", "/home");
-    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
-    expect(judgeSso).toHaveBeenCalledTimes(2);
+    expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
   });
   it("reads the portal again once it renders its signed-in view in place, at the same URL", async () => {
     let rendered = false;
     const { h, judgeSso } = await judging(() => rendered);
+    blanks.add("portal-doc");
     const home = h.page(portal, "portal-doc", "/home");
     expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     expect(home.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:unobserved");
@@ -577,6 +574,7 @@ describe("a return to another origin of the RP's site", () => {
     // The page renders its signed-in view; its content script says so, and announces again
     // when asked, as the same document at the same URL.
     rendered = true;
+    blanks.delete("portal-doc");
     const sender = {
       id: fake.browser.runtime.id,
       tab: { id: 7, incognito: false },
@@ -606,9 +604,11 @@ describe("a return to another origin of the RP's site", () => {
     const h = await harness();
     h.work.phase = "at-idp";
     installSsoLifecycle(h.rt);
+    // The portal's callback shows no text yet.
+    blanks.add("portal-doc");
     const callback = h.page(portal, "portal-doc", "/callback", "?code=synthetic");
     expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
-    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:no-evidence");
+    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:unobserved");
     // The portal's own routing changes the URL of the same document, which then shows the
     // selected identity; the document announces again only when asked, as its content
     // script does on login.reconnect.
@@ -634,10 +634,11 @@ describe("a return to another origin of the RP's site", () => {
     expect(await reannounced.promise).toEqual({ ok: false, reason: "sso-completed" });
     expect(h.work.parent?.state).toBe("authenticated");
   });
-  /** A portal page that describes nothing yet, read once more each time it announces. */
+  /** A portal page that shows no text yet, read once more each time it announces. */
   const empty = async () => {
     const h = await harness();
     h.work.phase = "at-idp";
+    blanks.add("portal-doc");
     h.rt.generation = {
       available: async () => true as const,
       generate: vi.fn(),
@@ -858,6 +859,7 @@ describe("the flow's end on a completion that cannot be recorded", () => {
     const run = idpChild(h, form.live);
     expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
     step(run, [...fill("username"), ...click("next")]);
+    blanks.add("rp-callback");
     const callback = h.page(rp, "rp-callback", "/callback");
     expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     const stored = vi.mocked(h.rt.attemptRecords.write).mock.calls.at(-1)?.[0] ?? [];
