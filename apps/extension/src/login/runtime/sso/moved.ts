@@ -13,6 +13,17 @@ import type { LiveDocument } from "../types";
  * signal while it is asked queues one more, never a timed or DOM polling loop.
  */
 function reannounce(rt: Runtime, work: SsoWork, tabId: number) {
+  // An RP page being read, whose sign-in may be being written, is asked after its reading:
+  // its announcement would replace the document the write's fence holds (ADR 0026,
+  // amendment of 2026-11-20).
+  const reading = work.reading;
+  if (reading) {
+    void reading.then(() => {
+      if (!work.ended) reannounce(rt, work, tabId);
+      return undefined;
+    });
+    return;
+  }
   work.movedAgain = true;
   if (work.moved) return;
   work.moved = (async () => {

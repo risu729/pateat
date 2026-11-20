@@ -656,6 +656,29 @@ describe("the flow's end on a completion that cannot be recorded", () => {
       expect.objectContaining({ route: "sso", state: "authenticated" }),
     );
   });
+  it("completes when the page replaces its URL in place while its sign-in is written", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    installSsoLifecycle(h.rt);
+    identities.set("portal-doc", "match");
+    const home = h.page(portal, "portal-doc", "/home");
+    const base = delivery.getMockImplementation()!;
+    delivery.mockImplementation(async (tabId, message, options) => {
+      // The document announces again as soon as it is asked, at its new URL.
+      if (message["type"] === "login.reconnect") h.page(portal, "portal-doc", "/home", "?tab=1");
+      return base(tabId, message, options);
+    });
+    let replaced = false;
+    vi.mocked(h.rt.attemptRecords.write).mockImplementation(async () => {
+      if (h.work.parent?.state !== "authenticated" || replaced) return;
+      replaced = true;
+      fake.state.tabUrls[7] = portal + "/home?tab=1";
+      fake.emitUpdated(7, { url: portal + "/home?tab=1" });
+    });
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(replaced).toBe(true);
+    expect(h.work.parent?.state).toBe("authenticated");
+  });
   it("ends the flow signed in even when releasing the IdP's login fails", async () => {
     const h = await harness();
     const form = h.page(idp, "idp-form", "/authsvc", "?txn=1");
