@@ -363,9 +363,12 @@ export async function returned(
   if (instant) return "no-evidence";
   // After it, a page without evidence that asks for an account identifier is the site's
   // sign-in again, as one asking for the email first (ADR 0026, amendment of 2026-11-20).
+  // The page ends the flow only while it is still the one read: one that moved on meanwhile,
+  // as a callback replacing itself while it is described, is read again where it went.
+  const unconfirmed = async () => ((await ssoScope(rt, work, live)) ? "refused" : "unscoped");
   const shown = await asksSignIn(rt, live);
   if (!shown) return "unread";
-  if (shown.asks) return "refused";
+  if (shown.asks) return unconfirmed();
   // A page that shows no text yet, as a portal still rendering in place, is read again
   // once it describes something. Any other page that proves nothing ends the flow once no
   // judge can confirm it: none is asked, or the judge answered for this page and path.
@@ -374,9 +377,9 @@ export async function returned(
     return "unobserved";
   }
   if (work.judged === judgedKey(live) || !work.recipe || !work.layout || !rt.generation?.judgeSso)
-    return "refused";
+    return unconfirmed();
   const page = await ssoObservation(rt, live);
-  if (!page) return "refused";
+  if (!page) return unconfirmed();
   const rp = await username(rt, work, live, false);
   const idp = await username(rt, work, live, true);
   const hidden = hideUsernames(
@@ -385,7 +388,7 @@ export async function returned(
     rp !== undefined && idp !== undefined ? [rp, idp] : undefined,
     live,
   );
-  if ("reason" in hidden) return "refused";
+  if ("reason" in hidden) return unconfirmed();
   if (!(await ssoScope(rt, work, live))) return "unscoped";
   work.judged = judgedKey(live);
   const judged = await rt.generation.judgeSso(work.recipe.id, {
@@ -396,7 +399,7 @@ export async function returned(
     observation: hidden.observation,
   });
   // Any answer but `signed-in`, as `rejected`, `unclear` or a page it never judges, ends it.
-  if (!judged.signedIn) return "refused";
+  if (!judged.signedIn) return unconfirmed();
   if (judged.recipe) {
     work.recipe = judged.recipe;
     if (work.parent)

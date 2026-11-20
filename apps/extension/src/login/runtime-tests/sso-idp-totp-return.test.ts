@@ -193,6 +193,31 @@ describe("the RP's pages on the way back", () => {
     expect(judgeSso).toHaveBeenCalledTimes(1);
     expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
   });
+  it("reads a page again where it went when it replaced itself while it was described", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    const judgeSso = vi.fn(async () => ({ signedIn: false }));
+    h.rt.generation = {
+      available: async () => true as const,
+      generate: vi.fn(),
+      generateEntry: vi.fn(),
+      slotFields: async () => undefined,
+      judge: vi.fn(),
+      judgeSso,
+    };
+    const base = delivery.getMockImplementation()!;
+    // A "Signing you in" callback that sends the tab on to its signed-in page meanwhile.
+    delivery.mockImplementation(async (tabId, message, options) => {
+      if (message["type"] !== "login.extract") return base(tabId, message, options);
+      fake.state.tabUrls[7] = rp + "/home";
+      return { ok: false, reason: "no-candidates" };
+    });
+    const callback = h.page(rp, "rp-callback", "/callback");
+    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(callback.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:unscoped");
+    expect(judgeSso).not.toHaveBeenCalled();
+    expect(h.work.ended).toBe(false);
+  });
   it("ends the flow on a loaded RP page that proves nothing when no judge can be asked", async () => {
     const h = await harness();
     h.work.phase = "at-idp";
