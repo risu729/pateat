@@ -90,9 +90,10 @@ export interface LoginRecipes {
   ): Promise<LoginRecipe | undefined>;
   /**
    * Whether `path` is one of the other start paths (`starts`) of the recipe by ID, where a
-   * login records it as `start` (ADR 0060 amendment of 2026-11-18).
+   * login records it as `start` (ADR 0060 amendment of 2026-11-18); `undefined` when the
+   * cache or the recipe cannot be read, which starts no login.
    */
-  startAlias?(origin: string, recipeId: string, path: string): Promise<boolean>;
+  startAlias?(origin: string, recipeId: string, path: string): Promise<boolean | undefined>;
   /**
    * Every layout of the recipe that starts on the path, for a new login to choose from
    * (ADR 0060); none when no single recipe starts there.

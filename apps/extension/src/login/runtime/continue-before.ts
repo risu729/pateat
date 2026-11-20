@@ -7,7 +7,12 @@ import {
 } from "@pateat/contracts";
 import { type Execution } from "./types";
 import { change, current, report } from "./attempt";
-import { askContinuation, cachedRoute, continueWith, recordedContinuation } from "./continuation";
+import {
+  askContinuation,
+  cachedRevision,
+  continueWith,
+  recordedContinuation,
+} from "./continuation";
 import { probeMode } from "./constants";
 import type { Runtime } from "./state";
 
@@ -98,13 +103,13 @@ export async function continueBefore(rt: Runtime, run: Execution): Promise<boole
   };
   const options = { replacesLast: true };
   if (recordedContinuation(run, key)) {
-    const cached = await cachedRoute(rt, run, path).catch(() => undefined);
+    const cached = await cachedRevision(rt, run, path).catch(() => undefined);
     if (!current(rt, run)) return false;
     if (
       cached &&
-      cached.revision > recipe.revision &&
-      continuesRecipe(recipe, cached, options) &&
-      (await continueWith(rt, run, cached, undefined, undefined, options))
+      cached.route.revision > recipe.revision &&
+      continuesRecipe(recipe, cached.route, options) &&
+      (await continueWith(rt, run, cached.revision, undefined, undefined, options))
     )
       return true;
     return refuse();

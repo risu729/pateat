@@ -70,7 +70,7 @@ const stray = v.parse(storedLoginRecipeSchema, {
   layouts: [layout("3000", "/student")],
 }) as LoginRecipeDocument;
 
-function setup(recipes: readonly StoredLoginRecipe[]) {
+function setup(recipes: readonly StoredLoginRecipe[], paired = true) {
   const connection = {
     origin: SERVICE,
     deviceId: DEVICE,
@@ -81,7 +81,7 @@ function setup(recipes: readonly StoredLoginRecipe[]) {
   const now = Date.now();
   const sync = createRecipeSync({
     service: {
-      connection: vi.fn(async () => connection),
+      connection: vi.fn(async () => (paired ? connection : undefined)),
       fence: () => () => true,
       recordSync: vi.fn(async () => undefined),
     },
@@ -165,6 +165,9 @@ describe("a recipe that starts on another path (ADR 0060 amendment of 2026-11-18
     expect(await recipes.startAlias!(SITE, stored.id, "/student")).toBe(true);
     expect(await recipes.startAlias!(SITE, stored.id, LEARNED)).toBe(false);
     expect(await recipes.startAlias!(SITE, stored.id, "/gone")).toBe(false);
+    // Unread, which starts no login, when the recipe or the cache is gone.
+    expect(await recipes.startAlias!(SITE, "gen-gone", "/student")).toBeUndefined();
+    expect(await setup([stored], false).startAlias!(SITE, stored.id, "/student")).toBeUndefined();
   });
 
   it("starts nothing on a path another recipe starts on too (ADR 0013)", async () => {
@@ -224,6 +227,23 @@ describe("a recipe that starts on another path (ADR 0060 amendment of 2026-11-18
         "/student",
       );
       expect((await recipes.chooser!(SITE, "/", listed.id, "4000"))?.chooser.path).toBe(LEARNED);
+      // A new login's layout named on that path, with no recipe ID, is moved there too.
+      expect((await recipes.chooser!(SITE, "/student", undefined, "4000"))?.chooser.path).toBe(
+        "/student",
+      );
+      // A login's markers come with its branches, on the path it recorded.
+      const branches = (start?: string) =>
+        recipes.layoutsOf!(SITE, listed.id, start).then((all) =>
+          all.map((entry) => entry.steps.map((step) => step.path)),
+        );
+      expect(await branches("/student")).toEqual([
+        ["/student", "/student"],
+        ["/student", "/student"],
+      ]);
+      expect(await branches()).toEqual([
+        [LEARNED, LEARNED],
+        [LEARNED, LEARNED],
+      ]);
       // The form and the list are one start on each path.
       const starts = await recipes.starts(SITE);
       expect(starts.map((start) => [start.path, start.list])).toEqual([

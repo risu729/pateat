@@ -247,7 +247,8 @@ export function createRecipeLookups(source: RecipeLookupSource): LoginRecipes {
       const stored = cache?.recipes.find(
         (recipe) => recipe.origin === origin && recipe.id === recipeId,
       );
-      return stored !== undefined && otherStart(stored, path);
+      // Unread when the cache or the recipe is gone: the login's paths cannot be told.
+      return stored && otherStart(stored, path);
     },
     async withdrawn(origin: string, recipeId: string, layout?: string) {
       // A sync the lookup started may be revoking the recipe right now.

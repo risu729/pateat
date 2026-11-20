@@ -328,6 +328,15 @@ describe("a recipe that starts on another path of its site (ADR 0060 amendment o
     expect(plain.available).toHaveBeenCalledWith(origin, TOP);
   });
 
+  it("starts nothing on that path while the cache cannot say it is one", async () => {
+    site(TOP);
+    const h = usi([learned([TOP])]);
+    Object.assign(h.recipes, { startAlias: async () => undefined });
+    expect(await h.hello()).toMatchObject({ ok: false, reason: "recipe-not-found" });
+    expect(executed()).toEqual([]);
+    expect(status()).toBeUndefined();
+  });
+
   it("starts nothing on that path for a recipe without other start paths", async () => {
     site(TOP);
     const h = usi([learned()]);
