@@ -287,14 +287,6 @@ describe("the RP's pages on the way back", () => {
     expect(await ssoAdmit(h.rt, discovery.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     expect(h.work.ended).toBe(false);
   });
-  it("ends the flow on an RP page that shows the sign-in rejected", async () => {
-    const { h, page } = await answering("login.state", () => ({
-      ok: true,
-      loaded: true,
-      signs: { password: false, code: false, captcha: false, invalid: false, alert: true },
-    }));
-    expect(await ssoAdmit(h.rt, page.ctx)).toEqual(ended);
-  });
   it("ends the flow on an RP page the judge reads as a rejected sign-in", async () => {
     const { h, judgeSso, page } = await answering("login.extract", () => ({
       ok: true,

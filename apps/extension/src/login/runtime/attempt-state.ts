@@ -16,7 +16,13 @@ export const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
  * for a code, so a second tab does not log in and send a second code (owner, 2026-10-23).
  */
 export const holdsOthers = (entry: LoginAttemptMetadata, now: number) =>
-  holdsSite(entry, now) || (entry.watch !== undefined && !watchOver(entry, now));
+  holdsSite(entry, now) ||
+  // An SSO flow's IdP login released on the RP return holds nothing through its watch
+  // either: the flow, or after a restart its interrupted hold, holds the IdP's origin
+  // (ADR 0026, amendment of 2026-11-20).
+  (entry.watch !== undefined && !releasedChild(entry) && !watchOver(entry, now));
+const releasedChild = (entry: LoginAttemptMetadata) =>
+  entry.ssoChild?.attemptId === entry.id && entry.ssoChild.released === true;
 
 export const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);

@@ -331,8 +331,9 @@ export async function returned(
   if (!reading.output.loaded) return "loading";
   if (!(await ssoScope(rt, work, live))) return "unscoped";
   const signs = reading.output.signs;
-  // A sign-in form, or one the site rejected, is the site's sign-in again.
-  if (signs.password || signs.invalid || signs.alert) return "refused";
+  // A sign-in form, or one the site marked invalid, is the site's sign-in again. Its alert
+  // is read only after a submission in the same document, never on a return page.
+  if (signs.password || signs.invalid) return "refused";
   if (signs.code) return "code";
   if (signs.captcha) return "captcha";
   const own = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
