@@ -27,3 +27,4 @@ export { judgeCompletion, judgedInputs, samplePage } from "./generate/completion
 export { judgedCodeSource } from "@pateat/contracts";
 
 export { generateSso } from "./generate/sso";
+export { sameFormRecipe, showsFirstPage } from "./generate/start-alias";

@@ -37,6 +37,7 @@ import { registerLayoutCases } from "./generation/layout-cases";
 import { registerRepairCases } from "./generation/repair-cases";
 import { registerProvenanceCases } from "./generation/provenance-cases";
 import { registerStartAliasCases } from "./generation/start-alias-cases";
+import { registerStartAliasGuardCases } from "./generation/start-alias-guard-cases";
 
 // Synthetic owners, devices, federation identifiers and pages only. Anthropic's token
 // endpoint and the Messages API are answered locally; no request leaves the test.
@@ -705,4 +706,5 @@ describe("generation provenance (ADR 0060)", () => {
 
 describe("other start paths of a recipe (ADR 0060 amendment of 2026-11-18)", () => {
   registerStartAliasCases(context);
+  registerStartAliasGuardCases(context);
 });

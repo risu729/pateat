@@ -66,7 +66,14 @@ function firstPageElements(
   const elements: ReturnType<typeof firstPageElements> = [];
   for (const steps of [layout.steps, ...(layout.alternatives ?? []).map((entry) => entry.steps)]) {
     const page = firstPage(steps, start);
-    if (!page) return [];
+    // A first page that asks for no identifier, as a password-only form, is also what a
+    // signed-in site shows to confirm the password again: never compared (agent's choice).
+    if (
+      !page?.some(
+        (step) => step.kind === "fill" && step.fields.some((field) => field.slot !== "password"),
+      )
+    )
+      return [];
     for (const step of page) {
       if (step.kind === "click") {
         // Enter is pressed in the field the fill before typed last, already compared.
@@ -168,6 +175,24 @@ async function ownRecipeStarts(
 }
 
 /**
+ * Every path a stored recipe names: its steps', handlers', passkey routes', list's and SSO
+ * entries' paths in every layout and branch, its start paths among them. Each member named
+ * `path` is one, so a member added later is counted too.
+ */
+function namedPaths(recipe: StoredLoginRecipe): Set<string> {
+  const named = new Set<string>();
+  const walk = (value: unknown, key?: string) => {
+    if (typeof value === "string") {
+      if (key === "path") named.add(value);
+    } else if (Array.isArray(value)) for (const item of value) walk(item);
+    else if (value && typeof value === "object")
+      for (const [member, inner] of Object.entries(value)) walk(inner, member);
+  };
+  walk(recipe);
+  return named;
+}
+
+/**
  * The answer to a first page on a path no recipe of its own starts on (ADR 0060 amendment of
  * 2026-11-18): the origin's recipe that already starts there, or the one that shows the same
  * form, written with the path added to its `starts`. `undefined` generates the page as
@@ -201,6 +226,10 @@ async function aliasOnce(
   if (already.length > 1) return undefined;
   if (already.length === 1)
     return answerable(changes.find((change) => change.recipeId === already[0]!.id) ?? null);
+  // A path a recipe of the origin already runs a later page, a handler or a passkey route
+  // on, as USI's code page, is never a start path (agent's choice): a form shown there is
+  // a step of that login, not its first page.
+  if (heads.some((recipe) => namedPaths(recipe).has(path))) return undefined;
   const recipe = sameFormRecipe(heads, observation);
   // Only the recipe generated for its own start path takes another one (ADR 0018).
   if (!recipe || (await generatedRecipeId(origin, storedRecipeStartPath(recipe))) !== recipe.id)

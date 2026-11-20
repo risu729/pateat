@@ -75,6 +75,10 @@ import { rebaseNativeOverSso } from "../sso-write";
 import { aliasedStart, onStartPath, startAlias } from "./start-alias";
 import { stored, newLayoutMeta, markWritten, buildLoginLayout } from "./layout";
 
+/** The other start paths (`starts`) of the recipe a write replaces, to keep on it. */
+const startsOf = (recipe: StoredLoginRecipe | undefined): { starts?: string[] } =>
+  recipe && "starts" in recipe && recipe.starts ? { starts: recipe.starts } : {};
+
 /**
  * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe ID that is
  * not a generated one (`gen-…`), which the route answers as a bad request; a generated ID
@@ -159,7 +163,9 @@ export async function generateRecipe(
     const aliased = await aliasedStart(backend, observation);
     const alias = aliased
       ? answerable(aliased.change)
-      : !list && !passkeyOnly && signedIn !== true && !request.manual
+      : // Only a page the device read as signed out: one it could not tell may be a
+        // signed-in site asking for the password again (agent's choice).
+        !list && !passkeyOnly && signedIn === false && !request.manual
         ? await startAlias(backend, observation)
         : undefined;
     if (aliased && !alias) return unsent(unavailable("recipe-conflict"));
@@ -465,6 +471,15 @@ export async function generateRecipe(
     let next = recipe;
     let expectedRevision = baseRevision;
     let remappedLogLayout: string | undefined;
+    // A first page's path another request added to a recipe's `starts` while this one
+    // waited for its call answers with that recipe, so no recipe of its own starts there
+    // as well (ADR 0060 amendment of 2026-11-18). The two writes are not one transaction.
+    if (!base && !repair && !branch) {
+      const aliased = await aliasedStart(backend, observation);
+      const change = aliased && answerable(aliased.change);
+      if (aliased)
+        return change ? { version: 1, status: "recipe", change } : unavailable("recipe-conflict");
+    }
     for (let tries = 0; ; tries += 1) {
       // eslint-disable-next-line no-await-in-loop
       const written = await backend.writeRecipe(
@@ -583,22 +598,17 @@ export async function generateRecipe(
     // A recipe whose two kinds together would pass its slot or size limit takes the list
     // alone, as before the kinds were held together.
     const kept = repaired && isLoginRecipeDocument(repaired) ? repaired : undefined;
+    // The recipe keeps the other paths it starts on, with its form or without (ADR 0060
+    // amendment of 2026-11-18).
     const listOnly: RecipeDocument = {
       version: 1,
       id: recipeId,
       revision,
       origin,
       chooser: { path, layouts: [layout] },
+      ...startsOf(repaired),
     };
-    // The kept form keeps the other paths it starts on (ADR 0060 amendment of 2026-11-18).
-    const recipe =
-      (kept &&
-        document({
-          ...listOnly,
-          layouts: kept.layouts,
-          ...(kept.starts ? { starts: kept.starts } : {}),
-        })) ||
-      document(listOnly);
+    const recipe = (kept && document({ ...listOnly, layouts: kept.layouts })) || document(listOnly);
     if (!recipe) return failed("recipe-invalid");
     // This call named the button again, so the passkey route's page is its own; a copied
     // layout's handlers and markers keep the calls that made them.
@@ -693,12 +703,15 @@ export async function generateRecipe(
     // A recipe whose two kinds together would pass its slot or size limit takes the form
     // alone, as before the kinds were held together.
     const held = repaired && isChooserDocument(repaired) ? repaired.chooser : undefined;
+    // The recipe keeps the other paths it starts on, with its list or without (ADR 0060
+    // amendment of 2026-11-18).
     const formOnly: RecipeDocument = {
       version: 1,
       id: recipeId,
       revision,
       origin,
       layouts: [built.layout],
+      ...startsOf(repaired),
     };
     const recipe = (held && document({ ...formOnly, chooser: held })) || document(formOnly);
     return recipe
