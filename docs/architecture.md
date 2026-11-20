@@ -5060,10 +5060,14 @@ site's sign-in form, another account or an unsafe page waits (`sso-in-progress`,
 URL changed in place, which asks the page to announce again (`ssoReturnMoved`), or for a
 page that described nothing to describe something (`login.extract.watch`, at most three
 times per document); one page is read at a time, and the RP-return judge is asked once
-per RP document and path. The site's sign-in ends the wait with
-`sso-return-unconfirmed`: a password form, a rejected sign-in, a visible identifier
-input without the RP's evidence or the judge's `rejected`. A completion whose record
-cannot be written ends the flow `cancelled` (`sso-scope-changed`)
+per RP document and path; a page being read is asked again only after its reading. After
+the IdP, the site's sign-in ends the wait with `sso-return-unconfirmed`: a password form
+or one marked invalid, an identifier input that asks for the account
+(`signInIdentifier`: the page's only input to type into, or one with a password input in
+its form) without the RP's evidence, or the judge's `rejected`; before it such a page
+waits. A marker the judge learns on another origin of the RP's site keeps that origin
+and counts only there. A completion whose record cannot be written ends the flow
+`cancelled` (`sso-scope-changed`, or the reason that ended it meanwhile)
 ([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit),
 its waiting rule approved by the owner on 2026-11-19, and
 [2026-11-20](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).

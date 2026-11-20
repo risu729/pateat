@@ -722,12 +722,19 @@ Decisions:
    any origin a login of the recipe's origin may move to (`loginMoveFits`, before a
    second factor), as the native completion judge does. The extension asks it only for a
    page `ssoReturnOrigin` admits, which also needs the RP item to match.
-2. **Markers of the page's origin first.** The return reads the RP's markers learned on
-   the page's origin, then, on another origin of its site, the RP origin's own.
+2. **Markers of the page's origin first.** The return reads the RP's native markers
+   learned on the page's origin, then, on another origin of its site, the RP origin's
+   own. A marker the RP-return judge learns on another origin of the site keeps that
+   origin in the SSO layout (`origin`, as native markers do) and counts only there, in
+   the judge's checks and in the extension's reading alike; one without counts on the
+   recipe's own origin. An older extension that does not know the field refuses such a
+   recipe, so the service release goes with the extension's.
 3. **An RP page that changes its URL in place is read again.** When the tab's URL of a
    waiting RP page changes in place, or differs from its announcement when admitted, the
    page is asked to announce again (`login.reconnect`), as the IdP's left documents are
-   in decision 4 above, and its admission refuses with detail `rp-return:moved`.
+   in decision 4 above, and its admission refuses with detail `rp-return:moved`. A page
+   being read is asked only after its reading, so a URL it replaces while its sign-in is
+   written does not replace the document that write holds.
 4. **One reading of an RP page at a time.** A second announcement waits for the reading
    in progress and is then read afresh, or answers `sso-completed`, so a flow completes
    once.
@@ -743,21 +750,28 @@ Decisions:
    to announce again, so a portal that renders its signed-in view in the same document
    and at the same URL is read as it now shows.
 7. **The site's sign-in ends the wait.** A waiting page holds the RP's and the IdP's
-   origins in the tab's other logins' way for up to ten minutes, so a page that is the
-   site's sign-in ends the flow with `sso-return-unconfirmed`: besides a password form,
-   one whose sign-in reads as rejected (`alert`), one without the RP's evidence that
-   shows a visible identifier input (as a page asking for the email first), and one the
-   judge reads as `rejected`. A signed-in page with such an input and no known marker is
-   never judged (the judge already refuses a page with a text field), so it ends there
-   too.
+   origins in the tab's other logins' way for up to ten minutes, so after the IdP a page
+   that is the site's sign-in ends the flow with `sso-return-unconfirmed`: besides a
+   password form or a sign-in marked invalid, one without the RP's evidence whose
+   identifier input asks for the account (`signInIdentifier`: the page's only input to
+   type into, as a page asking for the email first, or one with a password input in its
+   form), and one the judge reads as `rejected`. An email input beside other inputs, as
+   a newsletter or invite field, does not count. Before any IdP page (the instant path),
+   such a page is the RP's own way to its IdP, as one asking for the work email to find
+   the provider, and waits. A rejected sign-in's `alert` is never read on a return page,
+   as `login.state` reads one only after a submission in the same document.
 8. **A completion that cannot be recorded ends the flow.** When the page or the flow's
    scope changes while the signed-in record is written, the parent is recorded
-   `cancelled` (`sso-scope-changed`) and the flow ends, rather than waiting with its
-   timer cleared. Once recorded, the flow ends whatever a later write does.
+   `cancelled` (`sso-scope-changed`, or the reason that ended the flow meanwhile) and
+   the flow ends, rather than waiting with its timer cleared. Once recorded, the IdP's
+   login is released signed in at once, before the RP default is saved, and the flow
+   ends whatever a later write does; a flow ended after its parent signed in releases
+   that login signed in too.
 9. **A restart leaves the IdP's login no hold.** The RP return stores the IdP's login
    released at once, as the flow holds both origins while it runs and its interrupted
    hold does after a worker restart; its end is still recorded with the flow's. After a
-   restart that end line is not written.
+   restart that end line is not written. A released login holds nothing through its
+   watch either.
 
 The judge's change reaches service-backed devices only with a service release. Checked
 with local tests only (`sso-idp-totp-return.test.ts`, `sso-completion-backend.test.ts`),
@@ -775,6 +789,11 @@ not on the real site.
   waiting RP page that already describes something, keeps its URL and shows no known
   marker is not read again: only a new URL, a new document or a page that described
   nothing brings a new reading, so such a page waits until `sso-expired`.
+- **An IdP on the RP's own site** (added 2026-11-20). An RP return may land on any
+  origin of the RP's site but the selected IdP's own. Where the IdP shares that site,
+  its other origins, as a second host of the same IdP, read as the RP's return too,
+  still only where the RP item matches them. Excluding the IdP's whole site would forbid
+  every same-site return for such setups.
 - **Settings changes during the IdP's own login.** The IdP's native login stops on any
   settings change, as every native login does
   ([ADR 0027](0027-per-account-login-routes.md)), and the flow ends with it, even when
