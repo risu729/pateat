@@ -18,6 +18,8 @@ vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { cancelSso, installSsoLifecycle, ssoAdmit } = await import("../runtime/sso/flow");
 const { allowed } = await import("../runtime/plan-2");
 const { reconcileBounded } = await import("../runtime/sign-in");
+const { admit } = await import("../runtime/admit");
+const { handle: dispatch } = await import("../runtime/messages");
 const { ssoReturnFixture } = await import("./sso-return-fixture");
 const {
   rp,
@@ -336,6 +338,64 @@ describe("an IdP step whose tab has left its document", () => {
   });
 });
 
+describe("an IdP page that announces again after its login left it", () => {
+  /** The IdP's login, its code submitted, whose tab's URL moved on to `url`. */
+  const left = async (url: string) => {
+    const h = await harness();
+    const code = h.page(idp, "idp-code", "/mfa", "?txn=code");
+    idpReadings.set("idp-code", { kind: "unknown", controls: true });
+    const run = idpChild(h, code.live);
+    expect(await ssoAdmit(h.rt, code.ctx)).toBeUndefined();
+    step(run, [...fill("code"), ...click("verify")]);
+    fake.state.tabUrls[7] = url;
+    /** The document's announcement, as its content script sends it. */
+    const announce = (documentId: string, token: string) => {
+      h.rt.hellos.set(documentId, 1);
+      const sender = {
+        id: fake.browser.runtime.id,
+        tab: { id: 7, incognito: false },
+        frameId: 0,
+        documentId,
+        origin: idp,
+        url,
+      };
+      return admit(h.rt, sender as never, token, documentId, 1);
+    };
+    return { h, run, announce };
+  };
+  it("resumes the login in a new run when the same document changed only its query", async () => {
+    const { h, run, announce } = await left(idp + "/mfa?txn=next");
+    const base = delivery.getMockImplementation()!;
+    const reannounced = Promise.withResolvers<unknown>();
+    delivery.mockImplementation(async (tabId, message, options) => {
+      if (message["type"] !== "login.reconnect") return base(tabId, message, options);
+      reannounced.resolve(await announce("idp-code", "idp-code-token"));
+      return { ok: true };
+    });
+    await reconcileBounded(h.rt, run);
+    expect(run.leftDocument).toBe(run.live);
+    await reannounced.promise;
+    const next = h.rt.attempts.get(7)!;
+    expect(next).not.toBe(run);
+    expect(next.metadata.id).toBe(run.metadata.id);
+    expect(next.live.url).toBe(idp + "/mfa?txn=next");
+    expect(next.leftDocument).toBeUndefined();
+    expect(await allowed(h.rt, next)).toBeDefined();
+  });
+  it("resumes the login in a new run on the tab's next IdP document", async () => {
+    const { h, run, announce } = await left(idp + "/done?txn=next");
+    await reconcileBounded(h.rt, run);
+    expect(run.leftDocument).toBe(run.live);
+    idpReadings.set("idp-next", { kind: "unknown", controls: true });
+    await announce("idp-next", "idp-next-token");
+    const next = h.rt.attempts.get(7)!;
+    expect(next).not.toBe(run);
+    expect(next.metadata.id).toBe(run.metadata.id);
+    expect(next.live.document.documentId).toBe("idp-next");
+    expect(await allowed(h.rt, next)).toBeDefined();
+  });
+});
+
 // HCP's broker on flow.idp.hashicorp.com hands the tab back to portal.cloud.hashicorp.com,
 // another origin of its site with no recipe of its own (2026-11-20, 14:35:33 UTC).
 describe("a return to another origin of the RP's site", () => {
@@ -368,13 +428,14 @@ describe("a return to another origin of the RP's site", () => {
   // HCP's case of 2026-11-20: the SSO recipe is the broker's, the portal has no recipe of
   // its own and shows neither the selected identity nor a known marker, so only the judge
   // can tell its signed-in page.
-  it("asks the RP-return judge about that origin's page and completes on its answer", async () => {
+  /** The RP-return judge, which reads the portal's page as signed in once it renders. */
+  const judging = async (rendered: () => boolean = () => true) => {
     const h = await harness();
     h.work.phase = "at-idp";
     const learned = structuredClone(h.ssoRecipe);
     learned.revision++;
     learned.sso.layouts[0]!.completion = [{ target: target("portal-menu") }];
-    const judgeSso = vi.fn(async () => {
+    const judgeSso = vi.fn(async (): Promise<{ signedIn: boolean; recipe?: typeof learned }> => {
       h.rt.recipes.sso = async () => [learned];
       return { signedIn: true, recipe: learned };
     });
@@ -389,26 +450,33 @@ describe("a return to another origin of the RP's site", () => {
     const base = delivery.getMockImplementation()!;
     delivery.mockImplementation(async (tabId, message, options) => {
       if (message["type"] === "login.extract")
-        return {
-          ok: true,
-          observation: {
-            version: 1,
-            origin: portal,
-            path: "/home",
-            language: "en",
-            complete: true,
-            candidates: [
-              { id: "menu", role: "button", target: target("portal-menu"), label: "Account" },
-            ],
-          },
-        };
+        return rendered()
+          ? {
+              ok: true,
+              observation: {
+                version: 1,
+                origin: portal,
+                path: new URL(fake.state.tabUrls[7]!).pathname,
+                language: "en",
+                complete: true,
+                candidates: [
+                  { id: "menu", role: "button", target: target("portal-menu"), label: "Account" },
+                ],
+              },
+            }
+          : { ok: false, reason: "no-candidates" };
       if (
+        rendered() &&
         message["type"] === "login.observe" &&
         (message["targets"] as { value?: string }[]).some((entry) => entry.value === "portal-menu")
       )
-        return { path: "/home", targets: ["unique"] };
+        return { path: new URL(fake.state.tabUrls[7]!).pathname, targets: ["unique"] };
       return base(tabId, message, options);
     });
+    return { h, judgeSso };
+  };
+  it("asks the RP-return judge about that origin's page and completes on its answer", async () => {
+    const { h, judgeSso } = await judging();
     const home = h.page(portal, "portal-home", "/home");
     expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
     expect(judgeSso).toHaveBeenCalledTimes(1);
@@ -416,6 +484,57 @@ describe("a return to another origin of the RP's site", () => {
       h.ssoRecipe.id,
       expect.objectContaining({ observation: expect.objectContaining({ origin: portal }) }),
     );
+    expect(h.work.parent).toMatchObject({ state: "authenticated", account: { origin: rp } });
+  });
+  it("asks the judge again once the same document routed in place to another path", async () => {
+    const { h, judgeSso } = await judging();
+    judgeSso.mockResolvedValueOnce({ signedIn: false });
+    const callback = h.page(portal, "portal-doc", "/callback");
+    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(judgeSso).toHaveBeenCalledTimes(1);
+    const home = h.page(portal, "portal-doc", "/home");
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(judgeSso).toHaveBeenCalledTimes(2);
+  });
+  it("reads the portal again once it renders its signed-in view in place, at the same URL", async () => {
+    let rendered = false;
+    const { h, judgeSso } = await judging(() => rendered);
+    const home = h.page(portal, "portal-doc", "/home");
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(home.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:unobserved");
+    expect(judgeSso).not.toHaveBeenCalled();
+    expect(delivery).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ type: "login.extract.watch" }),
+      expect.objectContaining({ documentId: "portal-doc" }),
+    );
+    // The page renders its signed-in view; its content script says so, and announces again
+    // when asked, as the same document at the same URL.
+    rendered = true;
+    const sender = {
+      id: fake.browser.runtime.id,
+      tab: { id: 7, incognito: false },
+      frameId: 0,
+      documentId: "portal-doc",
+      origin: portal,
+      url: home.live.url,
+    };
+    const base = delivery.getMockImplementation()!;
+    const reannounced = Promise.withResolvers<unknown>();
+    delivery.mockImplementation(async (tabId, message, options) => {
+      if (message["type"] !== "login.reconnect") return base(tabId, message, options);
+      h.rt.hellos.set("portal-doc", 2);
+      reannounced.resolve(await admit(h.rt, sender as never, home.live.token, "portal-doc", 2));
+      return { ok: true };
+    });
+    await dispatch(
+      h.rt,
+      { version: 1, type: "login.document.described", token: home.live.token },
+      sender as never,
+    );
+    expect(await reannounced.promise).toEqual({ ok: false, reason: "sso-completed" });
+    expect(judgeSso).toHaveBeenCalledTimes(1);
     expect(h.work.parent).toMatchObject({ state: "authenticated", account: { origin: rp } });
   });
   it("reads the portal again once it routed in place from its callback to its signed-in page", async () => {

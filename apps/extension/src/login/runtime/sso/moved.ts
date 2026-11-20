@@ -1,6 +1,8 @@
 import { browser } from "wxt/browser";
 import { sameLoginDocument, type LoginDocument } from "@pateat/contracts";
 import { frameKey } from "../steps";
+import { send } from "../attempt";
+import { DESCRIBED_WATCHES, WATCH_MS } from "../constants";
 import { ssoCurrent, ssoReturnOrigin } from "../sso-scope";
 import type { SsoWork } from "../sso-state";
 import type { Runtime } from "../state";
@@ -57,6 +59,43 @@ export function ssoReturnMoved(rt: Runtime, tabId: number, url: string | undefin
   )
     return false;
   reannounce(rt, work, tabId);
+  return true;
+}
+
+/** The longest an SSO flow lasts (`sso-expired`). */
+export const SSO_FLOW_MS = 600_000;
+/**
+ * Asks a waiting RP page that describes nothing yet to say once it describes something
+ * (`login.extract.watch`), at most `DESCRIBED_WATCHES` times per document, for no longer
+ * than the flow lasts: a page that renders its signed-in view in place, without a new URL,
+ * is then read again (ADR 0026, amendment of 2026-11-20).
+ */
+export function watchReturn(rt: Runtime, work: SsoWork, live: LiveDocument) {
+  if (live.document.frameId !== 0 || work.ended) return;
+  const asked = work.watched?.documentId === live.document.documentId ? work.watched.count : 0;
+  const left = work.startedAt + SSO_FLOW_MS - Date.now();
+  if (asked >= DESCRIBED_WATCHES || left <= 0) return;
+  work.watched = { documentId: live.document.documentId, count: asked + 1 };
+  void send(rt, live, {
+    type: "login.extract.watch",
+    timeoutMs: Math.min(Math.ceil(left), WATCH_MS),
+  }).catch(() => undefined);
+}
+
+/** The watched RP page describes something now: it is asked to announce again. */
+export function ssoDescribed(rt: Runtime, document: LoginDocument, token: string): boolean {
+  const work = rt.sso.flows.get(document.tabId);
+  const live = work?.live;
+  if (!work || !live || work.watched?.documentId !== document.documentId) return false;
+  if (
+    !work.ended &&
+    ["at-idp", "returning-rp"].includes(work.phase) &&
+    live.token === token &&
+    sameLoginDocument(live.document, document) &&
+    ssoReturnOrigin(work, live.document.origin) &&
+    ssoCurrent(rt, work, live)
+  )
+    reannounce(rt, work, document.tabId);
   return true;
 }
 

@@ -1,4 +1,4 @@
-import { ssoMoved } from "./sso/moved";
+import { ssoDescribed, ssoMoved } from "./sso/moved";
 import { authorizeSso } from "./sso-effects";
 import { ssoAuthorizeSchema } from "../sso-operation-wire";
 import { cancelSso, ssoVaultChanged } from "./sso/flow";
@@ -317,6 +317,8 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     // The document whose judged page described nothing now shows something: it is read
     // once more as the tab's next page (ADR 0027 amendment of 2026-11-04).
     const document = await identify(rt, sender);
+    // Or an SSO flow's RP page that waits for its signed-in view (ADR 0026, 2026-11-20).
+    if (document && ssoDescribed(rt, document, described.output.token)) return undefined;
     const run = document ? rt.attempts.get(document.tabId) : undefined;
     if (!document || document.frameId !== 0 || !run || !current(rt, run)) return undefined;
     if (

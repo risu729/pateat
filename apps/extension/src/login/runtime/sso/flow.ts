@@ -38,7 +38,7 @@ import { ssoChild, type SsoWork } from "../sso-state";
 import { ssoObservation, inspectSsoTarget } from "./entry";
 import { learnSsoEntry } from "./learned-entries";
 import { detachChild, pauseNativeChild, releaseChild } from "./child";
-import { ssoReturnMoved } from "./moved";
+import { SSO_FLOW_MS, ssoReturnMoved, watchReturn } from "./moved";
 import type { AdmitContext } from "../admit-context";
 import type { Readiness } from "../types";
 import type { Choice, Execution, LiveDocument } from "../types";
@@ -479,15 +479,19 @@ async function returned(
   // 2026-11-20).
   if (
     instant ||
-    work.judged === live.document.documentId ||
+    work.judged === judgedKey(live) ||
     !work.recipe ||
     !work.layout ||
     !rt.generation?.judgeSso
   )
     return "no-evidence";
-  work.judged = live.document.documentId;
   const page = await ssoObservation(rt, live);
-  if (!page) return "unobserved";
+  if (!page) {
+    // A page that describes nothing yet, as a portal still rendering in place, is read
+    // again once it describes something (ADR 0026, amendment of 2026-11-20).
+    if (!check) watchReturn(rt, work, live);
+    return "unobserved";
+  }
   const rp = await username(rt, work, live, false);
   const idp = await username(rt, work, live, true);
   const hidden = hideUsernames(
@@ -498,6 +502,7 @@ async function returned(
   );
   if ("reason" in hidden) return "unobserved";
   if (!(await ssoScope(rt, work, live))) return "unscoped";
+  work.judged = judgedKey(live);
   const judged = await rt.generation.judgeSso(work.recipe.id, {
     version: 1,
     kind: "sso-completion",
@@ -562,7 +567,7 @@ export async function beginSso(
     ended: false,
   };
   rt.sso.flows.set(ctx.document.tabId, work);
-  work.timer = setTimeout(() => cancelSso(rt, ctx.document.tabId, "sso-expired"), 600_000);
+  work.timer = setTimeout(() => cancelSso(rt, ctx.document.tabId, "sso-expired"), SSO_FLOW_MS);
   try {
     if (!(await ssoScope(rt, work)) || !(await ssoReprompt(rt, work, ctx.live)))
       throw new Error("sso-scope-changed");
@@ -944,6 +949,8 @@ export function ssoChildChanged(rt: Runtime, run: Execution) {
   }
 }
 
+/** The RP page the RP-return judge is asked about once: its document and path. */
+const judgedKey = (live: LiveDocument) => `${live.document.documentId} ${live.path}`;
 /** Whether the flow completed, read again after an await that may have completed it. */
 const signedIn = (work: SsoWork) => work.parent?.state === "authenticated";
 const tabUrl = async (tabId: number) => (await browser.tabs.get(tabId).catch(() => undefined))?.url;
