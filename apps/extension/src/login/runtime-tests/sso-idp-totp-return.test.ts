@@ -462,7 +462,8 @@ describe("a return to another origin of the RP's site", () => {
     h.work.phase = "at-idp";
     const learned = structuredClone(h.ssoRecipe);
     learned.revision++;
-    learned.sso.layouts[0]!.completion = [{ target: target("portal-menu") }];
+    // The judge keeps a marker learned on the portal for the portal's origin.
+    learned.sso.layouts[0]!.completion = [{ target: target("portal-menu"), origin: portal }];
     const judgeSso = vi.fn(async (): Promise<{ signedIn: boolean; recipe?: typeof learned }> => {
       h.rt.recipes.sso = async () => [learned];
       return { signedIn: true, recipe: learned };
@@ -503,6 +504,25 @@ describe("a return to another origin of the RP's site", () => {
     });
     return { h, judgeSso };
   };
+  it("reads a judge-learned marker only on the origin it was learned on", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    h.work.recipe = structuredClone(h.ssoRecipe);
+    h.work.recipe.sso.layouts[0]!.completion = [{ target: target("portal-menu"), origin: portal }];
+    const kept = h.work.recipe;
+    h.rt.recipes.sso = async () => [kept];
+    const base = delivery.getMockImplementation()!;
+    delivery.mockImplementation(async (tabId, message, options) =>
+      message["type"] === "login.observe" &&
+      (message["targets"] as { value?: string }[]).some((entry) => entry.value === "portal-menu")
+        ? { path: new URL(fake.state.tabUrls[7]!).pathname, targets: ["unique"] }
+        : base(tabId, message, options),
+    );
+    const own = h.page(rp, "rp-home", "/home");
+    expect(await ssoAdmit(h.rt, own.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    const home = h.page(portal, "portal-home", "/home");
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+  });
   it("asks the RP-return judge about that origin's page and completes on its answer", async () => {
     const { h, judgeSso } = await judging();
     const home = h.page(portal, "portal-home", "/home");

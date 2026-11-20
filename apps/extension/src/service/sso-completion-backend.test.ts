@@ -24,7 +24,7 @@ const page: LoginObservation = {
 type Reply = { decision: string; marker?: string } | { refusal: string } | number;
 async function setup(
   supplied: Reply[] = [{ decision: "signed-in", marker: "logout" }],
-  completion?: { target: { by: "id"; value: string } }[],
+  completion?: { target: { by: "id"; value: string }; origin?: string }[],
 ) {
   const replies = [...supplied];
   const key = "sk-ant-synthetic-sso-completion";
@@ -294,6 +294,23 @@ describe("SSO completion through the real device backend and model adapters", ()
     expect(h.calls).toHaveLength(1);
     expect(h.record()?.judgements).toHaveLength(1);
   });
+  it("does not read a marker learned on another origin of the site as one of the RP's", async () => {
+    const portal = {
+      target: { by: "id" as const, value: "logout" },
+      origin: "https://portal.example.test",
+    };
+    const others = ["first", "second", "third"].map((value) => ({
+      target: { by: "id" as const, value },
+    }));
+    // The layout is full and the RP's own page shows only the portal's marker: no marker of
+    // its own origin shows, so nothing is sent.
+    const h = await setup(undefined, [...others, portal]);
+    expect(await h.judge()).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "recipe-limit" },
+    });
+    expect(h.calls).toEqual([]);
+  });
   const full = ["first", "second", "third", "fourth"].map((value) => ({
     target: { by: "id" as const, value },
   }));
@@ -330,6 +347,14 @@ describe("SSO completion through the real device backend and model adapters", ()
       result: { status: "signed-in", change: { state: "active", revision: 2 } },
     });
     expect(h.calls).toHaveLength(1);
+    // The marker is kept for the portal's origin only.
+    expect(await h.recipes.head(h.recipeId)).toMatchObject({
+      sso: {
+        layouts: [
+          { completion: [{ target: { by: "id", value: "logout" }, origin: portal.origin }] },
+        ],
+      },
+    });
     const other = await setup();
     const elsewhere = { ...page, origin: "https://portal.elsewhere.test" };
     expect(await other.judge({ ...other.request, observation: elsewhere })).not.toMatchObject({

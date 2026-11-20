@@ -113,10 +113,13 @@ export async function judgeSsoCompletion(
   // A layout that already keeps its most markers can learn no new one, so a page that shows
   // none of them is not sent to the model only for its answer to be dropped.
   const markers = layout.completion ?? [];
+  // Only the markers learned on the page's origin prove anything there: the recipe's own by
+  // default, or another origin of its site a return landed on (ADR 0026, 2026-11-20).
+  const here = markers.filter((marker) => (marker.origin ?? recipe?.origin) === observation.origin);
   if (
     markers.length >= MAX_SSO_MARKERS &&
     !observation.candidates.some((candidate) =>
-      markers.some((marker) => sameLoginTarget(marker.target, candidate.target)),
+      here.some((marker) => sameLoginTarget(marker.target, candidate.target)),
     )
   )
     return unsent("recipe-limit");
@@ -177,7 +180,7 @@ export async function judgeSsoCompletion(
     layout.entries.some((entry) => sameLoginTarget(entry.target, target))
   )
     return unavailable("not-judgeable");
-  if (markers.some((marker) => sameLoginTarget(marker.target, target)))
+  if (here.some((marker) => sameLoginTarget(marker.target, target)))
     return { version: 1, status: "signed-in" };
   if (markers.length >= MAX_SSO_MARKERS) return unavailable("recipe-limit");
   const learned = {
@@ -186,7 +189,18 @@ export async function judgeSsoCompletion(
     sso: {
       ...sso,
       layouts: sso.layouts.map((entry) =>
-        entry.key === layout.key ? { ...entry, completion: [...markers, { target }] } : entry,
+        entry.key === layout.key
+          ? {
+              ...entry,
+              completion: [
+                ...markers,
+                {
+                  target,
+                  ...(observation.origin === recipe!.origin ? {} : { origin: observation.origin }),
+                },
+              ],
+            }
+          : entry,
       ),
     },
   };

@@ -267,6 +267,7 @@ export const loginSsoRoutesSchema = createSsoRoutesSchema({
   path,
   target: loginTargetSchema,
   marker: loginMarkerTargetSchema,
+  origin: loginOriginSchema,
   key: recipeLayoutKeySchema,
   language: recipeLanguageSchema,
   layouts: MAX_RECIPE_LAYOUTS,

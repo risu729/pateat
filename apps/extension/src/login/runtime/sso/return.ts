@@ -229,10 +229,15 @@ async function ssoEntryShown(
   return ["unique", "ambiguous"].includes(reading.output.targets[0]);
 }
 async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
+  // Only the markers learned on the page's origin: the recipe's own by default, or another
+  // origin of its site a return landed on (ADR 0026, amendment of 2026-11-20).
   const targets =
     work.recipe?.sso.layouts
       .find((entry) => entry.key === work.layout)
-      ?.completion?.map((entry) => entry.target) ?? [];
+      ?.completion?.filter(
+        (entry) => (entry.origin ?? work.recipe?.origin) === live.document.origin,
+      )
+      .map((entry) => entry.target) ?? [];
   if (!targets.length) return false;
   const read = v.safeParse(
     observationSchema,
