@@ -32,7 +32,7 @@ import { ssoChild, type SsoWork } from "../sso-state";
 import { ssoObservation, inspectSsoTarget } from "./entry";
 import { learnSsoEntry } from "./learned-entries";
 import { detachChild, pauseNativeChild, releaseChild } from "./child";
-import { SSO_FLOW_MS, ssoReturnMoved } from "./moved";
+import { SSO_FLOW_MS, reconnectLeft, ssoReturnMoved } from "./moved";
 import { cancelled, returned, signedIn, username } from "./return";
 import type { AdmitContext } from "../admit-context";
 import type { Readiness } from "../types";
@@ -397,18 +397,24 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
   // answers after the flow pressed its finite step, or the tab leaves while it is checked,
   // ends nothing and is not read: the tab's next document is (ADR 0026, amendment of
   // 2026-11-20).
+  // One still the tab's document, whose URL its own routing replaced, is asked once to
+  // announce again.
   const leftIdp = async () => {
     if (ctx.document.origin !== work.selected.origin) return false;
     const url = await tabUrl(ctx.document.tabId);
     return url !== undefined && url !== ctx.live.url;
   };
-  if (await leftIdp()) return ctx.refuse("sso-in-progress", "idp:left");
+  const left = () => {
+    reconnectLeft(rt, work, ctx.live);
+    return ctx.refuse("sso-in-progress", "idp:left");
+  };
+  if (await leftIdp()) return left();
   const prior = work.live;
   work.live = ctx.live;
   if (!(await ssoScope(rt, work))) {
     if (await leftIdp()) {
       if (work.live === ctx.live) work.live = prior;
-      return ctx.refuse("sso-in-progress", "idp:left");
+      return left();
     }
     // An RP page after the IdP whose URL changed in place since it announced is asked to
     // announce again, as it now shows (ADR 0026, amendment of 2026-11-20).

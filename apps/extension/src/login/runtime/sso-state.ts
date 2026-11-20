@@ -64,6 +64,8 @@ export type SsoWork = {
   moved?: Promise<void>;
   movedAgain?: boolean;
   refresh?: LiveDocument;
+  /** The IdP document refused as one the tab left, asked once to announce again. */
+  leftAsked?: string;
   reprompted?: boolean;
   generation?: boolean;
   /** The RP document and path the RP-return judge was last asked about: once each. */

@@ -73,6 +73,30 @@ export function ssoReturnMoved(rt: Runtime, tabId: number, url: string | undefin
   return true;
 }
 
+/**
+ * An IdP document refused as one the tab left (`idp:left`) that is still the tab's
+ * document, as an IdP's own routing replaced its URL while it was read, is asked once to
+ * announce again, so it is read at its new URL rather than leave the flow waiting (ADR
+ * 0026, amendment of 2026-11-20). A document the tab really left cannot answer.
+ */
+export function reconnectLeft(rt: Runtime, work: SsoWork, live: LiveDocument) {
+  if (
+    work.leftAsked === live.document.documentId ||
+    rt.documents.get(frameKey(live.document)) !== live ||
+    !ssoCurrent(rt, work, live)
+  )
+    return;
+  work.leftAsked = live.document.documentId;
+  work.refresh = live;
+  void browser.tabs
+    .sendMessage(
+      live.document.tabId,
+      { version: 1, type: "login.reconnect" },
+      { frameId: 0, documentId: live.document.documentId },
+    )
+    .catch(() => undefined);
+}
+
 /** The longest an SSO flow lasts (`sso-expired`). */
 export const SSO_FLOW_MS = 600_000;
 /**

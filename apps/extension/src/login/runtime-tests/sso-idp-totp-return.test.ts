@@ -410,6 +410,36 @@ describe("an IdP step whose tab has left its document", () => {
     expect(h.work.ended).toBe(false);
     expect(h.work.live).toBe(current.live);
   });
+  it("asks an IdP document its own routing moved while it was read to announce again, once", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    const routed = h.page(idp, "idp-spa", "/authorize");
+    // The IdP's own routing replaced the document's URL after it announced.
+    fake.state.tabUrls[7] = idp + "/authorize/mfa";
+    delivery.mockClear();
+    const reconnects = () =>
+      delivery.mock.calls.filter(
+        ([, message, options]) =>
+          message["type"] === "login.reconnect" &&
+          (options as { documentId?: string }).documentId === "idp-spa",
+      );
+    expect(await ssoAdmit(h.rt, routed.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(await ssoAdmit(h.rt, routed.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(reconnects()).toHaveLength(1);
+    // A document the tab really left, which a newer one replaced, is not asked.
+    const gone = h.page(idp, "idp-gone", "/authorize");
+    h.page(idp, "idp-newer", "/done");
+    fake.state.tabUrls[7] = idp + "/elsewhere";
+    expect(await ssoAdmit(h.rt, gone.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(
+      delivery.mock.calls.some(
+        ([, message, options]) =>
+          message["type"] === "login.reconnect" &&
+          (options as { documentId?: string }).documentId === "idp-gone",
+      ),
+    ).toBe(false);
+    expect(h.work.ended).toBe(false);
+  });
   it("ends nothing when the tab leaves that document while its scope is checked", async () => {
     const h = await harness();
     h.work.phase = "at-idp";
