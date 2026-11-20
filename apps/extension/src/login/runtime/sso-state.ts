@@ -64,9 +64,26 @@ export type SsoWork = {
   moved?: Promise<void>;
   movedAgain?: boolean;
   refresh?: LiveDocument;
+  /** The IdP document refused as one the tab left, asked once to announce again. */
+  leftAsked?: string;
   reprompted?: boolean;
   generation?: boolean;
-  completionTried?: boolean;
+  /** The RP document and path the RP-return judge was last asked about: once each. */
+  judged?: string;
+  /** The RP document asked to say when it describes something, and how often. */
+  watched?: { documentId: string; count: number };
+  /**
+   * The RP document the IdP child was detached on, at the RP return: its record ends with
+   * the flow, signed in once the RP shows it, released otherwise (ADR 0026, amendment of
+   * 2026-11-20).
+   */
+  detached?: LoginDocument;
+  /** The parent's sign-in was written within its fence: the flow signed in for good. */
+  recorded?: true;
+  /** The detached IdP child's end was recorded (`releaseChild`), once. */
+  childEnded?: true;
+  /** An RP page's reading on the return, which a page announcing meanwhile waits for. */
+  reading?: Promise<void>;
   operation?: {
     id: string;
     handle: string;
@@ -78,6 +95,8 @@ export type SsoWork = {
   busy: boolean;
   ended: boolean;
   stopReason?: string;
+  /** Why `cancelSso` ended the flow, for a completion that was being written meanwhile. */
+  endReason?: string;
   timer?: ReturnType<typeof setTimeout>;
 };
 export type SsoNativeChoice = {

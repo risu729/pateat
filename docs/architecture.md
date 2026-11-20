@@ -4999,6 +4999,10 @@ A flow's RP return may land on another origin of the RP's registrable site, with
 scheme, that is not the IdP's and that the RP item matches (`ssoReturnOrigin`; never for
 a `localhost` or IP RP); every other origin stays forbidden
 ([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-an-rp-return-on-another-origin-of-the-same-site)).
+Such a page is read with the RP's markers learned on its own origin and then the RP
+origin's, and the RP-return judge (`judgeSsoCompletion`) judges a page of any origin a
+login of the recipe's origin may move to (`loginMoveFits`), not only of the recipe's own
+([ADR 0026, amended 2026-11-20](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-20-a-return-to-another-origin-of-the-rps-site)).
 An SSO route validates its own method
 and refuses another mapped method on the same IdP account, even through different
 connections; a native route needs no SSO method. A URL-form choice names one of at most
@@ -5031,20 +5035,51 @@ An IdP page that is neither the IdP's sign-in form nor a finite step (`login.sso
 reads `unknown`), as a risk check or a method chooser after the IdP's own submit, is
 admitted with the IdP child's record while that child runs, so it goes on to its
 handlers or its watch there as a direct login of the IdP does. That includes an account
-confirmation over its 16-letter text allowance, on which the child acts only through
-its own recipe's targets. Before any child began, or after the child signed in, such a
-page waits only when it offers no visible control of its own (the reading's `controls`
-is false: no button, link, field or frame with an area): it refuses `sso-in-progress`
-and the flow waits, pressing nothing, bounded by its ten minutes (`sso-expired`); only
-the RP's own evidence completes it. An `unknown` page with its own controls at those
-times, an `unsafe` reading, or an `unknown` one after the child ended `blocked`, still
-ends the flow `sso-idp-stop`.
-A child whose result settled as unknown, or that is watched after a challenge, keeps the
-flow; only a `blocked` child ends it (`sso-idp-child-stopped`). The child's
-`login.attempt` lines are logged on the device with `ssoChild`, also its end when the
-flow detaches it (`sso-detached`) and its release (`sso-released`, at debug). A step its
-parent's scope no longer authorizes logs `login.refused` `sso-scope-changed` with detail
-`idp-step`, at info the first time for its document and path, which goes to the service
-as a problem line, and at debug for each repeat there
-([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit);
-its waiting rule approved by the owner on 2026-11-19).
+confirmation over its 16-letter text allowance, on which the child acts only through its
+own recipe's targets. Before any child began, or after the child signed in, such a page
+waits only when it offers no visible control of its own (the reading's `controls` is
+false: no button, link, field or frame with an area): it refuses `sso-in-progress` and
+the flow waits, pressing nothing, bounded by its ten minutes (`sso-expired`); only the
+RP's own evidence completes it. An `unknown` page with its own controls at those times,
+an `unsafe` reading, or an `unknown` one after the child ended `blocked`, still ends the
+flow `sso-idp-stop`. A child whose result settled as unknown, or that is watched after a
+challenge, keeps the flow; only a `blocked` child ends it (`sso-idp-child-stopped`). The
+child's `login.attempt` lines are logged on the device with `ssoChild`, also its end
+when the flow detaches it before a finite step (`sso-detached`). On the RP return its
+authority is withdrawn at once and its end recorded with the flow's, once, with
+`sso-released`: `authenticated` when the RP showed the sign-in, else as a login whose
+tab left its origin ends from its state (`left-origin`, `unknown-submit`, `challenge` or
+`interrupted`); it is stored released at once, so a worker restart leaves it no hold. A
+step its parent's scope no longer authorizes logs `login.refused` `sso-scope-changed`
+with detail `idp-step`, at info the first time for its document and path, which goes to
+the service as a problem line, and at debug for each repeat there; when the tab's URL is
+no longer the document's, the login stops reading it and asks it once to announce again
+(`leftDocument`); an IdP document that announces, or is checked, once the tab has left
+it refuses `sso-in-progress` with detail `idp:left` and ends nothing, and one still the
+tab's document, whose URL its own routing replaced, is asked once to announce again.
+After the IdP, an RP page that shows neither the sign-in nor the site's sign-in form,
+another account or an unsafe page waits (`sso-in-progress`, detail `rp-return:` and why,
+such as `unobserved` or `loading`) only while it is loading, cannot be read, shows
+nothing yet (`blank`: no visible text, also in shadow trees, and nothing the signed-in
+extractor would describe, as a callback or a portal still rendering) or changed its URL
+in place: for the tab's next page, for the moved page to announce again
+(`ssoReturnMoved`), or for a blank page to show something (`login.extract.watch` with
+`shown`, at most three times per document). One page is read at a time, the RP-return
+judge is asked once per RP document and path, and a page being read is asked again only
+after its reading. After the IdP, any other page that proves nothing ends the flow
+`sso-return-unconfirmed` once no judge can confirm it (no judge can be asked, or it
+answered that page anything but `signed-in`) and while it is still the page read; one
+that moved meanwhile is read again where it went (`rp-return:unscoped`). So do the
+site's sign-in (a password form, or an identifier input that asks for the account:
+`signInIdentifier`, the page's only input to type into or one with a password input in
+its form), a code or CAPTCHA page, and the judge's `rejected`; before the IdP such a
+page waits. A portal judged while it shows only part of its content ends the flow too,
+and an RP page shown only in an iframe or a canvas waits until `sso-expired` (known
+limits). A marker the judge learns on another origin of the RP's site keeps that origin
+and counts only there; one naming the recipe's own origin is refused. A completion whose
+record cannot be written ends the flow `cancelled` (`sso-scope-changed`, or the reason
+that ended it meanwhile), and the IdP's login is released signed in only once that
+record was written
+([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit),
+its waiting rule approved by the owner on 2026-11-19, and
+[2026-11-20](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).

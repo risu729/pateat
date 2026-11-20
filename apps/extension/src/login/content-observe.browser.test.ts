@@ -102,6 +102,71 @@ describe("login.observe's sign-in inputs after an advance (ADR 0018)", () => {
   });
 });
 
+describe("login.observe's identifier that asks for the account (ADR 0026, 2026-11-20)", () => {
+  const read = async (html: string) => {
+    document.body.innerHTML = html;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    return observe({ targets: [], signIn: true });
+  };
+  it("counts an email input that is the page's only input, as an email-first page", async () => {
+    expect(
+      await read(
+        `<form><input type="email" aria-label="Work email"><button>Continue</button></form>`,
+      ),
+    ).toMatchObject({ signIn: { identifier: true, signInIdentifier: true } });
+  });
+  it("counts an identifier input with a password input in its form", async () => {
+    expect(
+      await read(
+        `<input type="search" aria-label="Search"><form><input autocomplete="username" aria-label="User"><input type="password" aria-label="Password"><button>Sign in</button></form>`,
+      ),
+    ).toMatchObject({ signIn: { identifier: true, signInIdentifier: true } });
+  });
+  it("leaves out an email input beside the page's other inputs, as a newsletter field", async () => {
+    expect(
+      await read(
+        `<input type="search" aria-label="Search"><footer><form><input type="email" aria-label="Newsletter"><button>Subscribe</button></form></footer>`,
+      ),
+    ).toMatchObject({ signIn: { identifier: true, signInIdentifier: false } });
+  });
+});
+
+describe("login.observe's page that shows no text yet (ADR 0026, 2026-11-20)", () => {
+  const read = async (html: string) => {
+    document.body.innerHTML = html;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    return observe({ targets: [], signIn: true });
+  };
+  it("reads a page with only an empty root or hidden text as blank", async () => {
+    expect(
+      await read(`<div id="root"></div><p hidden>Signed in</p><div style="display:none">x</div>`),
+    ).toMatchObject({ signIn: { blank: true } });
+  });
+  it("reads a shell whose only control is an icon link with a label as one that shows something", async () => {
+    expect(
+      await read(`<a href="/account" aria-label="Account"><svg width="24" height="24"></svg></a>`),
+    ).toMatchObject({ signIn: { blank: false } });
+  });
+  it("reads text shown only in a shadow tree as something shown", async () => {
+    document.body.innerHTML = `<portal-app></portal-app>`;
+    document
+      .querySelector("portal-app")!
+      .attachShadow({ mode: "open" }).innerHTML = `<h1>Welcome back</h1>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await observe({ targets: [], signIn: true })).toMatchObject({
+      signIn: { blank: false },
+    });
+  });
+  it("reads a page with a visible heading as one that shows something", async () => {
+    expect(await read(`<h1>Returned to relying party</h1>`)).toMatchObject({
+      signIn: { blank: false },
+    });
+  });
+});
+
 describe("login.entry.check's list of accounts (ADR 0079)", () => {
   async function check() {
     const token = sent.find((message) => typeof message["token"] === "string")?.["token"];

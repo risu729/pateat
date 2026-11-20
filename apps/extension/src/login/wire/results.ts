@@ -352,7 +352,21 @@ export const observationSchema = v.strictObject({
    * any form with a `new-password` or `one-time-code` input.
    */
   signIn: v.optional(
-    v.strictObject({ loaded: v.boolean(), password: v.boolean(), identifier: v.boolean() }),
+    v.strictObject({
+      loaded: v.boolean(),
+      password: v.boolean(),
+      identifier: v.boolean(),
+      /**
+       * An `identifier` input that asks for the account: the page's only input to type
+       * into, or one with a password input in its form (ADR 0026, amendment of 2026-11-20).
+       */
+      signInIdentifier: v.boolean(),
+      /**
+       * The page shows no text yet, as a page still rendering in place: the RP return waits
+       * for it to describe something (ADR 0026, amendment of 2026-11-20).
+       */
+      blank: v.boolean(),
+    }),
   ),
   /** With `explain` asked: per target, the check that decided its state. */
   checks: v.optional(v.pipe(v.array(targetCheckSchema), v.maxLength(24))),

@@ -3,7 +3,6 @@ import { ssoDependenciesKept } from "./dependencies";
 import { browser } from "wxt/browser";
 import * as v from "valibot";
 import {
-  getItemEligibility,
   itemAsksForMasterPassword,
   parseAttemptMetadata,
   normalizeSsoLabel,
@@ -17,27 +16,26 @@ import {
   type LoginTarget,
   type SettingsResponse,
   type LoginMethod,
-  onlyChoicesSince,
 } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
 import type { SsoResolvedChoice } from "../../sso-choice";
-import { ssoIdpResultSchema, ssoReturnResultSchema } from "../../sso-operation-wire";
-import { stateResultSchema, observationSchema } from "../../wire";
-import { loginUsernameFieldId } from "../../vault";
-import { send, publish, noteSignedIn, reportAttempt } from "../attempt";
+import { ssoIdpResultSchema } from "../../sso-operation-wire";
+import { send, publish, reportAttempt } from "../attempt";
 import { keep, quietly } from "../session-store";
 import { choiceAccount, itemMatchesUrl } from "../plan";
-import { withChoice } from "../steps";
-import { hideUsernames, markerProofs, showsMarkers } from "../markers";
+import { hideUsernames } from "../markers";
 import { openPasswordWindow } from "../master-password";
-import { countRelogin } from "../relogin";
 import { openMethods, type MethodMarks } from "../methods";
 import { ssoCurrent, ssoReturnOrigin, ssoScope } from "../sso-scope";
 import { ssoPress } from "../sso-effects";
 import { ssoChild, type SsoWork } from "../sso-state";
 import { ssoObservation, inspectSsoTarget } from "./entry";
 import { learnSsoEntry } from "./learned-entries";
+import { detachChild, pauseNativeChild, releaseChild } from "./child";
+import { SSO_FLOW_MS, reconnectLeft, ssoReturnMoved } from "./moved";
+import { cancelled, returned, signedIn, username } from "./return";
 import type { AdmitContext } from "../admit-context";
+import type { Readiness } from "../types";
 import type { Choice, Execution, LiveDocument } from "../types";
 import type { Runtime } from "../state";
 
@@ -72,29 +70,6 @@ export async function ssoReprompt(rt: Runtime, work: SsoWork, live: LiveDocument
     ssoCurrent(rt, work, live)
   );
 }
-async function username(rt: Runtime, work: SsoWork, live: LiveDocument, idp: boolean) {
-  const account = idp ? { ...work.selected.account, origin: work.selected.origin } : work.account;
-  const connection = work.saved.catalog.connections.find(
-    (entry) => entry.id === account.connectionId,
-  );
-  const eligible = getItemEligibility(
-    work.saved.snapshot.settings,
-    work.saved.catalog,
-    account.connectionId,
-    account.itemId,
-  );
-  const fieldId = connection && loginUsernameFieldId(connection, account.itemId);
-  if (
-    !connection ||
-    !fieldId ||
-    !eligible.eligible ||
-    !eligible.fieldIds.includes(fieldId) ||
-    !(await ssoScope(rt, work, live))
-  )
-    return undefined;
-  const value = await rt.fields({ connection, account, fieldId }).catch(() => undefined);
-  return (await ssoScope(rt, work, live))?.() ? value : undefined;
-}
 /**
  * Ends a tab's flow. `goesOn` names a document that goes on with its own login, such as the
  * page whose Log in now ended the flow: it gets no cancel and keeps its state.
@@ -108,21 +83,19 @@ export function cancelSso(
   const work = rt.sso.flows.get(tabId);
   if (!work || work.ended) return;
   work.ended = true;
+  work.endReason = reason;
   work.abort.abort();
   clearTimeout(work.timer);
   rt.sso.flows.delete(tabId);
   rt.sso.native.delete(tabId);
   holdInterrupted(rt, tabId, work);
+  // A flow whose sign-in was already recorded ends its IdP login signed in too.
+  void quietly(rt, () => releaseChild(rt, work, work.recorded === true));
   const kept = goesOn !== undefined && sameLoginDocument(work.live.document, goesOn);
   if (!kept) void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
   void rt.sso.write().catch(() => undefined);
   if (work.parent && work.parent.state !== "authenticated") {
-    const ended = parseAttemptMetadata({
-      ...work.parent,
-      state: "blocked",
-      outcome: "cancelled",
-      timing: { ...work.parent.timing, pageMs: Date.now() - work.startedAt },
-    });
+    const ended = cancelled(work, work.parent);
     work.parent = ended;
     void quietly(rt, async () => {
       await keep(rt, ended);
@@ -175,337 +148,6 @@ export async function ssoVaultChanged(
     else work.saved = saved;
   }
 }
-/**
- * Completes the flow on the RP page's positive evidence. After an IdP that showed no page
- * (`instant`) nothing confirmed which IdP account signed in: a bracket-form method then
- * needs the RP to show the selected identity itself, and a URL-form method completing on
- * a marker alone is recorded as unconfirmed, which saves no account choice, keeps no
- * session pick and leaves no confirmation proof.
- */
-async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, instant = false) {
-  if (!work.parent || !(await ssoScope(rt, work, live))?.()) return false;
-  let selected = work.form === "url" ? undefined : await username(rt, work, live, false);
-  const identity = v.safeParse(
-    ssoReturnResultSchema,
-    await send(rt, live, {
-      type: "login.sso.return",
-      ...(selected ? { username: selected } : {}),
-    }).catch(() => undefined),
-  );
-  const state = v.safeParse(
-    stateResultSchema,
-    await send(rt, live, {
-      type: "login.state",
-      ...(selected ? { account: { username: selected } } : {}),
-      loadWithinMs: 10_000,
-    }).catch(() => undefined),
-  );
-  selected = undefined;
-  if (
-    !identity.success ||
-    !identity.output.ok ||
-    identity.output.identity === "different" ||
-    !state.success ||
-    !state.output.ok ||
-    !state.output.loaded ||
-    [
-      state.output.signs.password,
-      state.output.signs.code,
-      state.output.signs.captcha,
-      state.output.signs.invalid,
-      state.output.signs.alert,
-    ].some(Boolean)
-  )
-    return false;
-  const layout = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
-  for (const entry of layout?.entries ?? []) {
-    // oxlint-disable-next-line no-await-in-loop -- every original SSO entry must still be absent
-    if ((await ssoEntryShown(rt, live, entry.target)) !== false) return false;
-  }
-  const matched = identity.output.identity === "match";
-  if (instant && work.form !== "url" && !matched) return false;
-  const unconfirmed = instant && !matched;
-  const positive =
-    matched ||
-    (await ssoMarkerShown(rt, work, live)) ||
-    (await showsMarkers(
-      rt,
-      live,
-      await markerProofs(rt, work.account.origin, work.account.origin),
-    ));
-  const fence = positive ? await ssoScope(rt, work, live) : undefined;
-  if (!fence?.()) return false;
-  const before = work.parent;
-  const ended = parseAttemptMetadata({
-    ...before,
-    // A return to another origin of the RP's site keeps the record on the RP's own
-    // document, since an attempt belongs to its account's origin.
-    document: live.document.origin === before.account.origin ? live.document : before.document,
-    state: "authenticated",
-    outcome: "authenticated",
-    ...(unconfirmed ? { unconfirmed: true as const } : {}),
-    timing: { ...before.timing, pageMs: Date.now() - work.startedAt },
-  });
-  // No awaited work between the last delivery fence and the state transition.
-  clearTimeout(work.timer);
-  work.parent = ended;
-  rt.sso.interrupted.delete(live.document.tabId);
-  await keep(rt, ended, true, fence);
-  if (!fence()) return false;
-  reportAttempt(rt, ended, undefined);
-  noteSignedIn(rt, before, ended, work.account.origin);
-  countRelogin(rt, before, ended, live.incognito === true);
-  if (work.choice && !unconfirmed && rt.settings.update) {
-    const choice = work.choice;
-    await rt.settings
-      .update(
-        undefined,
-        "account-choice",
-        (snapshot) => {
-          if (!fence()) return snapshot;
-          return { ...snapshot, settings: withChoice(snapshot.settings, choice) };
-        },
-        async (snapshot, catalog) => {
-          // This callback runs inside the settings queue: never re-enter settings.handle.
-          const latestCatalog = await catalog();
-          return (
-            onlyChoicesSince(snapshot, work.saved.snapshot.revision) &&
-            JSON.stringify(latestCatalog) === JSON.stringify(work.saved.catalog) &&
-            !!fence()
-          );
-        },
-      )
-      .catch(() => undefined);
-  }
-  work.ended = true;
-  rt.sso.flows.delete(live.document.tabId);
-  await rt.sso.write();
-  await publish(rt, live, ended);
-  return true;
-}
-async function pauseNativeChild(rt: Runtime, work: SsoWork): Promise<boolean> {
-  const child = rt.attempts.get(work.rpLive.document.tabId);
-  if (!child || child.metadata.id !== work.childId || !ssoChild(rt.sso, child.metadata))
-    return true;
-  // Withdraw background authority synchronously, before any storage or content await.
-  rt.attempts.delete(work.rpLive.document.tabId);
-  work.childRecord =
-    child.metadata.state === "authenticated"
-      ? child.metadata
-      : parseAttemptMetadata({
-          ...child.metadata,
-          state: "blocked",
-          outcome: "cancelled",
-          watch: undefined,
-          settled: undefined,
-        });
-  // The child's end is logged as any of its lines is (ADR 0026, amendment of 2026-11-18).
-  if (child.metadata.state !== "authenticated")
-    reportAttempt(rt, work.childRecord, child.recipe, undefined, { reason: "sso-detached" });
-  const sameDocument =
-    sameLoginDocument(child.live.document, work.live.document) &&
-    child.live.token === work.live.token;
-  const cancelled = await send(
-    rt,
-    child.live,
-    sameDocument
-      ? { type: "login.native.cancel", attemptId: child.metadata.id }
-      : { type: "login.cancel" },
-  ).catch(() => undefined);
-  await keep(rt, work.childRecord);
-  return (
-    !sameDocument ||
-    (cancelled !== null &&
-      typeof cancelled === "object" &&
-      "ok" in cancelled &&
-      cancelled.ok === true)
-  );
-}
-async function releaseChild(rt: Runtime, work: SsoWork) {
-  await pauseNativeChild(rt, work);
-  const metadata = work.childRecord;
-  if (!metadata || metadata.id !== work.childId || !ssoChild(rt.sso, metadata)) return;
-  work.childRecord = parseAttemptMetadata({
-    ...metadata,
-    ssoChild: { parentId: work.id, attemptId: metadata.id, released: true },
-  });
-  reportAttempt(rt, work.childRecord, undefined, undefined, {
-    repeat: true,
-    reason: "sso-released",
-  });
-  await keep(rt, work.childRecord);
-}
-async function ssoEntryShown(
-  rt: Runtime,
-  live: LiveDocument,
-  target: LoginTarget,
-): Promise<boolean | undefined> {
-  const reading = v.safeParse(
-    observationSchema,
-    await send(rt, live, {
-      type: "login.observe",
-      path: live.path,
-      targets: [target],
-      require: ["shown"],
-    }).catch(() => undefined),
-  );
-  // A missing reading proves neither absence, including a visible but disabled entry, nor
-  // presence, as when the page navigates away while it is read: it answers undefined.
-  if (!reading.success || reading.output.targets[0] === undefined) return undefined;
-  return ["unique", "ambiguous"].includes(reading.output.targets[0]);
-}
-async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
-  const targets =
-    work.recipe?.sso.layouts
-      .find((entry) => entry.key === work.layout)
-      ?.completion?.map((entry) => entry.target) ?? [];
-  if (!targets.length) return false;
-  const read = v.safeParse(
-    observationSchema,
-    await send(rt, live, {
-      type: "login.observe",
-      path: live.path,
-      targets,
-      require: targets.map(() => "shown" as const),
-      links: targets.map((target) => target.by === "href"),
-    }).catch(() => undefined),
-  );
-  return (
-    read.success &&
-    read.output.targets.some((state) => state === "unique") &&
-    !!(await ssoScope(rt, work, live))?.()
-  );
-}
-/**
- * Whether the RP page completes the flow: `completed`, `refused` when it shows the site's
- * sign-in again (its SSO entry, a password form or a rejected sign-in) or another account,
- * or false when it proves nothing. A return must carry positive RP authentication
- * evidence, never just an absent form. With `instant`, after an IdP that showed no page,
- * only the page's own evidence counts and the RP-return judge is never asked.
- */
-async function returned(
-  rt: Runtime,
-  work: SsoWork,
-  live: LiveDocument,
-  instant = false,
-  /** Only says whether the RP's own evidence would complete (`evidence`), recording nothing. */
-  check = false,
-): Promise<"completed" | "evidence" | "refused" | false> {
-  if (!(await ssoScope(rt, work, live))) return false;
-  let value = work.form === "url" ? undefined : await username(rt, work, live, false);
-  const identity = v.safeParse(
-    ssoReturnResultSchema,
-    await send(rt, live, { type: "login.sso.return", ...(value ? { username: value } : {}) }).catch(
-      () => undefined,
-    ),
-  );
-  if (identity.success && identity.output.ok && identity.output.identity === "different") {
-    value = undefined;
-    return "refused";
-  }
-  if (!identity.success || !identity.output.ok || !(await ssoScope(rt, work, live))) {
-    value = undefined;
-    return false;
-  }
-  const reading = v.safeParse(
-    stateResultSchema,
-    await send(rt, live, {
-      type: "login.state",
-      ...(value ? { account: { username: value } } : {}),
-      loadWithinMs: 10_000,
-    }).catch(() => undefined),
-  );
-  value = undefined;
-  if (
-    !reading.success ||
-    !reading.output.ok ||
-    !reading.output.loaded ||
-    !(await ssoScope(rt, work, live))
-  )
-    return false;
-  const signs = reading.output.signs;
-  if (signs.password || signs.invalid) return "refused";
-  if (signs.code || signs.captcha || signs.alert) return false;
-  const own = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
-  for (const entry of own?.entries ?? []) {
-    // oxlint-disable-next-line no-await-in-loop -- any original entry still shown prevents completion
-    const shown = await ssoEntryShown(rt, live, entry.target);
-    // Only an entry read as shown is a refusal; an unread page, often one moving on, waits.
-    if (shown !== false) return shown === true ? "refused" : false;
-  }
-  const marker = await showsMarkers(
-    rt,
-    live,
-    await markerProofs(rt, work.account.origin, work.account.origin),
-  );
-  if (identity.output.identity === "match" || marker || (await ssoMarkerShown(rt, work, live)))
-    return check ? "evidence" : (await completeSso(rt, work, live, instant)) && "completed";
-  if (instant || work.completionTried || !work.recipe || !work.layout || !rt.generation?.judgeSso)
-    return false;
-  work.completionTried = true;
-  const page = await ssoObservation(rt, live);
-  if (!page) return false;
-  const rp = await username(rt, work, live, false);
-  const idp = await username(rt, work, live, true);
-  const hidden = hideUsernames(
-    rt,
-    page,
-    rp !== undefined && idp !== undefined ? [rp, idp] : undefined,
-    live,
-  );
-  if ("reason" in hidden || !(await ssoScope(rt, work, live))) return false;
-  const judged = await rt.generation.judgeSso(work.recipe.id, {
-    version: 1,
-    kind: "sso-completion",
-    revision: work.recipe.revision,
-    layout: work.layout,
-    observation: hidden.observation,
-  });
-  if (!judged.signedIn) return false;
-  if (judged.recipe) {
-    work.recipe = judged.recipe;
-    if (work.parent)
-      work.parent = parseAttemptMetadata({
-        ...work.parent,
-        recipeRevision: judged.recipe.revision,
-      });
-  }
-  if (!(await ssoScope(rt, work, live)) || !(await ssoMarkerShown(rt, work, live))) return false;
-  let selected = work.form === "url" ? undefined : await username(rt, work, live, false);
-  const finalIdentity = v.safeParse(
-    ssoReturnResultSchema,
-    await send(rt, live, {
-      type: "login.sso.return",
-      ...(selected ? { username: selected } : {}),
-    }).catch(() => undefined),
-  );
-  const finalState = v.safeParse(
-    stateResultSchema,
-    await send(rt, live, {
-      type: "login.state",
-      ...(selected ? { account: { username: selected } } : {}),
-      loadWithinMs: 10_000,
-    }).catch(() => undefined),
-  );
-  selected = undefined;
-  return (
-    finalIdentity.success &&
-    finalIdentity.output.ok &&
-    finalIdentity.output.identity !== "different" &&
-    finalState.success &&
-    finalState.output.ok &&
-    finalState.output.loaded &&
-    ![
-      finalState.output.signs.password,
-      finalState.output.signs.code,
-      finalState.output.signs.captcha,
-      finalState.output.signs.invalid,
-      finalState.output.signs.alert,
-    ].some(Boolean) &&
-    (await completeSso(rt, work, live)) &&
-    "completed"
-  );
-}
 export async function beginSso(
   rt: Runtime,
   ctx: AdmitContext,
@@ -548,7 +190,7 @@ export async function beginSso(
     ended: false,
   };
   rt.sso.flows.set(ctx.document.tabId, work);
-  work.timer = setTimeout(() => cancelSso(rt, ctx.document.tabId, "sso-expired"), 600_000);
+  work.timer = setTimeout(() => cancelSso(rt, ctx.document.tabId, "sso-expired"), SSO_FLOW_MS);
   try {
     if (!(await ssoScope(rt, work)) || !(await ssoReprompt(rt, work, ctx.live)))
       throw new Error("sso-scope-changed");
@@ -735,7 +377,7 @@ function learnPressedEntry(work: SsoWork, entry = pressedEntry(work)) {
     () => undefined,
   );
 }
-export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
+export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readiness | undefined> {
   await rt.sso.loaded;
   const work = rt.sso.flows.get(ctx.document.tabId);
   if (!work) return interruptedAdmit(rt, ctx);
@@ -751,8 +393,33 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     cancelSso(rt, ctx.document.tabId, "sso-forbidden-origin");
     return ctx.refuse("sso-forbidden-origin");
   }
+  // An IdP document the tab has left, as one asked to announce again (`leftDocument`) that
+  // answers after the flow pressed its finite step, or the tab leaves while it is checked,
+  // ends nothing and is not read: the tab's next document is (ADR 0026, amendment of
+  // 2026-11-20).
+  // One still the tab's document, whose URL its own routing replaced, is asked once to
+  // announce again.
+  const leftIdp = async () => {
+    if (ctx.document.origin !== work.selected.origin) return false;
+    const url = await tabUrl(ctx.document.tabId);
+    return url !== undefined && url !== ctx.live.url;
+  };
+  const left = () => {
+    reconnectLeft(rt, work, ctx.live);
+    return ctx.refuse("sso-in-progress", "idp:left");
+  };
+  if (await leftIdp()) return left();
+  const prior = work.live;
   work.live = ctx.live;
   if (!(await ssoScope(rt, work))) {
+    if (await leftIdp()) {
+      if (work.live === ctx.live) work.live = prior;
+      return left();
+    }
+    // An RP page after the IdP whose URL changed in place since it announced is asked to
+    // announce again, as it now shows (ADR 0026, amendment of 2026-11-20).
+    if (ssoReturnMoved(rt, ctx.document.tabId, await tabUrl(ctx.document.tabId)))
+      return ctx.refuse("sso-in-progress", "rp-return:moved");
     cancelSso(rt, ctx.document.tabId, "sso-scope-changed");
     return ctx.refuse("sso-scope-changed");
   }
@@ -802,12 +469,37 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
       cancelSso(rt, ctx.document.tabId, "sso-abandoned");
       return ctx.refuse("sso-abandoned");
     }
+    // One RP page is read at a time: a page that announced again meanwhile, as after its
+    // URL changed in place, is read after it, as it then shows.
+    if (work.reading) {
+      await work.reading;
+      if (signedIn(work)) return { ok: false as const, reason: "sso-completed" };
+      return rt.documents.get(ctx.key) === ctx.live
+        ? ssoAdmit(rt, ctx)
+        : { ok: false as const, reason: "stale-document" };
+    }
     work.phase = "returning-rp";
-    await releaseChild(rt, work);
-    if ((await returned(rt, work, ctx.live)) === "completed")
-      return { ok: false as const, reason: "sso-completed" };
-    cancelSso(rt, ctx.document.tabId, "sso-return-unconfirmed");
-    return ctx.refuse("sso-return-unconfirmed");
+    const reading = Promise.withResolvers<void>();
+    work.reading = reading.promise;
+    let result: Awaited<ReturnType<typeof returned>>;
+    try {
+      await detachChild(rt, work);
+      result = await returned(rt, work, ctx.live);
+    } finally {
+      delete work.reading;
+      reading.resolve();
+    }
+    if (result === "completed") return { ok: false as const, reason: "sso-completed" };
+    if (result === "refused") {
+      cancelSso(rt, ctx.document.tabId, "sso-return-unconfirmed");
+      return ctx.refuse("sso-return-unconfirmed");
+    }
+    if (result === "unscoped")
+      ssoReturnMoved(rt, ctx.document.tabId, await tabUrl(ctx.document.tabId));
+    // An RP page that proves nothing yet, as the RP's own callback or a page still loading
+    // on the way to its signed-in page, waits for the tab's next page, as an instant return
+    // does, bounded by the flow's ten minutes (ADR 0026, amendment of 2026-11-20).
+    return ctx.refuse("sso-in-progress", `rp-return:${result}`);
   }
   learnPressedEntry(work);
   work.phase = "at-idp";
@@ -901,6 +593,7 @@ export function ssoChildChanged(rt: Runtime, run: Execution) {
   }
 }
 
+const tabUrl = async (tabId: number) => (await browser.tabs.get(tabId).catch(() => undefined))?.url;
 const siblingMatches = async (rt: Runtime, work: SsoWork, url: string) => {
   const matched = await itemMatchesUrl(rt, work.saved, work.account, url, work.saved.catalog).catch(
     () => undefined,
@@ -916,6 +609,8 @@ export function installSsoLifecycle(rt: Runtime) {
     if (!work || !change.url) return;
     if (!url || (!ssoReturnOrigin(work, url.origin) && url.origin !== work.selected.origin))
       cancelSso(rt, tabId, "sso-forbidden-origin");
+    // An RP page waiting after the IdP that changed its URL in place is read again.
+    else if (ssoReturnMoved(rt, tabId, change.url)) return;
     // The tab reached the IdP after the press, even before any IdP page is admitted.
     else if (url.origin === work.selected.origin && !work.ended) learnPressedEntry(work);
     // Another origin of the RP's site is a return only where the RP item matches it, as

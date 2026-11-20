@@ -312,3 +312,21 @@ describe("all 27 window-kind assignments over three tabs", () => {
     },
   );
 });
+
+describe("an SSO flow's released IdP login", () => {
+  it("holds nothing through its watch once the RP return released it", () => {
+    const watch = { since: now, documentId: "document-2", pages: 0 };
+    const child = { parentId: "sso-parent", attemptId: "attempt-2" };
+    const watched = record({ state: "watching", changedAt: now - 600_000, watch });
+    expect(heldElsewhere([{ ...watched, ssoChild: child }], new Map(), 1, origin, now)).toBe(true);
+    expect(
+      heldElsewhere(
+        [{ ...watched, ssoChild: { ...child, released: true } }],
+        new Map(),
+        1,
+        origin,
+        now,
+      ),
+    ).toBe(false);
+  });
+});

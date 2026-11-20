@@ -46,7 +46,7 @@ export function createBrowserFake() {
      * for a loaded page with a password input other than the asked targets, `false` for
      * one still loading, or the answer's parts.
      */
-    signIn: false as boolean | { password?: boolean; identifier?: boolean },
+    signIn: false as boolean | { password?: boolean; identifier?: boolean; blank?: boolean },
     granted: true,
     pageUrl: "https://login.example/signin",
     onExecute: undefined as
@@ -322,11 +322,19 @@ export function createBrowserFake() {
               ? {
                   signIn:
                     typeof state.signIn === "boolean"
-                      ? { loaded: state.signIn, password: state.signIn, identifier: false }
+                      ? {
+                          loaded: state.signIn,
+                          password: state.signIn,
+                          identifier: false,
+                          signInIdentifier: false,
+                          blank: false,
+                        }
                       : {
                           loaded: true,
                           password: state.signIn.password === true,
                           identifier: state.signIn.identifier === true,
+                          signInIdentifier: state.signIn.identifier === true,
+                          blank: state.signIn.blank === true,
                         },
                 }
               : {}),

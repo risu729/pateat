@@ -59,6 +59,8 @@ import {
   checkGapMs,
   pause,
   credentialInputs,
+  showsNothing,
+  describesNothing,
 } from "./content-dom";
 import { executeNative } from "./content-execute";
 import { codePageDigest } from "../page/code-page";
@@ -627,13 +629,9 @@ export function createContentListener(context: ContentSession) {
         for (;;) {
           if (stopped()) return;
           const checked = Date.now();
-          let empty = true;
-          try {
-            const result = extractSignedInObservation(document) as { reason?: unknown };
-            empty = result.reason === "no-candidates";
-          } catch {
-            // A page the extractor cannot read is not reported.
-          }
+          // With `shown`, until the page no longer shows nothing, by the rule of the
+          // `signIn` reading's `blank` (ADR 0026, amendment of 2026-11-20).
+          const empty = command.shown ? showsNothing() : describesNothing();
           if (stopped()) return;
           if (!empty) {
             await sendMessage("login", {
@@ -763,6 +761,7 @@ export function createContentListener(context: ContentSession) {
                 signIn: {
                   loaded: document.readyState === "complete",
                   ...credentialInputs(command.targets),
+                  blank: showsNothing(),
                 },
               }
             : {}),

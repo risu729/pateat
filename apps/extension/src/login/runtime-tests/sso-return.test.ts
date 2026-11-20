@@ -373,7 +373,9 @@ describe("actual SSO RP-return admission and final evidence", () => {
   it("absence of both exact local identity and a fresh marker never authenticates", async () => {
     const h = harness({ ok: true, identity: "absent" }, false);
     await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
+    // A loaded page that proves nothing, with no judge to confirm it, ends the flow unsigned.
     expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-return-unconfirmed" });
+    expect(h.work.parent?.state).toBe("blocked");
     expect(h.update).not.toHaveBeenCalled();
     expect(h.rt.confirmFill.proofs).toEqual([]);
     expect(h.signedIn).not.toHaveBeenCalled();
@@ -461,6 +463,7 @@ describe("actual SSO judge continuation rechecks local RP evidence", () => {
         expect(h.update).toHaveBeenCalledTimes(1);
         expect(h.rt.confirmFill.proofs).toContainEqual(expect.objectContaining({ origin: rp }));
       } else {
+        // Each ends the flow: a page whose marker went is not judged again (ADR 0026).
         expect(result).toEqual({ ok: false, reason: "sso-return-unconfirmed" });
         expect(h.work.parent?.state).toBe("blocked");
         expect(h.update).not.toHaveBeenCalled();
@@ -827,7 +830,8 @@ describe("an RP page before and after the IdP is reached", () => {
     expect(h.signedIn).not.toHaveBeenCalled();
     expect(h.rt.picked.get(7)).toBeUndefined();
   });
-  it.each(["password", "invalid"] as const)(
+  // `invalid` is read only after a submission in the same document, never on a return page.
+  it.each(["password"] as const)(
     "ends the flow when an instant return lands on the RP's sign-in again (%s)",
     async (sign) => {
       const h = harness({ ok: true, identity: "absent" }, false);
@@ -979,7 +983,7 @@ describe("an RP page before and after the IdP is reached", () => {
     expect(await ssoAdmit(h.rt, h.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
     expect(h.work.ended).toBe(false);
     expect(h.work.phase).toBe("entering-idp");
-    expect(h.work.completionTried).toBeUndefined();
+    expect(h.work.judged).toBeUndefined();
     expect(judge).not.toHaveBeenCalled();
     expect(h.signedIn).not.toHaveBeenCalled();
     expect(h.update).not.toHaveBeenCalled();

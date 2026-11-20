@@ -14,7 +14,9 @@ const mayHaveSpent = (work: SsoWork) =>
 
 /** Holds the tab's RP and IdP origins after a flow ended unconfirmed and may have clicked. */
 export function holdInterrupted(rt: Runtime, tabId: number, work: SsoWork): void {
-  if (work.parent?.state === "authenticated" || !mayHaveSpent(work)) return;
+  // A flow whose sign-in was recorded holds nothing; one read as signed in whose record
+  // was still being written may yet end unsigned (ADR 0026, amendment of 2026-11-20).
+  if (work.recorded || !mayHaveSpent(work)) return;
   rt.sso.interrupted.delete(tabId);
   rt.sso.interrupted.set(tabId, {
     id: work.id,

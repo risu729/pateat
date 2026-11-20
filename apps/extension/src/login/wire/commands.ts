@@ -349,6 +349,12 @@ export const commandSchema = v.variant("type", [
     type: v.literal("login.extract.watch"),
     token: id,
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(DESCRIBED_WATCH_MAX_MS)),
+    /**
+     * Reports once the page no longer shows nothing (the `signIn` reading's `blank`):
+     * visible text, also in shadow trees, or something to describe (ADR 0026, amendment
+     * of 2026-11-20).
+     */
+    shown: v.optional(v.literal(true)),
   }),
   /**
    * While a login is watched in this document (ADR 0027 amendment of 2026-11-17): answers

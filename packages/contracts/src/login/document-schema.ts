@@ -267,6 +267,7 @@ export const loginSsoRoutesSchema = createSsoRoutesSchema({
   path,
   target: loginTargetSchema,
   marker: loginMarkerTargetSchema,
+  origin: loginOriginSchema,
   key: recipeLayoutKeySchema,
   language: recipeLanguageSchema,
   layouts: MAX_RECIPE_LAYOUTS,
@@ -378,9 +379,9 @@ export const recipeDocumentSchema = v.pipe(
     "Too many recipe slots",
   ),
   v.check(
-    ({ origin, layouts, chooser }) =>
-      [...(layouts ?? []), ...chooserBranchBodies(chooser)].every((route) =>
-        markersOffOrigin(origin, route),
+    ({ origin, layouts, chooser, sso }) =>
+      [...(layouts ?? []), ...chooserBranchBodies(chooser), ...(sso?.layouts ?? [])].every(
+        (route) => markersOffOrigin(origin, route),
       ),
     "Completion marker names the recipe's own origin",
   ),

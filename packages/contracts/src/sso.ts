@@ -10,6 +10,7 @@ import type {
 import type {
   LoginTarget,
   loginMarkerTargetSchema,
+  loginOriginSchema,
   loginPathSchema,
   loginTargetSchema,
 } from "./login/targets";
@@ -63,6 +64,7 @@ export function createSsoRoutesSchema(schemas: {
   path: typeof loginPathSchema;
   target: typeof loginTargetSchema;
   marker: typeof loginMarkerTargetSchema;
+  origin: typeof loginOriginSchema;
   key: typeof recipeLayoutKeySchema;
   language: typeof recipeLanguageSchema;
   layouts: number;
@@ -90,13 +92,24 @@ export function createSsoRoutesSchema(schemas: {
           entries,
           completion: v.optional(
             v.pipe(
-              v.array(v.strictObject({ target: schemas.marker })),
+              v.array(
+                v.strictObject({
+                  target: schemas.marker,
+                  /**
+                   * Another origin of the RP's site the marker was learned on, as a
+                   * broker's portal the return landed on (ADR 0026, amendment of
+                   * 2026-11-20); one without proves a sign-in on the recipe's own origin.
+                   */
+                  origin: v.optional(schemas.origin),
+                }),
+              ),
               v.minLength(1),
               v.maxLength(4),
               v.check(
                 (markers) =>
-                  new Set(markers.map((entry) => canonicalJson(entry.target))).size ===
-                  markers.length,
+                  new Set(
+                    markers.map((entry) => canonicalJson([entry.target, entry.origin ?? null])),
+                  ).size === markers.length,
                 "Duplicate SSO completion markers",
               ),
             ),
