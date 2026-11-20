@@ -637,14 +637,36 @@ describe("the flow's end on a completion that cannot be recorded", () => {
     step(run, [...fill("username"), ...click("next")]);
     identities.set("rp-home", "match");
     const home = h.page(rp, "rp-home", "/home");
-    // Every write after the parent's sign-in fails.
+    // The write of the IdP's login's end fails.
     vi.mocked(h.rt.attemptRecords.write).mockImplementation(async (records) => {
-      if (records.some((record) => record.ssoChild && record.id === "idp-child"))
-        if (h.work.parent?.state === "authenticated") throw new Error("Synthetic write failure");
+      if (records.some((record) => record.id === "idp-child" && record.state === "authenticated"))
+        throw new Error("Synthetic write failure");
     });
     expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
     expect(h.work.ended).toBe(true);
     expect(h.rt.sso.flows.has(7)).toBe(false);
     expect(h.work.parent?.state).toBe("authenticated");
+  });
+  it("stores the IdP's login released on the RP return, so a restart leaves it no hold", async () => {
+    const h = await harness();
+    const form = h.page(idp, "idp-form", "/authsvc", "?txn=1");
+    idpReadings.set("idp-form", { kind: "native" });
+    const run = idpChild(h, form.live);
+    expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
+    step(run, [...fill("username"), ...click("next")]);
+    const callback = h.page(rp, "rp-callback", "/callback");
+    expect(await ssoAdmit(h.rt, callback.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    const stored = vi.mocked(h.rt.attemptRecords.write).mock.calls.at(-1)?.[0] ?? [];
+    expect(stored.find((record) => record.id === "idp-child")).toMatchObject({
+      state: "awaiting-result",
+      ssoChild: { released: true },
+    });
+    // Its end is still logged once with the flow's.
+    cancelSso(h.rt, 7, "sso-expired");
+    await vi.waitFor(() =>
+      expect(h.report).toHaveBeenCalledWith(
+        expect.objectContaining({ ssoChild: true, reason: "sso-released" }),
+      ),
+    );
   });
 });

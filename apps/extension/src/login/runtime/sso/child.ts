@@ -57,8 +57,15 @@ export async function detachChild(rt: Runtime, work: SsoWork) {
   const child = rt.attempts.get(tabId);
   if (child && child.metadata.id === work.childId && ssoChild(rt.sso, child.metadata)) {
     rt.attempts.delete(tabId);
-    work.childRecord = child.metadata;
+    // Stored released at once, as the flow holds both origins while it runs, and its
+    // interrupted hold does after a worker restart, which would leave this record holding
+    // the IdP's origin by itself (ADR 0026, amendment of 2026-11-20).
+    work.childRecord = parseAttemptMetadata({
+      ...child.metadata,
+      ssoChild: { parentId: work.id, attemptId: child.metadata.id, released: true },
+    });
     work.detached ??= work.live.document;
+    await keep(rt, work.childRecord);
     // The child's document is an IdP page the tab has left; a cancel there stops what it
     // still waits for.
     await send(rt, child.live, { type: "login.cancel" }).catch(() => undefined);
@@ -75,12 +82,13 @@ export async function releaseChild(rt: Runtime, work: SsoWork, signedIn: boolean
   const metadata = work.childRecord;
   if (
     !work.detached ||
+    work.childEnded ||
     !metadata ||
     metadata.id !== work.childId ||
-    metadata.ssoChild?.released ||
     !ssoChild(rt.sso, metadata)
   )
     return;
+  work.childEnded = true;
   const ended = terminal(metadata)
     ? metadata
     : transitionLoginAttempt(metadata, {
