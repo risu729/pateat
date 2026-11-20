@@ -313,6 +313,21 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
   await publish(rt, live, ended);
   return true;
 }
+/** Whether the loaded page shows a visible sign-in input; undefined when it cannot be read. */
+async function asksSignIn(rt: Runtime, live: LiveDocument): Promise<boolean | undefined> {
+  const reading = v.safeParse(
+    observationSchema,
+    await send(rt, live, {
+      type: "login.observe",
+      path: live.path,
+      targets: [],
+      signIn: true,
+    }).catch(() => undefined),
+  );
+  if (!reading.success) return undefined;
+  const shown = reading.output.signIn;
+  return !!shown?.loaded && (shown.identifier || shown.password);
+}
 async function ssoEntryShown(
   rt: Runtime,
   live: LiveDocument,
@@ -364,7 +379,7 @@ async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
 /**
  * Why an RP page did not complete the flow and waits, for the log: the flow's scope no
  * longer held (as after the page changed its URL in place), the page could not be read,
- * was still loading or showed a code, CAPTCHA or alert, the completion's own checks
+ * was still loading or showed a code or CAPTCHA, the completion's own checks
  * failed, nothing proved the sign-in, the page could not be described, or the judge said
  * it was not signed in.
  */
@@ -374,7 +389,6 @@ type Waiting =
   | "loading"
   | "code"
   | "captcha"
-  | "alert"
   | "incomplete"
   | "no-evidence"
   | "unobserved"
@@ -401,9 +415,17 @@ async function returned(
     value = undefined;
     return "unread";
   }
-  if (!identity.output.ok || identity.output.identity === "different") {
+  if (
+    identity.output.ok
+      ? identity.output.identity === "different"
+      : identity.output.reason === "unsafe-return"
+  ) {
     value = undefined;
     return "refused";
+  }
+  if (!identity.output.ok) {
+    value = undefined;
+    return "unread";
   }
   const who = identity.output.identity;
   if (!(await ssoScope(rt, work, live))) {
@@ -423,10 +445,10 @@ async function returned(
   if (!reading.output.loaded) return "loading";
   if (!(await ssoScope(rt, work, live))) return "unscoped";
   const signs = reading.output.signs;
-  if (signs.password || signs.invalid) return "refused";
+  // A sign-in form, or one the site rejected, is the site's sign-in again.
+  if (signs.password || signs.invalid || signs.alert) return "refused";
   if (signs.code) return "code";
   if (signs.captcha) return "captcha";
-  if (signs.alert) return "alert";
   const own = work.recipe?.sso.layouts.find((entry) => entry.key === work.layout);
   for (const entry of own?.entries ?? []) {
     // oxlint-disable-next-line no-await-in-loop -- any original entry still shown prevents completion
@@ -448,6 +470,10 @@ async function returned(
       : (await completeSso(rt, work, live, instant))
         ? "completed"
         : "incomplete";
+  // Without evidence, a page that asks for an account identifier is the site's sign-in
+  // again, as one asking for the email first (ADR 0026, amendment of 2026-11-20).
+  const asks = await asksSignIn(rt, live);
+  if (asks !== false) return asks === true ? "refused" : "unread";
   // The judge is asked once per RP document: the RP's own callback or an interstitial on
   // the way back is not the page that shows the sign-in (ADR 0026, amendment of
   // 2026-11-20).
@@ -479,6 +505,7 @@ async function returned(
     layout: work.layout,
     observation: hidden.observation,
   });
+  if (judged.rejected) return "refused";
   if (!judged.signedIn) return "not-signed-in";
   if (judged.recipe) {
     work.recipe = judged.recipe;

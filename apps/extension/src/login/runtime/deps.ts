@@ -189,7 +189,7 @@ export interface LoginGeneration {
   judgeSso?(
     recipeId: string,
     request: SsoCompletionRequest,
-  ): Promise<{ signedIn: boolean; recipe?: SsoRecipeDocument }>;
+  ): Promise<{ signedIn: boolean; recipe?: SsoRecipeDocument; rejected?: true }>;
   generateSso?(
     request: SsoGenerationRequest,
   ): Promise<

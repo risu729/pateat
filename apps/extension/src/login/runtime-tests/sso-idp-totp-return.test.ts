@@ -227,6 +227,68 @@ describe("the RP's pages on the way back", () => {
     expect(h.work.ended).toBe(true);
     expect(h.work.parent?.state).toBe("blocked");
   });
+  /** Answers `type` messages to the RP page with `answer`, after the IdP. */
+  const answering = async (type: string, answer: (message: Record<string, unknown>) => unknown) => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    const judgeSso = vi.fn(async () => ({ signedIn: false, rejected: true as const }));
+    h.rt.generation = {
+      available: async () => true as const,
+      generate: vi.fn(),
+      generateEntry: vi.fn(),
+      slotFields: async () => undefined,
+      judge: vi.fn(),
+      judgeSso,
+    };
+    const base = delivery.getMockImplementation()!;
+    delivery.mockImplementation(async (tabId, message, options) =>
+      message["type"] === type ? answer(message) : base(tabId, message, options),
+    );
+    return { h, judgeSso, page: h.page(rp, "rp-page", "/callback") };
+  };
+  const ended = { ok: false, reason: "sso-return-unconfirmed" };
+  it("ends the flow on an RP page that asks for an account identifier, unjudged", async () => {
+    const { h, judgeSso, page } = await answering("login.observe", (message) => ({
+      path: "/callback",
+      targets: (message["targets"] as unknown[]).map(() => "missing"),
+      ...(message["signIn"] ? { signIn: { loaded: true, password: false, identifier: true } } : {}),
+    }));
+    expect(await ssoAdmit(h.rt, page.ctx)).toEqual(ended);
+    expect(judgeSso).not.toHaveBeenCalled();
+    expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
+  });
+  it("ends the flow on an RP page that shows the sign-in rejected", async () => {
+    const { h, page } = await answering("login.state", () => ({
+      ok: true,
+      loaded: true,
+      signs: { password: false, code: false, captcha: false, invalid: false, alert: true },
+    }));
+    expect(await ssoAdmit(h.rt, page.ctx)).toEqual(ended);
+  });
+  it("ends the flow on an RP page the judge reads as a rejected sign-in", async () => {
+    const { h, judgeSso, page } = await answering("login.extract", () => ({
+      ok: true,
+      observation: {
+        version: 1,
+        origin: rp,
+        path: "/callback",
+        language: "en",
+        complete: true,
+        candidates: [{ id: "retry", role: "button", target: target("retry"), label: "Retry" }],
+      },
+    }));
+    expect(await ssoAdmit(h.rt, page.ctx)).toEqual(ended);
+    expect(judgeSso).toHaveBeenCalledTimes(1);
+  });
+  it("waits on an RP page whose identity reading was cancelled", async () => {
+    const { h, page } = await answering("login.sso.return", () => ({
+      ok: false,
+      reason: "cancelled",
+    }));
+    expect(await ssoAdmit(h.rt, page.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(page.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "rp-return:unread");
+    expect(h.work.ended).toBe(false);
+  });
 });
 
 describe("an IdP step whose tab has left its document", () => {
