@@ -152,6 +152,7 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
     }
     return false;
   }
+  work.recorded = true;
   reportAttempt(rt, ended, undefined);
   noteSignedIn(rt, before, ended, work.account.origin);
   countRelogin(rt, before, ended, live.incognito === true);

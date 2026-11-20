@@ -743,7 +743,11 @@ describe("the flow's end on a completion that cannot be recorded", () => {
   });
   it("keeps the reason that ended the flow while its sign-in was written", async () => {
     const h = await harness();
-    h.work.phase = "at-idp";
+    const form = h.page(idp, "idp-form", "/authsvc", "?txn=1");
+    idpReadings.set("idp-form", { kind: "native" });
+    const run = idpChild(h, form.live);
+    expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
+    step(run, [...fill("username"), ...click("next")]);
     identities.set("rp-home", "match");
     const home = h.page(rp, "rp-home", "/home");
     let ended = false;
@@ -762,6 +766,17 @@ describe("the flow's end on a completion that cannot be recorded", () => {
     expect(h.report).not.toHaveBeenCalledWith(
       expect.objectContaining({ reason: "sso-scope-changed" }),
     );
+    // The IdP's login is not released as signed in, and the tab's origins stay held as
+    // after any flow that ended unsigned.
+    await vi.waitFor(() =>
+      expect(h.report).toHaveBeenCalledWith(
+        expect.objectContaining({ ssoChild: true, reason: "sso-released" }),
+      ),
+    );
+    expect(h.report).not.toHaveBeenCalledWith(
+      expect.objectContaining({ ssoChild: true, state: "authenticated" }),
+    );
+    expect(h.rt.sso.interrupted.has(7)).toBe(true);
   });
   it("ends the IdP's login signed in when the flow ends while the RP default is saved", async () => {
     const h = await harness();

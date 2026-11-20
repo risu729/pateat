@@ -76,6 +76,8 @@ export type SsoWork = {
    * 2026-11-20).
    */
   detached?: LoginDocument;
+  /** The parent's sign-in was written within its fence: the flow signed in for good. */
+  recorded?: true;
   /** The detached IdP child's end was recorded (`releaseChild`), once. */
   childEnded?: true;
   /** An RP page's reading on the return, which a page announcing meanwhile waits for. */
