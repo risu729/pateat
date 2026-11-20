@@ -679,6 +679,57 @@ describe("the flow's end on a completion that cannot be recorded", () => {
     expect(replaced).toBe(true);
     expect(h.work.parent?.state).toBe("authenticated");
   });
+  it("keeps the reason that ended the flow while its sign-in was written", async () => {
+    const h = await harness();
+    h.work.phase = "at-idp";
+    identities.set("rp-home", "match");
+    const home = h.page(rp, "rp-home", "/home");
+    let ended = false;
+    vi.mocked(h.rt.attemptRecords.write).mockImplementation(async () => {
+      if (h.work.parent?.state !== "authenticated" || ended) return;
+      ended = true;
+      cancelSso(h.rt, 7, "sso-expired");
+    });
+    await ssoAdmit(h.rt, home.ctx);
+    expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
+    await vi.waitFor(() =>
+      expect(h.report).toHaveBeenCalledWith(
+        expect.objectContaining({ route: "sso", outcome: "cancelled", reason: "sso-expired" }),
+      ),
+    );
+    expect(h.report).not.toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "sso-scope-changed" }),
+    );
+  });
+  it("ends the IdP's login signed in when the flow ends while the RP default is saved", async () => {
+    const h = await harness();
+    const form = h.page(idp, "idp-form", "/authsvc", "?txn=1");
+    idpReadings.set("idp-form", { kind: "native" });
+    const run = idpChild(h, form.live);
+    expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
+    step(run, [...fill("username"), ...click("next")]);
+    h.work.choice = { binding: h.work.account, connectionId: "rp-vault" } as never;
+    const saving = Promise.withResolvers<undefined>();
+    vi.mocked(h.rt.settings.update!).mockImplementation(() => {
+      // The flow is ended meanwhile, as by its timer.
+      cancelSso(h.rt, 7, "sso-expired");
+      saving.resolve(undefined);
+      return saving.promise as never;
+    });
+    identities.set("rp-home", "match");
+    const home = h.page(rp, "rp-home", "/home");
+    expect(await ssoAdmit(h.rt, home.ctx)).toEqual({ ok: false, reason: "sso-completed" });
+    expect(h.rt.settings.update).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() =>
+      expect(h.report).toHaveBeenCalledWith(
+        expect.objectContaining({ ssoChild: true, reason: "sso-released" }),
+      ),
+    );
+    const childLines = h.report.mock.calls
+      .map(([line]) => line as Record<string, unknown>)
+      .filter((line) => line["ssoChild"] === true && line["reason"] === "sso-released");
+    expect(childLines).toEqual([expect.objectContaining({ state: "authenticated" })]);
+  });
   it("ends the flow signed in even when releasing the IdP's login fails", async () => {
     const h = await harness();
     const form = h.page(idp, "idp-form", "/authsvc", "?txn=1");

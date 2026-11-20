@@ -139,13 +139,15 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
     if (rt.sso.flows.get(live.document.tabId) === work && !work.ended)
       cancelSso(rt, live.document.tabId, "sso-scope-changed");
     else {
-      // Ended meanwhile while it read as signed in, so nothing recorded its end.
+      // Ended meanwhile while it read as signed in, so nothing recorded its end: it is
+      // recorded with the reason that ended it.
       work.ended = true;
       const unsigned = cancelled(work, before);
       work.parent = unsigned;
+      const reason = work.endReason ?? "sso-scope-changed";
       void quietly(rt, async () => {
         await keep(rt, unsigned);
-        reportAttempt(rt, unsigned, undefined, undefined, { reason: "sso-scope-changed" });
+        reportAttempt(rt, unsigned, undefined, undefined, { reason });
       });
     }
     return false;
@@ -153,6 +155,8 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
   reportAttempt(rt, ended, undefined);
   noteSignedIn(rt, before, ended, work.account.origin);
   countRelogin(rt, before, ended, live.incognito === true);
+  // The IdP's login ends signed in with the parent, before any later await.
+  await quietly(rt, () => releaseChild(rt, work, true));
   // The flow ends with its transition, whatever a later write does; the RP default below
   // is still saved within its scope.
   try {
@@ -182,7 +186,6 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
     work.ended = true;
     if (rt.sso.flows.get(live.document.tabId) === work) rt.sso.flows.delete(live.document.tabId);
   }
-  await quietly(rt, () => releaseChild(rt, work, true));
   await rt.sso.write();
   await publish(rt, live, ended);
   return true;

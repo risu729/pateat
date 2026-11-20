@@ -91,6 +91,8 @@ export type SsoWork = {
   busy: boolean;
   ended: boolean;
   stopReason?: string;
+  /** Why `cancelSso` ended the flow, for a completion that was being written meanwhile. */
+  endReason?: string;
   timer?: ReturnType<typeof setTimeout>;
 };
 export type SsoNativeChoice = {

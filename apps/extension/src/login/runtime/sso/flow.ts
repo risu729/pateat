@@ -83,12 +83,14 @@ export function cancelSso(
   const work = rt.sso.flows.get(tabId);
   if (!work || work.ended) return;
   work.ended = true;
+  work.endReason = reason;
   work.abort.abort();
   clearTimeout(work.timer);
   rt.sso.flows.delete(tabId);
   rt.sso.native.delete(tabId);
   holdInterrupted(rt, tabId, work);
-  void quietly(rt, () => releaseChild(rt, work, false));
+  // A flow whose parent already signed in ends its IdP login signed in too.
+  void quietly(rt, () => releaseChild(rt, work, work.parent?.state === "authenticated"));
   const kept = goesOn !== undefined && sameLoginDocument(work.live.document, goesOn);
   if (!kept) void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
   void rt.sso.write().catch(() => undefined);
