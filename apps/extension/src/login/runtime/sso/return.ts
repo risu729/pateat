@@ -187,7 +187,11 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
   await publish(rt, live, ended);
   return true;
 }
-/** Whether the loaded page shows a visible sign-in input; undefined when it cannot be read. */
+/**
+ * Whether the loaded page asks for the account: a visible password input, or an identifier
+ * input that is its only input to type into or has a password input in its form; undefined
+ * when it cannot be read.
+ */
 async function asksSignIn(rt: Runtime, live: LiveDocument): Promise<boolean | undefined> {
   const reading = v.safeParse(
     observationSchema,
@@ -200,7 +204,7 @@ async function asksSignIn(rt: Runtime, live: LiveDocument): Promise<boolean | un
   );
   if (!reading.success) return undefined;
   const shown = reading.output.signIn;
-  return !!shown?.loaded && (shown.identifier || shown.password);
+  return !!shown?.loaded && (shown.signInIdentifier === true || shown.password);
 }
 async function ssoEntryShown(
   rt: Runtime,
@@ -344,10 +348,14 @@ export async function returned(
       : (await completeSso(rt, work, live, instant))
         ? "completed"
         : "incomplete";
-  // Without evidence, a page that asks for an account identifier is the site's sign-in
-  // again, as one asking for the email first (ADR 0026, amendment of 2026-11-20).
-  const asks = await asksSignIn(rt, live);
-  if (asks !== false) return asks === true ? "refused" : "unread";
+  // After the IdP, a page without evidence that asks for an account identifier is the
+  // site's sign-in again, as one asking for the email first (ADR 0026, amendment of
+  // 2026-11-20). Before it (`instant`), such a page is the RP's own way to its IdP, as a
+  // page asking for the work email to find the provider, and waits.
+  if (!instant) {
+    const asks = await asksSignIn(rt, live);
+    if (asks !== false) return asks === true ? "refused" : "unread";
+  }
   // The judge is asked once per RP document: the RP's own callback or an interstitial on
   // the way back is not the page that shows the sign-in (ADR 0026, amendment of
   // 2026-11-20).

@@ -102,6 +102,36 @@ describe("login.observe's sign-in inputs after an advance (ADR 0018)", () => {
   });
 });
 
+describe("login.observe's identifier that asks for the account (ADR 0026, 2026-11-20)", () => {
+  const read = async (html: string) => {
+    document.body.innerHTML = html;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    return observe({ targets: [], signIn: true });
+  };
+  it("counts an email input that is the page's only input, as an email-first page", async () => {
+    expect(
+      await read(
+        `<form><input type="email" aria-label="Work email"><button>Continue</button></form>`,
+      ),
+    ).toMatchObject({ signIn: { identifier: true, signInIdentifier: true } });
+  });
+  it("counts an identifier input with a password input in its form", async () => {
+    expect(
+      await read(
+        `<input type="search" aria-label="Search"><form><input autocomplete="username" aria-label="User"><input type="password" aria-label="Password"><button>Sign in</button></form>`,
+      ),
+    ).toMatchObject({ signIn: { identifier: true, signInIdentifier: true } });
+  });
+  it("leaves out an email input beside the page's other inputs, as a newsletter field", async () => {
+    expect(
+      await read(
+        `<input type="search" aria-label="Search"><footer><form><input type="email" aria-label="Newsletter"><button>Subscribe</button></form></footer>`,
+      ),
+    ).toMatchObject({ signIn: { identifier: true, signInIdentifier: false } });
+  });
+});
+
 describe("login.entry.check's list of accounts (ADR 0079)", () => {
   async function check() {
     const token = sent.find((message) => typeof message["token"] === "string")?.["token"];

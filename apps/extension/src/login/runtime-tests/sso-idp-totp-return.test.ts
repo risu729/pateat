@@ -249,15 +249,43 @@ describe("the RP's pages on the way back", () => {
     return { h, judgeSso, page: h.page(rp, "rp-page", "/callback") };
   };
   const ended = { ok: false, reason: "sso-return-unconfirmed" };
-  it("ends the flow on an RP page that asks for an account identifier, unjudged", async () => {
-    const { h, judgeSso, page } = await answering("login.observe", (message) => ({
+  /** The RP page's observation, with an identifier input that asks for the account or not. */
+  const identifierPage = (signInIdentifier: boolean) =>
+    answering("login.observe", (message) => ({
       path: "/callback",
       targets: (message["targets"] as unknown[]).map(() => "missing"),
-      ...(message["signIn"] ? { signIn: { loaded: true, password: false, identifier: true } } : {}),
+      ...(message["signIn"]
+        ? { signIn: { loaded: true, password: false, identifier: true, signInIdentifier } }
+        : {}),
     }));
+  it("ends the flow on an RP page that asks for an account identifier, unjudged", async () => {
+    const { h, judgeSso, page } = await identifierPage(true);
     expect(await ssoAdmit(h.rt, page.ctx)).toEqual(ended);
     expect(judgeSso).not.toHaveBeenCalled();
     expect(h.work.parent).toMatchObject({ state: "blocked", outcome: "cancelled" });
+  });
+  it("waits on an RP page whose email input is one of others, as a newsletter field", async () => {
+    const { h, page } = await identifierPage(false);
+    expect(await ssoAdmit(h.rt, page.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(h.work.ended).toBe(false);
+  });
+  it("waits on an RP page asking for the work email on the way to the IdP", async () => {
+    const h = await harness();
+    // The entry was spent and the tab shows the RP's own page that asks for the work email
+    // to find its provider, before any IdP page.
+    const base = delivery.getMockImplementation()!;
+    delivery.mockImplementation(async (tabId, message, options) =>
+      message["type"] === "login.observe" && message["signIn"]
+        ? {
+            path: "/sso",
+            targets: [],
+            signIn: { loaded: true, password: false, identifier: true, signInIdentifier: true },
+          }
+        : base(tabId, message, options),
+    );
+    const discovery = h.page(rp, "rp-discovery", "/sso");
+    expect(await ssoAdmit(h.rt, discovery.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(h.work.ended).toBe(false);
   });
   it("ends the flow on an RP page that shows the sign-in rejected", async () => {
     const { h, page } = await answering("login.state", () => ({

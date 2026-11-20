@@ -272,11 +272,25 @@ export function showsSignIn(): boolean {
     );
   });
 }
+/** The input types one does not type text into. */
+const untyped: ReadonlySet<string> = new Set([
+  "checkbox",
+  "radio",
+  "range",
+  "color",
+  "file",
+  "submit",
+  "button",
+  "reset",
+  "image",
+  "hidden",
+]);
 /**
  * The sign-in inputs the page shows that a generated recipe can continue on after its final
  * `advance` step (ADR 0018), other than the inputs the recipe's own `targets` each find
  * alone: `password`, a visible writable password input; `identifier`, a visible writable
- * email input or one marked for a username or an email address. Visible as the page's description reads it, so an input
+ * email input or one marked for a username or an email address; `signInIdentifier`, such an
+ * input that is the page's only one to type into or has a password input in its form. Visible as the page's description reads it, so an input
  * hidden from assistive technology, transparent, tiny or moved before the page's start, as
  * a password input kept on an email form for the browser to fill, never counts. An input marked
  * `new-password` or `one-time-code`, and every input of a form that holds one, never
@@ -286,6 +300,7 @@ export function showsSignIn(): boolean {
 export function credentialInputs(targets: readonly LoginMarkerTarget[]): {
   password: boolean;
   identifier: boolean;
+  signInIdentifier: boolean;
 } {
   // A target names the recipe's field only when it finds that one element alone, as a step
   // fills it: a test attribute an identifier input shares with the password input added
@@ -310,12 +325,21 @@ export function credentialInputs(targets: readonly LoginMarkerTarget[]): {
     const form = formOf(input);
     return !(form && otherForms.has(form));
   });
+  const names = (input: HTMLInputElement) =>
+    input.type === "email" ||
+    autocompleteTokens(input).some((token) => token === "username" || token === "email");
+  const passwords = inputs.filter((input) => input.type === "password");
+  const typed = inputs.filter((input) => !untyped.has(input.type));
   return {
-    password: inputs.some((input) => input.type === "password"),
-    identifier: inputs.some(
+    password: passwords.length > 0,
+    identifier: inputs.some(names),
+    // An identifier input that is the page's only input to type into, or that has a
+    // password input in its form, asks for the account: one beside other inputs, as a
+    // newsletter or invite field on a signed-in page, does not.
+    signInIdentifier: inputs.some(
       (input) =>
-        input.type === "email" ||
-        autocompleteTokens(input).some((token) => token === "username" || token === "email"),
+        names(input) &&
+        (typed.length === 1 || passwords.some((password) => formOf(password) === formOf(input))),
     ),
   };
 }
