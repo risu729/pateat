@@ -607,7 +607,13 @@ describe("production login document admission", () => {
       revision === recipe.revision ? recipe : { ...recipe, revision, maxSubmissions: 2 },
     );
     expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual(expected);
-    expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id, undefined);
+    expect(h.recipes.recipe).toHaveBeenLastCalledWith(
+      origin,
+      "/signin",
+      recipe.id,
+      undefined,
+      undefined,
+    );
   });
   it("starts no login on a recipe the sync its lookup started removed", async () => {
     // The lookup answered from the cache; the sync it started then revoked the recipe.
@@ -824,7 +830,13 @@ describe("production login document admission", () => {
       ).toMatchObject({ layout: "1000", layouts: 2 });
       // The next document of the login resumes the same layout, which is not chosen again.
       expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({ ok: true });
-      expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id, "1000");
+      expect(h.recipes.recipe).toHaveBeenLastCalledWith(
+        origin,
+        "/signin",
+        recipe.id,
+        "1000",
+        undefined,
+      );
       expect(listed).toHaveBeenCalledTimes(1);
     });
     it("stops a resumed login whose layout was removed, never running another", async () => {
@@ -851,7 +863,13 @@ describe("production login document admission", () => {
         ok: false,
         reason: "recipe-not-found",
       });
-      expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id, "1000");
+      expect(h.recipes.recipe).toHaveBeenLastCalledWith(
+        origin,
+        "/signin",
+        recipe.id,
+        "1000",
+        undefined,
+      );
       // Even a lookup that answered another layout would not take the login over.
       h.recipes.recipe.mockResolvedValue(removed);
       expect(await h.hello({ documentId: "synthetic-document-3" })).toEqual({
@@ -880,7 +898,13 @@ describe("production login document admission", () => {
           layout === "1000" ? atTwo : { ...newer, revision: 2, maxSubmissions: 2 },
       );
       expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({ ok: true });
-      expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id, "1000");
+      expect(h.recipes.recipe).toHaveBeenLastCalledWith(
+        origin,
+        "/signin",
+        recipe.id,
+        "1000",
+        undefined,
+      );
       expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { layout: "1000", recipeRevision: 2 },
       ]);

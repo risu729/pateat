@@ -49,6 +49,11 @@ export function createAttemptMetadata(input: {
   startAt?: number;
   /** The login starts at `startAt` with that step's password fields alone (ADR 0049). */
   startPartial?: boolean;
+  /**
+   * The other start path of the recipe (`starts`) the login starts on, the path of the
+   * recipe's projection there (ADR 0060 amendment of 2026-11-18).
+   */
+  start?: string;
   /** The time the login took before it started, from when its first page was seen. */
   timing: Omit<AttemptTiming, "personSince" | "pageSince">;
 }): LoginAttemptMetadata {
@@ -57,12 +62,15 @@ export function createAttemptMetadata(input: {
     throw new Error("Sign-in autofill requires its own password-route mode");
   if (input.account.origin !== recipe.origin)
     throw new Error("Attempt origin does not match recipe");
+  if (input.start !== undefined && input.start !== recipe.steps[0]!.path)
+    throw new Error("A login's other start path is where its recipe starts");
   return parseAttemptMetadata({
     version: 1,
     id: input.id,
     recipeId: recipe.id,
     recipeRevision: recipe.revision,
     ...(recipe.layout === undefined ? {} : { layout: recipe.layout }),
+    ...(input.start === undefined ? {} : { start: input.start }),
     policyRevision: input.policyRevision,
     account: input.account,
     route: input.choice.route,

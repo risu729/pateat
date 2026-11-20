@@ -19,7 +19,12 @@ import { change, current, send, report, publish } from "./attempt";
 import { observe } from "./reconcile";
 import { confirmPage, confirmSigns } from "./markers";
 import { enterHandler } from "./handlers";
-import { askContinuation, cachedRoute, continueWith, recordedContinuation } from "./continuation";
+import {
+  askContinuation,
+  cachedRevision,
+  continueWith,
+  recordedContinuation,
+} from "./continuation";
 import { pathNow } from "./steps";
 import type { Execution, LiveDocument } from "./types";
 import { WATCH_MS, CONTINUATION_STABLE_MS } from "./constants";
@@ -374,8 +379,10 @@ async function fillContinuation(rt: Runtime, run: Execution): Promise<boolean> {
     : { after: metadata.stepIndex };
   const options = { replacesLast };
   if (recordedContinuation(run, key)) {
-    const cached = await cachedRoute(rt, run, observed.path).catch(() => undefined);
-    return Boolean(cached && (await continueWith(rt, run, cached, undefined, undefined, options)));
+    const cached = await cachedRevision(rt, run, observed.path).catch(() => undefined);
+    return Boolean(
+      cached && (await continueWith(rt, run, cached.revision, undefined, undefined, options)),
+    );
   }
   const sent = await askContinuation(rt, run, {
     key,

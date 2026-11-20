@@ -76,14 +76,24 @@ export interface LoginRecipes {
   fence?(recipe: LoginRecipe): Promise<(() => boolean) | undefined>;
   /**
    * The recipe for a document, or an attempt's own recipe by ID after navigation: one
-   * layout of it (ADR 0060), the one named or else the newest.
+   * layout of it (ADR 0060), the one named or else the newest. A recipe starts on its start
+   * path and on each path in its `starts` (ADR 0060 amendment of 2026-11-18): on such a
+   * path, as on the attempt's recorded `start`, the layout is its projection there
+   * (`projectionOn`); none when the recipe no longer starts on `start`.
    */
   recipe(
     origin: string,
     path: string,
     recipeId?: string,
     layout?: string,
+    start?: string,
   ): Promise<LoginRecipe | undefined>;
+  /**
+   * Whether `path` is one of the other start paths (`starts`) of the recipe by ID, where a
+   * login records it as `start` (ADR 0060 amendment of 2026-11-18); `undefined` when the
+   * cache or the recipe cannot be read, which starts no login.
+   */
+  startAlias?(origin: string, recipeId: string, path: string): Promise<boolean | undefined>;
   /**
    * Every layout of the recipe that starts on the path, for a new login to choose from
    * (ADR 0060); none when no single recipe starts there.
@@ -91,9 +101,10 @@ export interface LoginRecipes {
   layouts?(origin: string, path: string): Promise<LayoutCandidate<LoginRecipe>[]>;
   /**
    * Every layout of a recipe by ID, a chooser's branches for a chooser recipe: a sign-in
-   * check reads all their signed-in markers (ADR 0060).
+   * check reads all their signed-in markers (ADR 0060), and a login the layouts it may
+   * switch to, on the recorded `start` it started on (ADR 0060 amendment of 2026-11-18).
    */
-  layoutsOf?(origin: string, recipeId: string): Promise<LoginRecipe[]>;
+  layoutsOf?(origin: string, recipeId: string, start?: string): Promise<LoginRecipe[]>;
   /**
    * Whether the recipes, read without failure, no longer hold a layout of the recipe by ID
    * that runs: the recipe or its layout was withdrawn. False when they cannot be read, so a
@@ -120,6 +131,8 @@ export interface LoginRecipes {
     path: string,
     recipeId?: string,
     layout?: string,
+    /** As for `recipe`: a chooser login's recorded other start path. */
+    start?: string,
   ): Promise<LoginChooserRecipe | undefined>;
   /** Every layout of the chooser whose list shows on the path (ADR 0060). */
   choosers?(origin: string, path: string): Promise<LayoutCandidate<LoginChooserRecipe>[]>;

@@ -72,7 +72,12 @@ import {
   sameRoute,
 } from "./policy";
 import { rebaseNativeOverSso } from "../sso-write";
+import { aliasedStart, onStartPath, startAlias } from "./start-alias";
 import { stored, newLayoutMeta, markWritten, buildLoginLayout } from "./layout";
+
+/** The other start paths (`starts`) of the recipe a write replaces, to keep on it. */
+const startsOf = (recipe: StoredLoginRecipe | undefined): { starts?: string[] } =>
+  recipe && "starts" in recipe && recipe.starts ? { starts: recipe.starts } : {};
 
 /**
  * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe ID that is
@@ -87,7 +92,13 @@ export async function generateRecipe(
   backend: GenerationBackend,
   request: RecipeGenerationRequest,
 ): Promise<RecipeGenerationResult | undefined> {
-  const { observation, slots, base, branch, passkeyOnly, signedIn, repair } = request;
+  const { slots, base, branch, passkeyOnly, signedIn, repair } = request;
+  // A later page or a repair of a recipe, described on one of its other start paths, is
+  // read on its start path (ADR 0060 amendment of 2026-11-18).
+  const continued = base?.recipeId ?? repair?.recipeId;
+  const observation = continued
+    ? onStartPath(await backend.readHead(continued), request.observation)
+    : request.observation;
   const { origin, path } = observation;
   // A first page starts its own recipe; a later page continues the one in `base`, and a
   // repair names the recipe whose page it is (ADR 0041).
@@ -143,6 +154,28 @@ export async function generateRecipe(
   const replacesLast = base?.replacesLast === true;
   if (replacesLast && branch !== undefined && parseRecipeBranch(branch)?.branch !== undefined)
     return unsent(failed("invalid-request"));
+  // A sign-in form on a path no recipe of its own starts on may be the start page of
+  // another recipe of the origin (ADR 0060 amendment of 2026-11-18): it answers with that
+  // recipe, written with the path among its start paths, and no model call.
+  // A first page of any kind on a path that already is one answers with its recipe, so no
+  // second recipe ever starts there.
+  if (!base && !repair && !branch) {
+    const aliased = await aliasedStart(backend, observation);
+    const alias = aliased
+      ? answerable(aliased.change)
+      : // Only a page the device read as signed out: one it could not tell may be a
+        // signed-in site asking for the password again (agent's choice).
+        !list && !passkeyOnly && signedIn === false && !request.manual
+        ? await startAlias(backend, observation)
+        : undefined;
+    if (aliased && !alias) return unsent(unavailable("recipe-conflict"));
+    if (alias)
+      return answerUnsent(
+        backend,
+        { ...logged, recipe: { ...logged.recipe, recipeId: alias.recipeId } },
+        { version: 1, status: "recipe", change: alias },
+      );
+  }
   /** Whether a stored recipe is the one generated for this origin under this ID. */
   const generatedHere = async (recipe: StoredLoginRecipe) =>
     recipe.origin === origin &&
@@ -438,6 +471,15 @@ export async function generateRecipe(
     let next = recipe;
     let expectedRevision = baseRevision;
     let remappedLogLayout: string | undefined;
+    // A first page's path another request added to a recipe's `starts` while this one
+    // waited for its call answers with that recipe, so no recipe of its own starts there
+    // as well (ADR 0060 amendment of 2026-11-18). The two writes are not one transaction.
+    if (!base && !repair && !branch) {
+      const aliased = await aliasedStart(backend, observation);
+      const change = aliased && answerable(aliased.change);
+      if (aliased)
+        return change ? { version: 1, status: "recipe", change } : unavailable("recipe-conflict");
+    }
     for (let tries = 0; ; tries += 1) {
       // eslint-disable-next-line no-await-in-loop
       const written = await backend.writeRecipe(
@@ -556,12 +598,15 @@ export async function generateRecipe(
     // A recipe whose two kinds together would pass its slot or size limit takes the list
     // alone, as before the kinds were held together.
     const kept = repaired && isLoginRecipeDocument(repaired) ? repaired : undefined;
+    // The recipe keeps the other paths it starts on, with its form or without (ADR 0060
+    // amendment of 2026-11-18).
     const listOnly: RecipeDocument = {
       version: 1,
       id: recipeId,
       revision,
       origin,
       chooser: { path, layouts: [layout] },
+      ...startsOf(repaired),
     };
     const recipe = (kept && document({ ...listOnly, layouts: kept.layouts })) || document(listOnly);
     if (!recipe) return failed("recipe-invalid");
@@ -658,12 +703,15 @@ export async function generateRecipe(
     // A recipe whose two kinds together would pass its slot or size limit takes the form
     // alone, as before the kinds were held together.
     const held = repaired && isChooserDocument(repaired) ? repaired.chooser : undefined;
+    // The recipe keeps the other paths it starts on, with its list or without (ADR 0060
+    // amendment of 2026-11-18).
     const formOnly: RecipeDocument = {
       version: 1,
       id: recipeId,
       revision,
       origin,
       layouts: [built.layout],
+      ...startsOf(repaired),
     };
     const recipe = (held && document({ ...formOnly, chooser: held })) || document(formOnly);
     return recipe

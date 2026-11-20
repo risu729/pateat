@@ -3126,9 +3126,19 @@ routes, handlers and markers of one version of its sign-in pages, with a fixed `
 Every layout shares the recipe's ID, origin, start path, start page kind (`pageKind`)
 and the owner's bindings; the slots of all layouts together are at most 20, and a
 document is at most 120 KiB as JSON (`MAX_RECIPE_DOCUMENT_BYTES`), so a device can write
-back any document it synced within the 128 KiB body limit.
-Requests and the service's records name a layout in `branch`: `<key>`, or
-`<key>:account`, `<key>:other` and `<key>:passkey` for a chooser's branches.
+back any document it synced within the 128 KiB body limit. Requests and the service's
+records name a layout in `branch`: `<key>`, or `<key>:account`, `<key>:other` and
+`<key>:passkey` for a chooser's branches. A document may also list up to seven other
+start paths in `starts`: paths where the service saw a page show one of its sign-in
+layouts' first page unchanged, added instead of generating a recipe there; the service
+reads a page on one of them as one of the start path
+([ADR 0060](adr/0060-recipe-layouts.md#amendment-2026-11-18-the-same-form-on-another-path-starts-the-recipe-there)).
+The device's recipe cache lists one start for each of these paths and answers a lookup
+there with the projection moved onto that path: every step, handler, passkey button and
+chooser path that is the start path takes the page's path, and markers stay as they are.
+A path on which two recipes start, counting `starts`, starts neither. A login that
+begins on such a path records it in the attempt's `start`, so a resumed login, a layout
+switch and a revision the service sends (always on the start path) run on the same path.
 
 The device's recipe cache (version 2) keeps the documents and hands the login runtime a
 projection: one layout as a recipe of the earlier shape with `layout` set. The

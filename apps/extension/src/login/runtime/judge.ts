@@ -29,7 +29,7 @@ import { pauseOf } from "./pause";
 import { effectful, terminal } from "./attempt-state";
 import { failureRejects, observe, passkeyStepAnswered, toStop } from "./reconcile";
 import { passkeyButton, readSignInState } from "./sign-in";
-import { routeOf, takeOver } from "./continuation";
+import { onLoginStart, routeOf, takeOver } from "./continuation";
 import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
 
@@ -565,7 +565,7 @@ export async function learn(
   // learned another handler leaves the watch's recipe as it was.
   const watchedTotp =
     options.code === true &&
-    (routeOf(rt, run, added)?.handlers ?? []).some(
+    (routeOf(rt, run, added && onLoginStart(run, added))?.handlers ?? []).some(
       (handler, index) =>
         handler.kind === "totp" &&
         handler.path === remaining.path &&

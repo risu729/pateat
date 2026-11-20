@@ -57,12 +57,14 @@ export function registerTimingCases({
     state.tokenDelayMs = 40;
     const answers: unknown[] = [];
     const timings: Record<string, number | undefined>[] = [];
+    // The recipe comes last: the same form on another path after it would start it there
+    // without a call (ADR 0060 amendment of 2026-11-18).
     state.replies.push(
-      { text: plan([["email", "email"]], "next", "advance") },
       { text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }) },
       500,
+      { text: plan([["email", "email"]], "next", "advance") },
     );
-    for (const path of ["/login", "/other", "/third"]) {
+    for (const path of ["/other", "/third", "/login"]) {
       slowModel();
       // eslint-disable-next-line no-await-in-loop
       const response = await generateResponse(device, { ...emailPage, path });
@@ -71,9 +73,9 @@ export function registerTimingCases({
       answers.push(((await response.json()) as { status: string }).status);
       timings.push(serverTiming(response));
     }
-    expect(answers).toEqual(["recipe", "abstained", "failed"]);
+    expect(answers).toEqual(["abstained", "failed", "recipe"]);
     const logged = await settledRows(device.ownerId, "generate");
-    expect(logged.map((row) => row["outcome"])).toEqual(["ok", "abstained", "provider-error"]);
+    expect(logged.map((row) => row["outcome"])).toEqual(["abstained", "provider-error", "ok"]);
     for (const [index, row] of logged.entries()) {
       const {
         pre_model_ms: preModel,

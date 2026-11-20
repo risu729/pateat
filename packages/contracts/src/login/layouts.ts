@@ -46,6 +46,81 @@ export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   if ("sso" in recipe && recipe.sso) return recipe.sso.path;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(recipe)}`);
 }
+/**
+ * Every path a stored recipe starts on: its start path, then a recipe document's other
+ * start paths (`starts`, ADR 0060 amendment of 2026-11-18). An entry or logout recipe has
+ * its own path only.
+ */
+export function storedRecipeStartPaths(recipe: StoredLoginRecipe): string[] {
+  return [
+    storedRecipeStartPath(recipe),
+    ...("starts" in recipe && recipe.starts ? recipe.starts : []),
+  ];
+}
+/**
+ * The start path a page on `path` stands for in a stored recipe: the start path itself
+ * for a page on one of the recipe's other start paths (ADR 0060 amendment of 2026-11-18),
+ * so the service reads that page as one of the start path; any other path as it is.
+ */
+export function startPathFor(recipe: StoredLoginRecipe, path: string): string {
+  return "starts" in recipe && recipe.starts?.includes(path) ? storedRecipeStartPath(recipe) : path;
+}
+/**
+ * The path a projection a login runs starts on: a chooser's list's (ADR 0028), or else its
+ * first step's, which every variant and its passkey route share.
+ */
+export function projectionStartPath(recipe: LoginRecipe | LoginChooserRecipe): string {
+  return "chooser" in recipe ? recipe.chooser.path : recipe.steps[0]!.path;
+}
+/** A route with every path that is `from` in its steps, variants, passkey and handlers `to`. */
+function routeOnPath<Route extends LoginRouteBody>(route: Route, from: string, to: string): Route {
+  const at = <Entry extends { path: string }>(entry: Entry): Entry =>
+    entry.path === from ? { ...entry, path: to } : entry;
+  return {
+    ...route,
+    steps: route.steps.map(at),
+    ...(route.alternatives
+      ? {
+          alternatives: route.alternatives.map((variant) => ({
+            ...variant,
+            steps: variant.steps.map(at),
+          })),
+        }
+      : {}),
+    ...(route.passkey ? { passkey: at(route.passkey) } : {}),
+    ...(route.handlers ? { handlers: route.handlers.map(at) } : {}),
+  };
+}
+/**
+ * A projection a login runs, on another path its recipe starts on (`starts`, ADR 0060
+ * amendment of 2026-11-18): every path that is the projection's start path becomes `path`,
+ * in its steps, its variants' steps, its passkey route and its handlers, and for a chooser
+ * in its list's path and each branch's. Steps and handlers on other paths keep theirs, and
+ * so do signed-in markers, a link's path among them, which prove a sign-in on any path. On
+ * its own start path the projection is returned as it is.
+ */
+export function projectionOn<Recipe extends LoginRecipe | LoginChooserRecipe>(
+  recipe: Recipe,
+  path: string,
+): Recipe {
+  const from = projectionStartPath(recipe);
+  if (from === path) return recipe;
+  if (!("chooser" in recipe)) return routeOnPath(recipe as LoginRecipe, from, path) as Recipe;
+  const { afterAccount, afterOther, passkey } = recipe.chooser;
+  return {
+    ...recipe,
+    chooser: {
+      ...recipe.chooser,
+      path,
+      ...(afterAccount ? { afterAccount: routeOnPath(afterAccount, from, path) } : {}),
+      ...(afterOther ? { afterOther: routeOnPath(afterOther, from, path) } : {}),
+      ...(passkey ? { passkey: routeOnPath(passkey, from, path) } : {}),
+    },
+  };
+}
+/** Whether a stored recipe starts on `path`: its start path or one of its `starts`. */
+export const startsOnPath = (recipe: StoredLoginRecipe, path: string): boolean =>
+  storedRecipeStartPaths(recipe).includes(path);
 /** A layout's key, language and creation time, without its route. */
 export function layoutMeta(layout: LayoutMeta): LayoutMeta {
   return {

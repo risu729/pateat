@@ -756,7 +756,13 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
         await vi.waitFor(() =>
           expect(executed()).toEqual(["fill:email", "click:next", "fill:password", "click:login"]),
         );
-        expect(h.recipes.recipe).toHaveBeenCalledWith(origin, "/signin/pwd", recipe.id, "2000");
+        expect(h.recipes.recipe).toHaveBeenCalledWith(
+          origin,
+          "/signin/pwd",
+          recipe.id,
+          "2000",
+          undefined,
+        );
         expect(status()![0]).toMatchObject({ layout: "1000", stepIndex: 3 });
         // The page after the password's submit resumes the layout the login switched to.
         fake.state.observedPath = "/home";
@@ -764,7 +770,13 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
         fake.state.present = new Set(["authenticated"]);
         await h.hello({ documentId: "synthetic-document-3" }, false);
         await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
-        expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/home", recipe.id, "1000");
+        expect(h.recipes.recipe).toHaveBeenLastCalledWith(
+          origin,
+          "/home",
+          recipe.id,
+          "1000",
+          undefined,
+        );
       });
       it("switches on the email page's own path only by elements the advance made ready", async () => {
         const { h, reports } = onEmail(

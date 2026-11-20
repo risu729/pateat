@@ -16,6 +16,7 @@ import {
   hasRecipeRoom,
   markLayoutUsed,
   readHead,
+  readOriginHeads,
   readLayoutUses,
   readRevision,
   writeRecipe,
@@ -55,6 +56,7 @@ export function d1Backend(
   return {
     deviceId,
     readHead: (recipeId) => readHead(env.DB, ownerId, recipeId),
+    originRecipes: (origin) => readOriginHeads(env.DB, ownerId, origin),
     readRevision: (recipeId, revision) => readRevision(env.DB, ownerId, recipeId, revision),
     hasRecipeRoom: () => hasRecipeRoom(env.DB, ownerId),
     hasRecipeByteRoom: (bytes) => hasRecipeByteRoom(env.DB, ownerId, bytes),

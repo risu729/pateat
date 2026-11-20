@@ -85,6 +85,12 @@ Amended on 2026-11-10 (owner, 02:29 UTC, decision card "A: 見出しと「番号
 implemented):
 [an identifier input's label by layout, and customer numbers](#amendment-2026-11-09-an-identifier-inputs-label-by-layout-and-customer-numbers).
 
+Amended on 2026-11-18 by
+[ADR 0060](0060-recipe-layouts.md#amendment-2026-11-18-the-same-form-on-another-path-starts-the-recipe-there)
+(owner, 2026-11-19 01:37 UTC):
+[a page where no recipe starts](#pages-where-no-recipe-starts) that shows another
+recipe's form unchanged starts that recipe instead of a new one.
+
 Date: 2026-10-11
 
 ## Context
@@ -215,6 +221,13 @@ page is observed and sent, and the recipe generated for it logs in to `my2@examp
 
 The extension offers such pages, and the service keeps one generated recipe per origin
 and start path ([API README](../../services/api/README.md#recipe-generation)).
+
+Since the
+[ADR 0060 amendment of 2026-11-18](0060-recipe-layouts.md#amendment-2026-11-18-the-same-form-on-another-path-starts-the-recipe-there)
+(owner, 2026-11-19 01:37 UTC), such a page that shows the first page of exactly one of
+the origin's sign-in layouts unchanged is not generated: the service adds its path to
+that recipe's `starts` and answers with that recipe, with no model call. A path in a
+recipe's `starts` is a path where that recipe starts.
 
 ## Pages that ask for an identifier alone
 

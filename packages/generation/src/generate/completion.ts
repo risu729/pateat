@@ -58,6 +58,7 @@ import {
 } from "./responses";
 import { JUDGEMENTS_PER_RECIPE_DAY, utcDayStart, staleHead } from "./policy";
 import { routeOf, stored, markWritten } from "./layout";
+import { onStartPath } from "./start-alias";
 
 /**
  * The paths the judge is told the login ran on: from the stored recipe, never from the
@@ -119,7 +120,10 @@ export async function judgeCompletion(
   if ("kind" in request) return judgeSsoCompletion(backend, recipeId, request);
   const head = await backend.readHead(recipeId);
   if (!head) return undefined;
-  const { observation, route, branch, partial, slots } = request;
+  const { route, branch, partial, slots } = request;
+  // A page on one of the recipe's other start paths is judged as one of its start path
+  // (ADR 0060 amendment of 2026-11-18).
+  const observation = onStartPath(head, request.observation);
   // A page at a `password` login's stop before its item's missing password (ADR 0036, owner
   // 2026-10-13 05:39 UTC): judged though it shows the route's password field, for a
   // `passkey` handler only.

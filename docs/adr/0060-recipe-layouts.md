@@ -39,6 +39,15 @@ goes on with the layout its button led to when that layout asks for the account 
 and shows after the click. See
 [the amendment](#amendment-2026-11-18-a-passkey-button-that-leads-to-a-step-asking-for-the-account).
 
+Amended on 2026-11-18 (owner, 2026-11-19 01:37 UTC;
+[#1716](https://github.com/risu729/pateat/issues/1716)): a recipe document may start on
+up to seven more paths where a page showed one of its sign-in layouts' first page
+unchanged, replacing "A page whose start path changes is still a new recipe" for such a
+page. See
+[the amendment](#amendment-2026-11-18-the-same-form-on-another-path-starts-the-recipe-there).
+Amends [ADR 0013](0013-service-held-recipes-and-settings.md#recipe-lookup) and
+[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts).
+
 Date: 2026-10-23
 
 ## Context
@@ -487,3 +496,152 @@ instead.
   a fallback to the password, which could type it under the browser's open passkey
   prompt or on a page that has not rendered its form yet. An agent built it on
   2026-11-18 and removed it after review; it stays a proposal for the owner.
+
+## Amendment 2026-11-18: the same form on another path starts the recipe there
+
+Added after [#1716](https://github.com/risu729/pateat/issues/1716). The owner approved
+it on 2026-11-19 at 01:37 UTC on a decision card, choosing 「同じフォームのURLを追加」
+for the option "If it is the same form as before, add that URL to the current recipe. No
+AI call, and the two-step verification settings are carried over." The rules below
+marked as the agent's choice were taken for the most conservative reading and are not
+confirmed by the owner. Implemented in two parts: the contracts and the service (both
+generation backends) first, then the extension (2026-11-19). Local tests only; not tried
+on the site or deployed.
+
+### Context
+
+USI's Student Portal shows its sign-in form on whatever page it guards. On 2026-11-17 a
+login went through its terms page and the form showed on the item's URI,
+`/student/Usi/Forgotten/Success`, so the recipe was generated there and later learned
+the `totp` handler for the code page. On 2026-11-18 the same form showed on `/student`.
+A recipe starts only on its own path (ADR 0013, ADR 0016), so nothing was filled, and
+the page was generated as a new recipe of that path, which had no handler for the code
+page. "A page whose start path changes is still a new recipe" above records that.
+
+### Decision
+
+- A recipe document may hold `starts`: other paths it starts on, at most seven, so a
+  recipe starts on at most eight paths (`MAX_RECIPE_START_PATHS`, agent's choice); each
+  once, none the start path. A document without it starts on its start path alone, as
+  every document stored before this amendment does (agent's choice). Paths in `starts`
+  have no aging of their own: they live, are used and go with the recipe (ADR 0058,
+  agent's choice).
+- A first page on a path where no recipe of its own starts (no active head under the ID
+  of that origin and path) is compared with the origin's active recipes before any model
+  call. A revoked recipe's tombstone on the path counts as none (agent's choice, added
+  on 2026-11-19 with the extension part): no active recipe starts there, so taking the
+  path into another recipe's `starts` lets a site recover once a second recipe generated
+  on the path by mistake is revoked, as USI's on `/student`. Without the match such a
+  page is generated again as the revision after its tombstone, as before. The page shows
+  a sign-in layout's first page unchanged when (agent's choice, the criterion the
+  owner's coordinator set on 2026-11-19, with the guards added on review on 2026-11-20):
+  - the device read the page as signed out (its `signedIn` hint is `false`) and the
+    request is no explicit retry from the popup (`manual`). A page the device could not
+    tell, as a signed-in site's step-up page that asks for the password again, is
+    generated as before;
+  - the path is none of the origin's recipes names for anything: no step, handler,
+    passkey route, list or SSO entry of any layout or branch is on it. A form shown on a
+    recipe's code page, as USI's `/student/SecondFactor/ChooseAndVerifyOtp`, is a step
+    of that login, never its start page;
+  - every element the layout's first page names resolves to exactly one candidate of the
+    page's description, by the same locator. The first page is each variant's steps from
+    its first, all on the start path, up to and including the first that advances or
+    submits, and the passkey route's button. A first page that leaves the start path
+    first, never takes effect, or waits for or asserts an element is not compared, nor
+    one of a variant that fills no identifier, as a password-only form;
+  - each candidate has the role its step needs: an identifier a text, email or telephone
+    input, the password a password input, a click a button, with the same software
+    keyboard if any. A layout whose first page fills the TOTP code or a personal detail,
+    a passkey-only layout and a layout of another page kind are not compared;
+  - the page has no password input the layout does not fill, so a form with more
+    password inputs, as one that changes the password, never matches;
+  - exactly one layout of exactly one recipe of the origin matches, and that recipe
+    starts on fewer than eight paths.
+
+  Then the path is added to that recipe's `starts` as its next revision, and the request
+  answers with that recipe, with no model call and no retry window. Otherwise the page
+  is generated as before, as is a page on a path two recipes already list, which is
+  added to neither. A write another writer beat reads the origin's recipes once more.
+  A first page sent to the model is checked once more just before its own recipe is
+  written: when a recipe of the origin lists its path by then, the request answers with
+  that recipe and writes nothing. The check and the write are not one transaction, so
+  a path added to a recipe's `starts` in between still gets a recipe of its own, and
+  then starts neither on a device (ADR 0013) until one of them is revoked.
+- A repair that rebuilds a recipe's document, a form beside its list or in its place,
+  or a list beside its form or in its place, keeps its `starts`.
+- A first page of any kind (a form, a list of accounts or a passkey-only page) on a path
+  already in one recipe's `starts` answers with that recipe, so no second recipe ever
+  starts there.
+- The service reads a page on one of a recipe's other start paths as a page of its start
+  path wherever it compares a page with the recipe (agent's choice): a continuation, a
+  repair (which then names the recipe that starts there), a judgement, an SSO entry
+  request (whose entries go to that recipe) and an SSO return. So every path the recipe
+  stores stays its start path, a handler or marker learned there is kept on the start
+  path, and the retry window, the repair limit and the kept judgements of such a page
+  are those of the start path. Steps after the start page keep their own paths.
+- The extension treats each path in `starts` as a start path wherever a start page
+  step's path is compared with the page's: the recipe's starts, execution, the judge's
+  sign-in paths, continuation, repair, the chooser, the SSO entries and the generation
+  offer. It runs the recipe there with every member's path that is the start path
+  replaced by the page's, and records that path in the attempt, so a resumed login runs
+  the same projection. In detail (agent's choice):
+  - The device's recipe cache answers a lookup on such a path with the recipe's
+    projection moved onto it: the steps and alternatives' steps, the passkey button,
+    handlers, a chooser's list path and the steps of its branches whose path is the
+    start path. Signed-in markers, including a link's path, stay as they are, since they
+    prove a sign-in on any path. An SSO recipe has only its entries' path moved. The
+    cache lists one start per path, and counts these paths in the ADR 0013 rule: a path
+    on which two recipes start, by their own path or by `starts`, starts neither, and is
+    not offered for generation.
+  - The attempt's `start` holds the path only when it is one of the recipe's other start
+    paths; a login on the start path records none, as before. A login reads that path
+    from the cache before it starts and does not start when the cache cannot be read or
+    no longer holds the recipe.
+  - A resumed login (a new document, a restarted worker, a chooser login after its
+    click, a sign-in fill whose form posts back), a layout switch, and the fence on its
+    recipe use `start`. A recorded path the recipe no longer lists resumes nothing, as a
+    removed layout does; the sibling layouts of such a login are then those on the start
+    path, which do not fit its steps.
+  - A revision the service sends or the cache holds for a running login, which the
+    service stores on the start path, is moved onto the login's `start` before it is
+    compared with or replaces the running recipe; a chooser revision is moved too. A
+    chooser login now takes over its chooser's revision found in the cache as it takes
+    one the service sent; before 2026-11-20 it refused it, on any path.
+  - A later page of such a login on the recipe's own start path itself would be read on
+    `start` too; a site that shows the form on one path and leads to the other is not
+    supported.
+- The page's description is the only input; no site name is read
+  ([ADR 0033](0033-no-site-specific-features.md)).
+
+### Consequences
+
+- A site that shows one form on several paths keeps one recipe: its bindings, handlers
+  and markers apply on each path the form showed on, and the second path costs no model
+  call.
+- A page on such a path is logged in the request log as answered without a call
+  (`recipe`), under the recipe it answered with.
+- A recipe stored before the amendment gets other paths too, as the criterion reads only
+  its layouts, but two recipes that each start one of the paths already stay apart: the
+  page of a third path matches both and is generated, as is a page on either path.
+- The comparison proves the elements the recipe uses, not the rest of the page: a form
+  on another path of the origin with the same locators, roles and only those password
+  inputs is taken for the start page. The change-password guard and the exact locators
+  bound that.
+- A signed-in site's page that asks for the identifier and the password again with the
+  same locators, read as signed out because it shows no learned marker and no matching
+  username, is still taken for the start page, and a login runs there. The identifier
+  guard and the `signedIn` guard leave only that case.
+- A continuation on one of the other start paths is stored on the start path. Should a
+  site show the next step of a login in place on such a path, a login started on the
+  start path does not find it there.
+
+### Alternatives
+
+- Starting a recipe on any path where its first step shows, without a stored list:
+  no request at all, but a same-origin form with the same locators anywhere would get
+  the credentials, with no record of where. Not chosen.
+- A digest of the first page's description stored with each layout: a stricter
+  comparison, but no recipe stored before it could take another path, including USI's.
+  Not chosen by the owner's coordinator on 2026-11-19.
+- Copying the origin's other recipes' handlers into a newly generated recipe: fixes the
+  code page only and still pays for a generation. Not chosen.

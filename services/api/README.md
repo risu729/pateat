@@ -330,9 +330,19 @@ the plan check's code (such as `incompatible-role`).
   whose recipe is revoked answers `recipe-revoked` while the revoked recipe's start page
   is generated again as the revision after its tombstone, a `base` whose recipe was not
   generated for this origin and its start path answers `recipe-conflict`. A first page
-  needs room under the active recipe count limit; every generated page, including
-  continuations and entry pages, needs at least 32 KiB of byte room before the model
-  call. A refused write after the call also answers `recipe-limit`. A judge write
+  on a path with no active recipe of its own (none, or only its tombstone) that shows
+  exactly one of the origin's sign-in layouts' first page unchanged (each locator one
+  candidate of the right role, an identifier field among them, and no other password
+  input), read as signed out (`signedIn: false`, not `manual`) and on a path none of the
+  origin's recipes names for a step, handler or passkey route, answers with that recipe,
+  its path added to the recipe's `starts` (at most seven), without a model call; a first
+  page on a path already in a recipe's `starts` answers with that recipe, and later
+  pages, repairs, judgements and SSO requests on such a path are read on the recipe's
+  start path
+  ([ADR 0060](../../docs/adr/0060-recipe-layouts.md#amendment-2026-11-18-the-same-form-on-another-path-starts-the-recipe-there)).
+  A first page needs room under the active recipe count limit; every generated page,
+  including continuations and entry pages, needs at least 32 KiB of byte room before the
+  model call. A refused write after the call also answers `recipe-limit`. A judge write
   refused for bytes keeps the page's answer (`challenge`, or `signed-in` once the recipe
   has a marker or the page is on another origin of the site) and is logged; only a first
   marker on the recipe's own origin refused for bytes answers `recipe-limit`. A `base`

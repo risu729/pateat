@@ -289,3 +289,22 @@ describe("SSO entries beside native routes", () => {
     expect(input.observation.candidates.map((candidate) => candidate.id)).toEqual(["a"]);
   });
 });
+
+describe("SSO entries on one of a recipe's other start paths (ADR 0060 amendment of 2026-11-18)", () => {
+  it("keeps them in that recipe, on its start path", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const native = await generate(device, formAndProvider);
+    if (native.status !== "recipe") throw new Error(native.status);
+    const { recipeId } = native.change;
+    await seed(device, { ...native.change.recipe, revision: 2, starts: ["/home"] }, 1);
+    replies.push({ text: ssoAnswer("a") });
+    const answer = await generateSso(device, { ...formAndProvider, path: "/home" }, ["A"]);
+    expect(answer).toMatchObject({ status: "recipe", change: { recipeId, revision: 3 } });
+    expect(await storedHead(device.ownerId, recipeId)).toMatchObject({
+      starts: ["/home"],
+      sso: { path: "/login" },
+    });
+    expect(await storedHead(device.ownerId, await generatedRecipeId(ORIGIN, "/home"))).toBeNull();
+  });
+});

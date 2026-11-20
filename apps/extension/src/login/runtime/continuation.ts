@@ -16,6 +16,7 @@ import {
   type LoginAttemptEvent,
   isLoginRouteRecipe,
   chooserRoute,
+  projectionOn,
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRouteChoice,
@@ -55,6 +56,7 @@ export async function takeOver(
   taking: () => void,
   stop?: { end: () => Promise<void> },
 ): Promise<boolean> {
+  answered = onLoginStart(run, answered);
   const next = routeOf(rt, run, answered);
   if (!next || next.id !== run.recipe.id || !extendsRecipe(run.recipe, next)) return false;
   const event: LoginAttemptEvent = { type: "REVISED", recipeRevision: next.revision };
@@ -69,9 +71,22 @@ export async function takeOver(
 }
 
 /**
+ * A recipe the service sent or the cache holds, on the other start path of its recipe the
+ * login started on (`start`, ADR 0060 amendment of 2026-11-18): the service answers on the
+ * recipe's own start path, and the login runs the projection on its own.
+ */
+export function onLoginStart<Recipe extends LoginRecipe | LoginChooserRecipe>(
+  run: Execution,
+  next: Recipe,
+): Recipe {
+  return run.metadata.start === undefined ? next : projectionOn(next, run.metadata.start);
+}
+
+/**
  * The route a login runs of a recipe the service sent or the cache holds: a chooser
  * login's is the route of its click on the chooser (ADR 0028), and a chooser is never
- * another login's.
+ * another login's. A recipe the service sent is moved onto the login's own start path
+ * first (`onLoginStart`), once, by the caller, which keeps that copy as `run.chooser`.
  */
 export function routeOf(
   _rt: Runtime,
@@ -84,17 +99,24 @@ export function routeOf(
   return click ? chooserRoute(next, click) : undefined;
 }
 
-/** The newest cached revision of a login's own recipe, as the route it runs. */
-export async function cachedRoute(
+/**
+ * The newest cached revision of a login's own recipe, to continue with: a chooser login's
+ * chooser (ADR 0028), whose route `routeOf` gives, or the recipe itself, on the other start
+ * path the login started on, if any (ADR 0060 amendment of 2026-11-18).
+ */
+export async function cachedRevision(
   rt: Runtime,
   run: Execution,
   path: string,
-): Promise<LoginRecipe | undefined> {
+): Promise<{ route: LoginRecipe; revision: LoginRecipe | LoginChooserRecipe } | undefined> {
   const { origin: pageOrigin } = run.live.document;
   // The layout the login started on (ADR 0060).
-  const { layout } = run.metadata;
-  if (!run.metadata.chooser) return rt.recipes.recipe(pageOrigin, path, run.recipe.id, layout);
-  return routeOf(rt, run, await rt.recipes.chooser?.(pageOrigin, path, run.recipe.id, layout));
+  const { layout, start } = run.metadata;
+  const revision = run.metadata.chooser
+    ? await rt.recipes.chooser?.(pageOrigin, path, run.recipe.id, layout, start)
+    : await rt.recipes.recipe(pageOrigin, path, run.recipe.id, layout, start);
+  const route = routeOf(rt, run, revision);
+  return route && revision ? { route, revision } : undefined;
 }
 
 /**
@@ -120,9 +142,10 @@ export async function siblingsAt(rt: Runtime, run: Execution, at: number): Promi
     return [];
   const plan = attemptPlan(recipe, metadata);
   if (!plan || plan.length !== metadata.stepCount) return [];
-  const layouts = await Promise.resolve(rt.recipes.layoutsOf(recipe.origin, recipe.id)).catch(
-    () => [],
-  );
+  // On the other start path the login started on, if any (ADR 0060 amendment of 2026-11-18).
+  const layouts = await Promise.resolve(
+    rt.recipes.layoutsOf(recipe.origin, recipe.id, metadata.start),
+  ).catch(() => []);
   // A recipe may hold a list of accounts beside its sign-in form (ADR 0028), whose branch
   // routes come with its layouts for their markers: only the form's own layouts, those
   // that start on its start path, are siblings, never a branch reached by a click there.
@@ -403,11 +426,15 @@ export async function continueOn(
   // answer is on its way this document waits for it, past the step's ten seconds.
   if (recordedContinuation(run, { operationId })) {
     const fromCache = async (): Promise<"moved" | "refused" | "none"> => {
-      const cached = await cachedRoute(rt, run, observed.path).catch(() => undefined);
+      const cached = await cachedRevision(rt, run, observed.path).catch(() => undefined);
       if (!current(rt, run)) return "moved";
-      if (!cached || cached.revision <= recipe.revision || !continuesRecipe(recipe, cached))
+      if (
+        !cached ||
+        cached.route.revision <= recipe.revision ||
+        !continuesRecipe(recipe, cached.route)
+      )
         return "none";
-      if ((await continueWith(rt, run, cached)) || !current(rt, run)) return "moved";
+      if ((await continueWith(rt, run, cached.revision)) || !current(rt, run)) return "moved";
       return "refused";
     };
     const cached = await fromCache();
@@ -501,10 +528,11 @@ export async function continueOn(
   if (taken || !current(rt, run)) return "moved";
   // A chooser the other branch changed meanwhile comes back without this branch's page
   // (ADR 0028): the login takes that revision over and sends the page again against it.
-  const newer = routeOf(rt, run, answer.recipe);
+  const moved = onLoginStart(run, answer.recipe);
+  const newer = routeOf(rt, run, moved);
   if (
     run.metadata.chooser &&
-    !isLoginRouteRecipe(answer.recipe) &&
+    !isLoginRouteRecipe(moved) &&
     newer &&
     extendsRecipe(run.recipe, newer) &&
     newer.steps.length === run.recipe.steps.length
@@ -512,7 +540,7 @@ export async function continueOn(
     const revised: LoginAttemptEvent = { type: "REVISED", recipeRevision: newer.revision };
     if (transitionLoginAttempt(run.metadata, revised).recipeRevision === newer.revision) {
       run.recipe = newer;
-      run.chooser = answer.recipe;
+      run.chooser = moved;
       await change(rt, run, revised);
       if (!current(rt, run)) return "moved";
       await change(rt, run, { type: "UNCONTINUED", operationId });
@@ -593,8 +621,8 @@ export async function continueWith(
     return false;
   };
   const route = attemptRouteChoice(run.metadata);
-  const answered = next;
-  const converted = routeOf(rt, run, next);
+  const answered = onLoginStart(run, next);
+  const converted = routeOf(rt, run, answered);
   if (!current(rt, run)) return refuse("left");
   if (!converted) return refuse("route-missing");
   if (route.route !== "password") return refuse("route-not-password");
