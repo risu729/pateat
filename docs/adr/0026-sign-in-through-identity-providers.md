@@ -727,8 +727,9 @@ Decisions:
    own. A marker the RP-return judge learns on another origin of the site keeps that
    origin in the SSO layout (`origin`, as native markers do) and counts only there, in
    the judge's checks and in the extension's reading alike; one without counts on the
-   recipe's own origin. An older extension that does not know the field refuses such a
-   recipe, so the service release goes with the extension's.
+   recipe's own origin, and a recipe whose marker names that own origin is refused. An
+   older extension that does not know the field refuses such a recipe, so the service
+   release goes with the extension's.
 3. **An RP page that changes its URL in place is read again.** When the tab's URL of a
    waiting RP page changes in place, or differs from its announcement when admitted, the
    page is asked to announce again (`login.reconnect`), as the IdP's left documents are
@@ -752,21 +753,27 @@ Decisions:
 7. **The site's sign-in ends the wait.** A waiting page holds the RP's and the IdP's
    origins in the tab's other logins' way for up to ten minutes, so after the IdP a page
    that is the site's sign-in ends the flow with `sso-return-unconfirmed`: besides a
-   password form or a sign-in marked invalid, one without the RP's evidence whose
-   identifier input asks for the account (`signInIdentifier`: the page's only input to
-   type into, as a page asking for the email first, or one with a password input in its
-   form), and one the judge reads as `rejected`. An email input beside other inputs, as
-   a newsletter or invite field, does not count. Before any IdP page (the instant path),
-   such a page is the RP's own way to its IdP, as one asking for the work email to find
-   the provider, and waits. A rejected sign-in's `alert` is never read on a return page,
-   as `login.state` reads one only after a submission in the same document.
+   password form, one without the RP's evidence whose identifier input asks for the
+   account (`signInIdentifier`: the page's only input to type into, as a page asking for
+   the email first, or one with a password input in its form), and one the judge reads
+   as `rejected`. An email input beside other inputs, as a newsletter or invite field,
+   does not count while the judge can judge the page; the judge refuses a page with a
+   text field as `not-judgeable` and never judges that page again, so one without the
+   RP's evidence that shows an identifier input and gets that answer ends the flow too,
+   rather than holding both origins until `sso-expired`. Before any IdP page (the
+   instant path), such a page is the RP's own way to its IdP, as one asking for the work
+   email to find the provider, and waits. A rejected sign-in's `alert` or an invalid
+   field is never read on a return page, as `login.state` reads them only after a
+   submission in the same document.
 8. **A completion that cannot be recorded ends the flow.** When the page or the flow's
    scope changes while the signed-in record is written, the parent is recorded
    `cancelled` (`sso-scope-changed`, or the reason that ended the flow meanwhile) and
    the flow ends, rather than waiting with its timer cleared. Once recorded, the IdP's
    login is released signed in at once, before the RP default is saved, and the flow
-   ends whatever a later write does; a flow ended after its parent signed in releases
-   that login signed in too.
+   ends whatever a later write does; a flow ended after its parent's record was written
+   releases that login signed in too and holds nothing as interrupted. A flow ended
+   while that record is still being written releases it as any ended flow does, as the
+   record then fails its check and the parent is recorded `cancelled`.
 9. **A restart leaves the IdP's login no hold.** The RP return stores the IdP's login
    released at once, as the flow holds both origins while it runs and its interrupted
    hold does after a worker restart; its end is still recorded with the flow's. After a
