@@ -664,19 +664,23 @@ Decisions:
    flow on its own evidence as before. One that shows the site's sign-in, another
    account or a page that is never a return (`unsafe-return`: a permission, sharing or
    account creation page, also after an IdP that showed none) ends it with
-   `sso-return-unconfirmed`. A page that is still loading, cannot be read, shows no text
-   yet (`blank` in the `login.observe` reading, as the RP's own callback or a portal
-   still rendering in place) or changed its URL in place refuses `sso-in-progress` with
-   detail `rp-return`, and the flow waits for the tab's next page or the page's next
-   reading, bounded by its ten minutes. Any other loaded page that proves nothing ends
-   the flow `sso-return-unconfirmed` once no judge can confirm it: none can be asked (no
-   generation service, or a page that cannot be described or sent), or the judge
-   answered for that page and path with anything but `signed-in`. A code or CAPTCHA
-   page ends it too. Narrowed the same day from "any other page waits": the
-   packaged-extension specs end such a page blocked (`sso-flow.spec.ts`'s wrong-account
-   and unidentified returns, `sso-generation.spec.ts`'s fresh RP document without its
-   learned marker), and a ten-minute wait on a page that proves nothing is the
-   experience the owner had complained of.
+   `sso-return-unconfirmed`. A page that is still loading, cannot be read, shows nothing
+   yet (`blank` in the `login.observe` reading: no visible text, also in its shadow
+   trees, and nothing the signed-in extractor would describe, as the RP's own callback
+   or a portal still rendering in place) or changed its URL in place refuses
+   `sso-in-progress` with detail `rp-return`, and the flow waits for the tab's next page
+   or the page's next reading, bounded by its ten minutes. Any other loaded page that
+   proves nothing ends the flow `sso-return-unconfirmed` once no judge can confirm it:
+   none can be asked (no generation service, or a page that cannot be described or
+   sent), or the judge answered for that page and path with anything but `signed-in`. A
+   code or CAPTCHA page ends it too. Each of these ends it only while the page is still
+   the one read: one whose URL moved meanwhile, as a callback replacing itself while it
+   is described, refuses with detail `rp-return:unscoped` and is read again where it
+   went. Narrowed the same day from "any other page waits": the packaged-extension specs
+   end such a page blocked (`sso-flow.spec.ts`'s wrong-account and unidentified returns,
+   `sso-generation.spec.ts`'s fresh RP document without its learned marker), and a
+   ten-minute wait on a page that proves nothing is the experience the owner had
+   complained of.
 2. **The RP-return judge once per RP document and path**, not once per flow, and only on
    a page that shows something, so the RP's blank callback does not use up the question
    its signed-in page needs. Each question still counts toward the recipe's daily
@@ -702,7 +706,9 @@ Decisions:
    refusal is logged once. An IdP document whose URL is no longer the tab's when it
    announces, or by the time its scope is checked, as one that answers that request only
    after the flow pressed its finite step there, refuses `sso-in-progress` with detail
-   `idp:left` and ends nothing: the tab's next document is read instead.
+   `idp:left` and ends nothing: the tab's next document is read instead. One that is
+   still the tab's document, as an IdP's own routing replaced its URL while it was read,
+   is asked once to announce again, so it is read at its new URL.
 
 Checked with local runtime tests only
 (`apps/extension/src/login/runtime-tests/sso-idp-totp-return.test.ts`), not on the real
@@ -756,14 +762,15 @@ Decisions:
    once.
 5. **Why the return waits is logged.** The `sso-in-progress` refusal's detail is
    `rp-return:` and its reason: `unscoped`, `unread`, `loading`, `incomplete`,
-   `unobserved` (a page that shows no text yet) or `moved`, and before the IdP also
+   `unobserved` (a page that shows nothing yet) or `moved`, and before the IdP also
    `code`, `captcha` or `no-evidence`. An
    `unsafe-return` reading now ends the flow on the instant path too; any other refusal
    of the identity check, as `cancelled`, is an unread page that waits.
 6. **A page rendered in place is read again.** The judge's question is used once per RP
-   document and path, and only once the judge is asked. A waiting RP page that shows no
-   text yet is asked, at most three times per document and never past the flow's ten
-   minutes, to say once it describes something (`login.extract.watch`); it is then asked
+   document and path, and only once the judge is asked. A waiting RP page that shows
+   nothing yet is asked, at most three times per document and never past the flow's ten
+   minutes, to say once it no longer does, by the same rule (`login.extract.watch` with
+   `shown`); it is then asked
    to announce again, so a portal that renders its signed-in view in the same document
    and at the same URL is read as it now shows.
 7. **The site's sign-in ends the wait.** A waiting page holds the RP's and the IdP's
@@ -812,8 +819,10 @@ not on the real site.
   rendering or a path it routes on from, is read (and judged, where a judge can be
   asked) as it shows then, and the flow ends `sso-return-unconfirmed` when that proves
   nothing; it is not read again once the page completes in place. Only a page that
-  shows no text at all, as an empty root or a spinner without words, waits for that. A
-  page whose text is only inside shadow roots reads as showing none and waits.
+  shows nothing at all, as an empty root or a spinner without words or controls, waits
+  for that. Conversely, an RP page whose content is only in an iframe or a canvas reads
+  as showing nothing, as neither the reading nor the extractor sees into them, and waits
+  until `sso-expired`.
 - **An IdP on the RP's own site** (added 2026-11-20). An RP return may land on any
   origin of the RP's site but the selected IdP's own. Where the IdP shares that site,
   its other origins, as a second host of the same IdP, read as the RP's return too,
