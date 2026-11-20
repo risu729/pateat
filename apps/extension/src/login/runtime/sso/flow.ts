@@ -98,6 +98,14 @@ async function username(rt: Runtime, work: SsoWork, live: LiveDocument, idp: boo
   const value = await rt.fields({ connection, account, fieldId }).catch(() => undefined);
   return (await ssoScope(rt, work, live))?.() ? value : undefined;
 }
+/** The flow's parent record ended unsigned, as a cancelled login. */
+const cancelled = (work: SsoWork, parent: LoginAttemptMetadata) =>
+  parseAttemptMetadata({
+    ...parent,
+    state: "blocked",
+    outcome: "cancelled",
+    timing: { ...parent.timing, pageMs: Date.now() - work.startedAt },
+  });
 /**
  * Ends a tab's flow. `goesOn` names a document that goes on with its own login, such as the
  * page whose Log in now ended the flow: it gets no cancel and keeps its state.
@@ -121,12 +129,7 @@ export function cancelSso(
   if (!kept) void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
   void rt.sso.write().catch(() => undefined);
   if (work.parent && work.parent.state !== "authenticated") {
-    const ended = parseAttemptMetadata({
-      ...work.parent,
-      state: "blocked",
-      outcome: "cancelled",
-      timing: { ...work.parent.timing, pageMs: Date.now() - work.startedAt },
-    });
+    const ended = cancelled(work, work.parent);
     work.parent = ended;
     void quietly(rt, async () => {
       await keep(rt, ended);
@@ -255,35 +258,57 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument, insta
   work.parent = ended;
   rt.sso.interrupted.delete(live.document.tabId);
   await keep(rt, ended, true, fence);
-  if (!fence()) return false;
+  if (!fence()) {
+    // The page or the flow's scope changed during the write, and the flow's timer no
+    // longer runs: it ends unsigned, never left waiting (ADR 0026, amendment of 2026-11-20).
+    work.parent = before;
+    if (rt.sso.flows.get(live.document.tabId) === work && !work.ended)
+      cancelSso(rt, live.document.tabId, "sso-scope-changed");
+    else {
+      // Ended meanwhile while it read as signed in, so nothing recorded its end.
+      work.ended = true;
+      const unsigned = cancelled(work, before);
+      work.parent = unsigned;
+      void quietly(rt, async () => {
+        await keep(rt, unsigned);
+        reportAttempt(rt, unsigned, undefined, undefined, { reason: "sso-scope-changed" });
+      });
+    }
+    return false;
+  }
   reportAttempt(rt, ended, undefined);
   noteSignedIn(rt, before, ended, work.account.origin);
   countRelogin(rt, before, ended, live.incognito === true);
-  await releaseChild(rt, work, true);
-  if (work.choice && !unconfirmed && rt.settings.update) {
-    const choice = work.choice;
-    await rt.settings
-      .update(
-        undefined,
-        "account-choice",
-        (snapshot) => {
-          if (!fence()) return snapshot;
-          return { ...snapshot, settings: withChoice(snapshot.settings, choice) };
-        },
-        async (snapshot, catalog) => {
-          // This callback runs inside the settings queue: never re-enter settings.handle.
-          const latestCatalog = await catalog();
-          return (
-            onlyChoicesSince(snapshot, work.saved.snapshot.revision) &&
-            JSON.stringify(latestCatalog) === JSON.stringify(work.saved.catalog) &&
-            !!fence()
-          );
-        },
-      )
-      .catch(() => undefined);
+  // The flow ends with its transition, whatever a later write does; the RP default below
+  // is still saved within its scope.
+  try {
+    if (work.choice && !unconfirmed && rt.settings.update) {
+      const choice = work.choice;
+      await rt.settings
+        .update(
+          undefined,
+          "account-choice",
+          (snapshot) => {
+            if (!fence()) return snapshot;
+            return { ...snapshot, settings: withChoice(snapshot.settings, choice) };
+          },
+          async (snapshot, catalog) => {
+            // This callback runs inside the settings queue: never re-enter settings.handle.
+            const latestCatalog = await catalog();
+            return (
+              onlyChoicesSince(snapshot, work.saved.snapshot.revision) &&
+              JSON.stringify(latestCatalog) === JSON.stringify(work.saved.catalog) &&
+              !!fence()
+            );
+          },
+        )
+        .catch(() => undefined);
+    }
+  } finally {
+    work.ended = true;
+    if (rt.sso.flows.get(live.document.tabId) === work) rt.sso.flows.delete(live.document.tabId);
   }
-  work.ended = true;
-  rt.sso.flows.delete(live.document.tabId);
+  await quietly(rt, () => releaseChild(rt, work, true));
   await rt.sso.write();
   await publish(rt, live, ended);
   return true;
