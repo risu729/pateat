@@ -1,4 +1,6 @@
+import { browser } from "wxt/browser";
 import { ssoChild } from "./sso-state";
+import { ssoMoved } from "./sso/moved";
 import { ssoScope } from "./sso-scope";
 import { onlyChoicesSince, attemptRouteChoice, handlerSlots } from "@pateat/contracts";
 import { type Execution, type Authorized } from "./types";
@@ -14,13 +16,24 @@ import { note } from "./generation";
  * flow's scope holds for its document. A scope that no longer holds, as when the tab's URL
  * moved on before its document announced it, is logged once for its page, so a step that
  * does not run says why (ADR 0026, amendment of 2026-11-18); the flow's own time bounds it.
+ * A tab whose URL is no longer the document's left it, for a new page or a URL changed in
+ * place: the login's reads of that document stop (`leftDocument`) and wait for the tab's
+ * next page, or for this document, asked once, to announce its new URL (amended
+ * 2026-11-20).
  */
 async function hopScope(rt: Runtime, run: Execution): Promise<boolean> {
   const parent = rt.sso.flows.get(run.metadata.document.tabId);
   if (!parent || parent.childId !== run.metadata.id) return false;
   if ((await ssoScope(rt, parent, run.live))?.()) return true;
-  if (current(rt, run) && !parent.ended)
-    note(rt, run.live.document, run.live.url, "sso-scope-changed", "idp-step");
+  if (!current(rt, run) || parent.ended) return false;
+  note(rt, run.live.document, run.live.url, "sso-scope-changed", "idp-step");
+  const live = run.live;
+  if (run.leftDocument === live) return false;
+  const tab = await browser.tabs.get(live.document.tabId).catch(() => undefined);
+  if (current(rt, run) && run.live === live && tab?.url !== live.url) {
+    run.leftDocument = live;
+    ssoMoved(rt, live.document, live.token);
+  }
   return false;
 }
 

@@ -17,6 +17,9 @@ are handled as any site's. Amended on 2026-11-07 by
 by an agent, its waiting rule approved by the owner on 2026-11-19 (01:37 UTC): the IdP's
 own login is logged and goes on past its submit
 ([amendment](#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit)).
+Amended on 2026-11-20 by an agent: the RP return waits for the RP's own evidence and the
+IdP's login ends with its true state
+([amendment](#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).
 Researched from
 public documentation only; no real site or account has been used.
 
@@ -615,6 +618,75 @@ Checked with local runtime tests only
 (`apps/extension/src/login/runtime-tests/sso-idp-later-page.test.ts`), not on the real
 sites.
 
+## Amendment 2026-11-20: the RP return waits for the RP's evidence
+
+Status: accepted. An agent made these decisions within this ADR and implemented them.
+
+On 2026-11-20 from 14:33 to 14:37 UTC, in the owner's Chrome (build `1f892101`), HCP
+signed in through IBMid by itself: the IdP's own login filled the email and password,
+went through the risk check, picked the authenticator on the method chooser with its
+handler, filled the TOTP, and the tab came back to HCP's dashboard. The records said
+otherwise: the parent ended `blocked` `cancelled` with `sso-return-unconfirmed`
+(`personMs` 0), the IdP's login `blocked` `cancelled` with `sso-detached` and
+`sso-released` at 14:35:28, and about 40 `sso-scope-changed` `idp-step` refusals came
+62 ms apart from 14:35:24.5 to 14:35:26.9, with more at 14:33:59 and 14:34:05.
+
+What the code showed (agent's reading, 2026-11-20):
+
+- **The return ended at the first RP page.** Once the tab had reached the IdP, the first
+  RP page after it completed the flow or ended it with `sso-return-unconfirmed`
+  (`ssoAdmit` in `sso/flow.ts`), also when it only proved nothing yet, as the RP's own
+  callback, a page still loading or one whose URL the site changed in place does. An
+  instant return already waited on such a page
+  ([hardening of 2026-11-16](#review-hardening-2026-11-16-the-rp-return-comes-after-the-idp)).
+- **The IdP's login was cancelled before the RP was read.** The RP return detached it
+  and recorded it `blocked` `cancelled` before reading the page, so a login whose TOTP
+  led to the sign-in was logged as cancelled.
+- **A step's reads went on in a document the tab had left.** After an effect step, a
+  login reads its page every 50 ms for up to three seconds (`reconcileBounded` in
+  `sign-in.ts`), checking the flow's scope each time (`hopScope` in `plan-2.ts`). That
+  scope needs the tab's URL to be the document's (`ssoScope`), so once the submission's
+  next page committed, or the page changed its URL in place, every round was refused
+  until the three seconds ran out: the lines after the TOTP, the password (14:33:59) and
+  the risk check (14:34:05). Only the first line per document and path was info. The
+  refusal itself was right, as the tab no longer showed that document; the steps on the
+  method chooser and the TOTP page had been authorized.
+- **The 14:34:04 line**, `reconciling` `unknown-submit` on
+  `/risk/v3.0/authz/pages/compute`, is the IdP's login resuming on the risk check after
+  its password submit (decision 2 of 2026-11-18): its submission's result is not known
+  yet there, which is no end. It is unchanged.
+
+Decisions:
+
+1. **An RP page that proves nothing waits.** After the IdP, an RP page completes the
+   flow on its own evidence as before. One that shows the site's sign-in, another
+   account or a page that is never a return (`unsafe-return`: a permission, sharing or
+   account creation page, also after an IdP that showed none) ends it with
+   `sso-return-unconfirmed`. Any other refuses `sso-in-progress` with detail
+   `rp-return`, and the flow waits for the tab's next page, bounded by its ten minutes.
+2. **The RP-return judge once per RP document**, not once per flow, so the RP's callback
+   does not use up the question its signed-in page needs. Each question still counts
+   toward the recipe's daily judgements. A `signed-in` answer has the page read again as
+   a fresh return, which completes only on its own evidence or the learned marker.
+3. **The IdP's login ends with its true state.** The RP return withdraws its authority
+   at once and records its end only when the flow ends: `authenticated` when the RP
+   showed the sign-in, else as a login whose tab left its origin after its submission
+   (`left-origin`). It is released from its IdP hold either way and logged once with
+   `sso-released`, and still gives no IdP default, account pick or authentication proof.
+   A login the flow detaches before a finite step still ends `cancelled` with
+   `sso-detached`.
+4. **A step stops reading a document the tab left.** When the flow's scope refuses a
+   step of the IdP's login and the tab's URL is no longer the document's, the login
+   reads that document no more (`leftDocument`) and waits for the tab's next page. The
+   document is asked once to announce again (`login.reconnect`), so a URL it changed in
+   place is admitted again through the
+   [refresh of 2026-11-12](#review-hardening-2026-11-12-in-place-idp-path-changes). The
+   refusal is logged once.
+
+Checked with local runtime tests only
+(`apps/extension/src/login/runtime-tests/sso-idp-totp-return.test.ts`), not on the real
+site.
+
 ## Known limits 2026-11-16
 
 - **A layout full of unseen markers.** An SSO layout keeps at most four RP-return
@@ -623,6 +695,10 @@ sites.
   return needs a marker, then never completes on that layout until its recipe is revoked
   or ages out and is generated again. A bracket-form method still completes on the
   selected identity.
+- **An RP that reaches its signed-in page in place** (added 2026-11-20). An RP page that
+  waits is read again only when the tab shows its next document: a document reports a
+  URL change only for an IdP step, so an RP whose callback becomes its signed-in page in
+  the same document waits until the flow's ten minutes end it (`sso-expired`).
 - **Settings changes during the IdP's own login.** The IdP's native login stops on any
   settings change, as every native login does
   ([ADR 0027](0027-per-account-login-routes.md)), and the flow ends with it, even when

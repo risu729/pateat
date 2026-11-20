@@ -412,7 +412,11 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
   // waits for now, and until when it may (ADR 0029, S4, amendment of 2026-11-07). A later
   // document of the login reads its own result in its own call.
   let captcha: { wait?: "unsolved" | "after"; until: number } | undefined;
-  const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
+  // An SSO hop's document the tab has left is read no more: the tab's next page resumes the
+  // login (ADR 0026, amendment of 2026-11-20).
+  const observing = () =>
+    ["awaiting-result", "reconciling"].includes(run.metadata.state) &&
+    run.leftDocument !== run.live;
   // Each round re-authorizes against settings, so the longer advance budget polls slower.
   const interval = run.metadata.operationEffect === "advance" ? 200 : 50;
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

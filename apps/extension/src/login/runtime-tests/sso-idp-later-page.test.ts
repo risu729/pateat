@@ -672,13 +672,21 @@ describe("the flow's bounds and its RP return", () => {
     const back = h.rpPage("rp-back", "/home");
     expect(await ssoAdmit(h.rt, back.ctx)).toEqual({ ok: false, reason: "sso-completed" });
     expect(h.work.parent?.state).toBe("authenticated");
-    // The detached child's end and its release are logged, marked as the hop's.
+    // The child's end is logged once, as the sign-in it led to and released, marked as the
+    // hop's; it is never cancelled (ADR 0026, amendment of 2026-11-20).
     expect(h.report).toHaveBeenCalledWith(
-      expect.objectContaining({ reason: "sso-detached", ssoChild: true }),
+      expect.objectContaining({
+        state: "authenticated",
+        outcome: "authenticated",
+        reason: "sso-released",
+        ssoChild: true,
+      }),
     );
-    expect(h.report).toHaveBeenCalledWith(
-      expect.objectContaining({ reason: "sso-released", ssoChild: true, repeat: true }),
-    );
+    expect(h.report).not.toHaveBeenCalledWith(expect.objectContaining({ outcome: "cancelled" }));
+    expect(h.work.childRecord).toMatchObject({
+      state: "authenticated",
+      ssoChild: { released: true },
+    });
   });
 });
 

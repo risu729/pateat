@@ -5031,20 +5031,27 @@ An IdP page that is neither the IdP's sign-in form nor a finite step (`login.sso
 reads `unknown`), as a risk check or a method chooser after the IdP's own submit, is
 admitted with the IdP child's record while that child runs, so it goes on to its
 handlers or its watch there as a direct login of the IdP does. That includes an account
-confirmation over its 16-letter text allowance, on which the child acts only through
-its own recipe's targets. Before any child began, or after the child signed in, such a
-page waits only when it offers no visible control of its own (the reading's `controls`
-is false: no button, link, field or frame with an area): it refuses `sso-in-progress`
-and the flow waits, pressing nothing, bounded by its ten minutes (`sso-expired`); only
-the RP's own evidence completes it. An `unknown` page with its own controls at those
-times, an `unsafe` reading, or an `unknown` one after the child ended `blocked`, still
-ends the flow `sso-idp-stop`.
-A child whose result settled as unknown, or that is watched after a challenge, keeps the
-flow; only a `blocked` child ends it (`sso-idp-child-stopped`). The child's
-`login.attempt` lines are logged on the device with `ssoChild`, also its end when the
-flow detaches it (`sso-detached`) and its release (`sso-released`, at debug). A step its
-parent's scope no longer authorizes logs `login.refused` `sso-scope-changed` with detail
-`idp-step`, at info the first time for its document and path, which goes to the service
-as a problem line, and at debug for each repeat there
-([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit);
-its waiting rule approved by the owner on 2026-11-19).
+confirmation over its 16-letter text allowance, on which the child acts only through its
+own recipe's targets. Before any child began, or after the child signed in, such a page
+waits only when it offers no visible control of its own (the reading's `controls` is
+false: no button, link, field or frame with an area): it refuses `sso-in-progress` and
+the flow waits, pressing nothing, bounded by its ten minutes (`sso-expired`); only the
+RP's own evidence completes it. An `unknown` page with its own controls at those times,
+an `unsafe` reading, or an `unknown` one after the child ended `blocked`, still ends the
+flow `sso-idp-stop`. A child whose result settled as unknown, or that is watched after a
+challenge, keeps the flow; only a `blocked` child ends it (`sso-idp-child-stopped`). The
+child's `login.attempt` lines are logged on the device with `ssoChild`, also its end
+when the flow detaches it before a finite step (`sso-detached`). On the RP return its
+authority is withdrawn at once and its end recorded with the flow's, once, with
+`sso-released`: `authenticated` when the RP showed the sign-in, else `left-origin`. A
+step its parent's scope no longer authorizes logs `login.refused` `sso-scope-changed`
+with detail `idp-step`, at info the first time for its document and path, which goes to
+the service as a problem line, and at debug for each repeat there; when the tab's URL is
+no longer the document's, the login stops reading it and asks it once to announce again
+(`leftDocument`). After the IdP, an RP page that shows neither the sign-in nor the
+site's sign-in form, another account or an unsafe page waits (`sso-in-progress`, detail
+`rp-return`) for the tab's next page, and the RP-return judge is asked once per RP
+document
+([ADR 0026, amended 2026-11-18](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-18-the-idps-own-login-is-logged-and-goes-on-past-its-submit),
+its waiting rule approved by the owner on 2026-11-19, and
+[2026-11-20](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).

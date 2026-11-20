@@ -275,6 +275,12 @@ export type Execution = {
    */
   heldClick?: number;
   /**
+   * The document an SSO hop's step found the tab gone from (ADR 0026, amendment of
+   * 2026-11-20): its reads there stop, and the tab's next page, or this document announcing
+   * its new URL, resumes the login.
+   */
+  leftDocument?: LiveDocument;
+  /**
    * The path the login's document showed when it was last observed, which a watch that
    * begins there keeps (ADR 0027 amendment of 2026-10-25).
    */

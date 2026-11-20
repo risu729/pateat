@@ -66,7 +66,14 @@ export type SsoWork = {
   refresh?: LiveDocument;
   reprompted?: boolean;
   generation?: boolean;
-  completionTried?: boolean;
+  /** The RP document the RP-return judge was last asked about: once per document. */
+  judged?: string;
+  /**
+   * The RP document the IdP child was detached on, at the RP return: its record ends with
+   * the flow, signed in once the RP shows it, released otherwise (ADR 0026, amendment of
+   * 2026-11-20).
+   */
+  detached?: LoginDocument;
   operation?: {
     id: string;
     handle: string;
