@@ -26,7 +26,7 @@ import type { LoginSecretKind } from "./wire";
 // field it was told to fill.
 
 const inputTypes = ["text", "email", "tel", "number", "password"];
-const maxLengths = [-1, 1, 2, 3, 4, 5, 6, 10, 11, 1024, 1025, 2000];
+const maxLengths = [-1, 0, 1, 2, 3, 4, 5, 6, 10, 11, 1024, 1025, 2000];
 const minLengths = [-1, 5];
 const inputModes = [null, "numeric", " Numeric ", "tel", "text", "kana"];
 const autocompletes = [
@@ -79,6 +79,15 @@ const inputs: Input[] = [
 ];
 
 const observedTokens: readonly string[] = observedAutocompleteTokens;
+
+/**
+ * The inputs the page's description shows as fill fields: an input with a `maxlength` of 0
+ * takes no character and is left out as a field that cannot be filled, but a number
+ * input's, which the browser ignores (ADR 0027 amendment of 2026-11-22).
+ */
+const shownInputs = inputs.filter(
+  (input) => input.maxLength !== 0 || input.type === "number" || input.type.startsWith("select"),
+);
 const roles: Record<string, ObservedCandidate["role"]> = {
   text: "text",
   email: "email",
@@ -191,7 +200,7 @@ describe("the service's input checks and the executor's, over every input", () =
   });
 
   it("fills a TOTP code into every input the service counts as a code field (ADR 0013)", () => {
-    const broken = inputs.filter(
+    const broken = shownInputs.filter(
       (input) => isCodeField(described(input)) && !acceptsSecret(input, "otp"),
     );
     expect(broken.slice(0, 5).map(shown)).toEqual([]);
@@ -199,7 +208,7 @@ describe("the service's input checks and the executor's, over every input", () =
 
   it("fills a TOTP code into every input the service takes as the judge's code field", () => {
     // ADR 0027 amendment of 2026-11-07.
-    const broken = inputs.filter(
+    const broken = shownInputs.filter(
       (input) => judgedCodeInput(described(input)) && !acceptsSecret(input, "otp"),
     );
     expect(broken.slice(0, 5).map(shown)).toEqual([]);
@@ -213,7 +222,7 @@ describe("the service's input checks and the executor's, over every input", () =
       group: "g",
     };
     const broken = [];
-    for (const input of inputs) {
+    for (const input of shownInputs) {
       const field = described(input);
       for (const entry of entries)
         if (
@@ -235,7 +244,7 @@ describe("the service's input checks and the executor's, over every input", () =
     expect(
       entries.filter(
         (entry) =>
-          !inputs.some(
+          !shownInputs.some(
             (input) => detailInputRefusal(entry, described(input), button) === undefined,
           ),
       ),

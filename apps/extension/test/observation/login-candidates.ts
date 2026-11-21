@@ -737,6 +737,17 @@ export function registerLoginCandidates({
       <form id="f"><input id="u"><input id="p" type="password" readonly><button id="go">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
+    // So does a field whose `maxlength` of 0 takes no character, as a read-only one; a
+    // number input's `maxlength`, which the browser ignores, does not (ADR 0027 amendment
+    // of 2026-11-22).
+    page(
+      `<form id="f"><input id="u" maxlength="0"><input id="p" type="password"><button id="go">Log in</button></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    page(
+      `<form id="f"><input id="u" type="number" maxlength="0"><input id="p" type="password"><button id="go">Log in</button></form>`,
+    );
+    expect(observe().complete).toBe(true);
     // A control the executor cannot act on in a component's shadow tree flaws the form that
     // holds the component, which is left out when it is not the login form (ADR 0070).
     page(`<form id="s"><input id="q"><div id="host"></div></form>${login}`);

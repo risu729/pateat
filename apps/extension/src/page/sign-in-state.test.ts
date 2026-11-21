@@ -75,6 +75,17 @@ describe("pageSigns", () => {
     expect(pageSigns(document)).toEqual({ ...none, code: true });
   });
 
+  it("reads no code or password input whose maxlength of 0 takes no character", () => {
+    // As the page's description, which leaves such an input out (ADR 0027 amendment of
+    // 2026-11-22); a number input's `maxlength`, which the browser ignores, still counts.
+    document.body.innerHTML = '<input autocomplete="one-time-code" maxlength="0">';
+    expect(pageSigns(document)).toEqual(none);
+    document.body.innerHTML = '<form><input type="password" maxlength="0"></form>';
+    expect(pageSigns(document)).toEqual(none);
+    document.body.innerHTML = '<input type="number" autocomplete="one-time-code" maxlength="0">';
+    expect(pageSigns(document)).toEqual({ ...none, code: true });
+  });
+
   it("reads a password input among several autocomplete tokens", () => {
     document.body.innerHTML = '<form><input autocomplete="off current-password"></form>';
     expect(pageSigns(document)).toEqual({ ...none, password: true });
