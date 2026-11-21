@@ -145,7 +145,6 @@ export const settingsJa = {
   "{{item}} in {{account}}{{availability}}": "{{account}} の {{item}}{{availability}}",
   " (not available here)": "（ここでは利用できません）",
   " (unavailable)": "（利用できません）",
-  "No default": "既定なし",
   "Remove default for {{origin}}": "{{origin}} の既定のアカウントを解除",
   Origin: "オリジン",
   "Also list items that do not match": "一致しないアイテムも表示する",

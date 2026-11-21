@@ -378,18 +378,19 @@ than in this repository.
     is a disclosure, open while there is none, and the paired sync service is a row with
     its last sync.
   - Done: the settings page's Sites list. An exclusion rule matches a hostname, or a
-    hostname and its subdomains, on every scheme and port, and a default names one
-    exact origin, so the list has two kinds of row, sorted together by hostname. An
-    origin row edits its default account in a select that offers the accounts matching
-    that origin and No default, saved only by its Save button, and its Exclude button
-    adds a rule for that exact hostname, without a trailing dot. A rule row is marked
-    Excluded and its Allow button removes it; a default its rule excludes is kept and
-    shown as unused under the most specific such rule, since exclusion is checked first,
-    and its Remove default button deletes only the default. A default that cannot be
-    used shows the reason. One add form takes an origin (or a hostname, to exclude), a
-    default account and Exclude subdomains too. It saves an origin in its canonical
-    spelling (lowercase, punycode host, no default port) and rejects one with a path,
-    query, fragment, trailing slash or credentials.
+    hostname and its subdomains, on every scheme and port, and a default names one exact
+    origin, so the list has two kinds of row, sorted together by hostname. An origin row
+    edits its default account in a select that offers the accounts matching that origin,
+    saved only by its Save button; its Remove default button deletes the default (owner,
+    2026-11-21 10:08 UTC, replacing a No default choice), and its Exclude button adds a
+    rule for that exact hostname, without a trailing dot. A rule row is marked Excluded
+    and its Allow button removes it; a default its rule excludes is kept and shown as
+    unused under the most specific such rule, since exclusion is checked first, and its
+    Remove default button deletes only the default. A default that cannot be used shows
+    the reason. One add form takes an origin (or a hostname, to exclude), a default
+    account and Exclude subdomains too. It saves an origin in its canonical spelling
+    (lowercase, punycode host, no default port) and rejects one with a path, query,
+    fragment, trailing slash or credentials.
   - Done: vault access inside each Bitwarden connection. Its row holds the Use this
     vault switch, Items for Pateat and the collapsed lists of included groups and items
     and of excluded items and fields; the separate vault access panel is gone. Saved
@@ -2030,20 +2031,23 @@ real Bitwarden Cloud US account in their Chrome
   registrable parent domain. The draft decides which connections and items are searched;
   it grants nothing, and usernames are read only under the saved settings. The
   background answers `settings.site-accounts` with item IDs, the reasons and, for those
-  matched items only, the login username (owner decision, 2026-10-11: usernames are
-  shown only while matching, never kept in the catalog or sent to the server). It says
-  when a vault or an item could not be searched. Items whose names are still equal get
-  an item ID prefix. A deeper-path Exact or StartsWith rule is not evaluated there, so
-  the page can also list, after the matches, every other item the draft allows, marked
-  as not matching. A saved default for a live vault item is not shown as an origin
-  mismatch, since its URI rules are checked on each page. Its row asks the same question
-  for its origin: when its item matches, the row shows how and the login username,
-  looked up again on each visit and never saved (the same 2026-10-11 decision); when
-  every vault was searched and it does not match `origin/`, the row says so; otherwise
-  the row keeps the neutral note. Either way it shows no username. The background
-  answers these lookups one at a time, since a vault's crypto Worker takes one job at a
-  time. The owner confirmed both the picker and the saved row against a real vault in
-  the installed Chrome on 2026-10-11
+  matched items and the items the page names, the login username (owner decision,
+  2026-10-11: usernames are never kept in the catalog or sent to the server; widened on
+  2026-11-21 to the named items,
+  [ADR 0080](adr/0080-login-usernames-kept-while-unlocked.md#amendment-2026-11-21-named-items-on-the-settings-page)).
+  It says when a vault or an item could not be searched. Items whose names are still
+  equal get an item ID prefix. A deeper-path Exact or StartsWith rule is not evaluated
+  there, so the page can also list, after the matches, every other item the draft
+  allows, marked as not matching and named by its login username. A saved default for a
+  live vault item is not shown as an origin mismatch, since its URI rules are checked on
+  each page. Its row asks the same question for its origin and names its item: when its
+  item matches, the row shows how; when every vault was searched and it does not match
+  `origin/`, the row says so; otherwise the row keeps the neutral note. In each case the
+  row shows the item's login username when the saved settings and the draft let it be
+  read, looked up again on each visit and never saved. The background answers these
+  lookups one at a time, since a vault's crypto Worker takes one job at a time. The
+  owner confirmed both the picker and the saved row against a real vault in the
+  installed Chrome on 2026-10-11
   ([evidence](research/2026-10-10-feasibility.md#default-account-picker-on-a-real-vault-2026-10-11)).
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is

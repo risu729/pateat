@@ -98,7 +98,8 @@ for (const [variant, matched] of [
       await expect(row("https://other.example")).toContainText(
         "No URI rule or passkey of this item matches this origin",
       );
-      await expect(row("https://other.example")).not.toContainText("test_username");
+      // A saved item that does not match its origin is still named by its username (ADR 0080).
+      await expect(row("https://other.example")).toContainText("My test login · test_username");
     });
   });
 }

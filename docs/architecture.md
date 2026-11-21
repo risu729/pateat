@@ -194,9 +194,10 @@ TOTP field without a value, and `totpSeed` on a Text or Hidden custom field shap
 a TOTP key
 ([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field)).
 The one exception is the default account picker: for the items that match the entered
-origin, the background returns each item's login username so same-named items can be
-told apart. The crypto Worker keeps each live login's username in memory while the vault
-is unlocked and answers from it
+origin, and the items the settings page names for it (a saved default's item, or every
+listed item when it lists those that do not match), the background returns each item's
+login username so same-named items can be told apart. The crypto Worker keeps each live
+login's username in memory while the vault is unlocked and answers from it
 ([ADR 0080](adr/0080-login-usernames-kept-while-unlocked.md)); it is not persisted or
 synced.
 Password requests accept explicit manual authenticator/email codes and new-device

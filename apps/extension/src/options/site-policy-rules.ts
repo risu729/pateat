@@ -24,7 +24,7 @@ export type SiteAccountOption = {
   uri: boolean;
   passkey: boolean;
   value: string;
-  /** The item name, then the login username when it matched, then an ID prefix if still ambiguous. */
+  /** The item name, then its login username when one was read, then an ID prefix if still ambiguous. */
   label: string;
 };
 
@@ -43,6 +43,21 @@ export function draftAllows(
     (eligibility.reason === "fields-excluded" &&
       connection?.items.find((entry) => entry.id === itemId)?.fields.length === 0)
   );
+}
+
+/** The login username the background read for an item, matched or named. */
+export function usernameOf(
+  found: Extract<SiteAccountsResponse, { ok: true }> | undefined,
+  connectionId: string,
+  itemId: string,
+): string | undefined {
+  const same = (entry: { connectionId: string; itemId: string }) =>
+    entry.connectionId === connectionId && entry.itemId === itemId;
+  return found?.accounts.find(same)?.username ?? found?.named?.find(same)?.username;
+}
+
+export function withUsername(label: string, username: string | undefined): string {
+  return username ? `${label} · ${username}` : label;
 }
 
 /**
@@ -75,7 +90,7 @@ export function siteAccountOptions(
               uri: match?.uri ?? false,
               passkey: match?.passkey ?? false,
               value: JSON.stringify([connection.id, item.id]),
-              label: match?.username ? `${item.label} · ${match.username}` : item.label,
+              label: withUsername(item.label, usernameOf(found, connection.id, item.id)),
             },
           ]
         : [];
@@ -102,8 +117,6 @@ export function matchedBy(option: Pick<SiteAccountOption, "uri" | "passkey">): s
   return option.passkey ? "passkey" : "no match for this origin";
 }
 
-/** The select value that removes an origin's default. */
-export const NO_DEFAULT = "";
 /** The select value of a saved default that no connection here names. */
 export const SAVED_ELSEWHERE = "saved";
 

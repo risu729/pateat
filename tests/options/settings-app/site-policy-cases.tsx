@@ -276,17 +276,18 @@ export function registerSitePolicy({
       await expect
         .element(control("settings-status"))
         .toMatchTextContent(`saved (revision ${revision + 1}).`);
-      expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+      // The saved row names its item in a search of its own.
+      expect(client.findSiteAccounts.mock.calls.at(-1)?.slice(0, 2)).toEqual([
         "https://bank.example",
         expect.anything(),
-      );
+      ]);
       expect(client.saveSettings.mock.calls[revision]?.[0].settings.siteDefaults).toEqual([
         expect.objectContaining({ origin: "https://bank.example", itemId: "primary" }),
       ]);
     }
   });
 
-  test("an origin row changes its default only on Save, and No default removes it", async () => {
+  test("an origin row changes its default only on Save, and Remove default removes it", async () => {
     const client = mockClient();
     const response = saved(1);
     response.snapshot.settings.siteDefaults.push({
@@ -314,7 +315,6 @@ export function registerSitePolicy({
         "Demo primary account in Demo personal vault",
         "Demo secondary account in Demo personal vault",
         "Demo team account in Demo work vault",
-        "No default",
       ]);
     await expect.element(select).toHaveValue(JSON.stringify(["demo-personal", "secondary"]));
     await expect.element(save).toBeDisabled();
@@ -335,13 +335,69 @@ export function registerSitePolicy({
       },
     ]);
     await expect.element(save).toBeDisabled();
-    await select.selectOptions("No default");
-    await save.click();
+    await page.getByRole("button", { name: "Remove default for https://bank.example" }).click();
     await expect.element(control("settings-status")).toMatchTextContent("saved (revision 3).");
     expect(client.saveSettings.mock.calls[1]?.[0].settings.siteDefaults).toEqual([]);
     await expect.element(select).not.toBeInTheDocument();
     // The row is gone, so focus moves to the add form.
     await expect.element(control("site-origin")).toHaveFocus();
+  });
+
+  test("names a saved default and the items that do not match by their login usernames", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    const client = mockClient();
+    // The background reads the usernames of the items the page names, matching or not.
+    const usernames: Record<string, string> = {
+      '["demo-personal","secondary"]': "alice@example.test",
+      '["demo-work","primary"]': "team@example.test",
+    };
+    client.findSiteAccounts.mockImplementation(async (origin, _settings, named = []) => ({
+      ...(await demoSiteAccounts(origin)),
+      named: named.flatMap((entry) => {
+        const username = usernames[JSON.stringify([entry.connectionId, entry.itemId])];
+        return username ? [{ ...entry, username }] : [];
+      }),
+    }));
+    const response = saved(1);
+    response.snapshot.settings.siteDefaults.push({
+      origin: "https://other.example",
+      provider: "dummy",
+      server: "cloud-us",
+      userId: "demo-personal-account",
+      itemId: "secondary",
+      itemName: "Demo secondary account",
+      accountName: "Demo personal vault",
+    });
+    client.getSettings.mockResolvedValue(response);
+    await mount(client);
+    // The saved item does not match its origin, yet its row names it by its username.
+    await expect
+      .element(page.getByRole("combobox", { name: "Default account for https://other.example" }))
+      .toMatchTextContent("Demo secondary account · alice@example.test");
+    expect(client.findSiteAccounts).toHaveBeenCalledWith(
+      "https://other.example",
+      expect.anything(),
+      [{ connectionId: "demo-personal", itemId: "secondary" }],
+    );
+
+    // Listing the items that do not match names each of them too.
+    await control("site-origin").fill("https://none.example");
+    await vi.advanceTimersByTimeAsync(SITE_ACCOUNTS_DELAY_MS);
+    await expect
+      .element(control("default-account-note"))
+      .toMatchTextContent("No vault item matches");
+    const searches = client.findSiteAccounts.mock.calls.length;
+    await control("default-account-all").click();
+    await expect
+      .element(control("default-account"))
+      .toMatchTextContent("Demo team account · team@example.test (no match for this origin)");
+    // Only the unmatched items are named, in one more search; the matches stay listed.
+    expect(client.findSiteAccounts).toHaveBeenCalledTimes(searches + 1);
+    expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+      "https://none.example",
+      expect.anything(),
+      expect.arrayContaining([{ connectionId: "demo-work", itemId: "primary" }]),
+    );
   });
 
   test("pausing an origin keeps its default unused by itself under the rule until it is resumed", async () => {
