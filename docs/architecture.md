@@ -3546,8 +3546,8 @@ derive from it (`toggle-button-ember74`), not touching another letter or digit: 
 counter numbers the objects the app made before it, so another load or route gives
 it to another element. HCP's portal named every navigation link and button only so
 (`ember14` to `ember149`), and its page after an SSO return offered no marker
-(2026-11-21). On the signed-in page such an
-`id` or a random-looking one locates no marker, since a marker must match on every
+(2026-11-21). On the signed-in page an `id` of either library or a random-looking one
+locates no marker, since a marker must match on every
 later visit; only a field that may be a sign-in field still gets it, so the page is
 not reported incomplete.
 

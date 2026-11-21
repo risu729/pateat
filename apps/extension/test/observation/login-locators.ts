@@ -135,11 +135,13 @@ export function registerLoginLocators({
     page(
       `<form><input id="ember21" name="email">
         <button id="toggle-button-ember74">Continue</button>
+        <button id="ember12-trigger">Options</button>
         <button id="member1">Members</button></form>`,
     );
     expect(observe().candidates.map(({ target }) => target)).toEqual([
       { by: "name", value: "email" },
       { by: "text", value: "Continue" },
+      { by: "text", value: "Options" },
       // `member1` is a site's own ID, not Ember's.
       { by: "id", value: "member1" },
     ]);
