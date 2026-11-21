@@ -5060,6 +5060,10 @@ exact IdP child. Separate inspect/prepare/commit commands and a durable intent j
 handle entry effects. The journal is secret-free diagnostics and interruption evidence;
 a restarted worker cannot restore click authority. Final delivery checks include current
 vault snapshots and synchronous recipe-cache epochs after awaited policy/mapping reads.
+The flow keeps its SSO mapping in memory, read once for the settings revision and both
+accounts' vault connections it was read under, and drops it on every vault notice and
+settings save; a refused read is never kept
+([ADR 0026, 2026-11-22](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-22-an-idp-page-the-tab-leaves-while-it-is-read-ends-nothing)).
 
 Only a confirmed return to the original RP records parent authentication. IdP child
 identity survives parent cancellation so late callbacks cannot save an IdP default or

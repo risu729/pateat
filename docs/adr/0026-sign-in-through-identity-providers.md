@@ -850,7 +850,8 @@ Decisions:
    chosen in another tab, still stops nothing running, and any other change is checked
    as a scope check of its own would check it. Nothing is kept from one policy check to
    the next, so a vault change applies at the next check. Direct logins of the same
-   recipe logged `check_ms` of 2 to 5 seconds in all.
+   recipe logged `check_ms` of 2 to 5 seconds in all. The amendment of 2026-11-22
+   replaces this decision with a mapping kept for the flow.
 
 Checked with local tests (`sso-idp-operation-time.test.ts`): one whose scope checks and
 vault reads take 15 seconds or more before the page's authorization ends, which fails
@@ -890,16 +891,42 @@ Decisions:
    or the tab's URL is no longer the page's, the page refuses `sso-in-progress` with
    detail `idp:left`, ends nothing, and the tab's next page is read. One still the
    tab's page ends the flow as before.
-2. **One mapping read per IdP page admission.** The scope checks of one admission share
-   one read of the flow's SSO mapping (`SsoReads`), as a policy check's do since
-   2026-11-21; everything else in each scope check is read again. A vault sync while it
-   is shared, as during a wait for the master password, changes a snapshot the flow
-   depends on, which fails the next scope check.
+2. **The flow keeps its SSO mapping.** It replaces decision 2 of 2026-11-21. Every scope
+   check of the flow, in its policy checks, its IdP pages' admissions and its effects,
+   uses one read of the flow's SSO mapping (`ssoMapping`) while what that read depends
+   on is unchanged: the settings revision and whether a settings sync is pending, the
+   flow's RP method and IdP choice, and both accounts' vault connections as the catalog
+   has them, with their snapshots, states and quarantined items. Any other of these
+   reads it again. Everything else in each scope check is read again, as before: the
+   tab, pauses, settings, the flow's dependencies, item eligibility, and each account's
+   vault being open on its snapshot (`bindingSnapshotCurrent`), checked synchronously
+   before the mapping is used and again in the check's fence, so a locked vault refuses
+   as before. The mapping is kept in memory only, with the flow, and never stored.
+   - **Dropped on a notice.** Every vault notice (a sync, a lock, a timeout or any
+     other write of a vault's state) and every settings save, a choice-only one too,
+     drops every flow's mapping (`dropSsoMappings`). A read under way when it is
+     dropped is not used: the scope check reads the vault again.
+   - **Refusals are never kept.** A read that the vault refused or that failed is not
+     kept, so the next check asks the vault again, and a mapping the vault revoked is
+     never served from what was kept.
+   - **What it saves.** Each read of the mapping is two vault jobs (`ssoMethods` and
+     `ssoCandidates`), run one at a time on the vault's lane. In a local runtime test
+     of the IdP login's password fill and its submit click, the scope checks read it
+     42 times before 2026-11-21, about 21 times with decision 2 of 2026-11-21, and once
+     now: two vault jobs for the flow rather than about 20 for each step, beside the
+     step's own value reads.
 
 Checked with local runtime tests (`sso-idp-interstitial.test.ts`): an IdP page that
 posts itself on during its username read or during its reading, then the method chooser
 and the TOTP page, which fail without decision 1, and one that counts the mapping reads
-of one admission, which fails without decision 2. Not checked on the real site.
+of one admission. Checked with local runtime tests (`sso-mapping-cache.test.ts`) that
+fail without decision 2 or without each of its drops: repeated checks read the mapping
+once; a vault sync that changed an account's snapshot refuses as before; a settings save
+that stops logins still stops the IdP login; a choice-only save reads the mapping again
+and keeps the new read, also when it lands between two scope checks; a locked vault
+refuses, and its unlock reads the mapping again; a revoked mapping refuses, is asked
+for again at the next check, and a read under way when it was revoked is not used. Not
+checked on the real site.
 
 ## Known limits 2026-11-16
 

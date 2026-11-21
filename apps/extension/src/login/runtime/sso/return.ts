@@ -16,7 +16,7 @@ import { keep, quietly } from "../session-store";
 import { withChoice } from "../steps";
 import { hideUsernames, returnMarkerProofs, showsMarkers } from "../markers";
 import { countRelogin } from "../relogin";
-import { ssoScope, type SsoReads } from "../sso-scope";
+import { ssoScope } from "../sso-scope";
 import type { SsoWork } from "../sso-state";
 import { ssoObservation } from "./entry";
 import { releaseChild } from "./child";
@@ -33,13 +33,7 @@ export const cancelled = (work: SsoWork, parent: LoginAttemptMetadata) =>
     outcome: "cancelled",
     timing: { ...parent.timing, pageMs: Date.now() - work.startedAt },
   });
-export async function username(
-  rt: Runtime,
-  work: SsoWork,
-  live: LiveDocument,
-  idp: boolean,
-  reads?: SsoReads,
-) {
+export async function username(rt: Runtime, work: SsoWork, live: LiveDocument, idp: boolean) {
   const account = idp ? { ...work.selected.account, origin: work.selected.origin } : work.account;
   const connection = work.saved.catalog.connections.find(
     (entry) => entry.id === account.connectionId,
@@ -56,11 +50,11 @@ export async function username(
     !fieldId ||
     !eligible.eligible ||
     !eligible.fieldIds.includes(fieldId) ||
-    !(await ssoScope(rt, work, live, reads))
+    !(await ssoScope(rt, work, live))
   )
     return undefined;
   const value = await rt.fields({ connection, account, fieldId }).catch(() => undefined);
-  return (await ssoScope(rt, work, live, reads))?.() ? value : undefined;
+  return (await ssoScope(rt, work, live))?.() ? value : undefined;
 }
 /**
  * Completes the flow on the RP page's positive evidence. After an IdP that showed no page

@@ -1,7 +1,7 @@
 import { browser } from "wxt/browser";
 import { ssoChild } from "./sso-state";
 import { ssoMoved } from "./sso/moved";
-import { ssoScope, type SsoReads } from "./sso-scope";
+import { ssoScope } from "./sso-scope";
 import { onlyChoicesSince, attemptRouteChoice, handlerSlots } from "@pateat/contracts";
 import { type Execution, type Authorized } from "./types";
 import { current, change } from "./attempt";
@@ -21,10 +21,10 @@ import { note } from "./generation";
  * next page, or for this document, asked once, to announce its new URL (amended
  * 2026-11-20).
  */
-async function hopScope(rt: Runtime, run: Execution, reads: SsoReads): Promise<boolean> {
+async function hopScope(rt: Runtime, run: Execution): Promise<boolean> {
   const parent = rt.sso.flows.get(run.metadata.document.tabId);
   if (!parent || parent.childId !== run.metadata.id) return false;
-  if ((await ssoScope(rt, parent, run.live, reads))?.()) return true;
+  if ((await ssoScope(rt, parent, run.live))?.()) return true;
   if (!current(rt, run) || parent.ended) return false;
   note(rt, run.live.document, run.live.url, "sso-scope-changed", "idp-step");
   const live = run.live;
@@ -41,10 +41,7 @@ async function hopScope(rt: Runtime, run: Execution, reads: SsoReads): Promise<b
 export async function allowed(rt: Runtime, run: Execution): Promise<Authorized | undefined> {
   if (!current(rt, run) || !rt.vars.storageHealthy || manualExecutionConflict(rt, run))
     return undefined;
-  // An SSO hop's two scope checks read its flow's mapping from the vault once (ADR 0026,
-  // amendment of 2026-11-21); the next policy check reads it again.
-  const reads: SsoReads = {};
-  if (ssoChild(rt.sso, run.metadata) && !(await hopScope(rt, run, reads))) return undefined;
+  if (ssoChild(rt.sso, run.metadata) && !(await hopScope(rt, run))) return undefined;
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!current(rt, run) || manualExecutionConflict(rt, run)) return undefined;
   // A watched login only reads, so newer settings stop it only when they no longer plan
@@ -107,7 +104,7 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
       return undefined;
   }
   if (manualExecutionConflict(rt, run)) return undefined;
-  if (ssoChild(rt.sso, run.metadata) && !(await hopScope(rt, run, reads))) return undefined;
+  if (ssoChild(rt.sso, run.metadata) && !(await hopScope(rt, run))) return undefined;
   return {
     connection: plan.connection,
     binding: plan.binding,

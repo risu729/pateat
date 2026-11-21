@@ -26,7 +26,7 @@ import { choiceAccount, itemMatchesUrl } from "../plan";
 import { hideUsernames } from "../markers";
 import { openPasswordWindow } from "../master-password";
 import { openMethods, type MethodMarks } from "../methods";
-import { ssoCurrent, ssoReturnOrigin, ssoScope, type SsoReads } from "../sso-scope";
+import { dropSsoMappings, ssoCurrent, ssoReturnOrigin, ssoScope } from "../sso-scope";
 import { ssoPress } from "../sso-effects";
 import { ssoChild, type SsoWork } from "../sso-state";
 import { ssoObservation, inspectSsoTarget } from "./entry";
@@ -138,6 +138,9 @@ export async function ssoVaultChanged(
   rt: Runtime,
   reason: "sso-vault-changed" | "sso-settings-changed" = "sso-vault-changed",
 ): Promise<void> {
+  // A vault notice or a settings save drops each flow's kept mapping (ADR 0026, amendment
+  // of 2026-11-22), whether or not the flow goes on.
+  dropSsoMappings(rt);
   if (rt.sso.flows.size === 0) return;
   const saved = await rt.settings
     .handle({ version: 1, type: "settings.get" })
@@ -409,9 +412,6 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
     return ctx.refuse("sso-in-progress", "idp:left");
   };
   if (await leftIdp()) return left();
-  // An IdP page's admission checks the flow's scope four times: with one read of its SSO
-  // mapping, as a policy check does (ADR 0026, amendment of 2026-11-21).
-  const reads: SsoReads = {};
   const prior = work.live;
   /**
    * Ends the flow for `reason`, unless the tab left this IdP page while it was read, as a
@@ -427,7 +427,7 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
     return ctx.refuse(reason);
   };
   work.live = ctx.live;
-  if (!(await ssoScope(rt, work, work.live, reads))) {
+  if (!(await ssoScope(rt, work))) {
     if (await leftIdp()) {
       if (work.live === ctx.live) work.live = prior;
       return left();
@@ -521,13 +521,13 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
   work.phase = "at-idp";
   const child = rt.attempts.get(ctx.document.tabId);
   if (!(await ssoReprompt(rt, work, ctx.live, true))) return stop("sso-reprompt-required");
-  let value = await username(rt, work, ctx.live, true, reads);
+  let value = await username(rt, work, ctx.live, true);
   if (!value) return stop("sso-username-unavailable");
   const parsed = v.safeParse(
     ssoIdpResultSchema,
     await send(rt, ctx.live, { type: "login.sso.idp", username: value }).catch(() => undefined),
   );
-  if (!parsed.success || !(await ssoScope(rt, work, work.live, reads))) {
+  if (!parsed.success || !(await ssoScope(rt, work))) {
     value = undefined;
     return stop("sso-idp-unreadable", "sso-cancelled");
   }

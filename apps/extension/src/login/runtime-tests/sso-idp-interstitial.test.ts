@@ -16,6 +16,7 @@ vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { ssoAdmit } = await import("../runtime/sso/flow");
 const { allowed } = await import("../runtime/plan-2");
+const { dropSsoMappings } = await import("../runtime/sso-scope");
 const { ssoReturnFixture } = await import("./sso-return-fixture");
 const { rp, idp, idpReadings, identities, harness, idpChild, step, click, fill } = ssoReturnFixture(
   fake,
@@ -111,6 +112,7 @@ describe("an IdP page that posts itself on while it is read", () => {
   it("reads the flow's mapping once while it admits an IdP page", async () => {
     const { h } = await submitted();
     const validate = vi.mocked(h.rt.options.sso!.validate);
+    dropSsoMappings(h.rt);
     validate.mockClear();
     idpReadings.set("idp-risk", { kind: "unknown", controls: false });
     const risk = h.page(idp, "idp-risk", "/risk/v3.0/authz/pages/compute", "?txn=1");
