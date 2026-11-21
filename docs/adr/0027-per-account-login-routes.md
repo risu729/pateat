@@ -166,6 +166,11 @@ the sign-in page shows again, so a signed-in page that keeps the handler's form 
 is read for its result
 ([A handler's form kept hidden](#amendment-2026-11-21-a-handlers-form-kept-hidden)).
 
+Amended on 2026-11-21 (agent, for the owner's issue
+[#1750](https://github.com/risu729/pateat/issues/1750); implemented): the judge's code
+field may also be a plain text input whose `maxlength` is 6 to 10
+([A plain code input with a maxlength](#amendment-2026-11-21-a-plain-code-input-with-a-maxlength)).
+
 Date: 2026-10-11
 
 ## Context
@@ -2179,3 +2184,46 @@ changed it, without asking the owner, as the fix of the reported login:
 - Not chosen: keeping hidden elements counted until the page reads signed in. That
   needs the sign-in state read before every handler check, and the route's fields
   already tell the sign-in page apart.
+
+## Amendment 2026-11-21: a plain code input with a maxlength
+
+Chosen by an agent, not asked, for the owner's report of 2026-11-21 ([issue
+#1750](https://github.com/risu729/pateat/issues/1750)) that the authenticator code was
+not filled on ImmiAccount. After the password, `online.immi.gov.au/lusc/login`
+(2026-11-21 10:27 UTC, request `01a1fda5-b741-7016-b6d9-a27b6b31c8dd`) showed, under
+the headings "Authenticate ImmiAccount" and "App authentication", one text input
+`#authenticationCode` labelled "Authentication code" with `maxlength="6"` and no
+`inputmode` or `autocomplete`, and the buttons Submit, Cancel and "reset your account
+authentication" in its form. The judge named it as the code field with Submit and
+source `authenticator-app`; the service dropped the code
+(`totpDropped: "not-code-field"`): `isCodeField` takes a `maxlength` only on a numeric,
+`tel` or `number` input, and `judgedCodeInput` of the amendments of 2026-11-07 and
+2026-11-08 took a plain text input only without one. The person typed the code.
+
+Decision:
+
+- `judgedCodeInput` (`packages/contracts/src/observation.ts`) also takes such a text
+  input whose described `maxlength` is 6 to 10, under the same other rules: no
+  `inputmode` but `text` or `numeric`, no `autocomplete` but `off`. 6 is the shortest
+  code `totpCodeRefusal` keeps (`code-too-short`) and 10 the longest `maxlength` of a
+  short numeric code input (`isCodeField`); a plain text input limited to fewer
+  characters takes no code, and one limited to more, such as a name or a username
+  field's 64, is limited past a code. The extension's TOTP fill rule (`acceptsSecret`
+  for `otp`, its `judgedTextInput`, renamed from `unlimitedTextInput`) takes the same
+  input, and the fill still checks that the `maxlength` holds the code, so an item's
+  8-digit code is refused in a field of 6.
+- A plain text input without a `maxlength` already took the judge's code, and one whose
+  `maxlength` fits a code is no less likely to be the code field; the judge's answer,
+  from the page's headings and labels, is what names either a code field. Nothing else
+  of the amendments of 2026-11-07 and 2026-11-08 changes: `isCodeField` is unchanged, so
+  such an input makes no page a code page, and the service plans no recipe step's code
+  into it.
+- Another text input of its form that the rule takes now includes one limited to 6 to
+  10 characters, so a form that also asks for a short name or member number in such an
+  input refuses the code (`several-code-fields`) and the person types it.
+- Changing `judgedCodeInput` changes the digest of a judged page's inputs
+  (ADR 0029 amendment of 2026-11-07) for every page with such an input, so a row kept
+  `challenge` is judged again once. ImmiAccount's code page kept no row of its own: the
+  signed-in page on the same path moved its recipe to revision 2, and rows are kept per
+  revision, so its next code page is judged again and its recipe gets the `totp`
+  handler.

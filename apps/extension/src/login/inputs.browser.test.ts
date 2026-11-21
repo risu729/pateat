@@ -24,6 +24,9 @@ describe("secret input rule on Chromium inputs", () => {
     ["otp", '<input autocomplete="off">', true],
     ["otp", '<input autocomplete="USERNAME">', false],
     ["otp", '<input maxlength="12">', false],
+    // One limited to 6 characters, as ImmiAccount's (ADR 0027 amendment of 2026-11-21).
+    ["otp", '<input id="authenticationCode" maxlength="6">', true],
+    ["otp", '<input maxlength="5">', false],
     ["otp", '<input type="email">', false],
     ["password", '<input autocomplete="current-password">', true],
     ["password", '<input autocomplete="username current-password">', true],

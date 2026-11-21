@@ -396,9 +396,10 @@ describe("judged totp handler (ADR 0027)", () => {
   });
 
   it("refuses a field that is not a code field or not an input of the page", () => {
-    // A plain text input takes the judge's code only without a `maxlength` and with no
-    // `inputmode` but `text` or `numeric` (ADR 0027 amendment of 2026-11-08).
-    for (const extra of [{ maxLength: 12 }, { inputMode: "tel" as const }])
+    // A plain text input takes the judge's code only without a `maxlength` or with one of
+    // 6 to 10, and with no `inputmode` but `text` or `numeric` (ADR 0027 amendments of
+    // 2026-11-08 and 2026-11-21).
+    for (const extra of [{ maxLength: 12 }, { maxLength: 5 }, { inputMode: "tel" as const }])
       expect(
         addHandler(
           recipe,
@@ -422,6 +423,21 @@ describe("judged totp handler (ADR 0027)", () => {
           path: "/two-factor",
           candidates: [
             { ...candidate("otp", target("otp"), "text"), autocomplete: "off" as const },
+            candidate("verify", verify),
+          ],
+        },
+        totp(),
+      ),
+    ).toMatchObject({ ok: true });
+    // ImmiAccount's code input (issue #1750): a text input with `maxlength="6"`.
+    expect(
+      addHandler(
+        recipe,
+        {
+          origin,
+          path: "/two-factor",
+          candidates: [
+            { ...candidate("otp", target("otp"), "text"), maxLength: 6 },
             candidate("verify", verify),
           ],
         },
