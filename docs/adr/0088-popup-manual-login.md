@@ -17,7 +17,11 @@ Amended on 2026-11-17 by the owner (13:15 UTC,
 ([below](#amendment-2026-11-18-a-sign-in-method-choice-for-log-in-now)): a request that
 waits for the person's sign-in method choice says so, and ends with its method offer,
 also in a fresh tab; amended the same day by the owner: **Log in now** presses an SSO
-entry the automatic order decides, and shows the chooser otherwise.
+entry the automatic order decides, and shows the chooser otherwise. Amended on
+2026-11-21 by the owner (11:26 UTC,
+[below](#amendment-2026-11-21-hidden-beside-the-account-choice)): while the popup shows
+the account choice, **Log in now** is hidden, and shows below the choice only for what
+the choice cannot do.
 
 Date: 2026-11-11
 
@@ -230,3 +234,46 @@ its five minutes while the offer stayed open five more, then ended with
   ([ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
   Its start waits only for the page's announcement for the request, never for an earlier
   admission of the page.
+
+## Amendment 2026-11-21: hidden beside the account choice
+
+On 2026-11-21 the owner pressed **Log in now** on a bank site where three accounts
+matched and the popup also showed the account choice
+([ADR 0021](0021-account-choice-outside-settings.md#b-several-password-candidates) B:
+the matching accounts, "Make it the default for {host}" and **Log in**). **Log in now**
+came first in the popup, above the choice, and it never saves a default
+([above](#decision)), so the site kept asking for an account at every login. Asked how
+the popup should show **Log in now** while the account choice shows, the owner chose at
+11:26 UTC to hide it while the choice shows (「選択中は隠す」), and to show it below the
+choice section only where the choice's **Log in** cannot be pressed, as while another
+tab's login holds the site.
+
+- While the popup shows the tab's account choice, **Log in now** (or **Fill**) is not
+  shown. The choice is where to log in then, and its checkbox makes the account the
+  default. Without a choice, **Log in now** keeps its place above the rest of the popup.
+- It shows after the choice section, its notes and **Remove default**, while any of
+  these holds:
+  - Another tab's login holds the site (the choice's `held`), so the choice's **Log in**
+    is disabled. **Log in now** checks the narrower hold of an explicit request
+    (`manualHeldElsewhere`), so it can still start, or says why it cannot.
+  - Its offer lists a document other than the one the choice waits in, as several
+    embedded login documents or the page beside a frame's choice
+    ([ADR 0086](0086-logins-in-frames-like-top-pages.md)), with its page selector.
+  - A request of the tab is preparing, generating a recipe or waiting for its sign-in
+    method choice, or a **Fill** press is at work. Once it showed for one, or once this
+    popup pressed **Log in now**, **Fill** or **Cancel this login**, the section stays
+    until the popup closes, so its status, **Cancel this login** and result never
+    disappear in the middle of a request. The section moves without restarting, so it
+    keeps the request it sent.
+
+The following are the agent's choices, not confirmed by the owner:
+
+- Two more cases where **Log in now** does what the choice cannot keep it shown: a
+  target offered **Fill**, and an account the choice does not offer, as a match synced
+  after the login was refused, or an item that signs in only through an identity
+  provider, which a choice of several matches leaves out.
+- **Log in now** is also hidden while the popup still checks whether the tab waits for a
+  choice, or lists the choice's accounts, so it does not show first and then vanish
+  under the pointer as the choice appears.
+- The decision lives in the popup. The worker's offer, start and hold checks are
+  unchanged.
