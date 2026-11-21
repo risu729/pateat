@@ -88,7 +88,14 @@ export function describe(element: Element, keypads?: Keypads): Found | undefined
     if (keyed && keypad)
       keypadLocator = keypad.target ?? keypadPositionTarget(element, keypad.container);
     if (keyed && !keypadLocator) keyed = false;
-    if (!keyed && (present === "faint" || element.readOnly || element.matches(":disabled")))
+    // A `maxlength` of 0 takes no character from anyone, the person's typing and the
+    // login's alike, as a read-only field (ADR 0027 amendment of 2026-11-22); the browser
+    // ignores it on a number input.
+    const untypeable = element.maxLength === 0 && element.type !== "number";
+    if (
+      !keyed &&
+      (present === "faint" || element.readOnly || untypeable || element.matches(":disabled"))
+    )
       return { kind: "unsupported", form: formOf(element), field: element, element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {

@@ -177,6 +177,10 @@ only code input is such a plain text input, and "app authentication" names an
 authenticator app
 ([A watched page with a plain code input](#amendment-2026-11-22-a-watched-page-with-a-plain-code-input)).
 
+Amended on 2026-11-22 (owner's request at 20:49 UTC on 2026-11-21; implemented): an
+input with a `maxlength` of 0 is a field that cannot be filled, not one without a limit
+([An input with a maxlength of 0](#amendment-2026-11-22-an-input-with-a-maxlength-of-0)).
+
 Related on 2026-11-21: [ADR 0089](0089-identifiers-split-over-several-inputs.md) fills
 an identifier split over several inputs by its own rule, apart from the split code
 inputs here ([below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
@@ -2311,3 +2315,29 @@ Decision:
   the document's code watch (`login.code.watch`) only for a code field `isCodeField`
   takes, so such a swap with only a plain text code input is read only when the page
   is read again for another reason.
+
+## Amendment 2026-11-22: an input with a maxlength of 0
+
+Found by the review of [#1763](https://github.com/risu729/pateat/pull/1763) and fixed at
+the owner's request of 2026-11-21 at 20:49 UTC. The page's description left out a
+`maxlength` of 0 (`constraints` in
+`apps/extension/src/observation/extract-candidates.ts` shows 1 to 1024), so the service
+read such an input as one without a limit and could name it for a personal detail or the
+judge's code. The fill checks the input's own `maxlength` (`inputValueMismatch`,
+`typeValue`), so every value was refused there, and the extension's code rules
+(`judgedTextInput`, `noDescribedLimit`) read 0 as no limit too. In Chromium (checked
+2026-11-22 in cloud Chromium) an `<input maxlength="0">` takes no character from
+keyboard typing nor from `execCommand("insertText")`; only a script setting `value`
+writes one.
+
+Decision:
+
+- The description treats a fill input with a `maxlength` of 0 as a read-only one: no
+  candidate, but a field that cannot be filled (`unfillable-field`), which flaws its
+  form and keeps a signed-in page that may be a sign-in from completing as before. A
+  number input's `maxlength`, which the browser ignores, still counts as none.
+- The extension's rules read it the same way: `judgedTextInput` takes no such input, and
+  a split code (`splitCodeInputs`, `describedField`) neither counts it as a digit input
+  nor reads its `maxlength` as none. A `maxlength` past 1024 still counts as none, as
+  the description shows none. This replaces "a `maxlength` of 0 or past 1024 counts as
+  none" in the amendments of 2026-11-07 and 2026-11-21 for 0.

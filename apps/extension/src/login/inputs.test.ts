@@ -77,8 +77,11 @@ describe("secret input rule", () => {
     ["otp", input({ inputMode: "numeric", autocomplete: "off" }), true],
     ["otp", input({ inputMode: "numeric", autocomplete: "username" }), false],
     ["otp", input({ inputMode: "numeric", maxLength: 12 }), false],
-    // A length of 0 or past 1024 the page's description leaves out, as none.
-    ["otp", input({ inputMode: "numeric", maxLength: 0 }), true],
+    // A length past 1024 the page's description leaves out, as none; one of 0 takes no
+    // character, and the description leaves the input out (ADR 0027 amendment of
+    // 2026-11-22).
+    ["otp", input({ inputMode: "numeric", maxLength: 0 }), false],
+    ["otp", input({ maxLength: 0 }), false],
     ["otp", input({ inputMode: "numeric", maxLength: 2000 }), true],
     ["otp", unboundedTel, false],
     ["hidden", input({ inputMode: "numeric" }), false],

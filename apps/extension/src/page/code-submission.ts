@@ -9,6 +9,13 @@ export { visible };
 
 /** The input types a page's description shows as fill fields (observation/extract-controls.ts). */
 const describedTypes = new Set(["text", "email", "tel", "number", "password"]);
+/**
+ * Whether the page's description shows the input as a fill field by its type: one of
+ * `describedTypes` that takes a character, so not one with a `maxlength` of 0 but a number
+ * input, whose `maxlength` the browser ignores (ADR 0027 amendment of 2026-11-22).
+ */
+const describedField = (input: HTMLInputElement) =>
+  describedTypes.has(input.type) && (input.maxLength !== 0 || input.type === "number");
 /** The input's `autocomplete` as the page's description shows it (`autocomplete`). */
 const describedAutocomplete = (input: HTMLInputElement) => {
   const tokens = autocompleteTokens(input);
@@ -16,11 +23,12 @@ const describedAutocomplete = (input: HTMLInputElement) => {
   return observedAutocompleteTokens.find((token) => tokens.includes(token));
 };
 /**
- * Whether the page's description shows no `maxlength` for the input: none, 0 or past 1024,
- * or any on a number input, whose length it leaves out (and the browser ignores).
+ * Whether the page's description shows no `maxlength` for the input: none or past 1024,
+ * or any on a number input, whose length it leaves out (and the browser ignores). An input
+ * with a `maxlength` of 0 is no field there (`describedField`).
  */
 const noDescribedLimit = (input: HTMLInputElement) =>
-  input.type === "number" || input.maxLength < 1 || input.maxLength > 1024;
+  input.type === "number" || input.maxLength < 0 || input.maxLength > 1024;
 /**
  * A digit input of a code split into inputs that declare no `maxlength` (ADR 0027
  * amendment of 2026-11-04), read as the page's description shows it, so the service's
@@ -68,7 +76,7 @@ export function splitCodeInputs(
   }
   if (!noDescribedLimit(first) || !autocompleteTokens(first).includes("one-time-code"))
     return undefined;
-  const typed = inputs.filter((input) => describedTypes.has(input.type) && usable(input));
+  const typed = inputs.filter((input) => describedField(input) && usable(input));
   return typed[0] === first && typed.length === length && typed.every(unmarkedDigit)
     ? typed
     : undefined;
@@ -88,7 +96,7 @@ export function splitCodeOf(
   );
   const marked = digits[0] && splitCodeInputs(digits[0], digits.length, usable);
   if (marked?.includes(input)) return marked;
-  const typed = inputs.filter((other) => describedTypes.has(other.type) && usable(other));
+  const typed = inputs.filter((other) => describedField(other) && usable(other));
   const unmarked = typed[0] && splitCodeInputs(typed[0], typed.length, usable);
   return unmarked?.includes(input) ? unmarked : undefined;
 }
