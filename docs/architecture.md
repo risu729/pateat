@@ -2190,11 +2190,13 @@ recipes written by hand.
   form shown again after a rejection, or the end of a fill-only login), so with 100
   records a new tab and origin pair is refused `attempt-limit`. So is the next login of
   a tab whose record ended `account-switched`, though it reuses that record's place.
-- A step's operation is valid for 15 seconds from when the worker builds it. A `wait`
-  step therefore ends at whichever comes first, its own `timeoutMs` or that limit, so a
-  `wait` of 15,000 ms always ends a little early. A fill whose vault reads take longer
-  than the limit reaches the page expired, and the login ends `cancelled`
-  (`operation-expired`) without a retry.
+- A step's operation is valid for 15 seconds from when the worker builds it, and again
+  from when it delivers it to the page, after the step's policy check and vault reads
+  ([ADR 0026](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-21-an-idp-steps-operation-counts-from-its-delivery)).
+  A `wait` step therefore ends at whichever comes first, its own `timeoutMs` or that
+  limit, so a `wait` of 15,000 ms always ends a little early. A page whose authorization
+  of the step, which checks the policy again, ends past the limit refuses the step, and
+  the login ends `cancelled` (`not-authorized`) without a retry.
 - A page that replaces or hides a field while a value is typed into it, or changes it
   so that the value or secret no longer fits, or moves to another path meanwhile, ends
   the login `cancelled` (`field-changed`, `page-changed`). Every `cancelled` answer ends

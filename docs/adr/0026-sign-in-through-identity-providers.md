@@ -806,6 +806,45 @@ The judge's change reaches service-backed devices only with a service release. C
 with local tests only (`sso-idp-totp-return.test.ts`, `sso-completion-backend.test.ts`),
 not on the real site.
 
+## Amendment 2026-11-21: an IdP step's operation counts from its delivery
+
+Status: accepted. An agent made this decision within this ADR and implemented it.
+
+On build `0cf49d81`, the IdP's own login of an SSO flow through IBMid filled the email
+and pressed Continue, then logged its password fill at 10:21:08 UTC and ended
+`cancelled` (`not-authorized`) at 10:21:24, with `checkMs` 47,300 of its 80,968 ms. The
+flow ended `sso-idp-child-stopped`, with no `sso-scope-changed` line. A direct login of
+the same recipe at 10:33 filled the password and signed in. What the code showed
+(agent's reading, 2026-11-21):
+
+- **The page's authorization came after the operation expired.** A step's operation is
+  valid for 15 seconds from when the worker builds it. Before delivering it, the worker
+  checks the step's policy and reads its values from the vault; the page then asks for
+  its authorization, which checks the policy again (`allowed`) before it checks the
+  operation (`validateLoginOperation`). A check that ends past the operation's 15
+  seconds answers `false`, which the page reports as `not-authorized`.
+- **An IdP login's checks are the slow ones.** Each policy check of an SSO hop's login
+  checks its flow's scope twice (`hopScope`), and each scope check reads the flow's SSO
+  mapping from the vault again (`validate`). A fill thus waits for four vault reads of
+  the mapping and its own value reads, where a direct login waits for its value reads
+  only. In that run each policy check took about six seconds.
+
+No change of the 2026-11-20 amendments was found on this path; the checks above were
+already there on `1f892101`, where the same fill went in, presumably with faster vault
+reads.
+
+Decision: **an operation's 15 seconds count again from its delivery.** The worker
+delivers the operation it built with its time set to 15 seconds from then
+(`deliverLoginOperation`), after the step's policy check and vault reads, and keeps that
+delivered operation as the one the page's authorization, destination and keypad checks
+validate. The page's own authorization still checks the policy, the flow's scope and the
+operation at once before the step acts, and the bound still ends a step whose page never
+acts. It applies to every login's steps, not only an IdP's.
+
+Checked with a local test (`sso-idp-operation-time.test.ts`), whose scope checks and
+vault reads take 16 seconds before the page's authorization ends: it fails without the
+change. Not checked on the real site.
+
 ## Known limits 2026-11-16
 
 - **A layout full of unseen markers.** An SSO layout keeps at most four RP-return
