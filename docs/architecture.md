@@ -3540,7 +3540,13 @@ complete. An `id` starting with `mantine-`, the prefix of Mantine's `useId` and 
 IDs its components derive from it, is demoted the same way, as a rule about the UI
 library like the one for React's `useId`, not about a site (ADR 0033): the random run
 can lack a digit, and a signed-in marker on a Mantine-built site was chosen by
-`mantine-ypxwydcwg-tab-mypage`, a tab's ID (2026-10-13). On the signed-in page such an
+`mantine-ypxwydcwg-tab-mypage`, a tab's ID (2026-10-13). So is an `id` Ember.js gave a
+component's element, `ember` and a counter, alone or inside an `id` its components
+derive from it (`toggle-button-ember74`), not touching another letter or digit: the
+counter numbers the objects the app made before it, so another load or route gives
+it to another element. HCP's portal named every navigation link and button only so
+(`ember14` to `ember149`), and its page after an SSO return offered no marker
+(2026-11-21). On the signed-in page such an
 `id` or a random-looking one locates no marker, since a marker must match on every
 later visit; only a field that may be a sign-in field still gets it, so the page is
 not reported incomplete.
