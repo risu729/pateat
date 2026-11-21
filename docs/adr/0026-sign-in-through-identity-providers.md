@@ -808,7 +808,7 @@ not on the real site.
 
 ## Amendment 2026-11-21: an IdP step's operation counts from its delivery
 
-Status: accepted. An agent made this decision within this ADR and implemented it.
+Status: accepted. An agent made these decisions within this ADR and implemented them.
 
 On build `0cf49d81`, the IdP's own login of an SSO flow through IBMid filled the email
 and pressed Continue, then logged its password fill at 10:21:08 UTC and ended
@@ -833,17 +833,27 @@ No change of the 2026-11-20 amendments was found on this path; the checks above 
 already there on `1f892101`, where the same fill went in, presumably with faster vault
 reads.
 
-Decision: **an operation's 15 seconds count again from its delivery.** The worker
-delivers the operation it built with its time set to 15 seconds from then
-(`deliverLoginOperation`), after the step's policy check and vault reads, and keeps that
-delivered operation as the one the page's authorization, destination and keypad checks
-validate. The page's own authorization still checks the policy, the flow's scope and the
-operation at once before the step acts, and the bound still ends a step whose page never
-acts. It applies to every login's steps, not only an IdP's.
+Decisions:
 
-Checked with a local test (`sso-idp-operation-time.test.ts`), whose scope checks and
-vault reads take 16 seconds before the page's authorization ends: it fails without the
-change. Not checked on the real site.
+1. **An operation's 15 seconds count again from its delivery.** The worker delivers the
+   operation it built with its time set to 15 seconds from then
+   (`deliverLoginOperation`), after the step's policy check and vault reads, and keeps
+   that delivered operation as the one the page's authorization, destination and keypad
+   checks validate. The page's own authorization still checks the policy, the flow's
+   scope and the operation at once before the step acts, and the page still stops a
+   step whose operation ran out. It applies to every login's steps, not only an IdP's.
+2. **One mapping read per policy check.** The two scope checks of one policy check of
+   an SSO hop's login (`allowed`), as one page authorization makes, read the flow's SSO
+   mapping from the vault once and share it (`SsoReads`); everything else in each scope
+   check is read again, and a mapping read under older settings fails the second check.
+   Nothing is kept from one policy check to the next, so a vault change applies at the
+   next check. Direct logins of the same recipe logged `check_ms` of 2 to 5 seconds in
+   all.
+
+Checked with local tests (`sso-idp-operation-time.test.ts`): one whose scope checks and
+vault reads take 15 seconds or more before the page's authorization ends, which fails
+without decision 1, and one that counts the mapping reads per policy check, which fails
+without decision 2. Not checked on the real site.
 
 ## Known limits 2026-11-16
 

@@ -16,6 +16,7 @@ vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { ssoAdmit } = await import("../runtime/sso/flow");
 const { drive } = await import("../runtime/run-steps");
+const { allowed } = await import("../runtime/plan-2");
 const { handle: dispatch } = await import("../runtime/messages");
 const { ssoReturnFixture } = await import("./sso-return-fixture");
 const { idp, delivery, idpReadings, harness, idpChild, step, click, fill } = ssoReturnFixture(
@@ -33,25 +34,25 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
     // The email step went in and its Continue showed the password step in place.
     step(run, [...fill("username"), ...click("next"), { type: "OBSERVED", result: "continue" }]);
     expect(run.metadata).toMatchObject({ state: "ready", stepIndex: 2 });
-    // Each scope check of the hop reads the flow's mapping from the vault: 3 seconds each
-    // here, so every policy check of the hop's step, with two scope checks, takes 6 seconds.
+    // Each policy check of the hop reads the flow's mapping from the vault, for both its
+    // scope checks: 5 seconds each here.
     const realNow = Date.now.bind(Date);
     let offset = 0;
     const clock = vi.spyOn(Date, "now").mockImplementation(() => realNow() + offset);
     const validate = vi.mocked(h.rt.options.sso!.validate);
     const mapped = await validate.getMockImplementation()!(undefined as never, undefined as never);
     validate.mockImplementation(async () => {
-      offset += 3000;
+      offset += 5000;
       return mapped;
     });
-    // And each vault read of the step's values takes 3 seconds.
+    // And each vault read of the step's values takes 5 seconds.
     vi.mocked(h.rt.fields).mockImplementation(async () => {
-      offset += 3000;
+      offset += 5000;
       return "Synthetic value";
     });
     // The page asks for each operation's authorization as it starts it, as the content
     // script does, and answers with its result.
-    const answers: { kind: string; authorized: unknown }[] = [];
+    const answers: { kind: string; authorized: unknown; reads: number }[] = [];
     const sender = {
       id: fake.browser.runtime.id,
       tab: { id: 7, incognito: false, url: form.live.url },
@@ -69,6 +70,7 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
         document: { documentId: string };
         step: { kind: string };
       };
+      const read = validate.mock.calls.length;
       const authorized = await dispatch(
         h.rt,
         {
@@ -80,7 +82,11 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
         },
         sender,
       );
-      answers.push({ kind: operation.step.kind, authorized });
+      answers.push({
+        kind: operation.step.kind,
+        authorized,
+        reads: validate.mock.calls.length - read,
+      });
       // Only the password fill is followed here: its submit click is left for the page.
       if (operation.step.kind === "click") clock.mockRestore();
       return authorized === true
@@ -105,11 +111,31 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
       clock.mockRestore();
     }
     // The password fill ran more than 15 seconds after it was built, and was authorized.
-    expect(answers[0]).toEqual({ kind: "fill", authorized: true });
-    expect(answers.every((answer) => answer.authorized === true)).toBe(true);
+    // Each authorization read the flow's mapping once.
+    expect(answers[0]).toEqual({ kind: "fill", authorized: true, reads: 1 });
+    expect(answers.every((answer) => answer.authorized === true && answer.reads === 1)).toBe(true);
     expect(run.metadata.outcome).not.toBe("cancelled");
     expect(h.report).not.toHaveBeenCalledWith(
       expect.objectContaining({ ssoChild: true, outcome: "cancelled" }),
     );
+  });
+  it("reads the flow's mapping once per policy check, and again at the next one", async () => {
+    const h = await harness();
+    const form = h.page(idp, "idp-form", "/authsvc", "?PolicyId=synthetic");
+    idpReadings.set("idp-form", { kind: "native" });
+    const run = idpChild(h, form.live);
+    expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
+    step(run, [...fill("username"), ...click("next"), { type: "OBSERVED", result: "continue" }]);
+    const validate = vi.mocked(h.rt.options.sso!.validate);
+    validate.mockClear();
+    // One check of the hop's step checks its flow's scope twice, with one vault read.
+    expect(await allowed(h.rt, run)).toBeDefined();
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(await allowed(h.rt, run)).toBeDefined();
+    expect(validate).toHaveBeenCalledTimes(2);
+    // A vault that no longer maps the method stops the next check.
+    validate.mockResolvedValueOnce({ ok: false, reason: "scope-changed" } as never);
+    expect(await allowed(h.rt, run)).toBeUndefined();
+    expect(validate).toHaveBeenCalledTimes(3);
   });
 });
