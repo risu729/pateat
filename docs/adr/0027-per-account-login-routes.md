@@ -2249,4 +2249,5 @@ numbers 1, 2, 3… and a `maxlength` of 2 to 8 each. The owner asked for it to b
 apart from the code split into one input per digit here
 (「1桁ずつのtotpとは別のものとして扱ってね。判定とか」): neither rule reads the other's
 detection, an input of one character is never such a part, and only the typing is
-shared.
+shared. A part marked in a page's description is never a code input (`isCodeField`),
+whatever its type or `inputmode`.

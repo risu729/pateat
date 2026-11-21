@@ -798,5 +798,6 @@ fills a route's identifier split over several inputs, found by numbered names an
 length, and the content script finds the others. Its mark (`split`) is on the login
 page's description only, which this ADR's judge does not read, so the judge still names
 every part of a split value itself. Its value is split as a card number's is here,
-letters allowed, and one that fits ends the login `challenge` with `identifier-unfit`,
+letters allowed, and one that does not fit ends the login `challenge` with
+`identifier-unfit`,
 as a split value that fits none of its inputs does with `detail-unfit`.

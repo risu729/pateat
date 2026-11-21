@@ -79,8 +79,9 @@ export function splitFits(parts: readonly HTMLInputElement[], value: string): bo
  * Types `value` into the parts of a split identifier, each its part in turn as a person
  * types them (`typeValue`), with a frame between parts for the page's handlers, as a page
  * that moves the focus to the next box. `between` runs after every wait, and `stillPart`
- * for the next part before it is typed: a stop leaves the parts typed so far in their
- * inputs. `beforeInput` runs before the last part's last `input` event.
+ * with the check that the page rule still finds the same parts (`sameParts`) for each part
+ * before and while it is typed: a stop leaves the parts typed so far in their inputs.
+ * `beforeInput` runs before the last part's last `input` event.
  */
 export async function typeSplit<Cause extends string>(
   parts: readonly HTMLInputElement[],
@@ -94,6 +95,7 @@ export async function typeSplit<Cause extends string>(
 ): Promise<Cause | "field-changed" | "refused" | undefined> {
   const typed = pairs(parts, value);
   if (!typed) return "refused";
+  const still = (input: HTMLInputElement) => stillPart(input) && sameParts(parts);
   for (const [at, [input, part]] of typed.entries()) {
     if (at > 0) {
       // eslint-disable-next-line no-await-in-loop
@@ -101,11 +103,11 @@ export async function typeSplit<Cause extends string>(
       const stopped = options.between();
       if (stopped) return stopped;
     }
-    if (!stillPart(input)) return "field-changed";
+    if (!still(input)) return "field-changed";
     // eslint-disable-next-line no-await-in-loop
     const stopped = await typeValue(input, part, setter, {
       beforeInput: at === typed.length - 1 ? options.beforeInput : undefined,
-      between: () => options.between() ?? (stillPart(input) ? undefined : "field-changed"),
+      between: () => options.between() ?? (still(input) ? undefined : "field-changed"),
     });
     if (stopped) return stopped;
   }

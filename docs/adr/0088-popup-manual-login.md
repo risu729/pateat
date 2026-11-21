@@ -286,8 +286,11 @@ The following are the agent's choices, not confirmed by the owner:
 
 ## Amendment 2026-11-21: an identifier split over several inputs
 
-A note, not a change to this ADR's rules. **Log in now** and **Fill** run the recipe's
-steps as a login does, so a fill field of
+A note, not a change to this ADR's rules. A fill field of
 [ADR 0089](0089-identifiers-split-over-several-inputs.md) that splits an identifier over
-several inputs fills them all or none there too, and a value they cannot take ends the
-request as the login would (`identifier-unfit`).
+several inputs fills them all or none for **Log in now** and **Fill** too.
+**Log in now** and a **Fill** on a sign-in page run the recipe's steps as a login does,
+so a value the inputs cannot take ends the request as the login would
+(`identifier-unfit`). A **Fill** on a confirmation page is a confirmation fill (ADR
+0035): such a value never reaches the page, and the fill stops before it sends the step,
+with no cause of its own.

@@ -8,7 +8,7 @@ import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { buildFieldQuestions, createFieldMappingDecider } from "./decision";
 import { generationInstructions } from "./generation";
-import { slotAcceptsOn, validateGeneratedPage, validatePagePlan } from "./plan";
+import { actionPurpose, slotAcceptsOn, validateGeneratedPage, validatePagePlan } from "./plan";
 import { decisionModel, distribution } from "./testing/fake-models";
 import { checkPlanValues } from "./values";
 
@@ -125,6 +125,29 @@ describe("a split identifier's plan", () => {
       });
     }
     expect(validatePagePlan(buttonless, slots, plan("c1", "c2")).ok).toBe(false);
+  });
+
+  it("reads tel or numeric parts as an identifier's, never as a code's", () => {
+    const tel: LoginObservation = {
+      ...observation,
+      candidates: observation.candidates.map((candidate, at) =>
+        candidate.split === undefined
+          ? candidate
+          : at === 0
+            ? { ...candidate, role: "tel" }
+            : { ...candidate, inputMode: "numeric" },
+      ),
+    };
+    // The later parts the plan leaves empty are no code the click would submit.
+    expect(actionPurpose(tel, slots, plan("c1"), "submit")).toBe("advance");
+    const validated = validatePagePlan(tel, slots, plan("c1"));
+    expect(validated.ok && validated.plan.steps[1]).toMatchObject({ purpose: "advance" });
+    const buttonless = { ...tel, candidates: tel.candidates.slice(0, 3) };
+    const pressed = validateGeneratedPage(buttonless, slots, plan("c1", "c3"));
+    expect(pressed.ok && pressed.plan.steps[1]).toMatchObject({
+      target: { by: "name", value: "customerNumber3" },
+      press: "enter",
+    });
   });
 
   it("checks the value against the parts together", () => {

@@ -1,5 +1,5 @@
 import { observedAutocompleteTokens } from "@pateat/contracts";
-import { fieldLabel, groupLabel } from "../observation/extract";
+import { fieldLabel, groupLabel } from "../observation/extract-labels";
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
 import { closestAcross, formOf, inputsOf, queryAll } from "./shadow";
@@ -166,7 +166,7 @@ function identifierNamed(input: HTMLInputElement): boolean {
  * labels the group by layout (`groupLabel`). A word of another kind of field, as `zip`, in
  * any of them leaves it out.
  */
-function groupNamed(group: readonly HTMLInputElement[]): boolean {
+export function groupNamed(group: readonly HTMLInputElement[]): boolean {
   const stem = groupStem(group);
   const own = [stem, ...group.flatMap(descriptions)];
   if (own.some((text) => holds(text, otherWords, otherParts))) return false;

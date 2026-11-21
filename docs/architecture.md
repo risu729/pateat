@@ -1383,7 +1383,12 @@ number and each `maxlength` are the recipe's (`split-mismatch`) and every part f
 then it types each part in turn, a frame apart, with the field's checks after every wait
 and each part still in the group, and the 500 ms check reads every part. A form without
 a button is submitted by Enter in the last part
-([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
+([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)). A passive fill (ADR 0035)
+treats every part as the field's input: a kept value or the person's edit in any part
+keeps the whole field, and a destination change gives every untouched part back its
+value. A confirmation fill's value that does not fit stops the fill before the step is
+sent. Only a group that names an identifier is marked in the page's description, and a
+marked part is never a code input (`isCodeField`).
 
 Native inputs and buttons must not match the browser's `:disabled` pseudo-class before
 being filled, entered through a software keypad or clicked. A disabled fieldset disables

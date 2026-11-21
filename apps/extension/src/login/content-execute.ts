@@ -33,12 +33,13 @@ import { nodeProperty } from "../page/form-native";
 import { typeValue } from "../page/enter-value";
 import { nextFrame } from "../page/frames";
 import { pageChange } from "../page/page-change";
-import { claimFill, fillUntouched, fillEditsReady, noteFillWrite } from "../page/fill-edits";
+import { claimFill, fillEditsReady, noteFillWrite } from "../page/fill-edits";
 import {
   beyondSignInFill,
   destinationWatch,
-  keepsValue,
+  passiveKeeps,
   passiveRecheck,
+  untouched,
 } from "./sign-in-fill-page";
 import { settled } from "../page/quiet";
 import { presence } from "../observation/extract";
@@ -47,13 +48,7 @@ import { passedCaptcha, showsCaptcha, submittedPage } from "../page/sign-in-stat
 import { sendMessage } from "../messaging/protocol";
 import { destinationRefusal as refusedDestination } from "./destination-refusal";
 import { acceptsSecret, maskedSecret } from "./inputs";
-import {
-  sameParts,
-  splitFieldParts,
-  splitFits,
-  typeSplit,
-  withParts,
-} from "./content-split-identifier";
+import { splitFieldParts, splitFits, typeSplit, withParts } from "./content-split-identifier";
 import { chooseFor } from "../page/choice-radio";
 import { stopSiteValues } from "../page/site-values";
 import { type ExecutionDetail, type TargetState, signInSlot } from "./wire";
@@ -395,13 +390,15 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
       const form = formOf(writableInputs[0]!);
       if (writableInputs.some((input) => formOf(input) !== form))
         return fail("structural-mismatch", "fields-split");
+      // Every input the values go in, a split identifier's parts included (ADR 0089).
+      const checked = withParts(writableInputs, parts);
       // The form sends its values only to this document's origin, or to a destination
       // the background allows (ADR 0051); a passive fill's, through any submitter too.
       const fillDestinations = () =>
         operation.signInFill
           ? passiveDestinations(writableInputs)
           : formDestinations(writableInputs[0]!, "fill");
-      const passiveCurrent = destinationWatch(operation, fillDestinations, writableInputs);
+      const passiveCurrent = destinationWatch(operation, fillDestinations, checked.inputs);
       const formRefused = await destinationRefusal(fillDestinations);
       if (formRefused === "document-cancelled" || formRefused === "operation-expired")
         return fail("cancelled", formRefused);
@@ -428,13 +425,13 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
             username: command.account.username,
             masked,
             form,
-            inputs: [...(earlier?.inputs ?? []), ...writableInputs],
+            inputs: [...(earlier?.inputs ?? []), ...checked.inputs],
             ...(command.accountSwitch ? { accountSwitch: command.accountSwitch } : {}),
             ...(command.otherSwitch ? { otherSwitch: true as const } : {}),
           };
           command.account.username = "";
         } else {
-          const fill = { form, inputs: writableInputs, username: command.account.username, masked };
+          const fill = { form, inputs: checked.inputs, username: command.account.username, masked };
           const other = fillShowsOther(document, fill);
           command.account.username = fill.username = "";
           if (other) return otherAccount(command);
@@ -519,7 +516,6 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
       if (!setter) return fail("structural-mismatch", "unsupported-input");
       // Messages already shown are not the page's answer to this fill.
-      const checked = withParts(writableInputs, parts);
       const baseline =
         step.effect === "prepare" ? fillBaseline(split ?? checked.inputs) : undefined;
       // A code field fills alone; its watch starts before the code goes in (ADR 0027).
@@ -578,10 +574,13 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
                   ? "page-changed"
                   : "field-changed",
             );
+          const own = parts.get(input);
+          const all = own ?? [input];
           if (
             operation.signInFill &&
-            (keepsValue(window, operation, input, value.secret) ||
-              !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot))
+            passiveKeeps(window, operation, all, value.secret, () =>
+              claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot),
+            )
           ) {
             value.value = "";
             continue;
@@ -593,15 +592,15 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
             if (step.effect !== "prepare")
               context.submitted = submittedPage(
                 document,
-                writableInputs.filter((entry) => entry instanceof HTMLInputElement),
+                checked.inputs.filter((entry) => entry instanceof HTMLInputElement),
               );
           }
           // Mark uncertainty before calling into DOM/page code, including a throwing setter.
           mutated = true;
-          noteFillWrite(window, input);
+          for (const part of all) noteFillWrite(window, part);
           if (
             !context.shownBefore &&
-            (!context.submitsTaken || writableInputs.every((other) => !other.value))
+            (!context.submitsTaken || checked.inputs.every((other) => !other.value))
           ) {
             for (const other of queryAll(document, "button, input"))
               if (submitButton(other) && visible(other)) context.submitsBefore.add(other);
@@ -720,7 +719,7 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
             )
               return fail("cancelled", "field-changed");
             if (input instanceof HTMLInputElement) context.filled.add(input);
-            for (const part of parts.get(input) ?? []) context.filled.add(part);
+            for (const part of own ?? []) context.filled.add(part);
             // The code goes in now; the page's own reaction is measured from here. The
             // page may change between characters, so each one repeats the checks. A
             // split date's select gets its option instead (ADR 0061), and a split
@@ -730,7 +729,7 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
               between: () => {
                 if (nativeCancelled()) return "document-cancelled";
                 if (!passiveCurrent()) return "form-changed";
-                if (operation.signInFill && !fillUntouched(window, input)) return "field-changed";
+                if (operation.signInFill && !untouched(window, all)) return "field-changed";
                 if (pagePath() !== step.path) return "page-changed";
                 const now = matches(field.target);
                 return now.length !== 1 ||
@@ -743,7 +742,6 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
                   : undefined;
               },
             };
-            const own = parts.get(input);
             // eslint-disable-next-line no-await-in-loop
             const stopped = await (own
               ? typeSplit(
@@ -751,7 +749,7 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
                   value.value,
                   setter,
                   typing,
-                  (part) => writable(part) && formOf(part) === form && sameParts(own),
+                  (part) => writable(part) && formOf(part) === form,
                 )
               : enter(input, value, setter, typing, (option) =>
                   context.chosen.push([input as HTMLSelectElement, option]),

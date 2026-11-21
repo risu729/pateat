@@ -176,6 +176,22 @@ describe("a split identifier's login fill", () => {
     }
   });
 
+  it("stops before a box once the page changed the group between boxes", async () => {
+    await install(boxes([4, 4, 5], '<button name="next">Next</button>'));
+    document.querySelector("[name='no1']")!.addEventListener("input", () => {
+      if (!document.querySelector("[name='no4']"))
+        document
+          .querySelector("[name='no3']")!
+          .insertAdjacentHTML("afterend", '<input type="text" name="no4" maxlength="2">');
+    });
+    expect(await fill("1234-5678-12345")).toMatchObject({
+      ok: false,
+      reason: "cancelled",
+      detail: "field-changed",
+    });
+    expect(typed().slice(1)).toEqual(["", "", ""]);
+  });
+
   it("presses Enter in the last box of a form without a button", async () => {
     await install(boxes([4, 4]));
     const submits: string[] = [];

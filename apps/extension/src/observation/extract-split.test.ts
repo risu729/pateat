@@ -69,7 +69,7 @@ describe("a split identifier on a login page", () => {
     ]);
   });
 
-  it("marks no one-digit code boxes and no lone input", () => {
+  it("marks no one-digit code boxes, no lone input and no boxes of another value", () => {
     const code = observe(
       `<form><p>認証コード</p>${Array.from(
         { length: 6 },
@@ -79,17 +79,28 @@ describe("a split identifier on a login page", () => {
     expect(code.candidates.some((candidate) => candidate.split !== undefined)).toBe(false);
     const lone = observe(`<form><input name="no1" maxlength="4"><button>Next</button></form>`);
     expect(lone.candidates.some((candidate) => candidate.split !== undefined)).toBe(false);
+    // Boxes that name no identifier, as a phone number's or a postal code's, stay unmarked.
+    for (const [words, stem] of [
+      ["電話番号", "tel"],
+      ["郵便番号", "zip"],
+      ["前半と後半", "no"],
+    ])
+      expect(
+        observe(
+          `<form><p>${words}</p><div><input type="tel" name="${stem}1" maxlength="3"><input type="tel" name="${stem}2" maxlength="4"></div><button>Next</button></form>`,
+        ).candidates.some((candidate) => candidate.split !== undefined),
+      ).toBe(false);
   });
 
   it("keeps a part's own label and leaves the signed-in page's description unmarked", () => {
     const own = observe(
-      `<form><label>前半<input name="no1" maxlength="4"></label><label>後半<input name="no2" maxlength="4"></label><button>Next</button></form>`,
+      `<form><label>会員番号（前半）<input name="no1" maxlength="4"></label><label>会員番号（後半）<input name="no2" maxlength="4"></label><button>Next</button></form>`,
     );
     expect(
       own.candidates.slice(0, 2).map((candidate) => [candidate.label, candidate.split]),
     ).toEqual([
-      ["前半", { group: "s1", part: 1, of: 2 }],
-      ["後半", { group: "s1", part: 2, of: 2 }],
+      ["会員番号（前半）", { group: "s1", part: 1, of: 2 }],
+      ["会員番号（後半）", { group: "s1", part: 2, of: 2 }],
     ]);
     document.body.innerHTML = customerNumberPage;
     const signedIn = extractSignedInObservation(document);

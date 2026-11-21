@@ -63,14 +63,19 @@ value, by the judge naming each part (ADR 0061).
    ゆうちょ's 「お客さま番号を保存する」, does not stop that reading, as another field
    does.
 3. **The description.** A login page's description keeps one candidate per input and
-   marks each part with `split: { group, part, of }` (`group` `s1`, `s2`… in page order;
-   `part` from 1; `of` the group's size). Only the login page's description carries it,
-   so the judge of ADR 0061, which names each part of a card number or date itself,
-   reads descriptions without it. Agent's choice: the first part, when it has no label
-   of its own, takes the group's label, so the model reads what the boxes are for. The
-   contract (`observedCandidateSchema`) accepts the mark only on a `text` or `tel` field
-   with a `maxLength` of 2 to 8, and every group must list its parts 1 to `of` once
-   each, in page order and in one form.
+   marks each part of a group that names an identifier by the trigger's words of 2
+   (agent's choice, so a phone number, postal code or date in boxes is never marked and
+   generation's sentence of 4 holds) with `split: { group, part, of }` (`group` `s1`,
+   `s2`… in page order; `part` from 1; `of` the group's size). Only the login page's
+   description carries it, so the judge of ADR 0061, which names each part of a card
+   number or date itself, reads descriptions without it. Agent's choice: the first part,
+   when it has no label of its own, takes the group's label, so the model reads what the
+   boxes are for. The contract (`observedCandidateSchema`) accepts the mark only on a
+   `text` or `tel` field with a `maxLength` of 2 to 8, and every group must list its
+   parts 1 to `of` once each, in page order and in one form. A marked part is never a
+   code input (`isCodeField`), whatever its type or `inputmode`, so a group of `tel`
+   boxes left empty after its first does not make the click a submission, and Enter may
+   be pressed in its last part.
 4. **The plan.** The answer's shape is unchanged: the identifier slot maps to the
    group's first part. Generation's instructions say: "Elements with split are the parts
    of one identifier typed in turn into consecutive inputs without its spaces and
@@ -106,8 +111,20 @@ value, by the judge naming each part (ADR 0061).
    ([typing](../architecture.md#background-execution)), in order, one frame apart, with
    the field's checks after every wait and each part still the group's. The page's own
    validation after the fill reads every part. A login, a fill-only login and the
-   popup's **Log in now** and **Fill**
-   ([ADR 0088](0088-popup-manual-login.md)) all fill a recipe step this way.
+   popup's **Log in now** and **Fill** ([ADR 0088](0088-popup-manual-login.md)) all fill
+   a recipe step this way. So do the passive fills of
+   [ADR 0035](0035-page-kinds-per-site.md), a sign-in fill and a confirmation fill (the
+   latter also from the popup's **Fill** on a confirmation page), with every part as the
+   field's input: a value kept in any part, or any part the person edited, keeps the
+   whole field; each part is claimed and protected as the one input would be; and once
+   the form's destinations change, every part the person has not edited gets back its
+   value from before the fill ([ADR 0051](0051-form-destinations-by-item-uri-match.md)).
+   A sign-in fill's value that does not fit ends `identifier-unfit` as in 6, since it
+   runs the recipe's steps as a login does. A confirmation fill's value that does not
+   fit never reaches the page: the fill stops before it sends the step, as a
+   confirmation fill that cannot go on does, with no cause of its own. The account check
+   that a fill leaves to the next press clears every part on another account
+   ([ADR 0049](0049-start-at-a-later-step.md)).
 8. **Enter.** A form without a button to press is submitted by Enter in the group's last
    part (ADR 0064): the plan's last field may be the group's first part, or the model
    may name its last part as the action; the click step names the last part.
@@ -122,8 +139,8 @@ value, by the judge naming each part (ADR 0061).
   `split-mismatch`; both are codes in the first-login result
   (`loginOutcomeCauseSchema`).
 - A phone number in `tel1` to `tel3` or a postal code in `zip1` and `zip2` is a group
-  too, only marked; the identifier rule's exclusions keep such a page from being sent as
-  one that asks for an identifier alone.
+  by the rule of 1, but it names no identifier: it is neither marked nor sent as a page
+  that asks for an identifier alone.
 - A page that asks for a split identifier beside a password field is sent as any login
   page is; its group is marked the same way.
 
@@ -136,6 +153,10 @@ Known misses:
   ADR 0027's code rule and never filled as an identifier.
 - A page that moves the focus to the next box itself once one is full is typed into as
   any page is; whether such a page's own checks pass is not tested on a real page.
+- A page that disables or hides the next box until the previous one is full has no
+  group, since every part must be shown and writable when the page is read: it is
+  neither sent as one that asks for an identifier alone nor filled as a split
+  identifier.
 
 ## Alternatives
 

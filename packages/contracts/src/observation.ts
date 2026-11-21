@@ -499,10 +499,13 @@ export const customFieldSlotDescriptions = {
  * `acceptsSecret`): a fill-role input with `autocomplete="one-time-code"`, or a numeric,
  * tel or number input whose `maxlength` is 1 to 10. Observations omit lengths on number
  * inputs, so a number input counts only with the autocomplete hint. A select is never one,
- * whatever its `autocomplete` says, since no code is chosen from a list.
+ * whatever its `autocomplete` says, since no code is chosen from a list. A part of an
+ * identifier split over several inputs (`split`, ADR 0089) is never one either, whatever
+ * its type, as that rule is kept apart from a code's (owner, 2026-11-21).
  */
 export function isCodeField(candidate: ObservedCandidate): boolean {
   if (!(fillRoles as readonly string[]).includes(candidate.role)) return false;
+  if (candidate.split !== undefined) return false;
   return (
     candidate.autocomplete === "one-time-code" ||
     ((candidate.inputMode === "numeric" ||
