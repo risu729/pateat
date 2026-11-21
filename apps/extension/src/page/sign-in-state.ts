@@ -101,7 +101,10 @@ function writableInput(element: Element): element is HTMLInputElement {
     element instanceof HTMLInputElement &&
     visible(element) &&
     !element.matches(":disabled") &&
-    !element.readOnly
+    !element.readOnly &&
+    // A `maxlength` of 0 takes no character, as the page's description reads it (ADR 0027
+    // amendment of 2026-11-22); the browser ignores it on a number input.
+    (element.maxLength !== 0 || element.type === "number")
   );
 }
 /**

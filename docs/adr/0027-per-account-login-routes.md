@@ -2326,18 +2326,24 @@ read such an input as one without a limit and could name it for a personal detai
 judge's code. The fill checks the input's own `maxlength` (`inputValueMismatch`,
 `typeValue`), so every value was refused there, and the extension's code rules
 (`judgedTextInput`, `noDescribedLimit`) read 0 as no limit too. In Chromium (checked
-2026-11-22 in cloud Chromium) an `<input maxlength="0">` takes no character from
+2026-11-21 in cloud Chromium) an `<input maxlength="0">` takes no character from
 keyboard typing nor from `execCommand("insertText")`; only a script setting `value`
 writes one.
 
 Decision:
 
-- The description treats a fill input with a `maxlength` of 0 as a read-only one: no
-  candidate, but a field that cannot be filled (`unfillable-field`), which flaws its
-  form and keeps a signed-in page that may be a sign-in from completing as before. A
-  number input's `maxlength`, which the browser ignores, still counts as none.
-- The extension's rules read it the same way: `judgedTextInput` takes no such input, and
-  a split code (`splitCodeInputs`, `describedField`) neither counts it as a digit input
-  nor reads its `maxlength` as none. A `maxlength` past 1024 still counts as none, as
-  the description shows none. This replaces "a `maxlength` of 0 or past 1024 counts as
-  none" in the amendments of 2026-11-07 and 2026-11-21 for 0.
+- The description reads a fill input with a `maxlength` of 0 as a field that cannot be
+  filled (`unfillable-field`), as it reads a read-only one: no candidate, and its form
+  is flawed, which keeps a signed-in page that may be a sign-in from completing as
+  before. It is not left out as a read-only field that only shows a value the page put
+  there (`shownValue`, `filled` after an `advance` step). A number input's `maxlength`,
+  which the browser ignores, still counts as none.
+- The extension's rules read it the same way: `judgedTextInput` takes no such input, a
+  split code (`splitCodeInputs`, `describedField`) neither counts it as a digit input
+  nor reads its `maxlength` as none, and the sign-in state's signs (`writableInput`)
+  count it as neither a code input (S3) nor a password input. A `maxlength` past 1024
+  still counts as none, as the description shows none. This replaces "a `maxlength` of 0
+  or past 1024 counts as none" in the amendments of 2026-11-07 and 2026-11-21 for 0.
+- `acceptsSecret` still takes a `one-time-code` input or a detail's text input with a
+  `maxlength` of 0; no recipe names one, as its form is flawed, and the fill's length
+  check refuses the value if one did.
