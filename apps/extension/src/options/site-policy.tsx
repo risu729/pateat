@@ -42,13 +42,16 @@ import { SiteRow, DefaultAccountEditor } from "./site-policy-rows";
 import {
   siteAccountOptions,
   matchedBy,
-  NO_DEFAULT,
   SAVED_ELSEWHERE,
   defaultFor,
   replaceDefault,
   hostOf,
   ruleFor,
+  draftAllows,
+  usernameOf,
+  withUsername,
 } from "./site-policy-rules";
+import type { SiteItemReference } from "./client";
 export { siteAccountOptions } from "./site-policy-rules";
 type ExcludedSite = LocalSettings["excludedSites"][number];
 /**
@@ -155,8 +158,15 @@ export function SitePolicy({
   draft: LocalSettings;
   catalog: VaultCatalog;
   edit: (update: (value: LocalSettings) => void) => boolean;
-  /** Asks the background which saved-settings items match an origin. */
-  findSiteAccounts: (origin: string, settings: LocalSettings) => Promise<SiteAccountsResponse>;
+  /**
+   * Asks the background which saved-settings items match an origin, with the usernames of
+   * those and of the `named` items the page shows for it.
+   */
+  findSiteAccounts: (
+    origin: string,
+    settings: LocalSettings,
+    named?: SiteItemReference[],
+  ) => Promise<SiteAccountsResponse>;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const originInput = useRef<HTMLInputElement>(null);
@@ -244,9 +254,17 @@ export function SitePolicy({
     draft.excludedSites,
     catalog.connections.map((entry) => entry.snapshotId ?? null),
   ]);
+  // Listing the items that do not match names them too, so same-named ones can be told apart.
+  const unmatched: SiteItemReference[] = showAllAccounts
+    ? catalog.connections.flatMap((connection) =>
+        connection.items
+          .filter((item) => draftAllows(draft, catalog, connection.id, item.id))
+          .map((item) => ({ connectionId: connection.id, itemId: item.id })),
+      )
+    : [];
   const accounts = useQuery({
-    queryKey: ["settings", "site-accounts", queriedOrigin, scope],
-    queryFn: () => findSiteAccounts(queriedOrigin!, draft),
+    queryKey: ["settings", "site-accounts", queriedOrigin, scope, showAllAccounts],
+    queryFn: () => findSiteAccounts(queriedOrigin!, draft, unmatched),
     enabled: queriedOrigin !== undefined && queriedOrigin === accountOrigin,
     // Vault syncs change the answer; ask again for each origin entered.
     staleTime: 0,
@@ -254,13 +272,19 @@ export function SitePolicy({
   });
   // Each saved default that is in use is matched the same way: its row offers the matching
   // accounts, and shows how and as whom the saved one matches.
-  const savedOrigins = draft.siteDefaults
-    .map((selected) => selected.origin)
-    .filter((origin) => !isSiteExcluded(draft, origin));
+  // The saved item is named too, so its username shows even when it does not match `origin/`.
+  const savedDefaults = draft.siteDefaults.filter(
+    (selected) => !isSiteExcluded(draft, selected.origin),
+  );
+  const savedOrigins = savedDefaults.map((selected) => selected.origin);
+  const savedItem = (selected: SiteDefault): SiteItemReference[] => {
+    const mapped = siteDefaultConnection(selected, catalog);
+    return mapped.ok ? [{ connectionId: mapped.connectionId, itemId: selected.itemId }] : [];
+  };
   const savedMatches = useQueries({
-    queries: savedOrigins.map((origin) => ({
-      queryKey: ["settings", "site-accounts", origin, scope],
-      queryFn: () => findSiteAccounts(origin, draft),
+    queries: savedDefaults.map((selected) => ({
+      queryKey: ["settings", "site-accounts", selected.origin, scope, savedItem(selected)],
+      queryFn: () => findSiteAccounts(selected.origin, draft, savedItem(selected)),
       staleTime: 0,
       gcTime: 0,
     })),
@@ -347,7 +371,10 @@ export function SitePolicy({
     const current = connection && item ? JSON.stringify([connection.id, item.id]) : SAVED_ELSEWHERE;
     const offered = siteAccountOptions(catalog, matches, false, draft);
     const currentText = t("{{item}} in {{account}}{{availability}}", {
-      item: `${item?.label ?? selected.itemName ?? selected.itemId}${match?.username ? ` · ${match.username}` : ""}`,
+      item: withUsername(
+        item?.label ?? selected.itemName ?? selected.itemId,
+        connection && item ? usernameOf(matches, connection.id, item.id) : undefined,
+      ),
       account:
         connection?.label ?? selected.accountName ?? t("account {{id}}", { id: selected.userId }),
       availability: !connection
@@ -367,7 +394,6 @@ export function SitePolicy({
             ? currentText
             : t("{{item}} in {{account}}", { item: entry.label, account: entry.connectionLabel }),
       })),
-      { value: NO_DEFAULT, text: t("No default") },
     ];
     const policy = sitePauseRules(draft.excludedSites, origin);
     const site = policy.site;
@@ -384,12 +410,6 @@ export function SitePolicy({
               options={options}
               current={current}
               save={(value) => {
-                if (value === NO_DEFAULT) {
-                  // The row goes away with its default, so focus moves to the add form.
-                  if (edit((settings) => replaceDefault(settings, origin)))
-                    originInput.current?.focus();
-                  return undefined;
-                }
                 const next = defaultFor(
                   origin,
                   offered.find((entry) => entry.value === value),
@@ -400,6 +420,18 @@ export function SitePolicy({
                 return undefined;
               }}
             />
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={t("Remove default for {{origin}}", { origin })}
+              onClick={() => {
+                // The row goes away with its default, so focus moves to the add form.
+                if (edit((settings) => replaceDefault(settings, origin)))
+                  originInput.current?.focus();
+              }}
+            >
+              {t("Remove default")}
+            </Button>
             <Button
               type="button"
               variant="outline"

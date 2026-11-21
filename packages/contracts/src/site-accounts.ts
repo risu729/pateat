@@ -10,23 +10,30 @@ const originSchema = v.pipe(
   }, "Use an exact HTTP(S) origin"),
 );
 
+const itemReference = v.strictObject({ connectionId: identifier, itemId: identifier });
+
 /**
  * The settings page asks which items could be the default account for one origin. Its
  * unsaved draft decides which connections and items are searched; it grants nothing.
+ * `named` lists other items the page shows for the origin, matching or not, such as the
+ * saved default's item or every item when the page lists those that do not match; their
+ * login usernames are read too, so same-named items can be told apart.
  */
 export const siteAccountsRequestSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("settings.site-accounts"),
   origin: originSchema,
   settings: localSettingsSchema,
+  named: v.optional(v.pipe(v.array(itemReference), v.maxLength(10_000))),
 });
 
 /**
  * Items the draft settings allow for the origin: a provider URI match for `origin/`, a
  * static allowed origin, or a stored passkey whose RP ID the origin may use. IDs, the
- * reasons and, for these matched items only, the login username the saved settings let
- * the item use; no other vault value. `complete` is false when a connection or an item
- * could not be evaluated.
+ * reasons and, for these matched items and the request's `named` items only, the login
+ * username the saved settings let the item use; no other vault value. `named` holds the
+ * usernames of the requested items that did not match. `complete` is false when a
+ * connection or an item could not be evaluated.
  */
 export const siteAccountsResponseSchema = v.variant("ok", [
   v.strictObject({
@@ -45,6 +52,17 @@ export const siteAccountsResponseSchema = v.variant("ok", [
         }),
       ),
       v.maxLength(10_000),
+    ),
+    named: v.optional(
+      v.pipe(
+        v.array(
+          v.strictObject({
+            ...itemReference.entries,
+            username: v.pipe(v.string(), v.minLength(1), v.maxLength(1024)),
+          }),
+        ),
+        v.maxLength(10_000),
+      ),
     ),
     complete: v.boolean(),
   }),

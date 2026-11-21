@@ -101,3 +101,22 @@ call and passes to each IdP connection's Worker to compare; the public descripto
 those proofs. Its
 metadata reads check the existing timeout and durable snapshot fences without reporting
 vault use. Credential release by a future SSO executor retains the normal use boundary.
+
+## Amendment 2026-11-21: named items on the settings page
+
+On 2026-11-21 at 10:08 UTC the owner showed the Sites list, where each origin row's
+select named its saved default only as `みずほダイレクト in bitwarden - risu`, and asked
+for the account ID there (「ここ、IDが出ないと区別できない」). The saved item's URI rule
+was for `web1.ib.mizuhobank.co.jp` while the rows were for `web2` and `web4`, so it did
+not match `origin/` and decision 3 read no username for it. The official Bitwarden vault
+list names every login by its username.
+
+`settings.site-accounts` now also takes `named`, the items the settings page shows for
+the origin whether or not they match: the saved default's item on its origin row, and
+every listed item when the add form lists the items that do not match. Their usernames
+are read under the same rules as decision 3 (eligible under the saved settings, the
+username an eligible field that the draft does not exclude, not quarantined, never a
+demo vault) and with the same revision check as decision 4. The answer keeps the matches
+in `accounts` and adds the usernames of the named items that did not match in `named`;
+when decision 4 drops the usernames, it drops `named` too. The toolbar popup sends no
+`named` items.

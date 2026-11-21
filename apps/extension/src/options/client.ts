@@ -15,22 +15,38 @@ export interface SettingsClient {
   saveSettings(
     request: Extract<SettingsRequest, { type: "settings.save" }>,
   ): Promise<SettingsResponse>;
-  /** Items the draft allows as the default account for one origin, with their usernames. */
-  findSiteAccounts(origin: string, settings: LocalSettings): Promise<SiteAccountsResponse>;
+  /**
+   * Items the draft allows as the default account for one origin, with their usernames and
+   * those of the `named` items the page also shows.
+   */
+  findSiteAccounts(
+    origin: string,
+    settings: LocalSettings,
+    named?: SiteItemReference[],
+  ): Promise<SiteAccountsResponse>;
 }
+
+export type SiteItemReference = { connectionId: string; itemId: string };
 
 /**
  * Only metadata contracts may cross this UI boundary, plus the login usernames of the items
- * that match one origin in `findSiteAccounts`. Never cache or persist vault field values.
+ * that match one origin, or that the page names for it, in `findSiteAccounts`. Never cache
+ * or persist vault field values.
  */
 export function createSettingsClient(send: (message: unknown) => Promise<unknown>): SettingsClient {
   return {
     getSettings: async () =>
       parseSettingsResponse(await send({ version: 1, type: "settings.get" })),
     saveSettings: async (request) => parseSettingsResponse(await send(request)),
-    findSiteAccounts: async (origin, settings) =>
+    findSiteAccounts: async (origin, settings, named) =>
       parseSiteAccountsResponse(
-        await send({ version: 1, type: "settings.site-accounts", origin, settings }),
+        await send({
+          version: 1,
+          type: "settings.site-accounts",
+          origin,
+          settings,
+          ...(named?.length ? { named } : {}),
+        }),
       ),
   };
 }
