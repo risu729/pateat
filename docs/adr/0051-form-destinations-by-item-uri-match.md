@@ -16,7 +16,7 @@ by the login's item, never the item that supplies the detail. The content script
 the destinations of every field's form and of every submitter of those forms, the shown
 handler button and a hidden default button that a pressed Enter would use included.
 
-Amended on 2026-11-21 (agent amendment, not yet confirmed by the owner): a `javascript:`
+Amended on 2026-11-21, accepted by the owner: a `javascript:`
 destination's URL now runs when Pateat submits to it
 ([below](#amendment-2026-11-21-a-javascript-destination-runs-under-the-pages-policy)).
 
