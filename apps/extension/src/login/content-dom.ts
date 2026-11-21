@@ -16,7 +16,12 @@ import { typeValue } from "../page/enter-value";
 import { nextFrame } from "../page/frames";
 import { pageWatch } from "../page/quiet";
 import { extractSignedInObservation, presence } from "../observation/extract";
-import { clickableSwitch, entryLike, listControls } from "../page/account-list";
+import {
+  accountSwitchControls,
+  clickableSwitch,
+  entryLike,
+  listControls,
+} from "../page/account-list";
 import { listsAccounts } from "./no-input-offer";
 import { observedPath } from "../observation/path";
 import { askedQuestion, type AskedQuestion } from "../page/question";
@@ -103,6 +108,22 @@ export async function enter<Cause extends string>(
   if (!option || !chooseOption(control, option)) return "refused";
   chosen?.(option);
   return undefined;
+}
+/**
+ * How a page's control for another account is found: the recipe's account switch alone,
+ * when it can be clicked (`switchable`), else with `otherSwitch` the page's own (ADR 0078).
+ */
+export function switchFinder(switches: {
+  accountSwitch?: LoginTarget | undefined;
+  otherSwitch?: true | undefined;
+}): (() => Element[]) | undefined {
+  const target = switches.accountSwitch;
+  if (target)
+    return () => {
+      const named = findTargets(document, target, { links: true });
+      return named.length === 1 && switchable(named[0]) ? named : [];
+    };
+  return switches.otherSwitch ? () => accountSwitchControls(document) : undefined;
 }
 export const isOnly = (found: readonly Element[], element: Element) =>
   found.length === 1 && found[0] === element;
@@ -369,6 +390,23 @@ export function credentialInputs(targets: readonly LoginMarkerTarget[]): {
   };
 }
 export const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/**
+ * Resolves once the window loads, `signal` aborts or `limitMs` passed, whichever comes
+ * first: the timer only bounds the wait for the `load` signal (ADR 0082).
+ */
+export function loadOrLimit(signal: AbortSignal, limitMs: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(loadTimer);
+      removeEventListener("load", done);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const loadTimer = setTimeout(done, limitMs);
+    addEventListener("load", done);
+    signal.addEventListener("abort", done);
+  });
+}
 /**
  * How often at most the page watch checks a page that keeps changing (ADR 0082). A set
  * time that bounds the watch's work, not a wait for the page: the first change after a

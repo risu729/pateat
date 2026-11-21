@@ -101,7 +101,8 @@ export const loginAttemptEventSchema = v.variant("type", [
    * so it never had the whole code. It ends the attempt without a retry, since the same
    * values would be rejected again. `challenge` marks a `detail` handler's value split over
    * several inputs that fits none of them, as when no option of a select matches its part
-   * (ADR 0061): nothing was filled and the page is left to the person as a challenge.
+   * (ADR 0061), or an identifier its split inputs cannot take (`identifier-unfit`, ADR
+   * 0089): nothing was filled and the page is left to the person as a challenge.
    */
   v.strictObject({
     type: v.literal("VALUE_REJECTED"),

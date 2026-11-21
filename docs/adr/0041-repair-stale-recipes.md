@@ -32,6 +32,11 @@ Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (ow
 later step are repaired in a frame of the tab's page too; an entry recipe's page still
 only in the tab's page.
 
+Related on 2026-11-21: [ADR 0089](0089-identifiers-split-over-several-inputs.md)'s fill
+field for an identifier split over several inputs names the first part, which repair
+reads as any field's target
+([below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
+
 Date: 2026-10-23
 
 ## Context
@@ -250,3 +255,11 @@ request itself is `recipe.generate` with page `repair`.
 - **Send the stale steps to the model as a repair prompt** (`repair` in
   `packages/inference`). The page is generated as a first page or continuation instead,
   with the prompts already tested; the stale steps would only bias the answer.
+
+## Amendment 2026-11-21: an identifier split over several inputs
+
+A note, not a change to this ADR's rules. A fill field of
+[ADR 0089](0089-identifiers-split-over-several-inputs.md) names the first input of a
+split identifier as its `target` and the parts' lengths as `split`. A repair reads and
+compares that target as it does any field's; a layout it adds is generated with the same
+mark, so its field carries `split` again.

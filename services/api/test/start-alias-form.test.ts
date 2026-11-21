@@ -18,7 +18,12 @@ const pad = { by: "id" as const, value: "pad" };
 
 /** A recipe whose first page fills `fields` and presses Login. */
 const recipe = (
-  fields: { slot: string; target: { by: "id"; value: string }; keypad?: typeof pad }[] = [
+  fields: {
+    slot: string;
+    target: { by: "id"; value: string };
+    keypad?: typeof pad;
+    split?: number[];
+  }[] = [
     { slot: "username", target: id("UserName") },
     { slot: "password", target: id("Password") },
   ],
@@ -86,6 +91,35 @@ describe("a first page compared with a recipe's sign-in form", () => {
     );
     expect(sameFormRecipe([keyed], page(withPad))?.id).toBe("gen-learned");
     expect(sameFormRecipe([recipe()], page(withPad))).toBeUndefined();
+  });
+
+  it("matches a split identifier only as the layout names its parts (ADR 0089)", () => {
+    const parts = (lengths: number[]) =>
+      lengths.map((maxLength, at) =>
+        candidate(`No${at + 1}`, "text", {
+          maxLength,
+          group: "f1",
+          split: { group: "s1", part: at + 1, of: lengths.length },
+        }),
+      );
+    const split = recipe([
+      { slot: "username", target: id("No1"), split: [4, 4, 5] },
+      { slot: "password", target: id("Password") },
+    ]);
+    const rest = form.slice(1).map((entry) => ({ ...entry, group: "f1" }));
+    expect(sameFormRecipe([split], page([...parts([4, 4, 5]), ...rest]))?.id).toBe("gen-learned");
+    // Other lengths, another number of parts, or the first input alone.
+    expect(sameFormRecipe([split], page([...parts([4, 4, 4]), ...rest]))).toBeUndefined();
+    expect(sameFormRecipe([split], page([...parts([4, 4, 5, 2]), ...rest]))).toBeUndefined();
+    expect(
+      sameFormRecipe([split], page([candidate("No1", "text", { maxLength: 4 }), ...rest])),
+    ).toBeUndefined();
+    // A layout without split never matches a page that splits the identifier.
+    const whole = recipe([
+      { slot: "username", target: id("No1") },
+      { slot: "password", target: id("Password") },
+    ]);
+    expect(sameFormRecipe([whole], page([...parts([4, 4, 5]), ...rest]))).toBeUndefined();
   });
 
   it("matches neither an incomplete description nor a list of accounts", () => {

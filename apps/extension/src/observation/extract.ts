@@ -2,7 +2,7 @@ export type { ObservationRefusal, ObservationGap, ObservationResult } from "./ex
 export { extractLoginObservation } from "./extract-login";
 export { presence, presenceMiss } from "./extract-controls";
 export { maxText, maxHeaderText, observedText, bounded, withoutNumbers } from "./extract-text";
-export { fieldLabel } from "./extract-labels";
+export { fieldLabel, groupLabel } from "./extract-labels";
 export { fieldsMissDetail } from "./extract-candidates";
 export { extractAccountListObservation } from "./extract-account-list";
 export { extractEntryObservation } from "./extract-entry";

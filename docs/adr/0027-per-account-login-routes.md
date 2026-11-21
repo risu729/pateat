@@ -171,6 +171,10 @@ Amended on 2026-11-21 (agent, for the owner's issue
 field may also be a plain text input whose `maxlength` is 6 to 10
 ([A plain code input with a maxlength](#amendment-2026-11-21-a-plain-code-input-with-a-maxlength)).
 
+Related on 2026-11-21: [ADR 0089](0089-identifiers-split-over-several-inputs.md) fills
+an identifier split over several inputs by its own rule, apart from the split code
+inputs here ([below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
+
 Date: 2026-10-11
 
 ## Context
@@ -2235,3 +2239,15 @@ Decision:
   signed-in page on the same path moved its recipe to revision 2, and rows are kept per
   revision, so its next code page is judged again and its recipe gets the `totp`
   handler.
+
+## Amendment 2026-11-21: an identifier split over several inputs
+
+A note, not a change to this ADR's rules.
+[ADR 0089](0089-identifiers-split-over-several-inputs.md) (owner, 2026-11-21 19:00 UTC)
+types one identifier, such as a customer number, into 2 to 6 inputs named with the
+numbers 1, 2, 3… and a `maxlength` of 2 to 8 each. The owner asked for it to be kept
+apart from the code split into one input per digit here
+(「1桁ずつのtotpとは別のものとして扱ってね。判定とか」): neither rule reads the other's
+detection, an input of one character is never such a part, and only the typing is
+shared. A part marked in a page's description is never a code input (`isCodeField`),
+whatever its type or `inputmode`.

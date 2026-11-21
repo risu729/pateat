@@ -52,6 +52,29 @@ export function keepsValue(
 }
 
 /**
+ * Whether a passive fill leaves a field as it is: it keeps the value in any of the field's
+ * inputs (`keepsValue`), as in any part of an identifier split over several inputs (ADR
+ * 0089), the person edited one of them, or the field's `claim` (`claimFill`) fails.
+ */
+export function passiveKeeps(
+  window: Window,
+  operation: { attemptId: string },
+  inputs: readonly (Element & { value: string })[],
+  secret: string | undefined,
+  claim: () => boolean,
+): boolean {
+  return (
+    inputs.some((input) => keepsValue(window, operation, input, secret)) ||
+    !untouched(window, inputs) ||
+    !claim()
+  );
+}
+
+/** Whether the person edited none of `inputs`, by trusted input events (`fillUntouched`). */
+export const untouched = (window: Window, inputs: readonly Element[]): boolean =>
+  inputs.every((input) => fillUntouched(window, input));
+
+/**
  * Reads where a passive fill's values may go now, and answers later whether they still go
  * only there. Only destinations that need the background's word or are refused are read
  * (`passiveDestinations`), so the page's own same-origin buttons may come and go. Once they
