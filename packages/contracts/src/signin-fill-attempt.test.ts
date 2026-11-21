@@ -4,7 +4,12 @@ import {
   recoverLoginAttempt,
   transitionLoginAttempt,
 } from "./login-attempt";
-import { nextLoginOperation, validateLoginOperation } from "./login-attempt/operations";
+import {
+  deliverLoginOperation,
+  LOGIN_OPERATION_MS,
+  nextLoginOperation,
+  validateLoginOperation,
+} from "./login-attempt/operations";
 import { parseAttemptMetadata, type LoginAttemptMetadata } from "./login-attempt/metadata";
 import { holdsOrigin } from "./login-attempt-hold";
 import { parseLoginRecipe, type LoginDocument } from "./login/account";
@@ -143,6 +148,24 @@ describe("sign-in autofill attempt contracts", () => {
     });
   });
 
+  it("counts a delivered operation's time from its delivery, and its time only", () => {
+    const start = ready();
+    const built = nextLoginOperation(start, recipe, document, "fill-one", 1000)!;
+    const sent = intent(start);
+    expect(built.expiresAt).toBe(1000 + LOGIN_OPERATION_MS);
+    // Delivered 9 seconds after it was built, as after slow checks and vault reads.
+    const delivered = deliverLoginOperation(built, 10_000);
+    expect(delivered).toEqual({ ...built, expiresAt: 10_000 + LOGIN_OPERATION_MS });
+    expect(built.expiresAt).toBe(1000 + LOGIN_OPERATION_MS);
+    expect(validateLoginOperation(built, sent, document, 1, 16_000)).toBe(false);
+    expect(validateLoginOperation(delivered, sent, document, 1, 16_000)).toBe(true);
+    expect(validateLoginOperation(delivered, sent, document, 1, 24_999)).toBe(true);
+    expect(validateLoginOperation(delivered, sent, document, 1, 25_000)).toBe(false);
+    // Nothing else of the operation changes, so its scope still binds it.
+    expect(
+      validateLoginOperation(delivered, sent, { ...document, documentId: "other" }, 1, 10_001),
+    ).toBe(false);
+  });
   it("binds its operation to mode, policy revision and the exact document scope", () => {
     const start = ready();
     const operation = nextLoginOperation(start, recipe, document, "fill-one", 1000)!;

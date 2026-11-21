@@ -48,7 +48,9 @@ export type SsoScenario =
   | "same-document"
   | "same-document-dom"
   | "instant"
-  | "instant-refused";
+  | "instant-refused"
+  | "identifier-first"
+  | "identifier-first-in-place";
 export type SsoEvidence = {
   entries: number;
   posts: number;
@@ -150,6 +152,24 @@ export async function configureSso(
           status: 302,
           headers: { location: origins.rp + "/login?error=access_denied" },
         });
+      // An identifier-first IdP: its Continue loads the password step as a new document, or
+      // shows it in the same document at a new URL.
+      if (scenario === "identifier-first" && url.pathname === "/login")
+        return respond(
+          '<h1>Sign in to Example</h1><form method=GET action="/password"><label>Email<input id=username name=username autocomplete=username></label><button id=next>Continue</button></form>',
+        );
+      if (scenario === "identifier-first" && url.pathname === "/password")
+        return respond(
+          "<h1>Enter your password</h1><p>" +
+            (url.searchParams.get("username") === "test_username" ? "test_username" : "") +
+            '</p><form method=POST action="/session"><input type=hidden name=username value="' +
+            (url.searchParams.get("username") === "test_username" ? "test_username" : "") +
+            '"><label>Password<input id=password name=password type=password autocomplete=current-password></label><button id=login>Log in</button></form>',
+        );
+      if (scenario === "identifier-first-in-place" && url.pathname === "/login")
+        return respond(
+          '<h1>Sign in to Example</h1><form method=POST action="/session"><div id=email-step><label>Email<input id=username name=username autocomplete=username></label><button id=next type=button>Continue</button></div><div id=password-step hidden><label>Password<input id=password name=password type=password autocomplete=current-password></label><button id=login>Log in</button></div></form><script>document.querySelector("#next").onclick=()=>{history.pushState(null,"","/password");document.querySelector("#email-step").hidden=true;document.querySelector("#password-step").hidden=false;};</script>',
+        );
       if (scenario === "intermediate" && url.pathname === "/login")
         return respond(
           '<h1>Choose an account</h1><button id=choose-exact>test_username</button><button id=choose-wrong>attacker</button><script>document.querySelector("#choose-exact").onclick=()=>fetch("/choice-exact",{method:"POST"}).then(()=>location.replace("/password"));document.querySelector("#choose-wrong").onclick=()=>fetch("/choice-wrong",{method:"POST"});</script>',
@@ -332,6 +352,7 @@ export async function configureSso(
     expectedRevision: initial.snapshot.revision,
     settings,
   });
+  const identifierFirst = scenario.startsWith("identifier-first");
   const native: LoginRecipe = {
     version: 1,
     id: idpRecipeId,
@@ -339,28 +360,56 @@ export async function configureSso(
     origin: origins.idp,
     pageKind: "sign-in",
     slots: ["username", "password"],
-    steps: [
-      {
-        kind: "fill",
-        effect: "prepare",
-        path: scenario === "intermediate" ? "/password" : "/login",
-        fields: [
-          { slot: "username", target: { by: "id", value: "username" } },
-          { slot: "password", target: { by: "id", value: "password" } },
+    steps: identifierFirst
+      ? [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/login",
+            fields: [{ slot: "username", target: { by: "id", value: "username" } }],
+          },
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "next" },
+            purpose: "advance",
+          },
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/password",
+            fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+          },
+          {
+            kind: "click",
+            path: "/password",
+            target: { by: "id", value: "login" },
+            purpose: "submit",
+          },
+        ]
+      : [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: scenario === "intermediate" ? "/password" : "/login",
+            fields: [
+              { slot: "username", target: { by: "id", value: "username" } },
+              { slot: "password", target: { by: "id", value: "password" } },
+            ],
+          },
+          {
+            kind: "click",
+            path: scenario === "intermediate" ? "/password" : "/login",
+            target: { by: "id", value: "login" },
+            purpose: "submit",
+          },
         ],
-      },
-      {
-        kind: "click",
-        path: scenario === "intermediate" ? "/password" : "/login",
-        target: { by: "id", value: "login" },
-        purpose: "submit",
-      },
-    ],
     completion: [{ target: { by: "id", value: "idp-authenticated" } }],
     ...(scenario === "passkey"
       ? { passkey: { path: "/login", target: { by: "id" as const, value: "sign-in" } } }
       : {}),
-    maxSubmissions: 1,
+    // The identifier step's advance is an effect too.
+    maxSubmissions: identifierFirst ? 2 : 1,
   };
   const createdAt = Date.now();
   const recipes: RecipeDocument[] = [

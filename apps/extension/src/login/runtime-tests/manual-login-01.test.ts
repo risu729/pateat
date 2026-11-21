@@ -132,6 +132,39 @@ describe("one-time login through the popup and actual runtime", () => {
     },
   );
 
+  it("goes on in the page its submit loads, as a pick's later pages do (ADR 0088)", async () => {
+    realTime();
+    const h = harness(
+      { excludedSites: [{ hostname: "login.example", includeSubdomains: true }] },
+      { uris: uris() },
+    );
+    expect(await h.hello()).toMatchObject({ ok: false });
+    const pick = await request(h);
+    fake.state.onReconnect = () => h.hello();
+    const answers: unknown[] = [];
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+      // The submit loads a new document on the same path, signed in, as My Digital
+      // Connect's form posted back to its own page did (2026-11-21).
+      fake.state.gone.add("synthetic-document");
+      fake.state.observed = ["unique"];
+      setTimeout(
+        () =>
+          void h.hello({ documentId: "signed-in" }, false).then((answer) => answers.push(answer)),
+        0,
+      );
+      throw new Error("Could not establish connection. Receiving end does not exist.");
+    };
+    expect(await run(h, pick)).toMatchObject({ ok: true });
+    await vi.waitFor(() => {
+      expect(answers).toEqual([{ ok: true }]);
+      expect(stored()).toMatchObject([
+        { state: "authenticated", account: { itemId }, document: { documentId: "signed-in" } },
+      ]);
+    });
+    expect(executes()).toHaveLength(2);
+  });
+
   it("rejects requests from content pages, options pages and another extension", async () => {
     const h = harness(
       { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },

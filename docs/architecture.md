@@ -838,7 +838,14 @@ browser closes or a default is set
 ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
 The popup's **Log in now** action starts one explicit login with an eligible matching
 account, including a single match, independently of the optional **This page** section
-([ADR 0088](adr/0088-popup-manual-login.md)). It lists the current admitted page and
+([ADR 0088](adr/0088-popup-manual-login.md)). It comes first in the popup, except while
+the tab's account choice shows or the popup still checks for one: it is then hidden, and
+shows after the choice only while the choice is `held`, while its offer lists another
+document, a **Fill** target or an account the choice does not offer, or while a request
+of the tab is at work or this popup sent or cancelled one; the section keeps its React
+key as it moves, so a request's state survives
+([ADR 0088, amended 2026-11-21](adr/0088-popup-manual-login.md#amendment-2026-11-21-hidden-beside-the-account-choice)).
+It lists the current admitted page and
 eligible embedded forms separately. Its offer fingerprints the exact document, URL,
 frame and containing page; the worker checks the offer again before using the account.
 The request can retry its own ended or settled-unknown login and bypass automatic
@@ -864,7 +871,10 @@ the pending request and never stops a login that already started. A sibling fram
 announcement cannot use or cancel it. Starting the login clears the tab's ask after a
 rejected or stopped login of the origin (`stoppedAsks`, `rejectedAsks`), as an ordinary
 popup pick does. Once an attempt starts, only the ordinary
-attempt-scoped account pick and its manual provenance persist. The popup distinguishes
+attempt-scoped account pick and its manual provenance persist, and the tab's later
+pages resume that attempt with it as they resume one an ordinary pick started. A new
+login still refuses a manual pick that is neither its current request's nor attached to
+the attempt it resumes. The popup distinguishes
 preparation and generation from a started login and displays actionable blockers. On an
 item with SSO methods the request presses a mapped preferred SSO method's single
 qualifying entry at once, as an automatic login would, where no numbered method or
@@ -2198,11 +2208,13 @@ recipes written by hand.
   form shown again after a rejection, or the end of a fill-only login), so with 100
   records a new tab and origin pair is refused `attempt-limit`. So is the next login of
   a tab whose record ended `account-switched`, though it reuses that record's place.
-- A step's operation is valid for 15 seconds from when the worker builds it. A `wait`
-  step therefore ends at whichever comes first, its own `timeoutMs` or that limit, so a
-  `wait` of 15,000 ms always ends a little early. A fill whose vault reads take longer
-  than the limit reaches the page expired, and the login ends `cancelled`
-  (`operation-expired`) without a retry.
+- A step's operation is valid for 15 seconds from when the worker builds it, and again
+  from when it delivers it to the page, after the step's policy check and vault reads
+  ([ADR 0026](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-21-an-idp-steps-operation-counts-from-its-delivery)).
+  A `wait` step therefore ends at whichever comes first, its own `timeoutMs` or that
+  limit, so a `wait` of 15,000 ms always ends a little early. A page whose authorization
+  of the step, which checks the policy again, ends past the limit refuses the step, and
+  the login ends `cancelled` (`not-authorized`) without a retry.
 - A page that replaces or hides a field while a value is typed into it, or changes it
   so that the value or secret no longer fits, or moves to another path meanwhile, ends
   the login `cancelled` (`field-changed`, `page-changed`). Every `cancelled` answer ends

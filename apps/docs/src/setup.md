@@ -288,6 +288,12 @@ window where automatic login is off, and on a site that is not on the allowed si
 while **Log in automatically only on allowed sites** is on. It also works with a single
 matching account and while **This page** is hidden. This tries once without changing the
 default account, resuming automatic login or remembering the account for later logins.
+While the popup asks you to **Choose an account** for the page, log in there instead:
+its **Make it the default** checkbox can keep the account, so **Log in now** is hidden.
+It shows below that choice only while another tab's login keeps the choice's **Log in**
+from starting, when it can log in to another page or embedded form, fill a page, or use
+an account the choice does not list, and once a **Log in now** request for the tab is at
+work, until the popup closes.
 Pateat may ask the configured AI to inspect the page again; its normal limits and costs
 apply. The popup shows whether it is preparing, generating a recipe, starting or unable
 to continue; **Cancel this login** stops a request that is still preparing, as when the

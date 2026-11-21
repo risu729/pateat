@@ -3,6 +3,7 @@ import { browser } from "wxt/browser";
 import { senderDocumentOrigin } from "../../messaging/sender";
 import {
   fillOnlyStep,
+  LOGIN_OPERATION_MS,
   passwordVariants,
   routeSteps,
   type LoginRecipe,
@@ -162,7 +163,7 @@ export async function fillConfirmation(
       stepIndex: index,
       step,
       signInFill: true,
-      expiresAt: Date.now() + 15000,
+      expiresAt: Date.now() + LOGIN_OPERATION_MS,
     };
     const values: { slot: string; value: string; secret?: ReturnType<typeof loginSecretKind> }[] =
       [];
