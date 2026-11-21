@@ -1,7 +1,7 @@
 import type { LoginTarget } from "@pateat/contracts";
 import { comparableAccounts, fillShowsNone, fillShowsOther, formAccounts } from "../page/accounts";
 import { isButton } from "../page/text";
-import { pressElement } from "../page/script-url-click";
+import { clickElement, pressElement, submitForm } from "../page/script-url-click";
 import { findTargets } from "../page/targets";
 import { closestAcross, containsAcross, formOf, inputsOf, queryAll } from "../page/shadow";
 import {
@@ -321,8 +321,8 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
       context.submitted = submittedPage(document, formInputs.filter(writable));
       if (showsCaptcha(document) && !passedCaptcha(document)) return fail("captcha");
       mutated = true;
-      if (button) button.click();
-      else HTMLFormElement.prototype.requestSubmit.call(form);
+      if (button) clickElement(button);
+      else submitForm(form);
       return { ok: true, mutation: "possible" } as const;
     };
     if (step.kind === "fill") {

@@ -18,6 +18,7 @@ export function registerRecipeLearning({
     ["anchor", "button"],
     ["script-link", "button"],
     ["script-url", "button"],
+    ["script-form", "button"],
     ["shadow", "button"],
     ["labelled", "button"],
     ["button", "link"],

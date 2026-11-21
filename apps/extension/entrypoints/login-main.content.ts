@@ -3,8 +3,9 @@ import { installMainWorldDefinitions } from "../src/page/element-definitions";
 import { installMainWorldClicks } from "../src/page/script-url-click";
 
 /**
- * Clicks, in the page's MAIN world, the `javascript:` links the login content script asks
- * it to, so Chrome runs their URL under the page's own content security policy, and tells
+ * Clicks or submits, in the page's MAIN world, what the login content script asks it to
+ * when that runs a `javascript:` URL (a link, or a form's `javascript:` action), so Chrome
+ * runs the URL under the page's own content security policy, and tells
  * it when the page defines a custom element it asked about, which the isolated world's
  * `customElements` cannot (ADR 0082). It runs in every HTTP(S) page and frame, as the
  * login script does, and reads nothing from the page.

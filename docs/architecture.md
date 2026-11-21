@@ -69,7 +69,7 @@ sent.
 | Offscreen crypto host   | Own Dedicated Workers for local SDK operations and hard cancellation                     | Yes, private background channel only                            |
 | Isolated content script | Extract sanitized form structure, validate document identity, execute fixed DOM operations | Only the specific values being filled, briefly                  |
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
-| MAIN-world click relay  | Click a `javascript:` link the isolated script names, under the page's own policy          | No; it receives no values                                       |
+| MAIN-world click relay  | Click or submit what runs a `javascript:` URL, under the page's own policy                 | No; it receives no values                                       |
 | Settings page           | Vault connection, re-authentication, unlock and service pairing                            | Deliberate user setup only; no auto-opening during login        |
 | Toolbar popup           | Current site's default account and pause (ADR 0062); choosing among matches (ADR 0021); switching accounts (ADR 0063) | Item names and login usernames only; opened only by the user    |
 | Passkey chooser window  | Choosing a passkey for one pending request: several match, or the site default counts as unset (ADR 0062, ADR 0063) | Item names and passkey user names only                           |
@@ -1437,12 +1437,16 @@ destinations and target identities after authorization, around choosing a radio,
 split fields and while typing. A changed or unchecked destination fills nothing further.
 This does not intercept a person's later submission or constrain JavaScript running in
 the receiving page. A `javascript:` destination is allowed (owner's decision, 2026-10-18
-04:19 UTC): submitting to it sends the values nowhere, and legacy forms such as
-`<form action="javascript:void(0)">` post them from their own handlers. Chrome does not
-run the URL itself when the executor's click submits such a form: the content script's
-isolated world's policy (`script-src 'self'`) refuses it, so only forms whose handlers
-do the work log in, and one whose action alone signs in, such as
-`action="javascript:doLogin()"`, does not. For a click, both the nearest link, button or
+04:19 UTC): submitting to it navigates nowhere and sends no request of its own, and
+legacy forms such as `<form action="javascript:void(0)">` post the values from their own
+handlers. Since 2026-11-21 the executor's click or Enter that submits such a form runs
+the URL in the page's main world under the page's own content security policy, exactly
+as a person's click does, where the content script's isolated world's policy
+(`script-src 'self'`) refused it before ([script links](#declarative-recipes-and-ai);
+[ADR 0051 amendment of 2026-11-21](adr/0051-form-destinations-by-item-uri-match.md#amendment-2026-11-21-a-javascript-destination-runs-under-the-pages-policy)).
+So a form whose action alone signs in, such as `action="javascript:doLogin()"`, logs in,
+and the URL's script can read the filled values, as it can after a person's click. For
+a click, both the nearest link, button or
 input from the clicked element up (or the element itself) and the control of a `<label>`
 around it are checked, as either can submit a form. Injected markup could otherwise
 choose the destination: a dangling `<form action="https://attacker.example/">` makes the
@@ -3358,16 +3362,21 @@ one, which Chrome never follows from a page), such as
 as buttons, so pages whose login control is one, such as MyJCB and SMBC Direct, can get
 a generated recipe. Chrome runs a `javascript:` URL that a click follows under the
 content security policy of the world that clicked, and the login content script's
-isolated world has the extension's own policy. So a click Pateat makes on an `<a href>`
-whose URL, as the browser parses it, is `javascript:` (`src/page/script-url-click.ts`;
-`data:` and `vbscript:` links take the same path, though Chrome follows neither) is made
-in the page's main world by `login-main.js`, which runs at document start in the
+isolated world has the extension's own policy. So a click Pateat makes that runs a
+`javascript:` URL (`src/page/script-url-click.ts`; `data:` and `vbscript:` URLs take the
+same path, though Chrome follows neither) is made in the page's main world: a click on
+an `<a href>` or `<area href>` whose URL, as the browser parses it, is one, or on an
+element inside such a link, a click on a submit button or image input whose form submits
+to one (its `formaction`, else the form's `action`), or on a `<label>` for such a
+control, and the `requestSubmit()` of a pressed Enter on a form without a submit button
+whose `action` is one. `login-main.js` makes it; it runs at document start in the
 MAIN world wherever the login script runs (every HTTP(S) page and frame), with no
 permission or host access of its own. The isolated script dispatches a fixed,
-non-bubbling event that carries nothing on the link itself; the main-world listener
-clicks that link once, only when it is such a link, and cancels the event. When nothing
-cancels it, as when the script did not load, the isolated script clicks the link itself,
-as before; only one world clicks, so the link's `onclick` handler runs once, and
+non-bubbling event that carries nothing on the element itself, or on the form for a
+submission; the main-world listener clicks that element or submits that form once, only
+when it runs such a URL, and cancels the event. When nothing cancels it, as when the
+script did not load, the isolated script clicks or submits itself, as before; only one
+world clicks, so an `onclick` handler runs once, and
 whether the page reacted is still judged by the attempt's own checks, never by anything
 the main world reports. A page sees the event and can click its own links anyway, so it
 gains no power over its own login it lacked, though the event tells any HTTP(S) page or
@@ -3375,8 +3384,10 @@ frame that Pateat is installed (the passkey bridge does so in top-level document
 link in a closed shadow root is still clicked from the isolated world, since the
 main-world listener sees only its host. The click on a list's link for another account
 (ADR 0028) takes the same path, so such a `javascript:` link now runs its URL. Every
-other click, including links with other URLs, buttons
-and form submits, is made in the isolated world as before. Before this, a link whose
+other click, including links with other URLs, buttons and submits to other actions, is
+made in the isolated world as before; either world's click is the same untrusted event
+to the page, and only the policy a `javascript:` URL meets differs. Before this, a link
+whose
 action is its URL alone never submitted: on 2026-10-13 a recruiting site's sign-in
 logged `Refused to run the JavaScript URL` in the console after such a click,
 reproduced in Chromium with a synthetic page, and on 2026-10-17 the owner's Chrome on
@@ -3386,8 +3397,19 @@ build `d29951d` (01:55 UTC) filled SMBC Trust Bank's sign-on page and clicked it
 `chrome://extensions` logged
 `Running the JavaScript URL violates the following Content Security Policy directive
 'script-src 'self' 'wasm-unsafe-eval' …'` from `content-scripts/login.js`, so the page
-never submitted. Clicking such links from the main world is an agent implementation
-choice under the owner's 2026-10-11 decision that they are clicked as buttons. A text
+never submitted. On 2026-11-21 (10:55 UTC) the owner's Chrome logged the same refusal
+from `content-scripts/login.js` on the Azure AD B2C sign-in page on
+identity.britishcouncil.org, the sign-in for connect.britishcouncil.org. B2C's standard
+sign-in form is `<form action="JavaScript:void(0);">` with a Sign in submit button,
+whose click Pateat then made from the isolated world (inferred from B2C's standard page;
+the page itself was not captured). A synthetic extension in Chromium reproduced the
+refusal for a submit button's click and for `requestSubmit()` on such a form, and for a
+click on an element inside a `javascript:` link, while the page's own `submit` handler
+still ran; so such clicks and submits are now made from the main world too. Clicking
+such links and submitting such forms from the main world is an agent implementation
+choice under the owner's 2026-10-11 decision that script links are clicked as buttons
+and the owner's 2026-10-18 decision that a `javascript:` form destination is allowed. A
+text
 locator names a script link by its rendered text, but only
 when no native button carries that text, shown or hidden: native buttons are matched
 first, so a login tab such as `<a href="#" onclick="...">Login</a>` never makes the

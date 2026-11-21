@@ -193,9 +193,11 @@ function destination(
 /**
  * Where the values in `control`'s form go: the submission, through `control`'s own
  * `formaction` when a `click` on it sends the form. The document's own origin is
- * `allowed`, and so is a `javascript:` destination: submitting to it runs the URL as script
- * and sends the form's values nowhere, as legacy forms with `action="javascript:void(0)"`
- * rely on, whose own handlers then post the values. An HTTP(S) URL on another origin,
+ * `allowed`, and so is a `javascript:` destination: submitting to it sends no request of
+ * its own, as legacy forms with `action="javascript:void(0)"` rely on, whose own handlers
+ * then post the values. The URL runs as the page's own script, in the page's main world
+ * as on a person's press (`script-url-click.ts`, ADR 0051 amendment of 2026-11-21), and
+ * may read the filled values as it could then. An HTTP(S) URL on another origin,
  * also another host of the same site, is `other-origin`; anything else, such as an
  * unparsable value, is `refused`. A `fill` sends nothing through the control, so only the
  * form's `action` counts there. A control outside any form has no submission to check.
