@@ -156,12 +156,12 @@ describe("one-time login through the popup and actual runtime", () => {
       throw new Error("Could not establish connection. Receiving end does not exist.");
     };
     expect(await run(h, pick)).toMatchObject({ ok: true });
-    await vi.waitFor(() =>
+    await vi.waitFor(() => {
+      expect(answers).toEqual([{ ok: true }]);
       expect(stored()).toMatchObject([
-        { state: "authenticated", document: { documentId: "signed-in" } },
-      ]),
-    );
-    expect(answers).toEqual([{ ok: true }]);
+        { state: "authenticated", account: { itemId }, document: { documentId: "signed-in" } },
+      ]);
+    });
     expect(executes()).toHaveLength(2);
   });
 

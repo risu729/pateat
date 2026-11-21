@@ -865,9 +865,9 @@ announcement cannot use or cancel it. Starting the login clears the tab's ask af
 rejected or stopped login of the origin (`stoppedAsks`, `rejectedAsks`), as an ordinary
 popup pick does. Once an attempt starts, only the ordinary
 attempt-scoped account pick and its manual provenance persist, and the tab's later
-pages resume that attempt with it as they resume one an ordinary pick started; only a
-new login refuses a manual pick that no current request or attempt of its own carries.
-The popup distinguishes
+pages resume that attempt with it as they resume one an ordinary pick started. A new
+login still refuses a manual pick that is neither its current request's nor attached to
+the attempt it resumes. The popup distinguishes
 preparation and generation from a started login and displays actionable blockers. On an
 item with SSO methods the request presses a mapped preferred SSO method's single
 qualifying entry at once, as an automatic login would, where no numbered method or
