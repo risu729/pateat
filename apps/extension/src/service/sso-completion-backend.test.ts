@@ -329,11 +329,9 @@ describe("SSO completion through the real device backend and model adapters", ()
         result: { status: "unclear" },
       });
       // Neither the same description nor another one is judged again the same day.
-      for (const observation of [counted, named])
-        expect(await h.judge({ ...h.request, observation })).toMatchObject({
-          kind: "result",
-          result: { status: "unavailable", reason: "already-judged" },
-        });
+      const again = { kind: "result", result: { status: "unavailable", reason: "already-judged" } };
+      expect(await h.judge({ ...h.request, observation: counted })).toMatchObject(again);
+      expect(await h.judge({ ...h.request, observation: named })).toMatchObject(again);
       expect(h.calls).toHaveLength(1);
       // The next UTC day the same description is still not judged again; another one is.
       at(Date.UTC(2026, 10, 22, 1));
