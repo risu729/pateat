@@ -382,10 +382,10 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     expect(await backend.recordJudgement(key, 2_000, stale, inputs)).toBe(true);
     // Another request's row being judged is not taken (ADR 0018), whatever its inputs.
     expect(await backend.recordJudgement(key, 2_500, stale, "b2")).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
+    expect(await backend.judgement(key)).toMatchObject({ verdict: null, inputs });
     // An older revision judged before the day started is forgotten; today's row stays.
     expect(await backend.judgement({ ...key, revision: 1 })).toBeUndefined();
-    expect(await backend.judgement({ ...key, promptVersion: "v1" })).toEqual({
+    expect(await backend.judgement({ ...key, promptVersion: "v1" })).toMatchObject({
       verdict: null,
       inputs,
     });
@@ -394,23 +394,23 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     // A kept verdict stays; a `partial` one takes the slot again.
     await backend.keepVerdict(key, "signed-in");
     expect(await backend.recordJudgement(key, 3_000, stale, "b2")).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: "signed-in", inputs });
+    expect(await backend.judgement(key)).toMatchObject({ verdict: "signed-in", inputs });
     await backend.keepVerdict(key, "partial");
     expect(await backend.recordJudgement(key, 3_000, stale, inputs)).toBe(true);
-    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
+    expect(await backend.judgement(key)).toMatchObject({ verdict: null, inputs });
     // A `challenge` stays for the same inputs and takes the slot again for others (ADR
     // 0029 amendment of 2026-11-06).
     await backend.keepVerdict(key, "challenge");
     expect(await backend.recordJudgement(key, 3_500, stale, inputs)).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: "challenge", inputs });
+    expect(await backend.judgement(key)).toMatchObject({ verdict: "challenge", inputs });
     expect(await backend.recordJudgement(key, 3_500, stale, "b2")).toBe(true);
-    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs: "b2" });
+    expect(await backend.judgement(key)).toMatchObject({ verdict: null, inputs: "b2" });
     // So does `unclear` (ADR 0029 amendment of 2026-11-11).
     await backend.keepVerdict(key, "unclear");
     expect(await backend.recordJudgement(key, 3_600, stale, "b2")).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: "unclear", inputs: "b2" });
+    expect(await backend.judgement(key)).toMatchObject({ verdict: "unclear", inputs: "b2" });
     expect(await backend.recordJudgement(key, 3_600, stale, inputs)).toBe(true);
-    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
+    expect(await backend.judgement(key)).toMatchObject({ verdict: null, inputs });
     // A page of the path whose code comes from an authenticator app has a row of its own
     // beside the one whose code was sent (ADR 0029 amendment of 2026-11-17).
     const sent = { ...key, codeSource: "sent" } as const;
@@ -420,8 +420,8 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     expect(await backend.recordJudgement(authenticator, 3_700, stale, inputs)).toBe(true);
     await backend.keepVerdict(authenticator, "challenge", inputs);
     expect(await backend.recordJudgement(sent, 3_800, stale, inputs)).toBe(false);
-    expect(await backend.judgement(sent)).toEqual({ verdict: "challenge", inputs });
-    expect(await backend.judgement(authenticator)).toEqual({ verdict: "challenge", inputs });
+    expect(await backend.judgement(sent)).toMatchObject({ verdict: "challenge", inputs });
+    expect(await backend.judgement(authenticator)).toMatchObject({ verdict: "challenge", inputs });
   });
 
   it("reads a judgement kept before code sources as one with none", async () => {
@@ -454,7 +454,7 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
       path: "/home",
       promptVersion: "v2",
     };
-    expect(await backend.judgement({ ...key, codeSource: "" })).toEqual({
+    expect(await backend.judgement({ ...key, codeSource: "" })).toMatchObject({
       verdict: "challenge",
       inputs: "a1",
     });

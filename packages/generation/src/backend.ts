@@ -232,6 +232,8 @@ export type KeptJudgement = {
    * row kept before it was recorded.
    */
   inputs: string | null;
+  /** When the page was last taken to be judged, where the backend says (ms since epoch). */
+  judgedAt?: number;
 };
 
 /**

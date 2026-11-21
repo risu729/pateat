@@ -473,7 +473,7 @@ export function createDeviceGenerationBackend(options: {
     },
     async judgement(judged) {
       const entry = (await current()).judgements.find(sameJudgement(judged));
-      return entry && { verdict: entry.verdict, inputs: entry.inputs };
+      return entry && { verdict: entry.verdict, inputs: entry.inputs, judgedAt: entry.at };
     },
     async judgementsSince(recipeId, since) {
       return (await current()).judgements.filter(

@@ -294,6 +294,111 @@ describe("SSO completion through the real device backend and model adapters", ()
     expect(h.calls).toHaveLength(1);
     expect(h.record()?.judgements).toHaveLength(1);
   });
+  // HCP's portal after an SSO return (2026-11-21): each link carried only Ember's per-load
+  // ID, which no marker may use, until those IDs gave way to the links' text.
+  const counted: LoginObservation = {
+    ...page,
+    candidates: [
+      { id: "c1", role: "link", target: { by: "id", value: "ember62" }, label: "Settings" },
+    ],
+  };
+  const named: LoginObservation = {
+    ...page,
+    candidates: [
+      {
+        id: "settings",
+        role: "link",
+        target: { by: "text", value: "Settings" },
+        label: "Settings",
+      },
+    ],
+  };
+  const day = 86_400_000;
+  const at = (time: number) => vi.setSystemTime(time);
+  it("judges a page kept unclear again on other candidates, once a UTC day", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      at(Date.UTC(2026, 10, 21, 20));
+      const h = await setup([
+        { decision: "unclear" },
+        { decision: "unclear" },
+        { decision: "signed-in", marker: "settings" },
+      ]);
+      expect(await h.judge({ ...h.request, observation: counted })).toMatchObject({
+        kind: "result",
+        result: { status: "unclear" },
+      });
+      // Neither the same description nor another one is judged again the same day.
+      for (const observation of [counted, named])
+        expect(await h.judge({ ...h.request, observation })).toMatchObject({
+          kind: "result",
+          result: { status: "unavailable", reason: "already-judged" },
+        });
+      expect(h.calls).toHaveLength(1);
+      // The next UTC day the same description is still not judged again; another one is.
+      at(Date.UTC(2026, 10, 22, 1));
+      expect(await h.judge({ ...h.request, observation: counted })).toMatchObject({
+        result: { status: "unavailable", reason: "already-judged" },
+      });
+      const other: LoginObservation = {
+        ...counted,
+        candidates: [{ ...counted.candidates[0]!, target: { by: "id", value: "ember63" } }],
+      };
+      expect(await h.judge({ ...h.request, observation: other })).toMatchObject({
+        result: { status: "unclear" },
+      });
+      expect(h.calls).toHaveLength(2);
+      // Its digest was kept with the new verdict.
+      at(Date.UTC(2026, 10, 23, 1));
+      expect(await h.judge({ ...h.request, observation: other })).toMatchObject({
+        result: { status: "unavailable", reason: "already-judged" },
+      });
+      expect(await h.judge({ ...h.request, observation: named })).toMatchObject({
+        kind: "result",
+        result: { status: "signed-in", change: { state: "active", revision: 2 } },
+      });
+      expect(h.calls).toHaveLength(3);
+      expect(h.record()?.judgements.map((row) => row.verdict)).toEqual(["signed-in"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("judges again at once a page kept unclear without inputs, as before they were recorded", async () => {
+    const h = await setup([{ decision: "unclear" }, { decision: "signed-in", marker: "settings" }]);
+    await h.judge({ ...h.request, observation: counted });
+    const judged = h.record()!.judgements[0]!;
+    await h.backend.keepVerdict(judged as never, "unclear", "");
+    expect(await h.judge({ ...h.request, observation: named })).toMatchObject({
+      kind: "result",
+      result: { status: "signed-in" },
+    });
+    expect(h.calls).toHaveLength(2);
+  });
+  it("puts a retaken unclear page back as it was when its request fails", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      at(Date.UTC(2026, 10, 21, 20));
+      const h = await setup([
+        { decision: "unclear" },
+        400,
+        { decision: "signed-in", marker: "settings" },
+      ]);
+      await h.judge({ ...h.request, observation: counted });
+      const before = structuredClone(h.record()!.judgements[0]!) as { inputs?: string };
+      at(Date.UTC(2026, 10, 21, 20) + day);
+      expect(await h.judge({ ...h.request, observation: named })).not.toMatchObject({
+        result: { status: "signed-in" },
+      });
+      expect(h.record()?.judgements).toMatchObject([{ verdict: "unclear", inputs: before.inputs }]);
+      // The page is judged again on a later day.
+      at(Date.UTC(2026, 10, 21, 20) + 2 * day);
+      expect(await h.judge({ ...h.request, observation: named })).toMatchObject({
+        result: { status: "signed-in" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("does not read a marker learned on another origin of the site as one of the RP's", async () => {
     const portal = {
       target: { by: "id" as const, value: "logout" },

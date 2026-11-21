@@ -147,7 +147,11 @@ export function d1Backend(
     },
     judgement: async (key) => {
       const [judged] = await db
-        .select({ verdict: pageJudgements.verdict, inputs: pageJudgements.inputs })
+        .select({
+          verdict: pageJudgements.verdict,
+          inputs: pageJudgements.inputs,
+          judgedAt: pageJudgements.judgedAt,
+        })
         .from(pageJudgements)
         .where(judgementOf(key))
         .limit(1);
