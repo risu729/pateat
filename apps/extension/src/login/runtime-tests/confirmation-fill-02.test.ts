@@ -198,7 +198,7 @@ describe("the confirmed login's own transition", () => {
 describe("evaluation rows of a confirmation page", () => {
   // The page shows the recipes' signed-in marker (E1), so its signs are read at once.
   const signedIn = () => (fake.state.present = new Set(["password", "login", "authenticated"]));
-  it("logs a fill that stopped before the page reported its step shown, once, where it stopped", async () => {
+  it("logs a fill that stopped before the page reported its step shown, then its fields", async () => {
     const { h, reports } = await authenticated();
     configure(h);
     signedIn();
@@ -209,7 +209,7 @@ describe("evaluation rows of a confirmation page", () => {
     });
     await settled(h);
     const rows = () => reports.filter((entry) => entry.type === "refused");
-    const logged = [
+    const unshown = [
       expect.objectContaining({
         detail: "confirm-fill",
         recipeId: "synthetic-confirm",
@@ -225,12 +225,48 @@ describe("evaluation rows of a confirmation page", () => {
       }),
     ];
     // Logged at the fill's end, though the page never reported its step shown (#1761).
-    await vi.waitFor(() => expect(rows()).toEqual(logged));
-    expect(rows()[0]).not.toHaveProperty("previousUrl");
+    await vi.waitFor(() => expect(rows()).toEqual(unshown));
+    for (const key of ["previousUrl", "e1", "e2", "amount"])
+      expect(rows()[0]).not.toHaveProperty(key);
+    // The page's report then logs the rows once more, with its fields.
     await shownHello(h, { documentId: "confirmation-document" });
     await shownHello(h, { documentId: "confirmation-document" });
     await settled(h);
-    expect(rows()).toEqual(logged);
+    const full = [
+      expect.objectContaining({ detail: "confirm-fill", previousUrl: `${origin}/signin` }),
+      expect.objectContaining({
+        detail: "confirm-fill-stopped",
+        stoppedAt: "value",
+        previousUrl: `${origin}/signin`,
+      }),
+    ];
+    await vi.waitFor(() => expect(rows()).toEqual([...unshown, ...full]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(rows()).toEqual([...unshown, ...full]);
+    expect(
+      rows()
+        .slice(2)
+        .some((entry) => "unshown" in entry),
+    ).toBe(false);
+    expect(confirmations()).toEqual([]);
+  });
+
+  it("logs once that a paused site's verification page is not filled", async () => {
+    const { h, reports } = await authenticated();
+    await setPause(h, true);
+    configure(h);
+    signedIn();
+    await announce(h);
+    await announce(h);
+    await settled(h);
+    expect(reports.filter((entry) => entry.type === "refused")).toEqual([
+      expect.objectContaining({
+        reason: "not-started",
+        detail: "confirm-fill-paused",
+        recipeId: "synthetic-confirm",
+        pageKind: "confirm",
+      }),
+    ]);
     expect(confirmations()).toEqual([]);
   });
 

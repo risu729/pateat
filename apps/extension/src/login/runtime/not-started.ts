@@ -16,21 +16,26 @@ export function noteNotStarted(
   /** For a confirmation fill: whose account fills, the login's or the person's pick. */
   accountSource?: ConfirmAccountSource,
   /**
-   * For a confirmation fill's end: where it stopped, and `unshown` when the page never
-   * reported its first step shown, so its rows are logged at the end without it.
+   * For a confirmation fill's end: where it stopped, or that it waits (`asked`, `claimed`),
+   * and `unshown` when the page has not reported its first step shown by then, so its rows
+   * are logged without it.
    */
   end: { stoppedAt?: ConfirmStop | undefined; unshown?: boolean } = {},
 ): void {
-  if (
-    (!(visit && end.unshown) && shown?.path !== live.path) ||
-    live.notStarted === detail ||
-    visit?.noted?.has(detail)
-  )
-    return;
-  live.notStarted = detail;
-  if (visit) {
-    if (shown) visit.shown = shown;
-    (visit.noted ??= new Set()).add(detail);
+  // A row logged without the page's report carries none of its fields, nor E1 or E2. It
+  // is logged once per visit and detail, and leaves the full row to a report that follows.
+  const unshown = visit !== undefined && end.unshown === true && shown?.path !== live.path;
+  if (unshown) {
+    if (visit.noted?.has(detail) || visit.unshown?.has(detail)) return;
+    (visit.unshown ??= new Set()).add(detail);
+  } else {
+    if (shown?.path !== live.path || live.notStarted === detail || visit?.noted?.has(detail))
+      return;
+    live.notStarted = detail;
+    if (visit) {
+      visit.shown = shown;
+      (visit.noted ??= new Set()).add(detail);
+    }
   }
   const refused = {
     type: "refused" as const,
@@ -42,8 +47,6 @@ export function noteNotStarted(
     ...(accountSource ? { accountSource } : {}),
     ...(end.stoppedAt ? { stoppedAt: end.stoppedAt } : {}),
   };
-  // A row logged without the page's report carries none of its fields, nor E1 or E2.
-  const unshown = visit !== undefined && end.unshown === true && shown?.path !== live.path;
   if (!visit) {
     const later = shown?.later;
     report(rt, live.document, {
@@ -90,9 +93,10 @@ const documentOf = (live: LiveDocument) => `${live.document.tabId} ${live.docume
  * visit and with the page's evaluation fields: `confirm-fill` once it is checked, and how
  * the fill on its path ended once it did: `confirm-filled` when it changed a field,
  * `confirm-fill-kept` when it kept every value it found, `confirm-fill-stopped` when it
- * stopped. A fill that ended before the page reported its first step shown is logged when
- * it does. Each names whose account fills (`accountSource`): the tab's confirmed login's,
- * or the person's **Fill** pick's.
+ * stopped. A fill that ends before the page reported its first step shown logs its rows at
+ * its end, `unshown` and without the page's fields, and again with them once it does. Each
+ * names whose account fills (`accountSource`): the tab's confirmed login's, or the person's
+ * **Fill** pick's.
  */
 export function noteConfirmFill(
   rt: Runtime,
@@ -168,4 +172,63 @@ export async function settleConfirmFill(
   // so a fill that ended unseen still leaves them (APA Hotel, #1761).
   if (visit) noteConfirmFill(rt, page, undefined, visit, accountSource, true);
   await publish(rt, page);
+}
+
+/**
+ * A fill that waits, for its master password window (`asked`) or because its step was
+ * already claimed (`claimed`), logs its `confirm-fill` row with that, once per visit, also
+ * before the page reported its first step shown (#1761).
+ */
+export function noteConfirmWaiting(
+  rt: Runtime,
+  page: LiveDocument,
+  path: string,
+  waiting: "asked" | "claimed",
+  accountSource: ConfirmAccountSource,
+): void {
+  const visit = rt.confirmVisits.get(page.document.tabId);
+  if (
+    page.path !== path ||
+    visit?.document.documentId !== page.document.documentId ||
+    visit.path !== path
+  )
+    return;
+  noteNotStarted(rt, page, visit.shown, "confirm-fill", undefined, visit, accountSource, {
+    stoppedAt: waiting,
+    unshown: true,
+  });
+}
+
+/** Documents and paths already logged by {@link noteConfirmSkipped}, newest last. */
+const skipped = new Map<string, string>();
+
+/**
+ * A verification page with a recipe whose automatic fill is not started because its site
+ * is paused, logged once per document and path (`confirm-fill-paused`): its answer names no
+ * step, so it never reports one shown (#1761).
+ */
+export function noteConfirmSkipped(
+  rt: Runtime,
+  live: LiveDocument,
+  recipe: LoginRecipe,
+  why: "paused",
+): void {
+  const key = `${live.document.tabId} ${live.document.documentId} ${live.path}`;
+  const detail = `confirm-fill-${why}`;
+  if (skipped.get(key) === detail) return;
+  skipped.delete(key);
+  skipped.set(key, detail);
+  if (skipped.size > 256) skipped.delete(skipped.keys().next().value!);
+  report(rt, live.document, {
+    type: "refused",
+    tabId: live.document.tabId,
+    origin: live.document.origin,
+    reason: "not-started",
+    detail,
+    recipeId: recipe.id,
+    recipeRevision: recipe.revision,
+    ...(recipe.pageKind ? { pageKind: recipe.pageKind } : {}),
+    ...(live.document.frameId === 0 ? {} : { frame: true as const }),
+    url: live.url,
+  });
 }

@@ -130,12 +130,14 @@ export async function fillConfirmation(
   work.live.state = "watching";
   work.live.reason = "confirm-fill";
   const steps = confirmationSteps(recipe, work.live.path);
-  if (steps.some(({ index }) => hasConfirmClaim(rt, claimOf(work, recipe, index))))
-    return "claimed";
   const stop = (at: ConfirmStop) => {
     work.stoppedAt = at;
     return "stopped" as const;
   };
+  // Nothing to fill on this path: no account is read and no window opens for it.
+  if (!steps.length) return stop("no-step");
+  if (steps.some(({ index }) => hasConfirmClaim(rt, claimOf(work, recipe, index))))
+    return "claimed";
   const found = await confirmAccount(rt, work);
   if (!found) return stop("account");
   const reprompted = await confirmReprompt(rt, work, found);
@@ -148,7 +150,7 @@ export async function fillConfirmation(
     const slots = step.fields.map((field) => field.slot);
     const plan = await confirmPlan(rt, work, recipe, slots);
     if (!plan) {
-      stop("plan");
+      stop(confirmCurrent(rt, work) ? "plan" : "changed");
       continue;
     }
     const ready = v.safeParse(
@@ -160,7 +162,7 @@ export async function fillConfirmation(
       }).catch(() => undefined),
     );
     if (!ready.success || !ready.output.ok || !confirmCurrent(rt, work)) {
-      stop("not-ready");
+      stop(!confirmCurrent(rt, work) ? "changed" : ready.success ? "not-ready" : "unreachable");
       continue;
     }
     if (!(await claimConfirm(rt, work, claimOf(work, recipe, index)))) return stop("claim");
@@ -225,7 +227,7 @@ export async function fillConfirmation(
         response.output.ok &&
         response.output.operationId === operation.operationId &&
         response.output.documentId === work.live.document.documentId;
-      // The evaluation row is logged once, with the page's fields, by the admission.
+      // The evaluation rows are logged when the fill settles (`settleConfirmFill`).
       if (!ok) return stop("delivery");
       return response.output.mutation === "none" ? "kept" : "filled";
     } finally {
@@ -234,8 +236,7 @@ export async function fillConfirmation(
       delete work.operation;
     }
   }
-  // Every step was skipped: the last reason stands.
-  work.stoppedAt ??= "not-ready";
+  // Every step was skipped: the last step's reason stands.
   return "stopped";
 }
 

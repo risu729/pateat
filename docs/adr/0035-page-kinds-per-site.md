@@ -575,23 +575,26 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
 - A verification page's answer carries the origin's first steps, as the authenticated
   record's `logged-in` answer does, so the page keeps watching for a sign-in form in
   place (ADR 0062) and reports its first step shown.
-- Existing value-free evaluation fields remain. `login.refused` with
-  `not-started` names `confirm-fill` when checking the page and how the fill ended:
-  `confirm-filled` when it changed a field, `confirm-fill-kept` when it kept every value
-  it found, `confirm-fill-stopped` when filling cannot continue, each once per visit and
-  with the page's fields, logged when the page reports its first step shown, or, for a
-  page that never did, at the fill's end without them, marked `unshown` (from
-  2026-11-21, [#1761](https://github.com/risu729/pateat/issues/1761)).
-  `confirm-fill-stopped` also names where the fill stopped (`stoppedAt`: `account`,
-  `reprompt`, `plan`, `not-ready`, `claim`, `value`, `changed` or `delivery`), kept on
-  the device like `accountSource`. None claims
-  an action succeeded. The two ends that went into the page were logged only from
-  2026-11-21 (an agent's fix after
-  [#1761](https://github.com/risu729/pateat/issues/1761), where the service's log could
-  not tell a fill the page then lost from one that never ran). `confirm-unsupported`
-  remains for a page without an eligible confirmed context, and `page-off` for a
-  disabled verification page. The popup says
-  whether the fill changed a field or kept every value it found.
+- Existing value-free evaluation fields remain. `login.refused` with `not-started` names
+  `confirm-fill` when checking the page and how the fill ended: `confirm-filled` when it
+  changed a field, `confirm-fill-kept` when it kept every value it found,
+  `confirm-fill-stopped` when filling cannot continue, each once per visit and with the
+  page's fields, logged when the page reports its first step shown. From 2026-11-21
+  ([#1761](https://github.com/risu729/pateat/issues/1761)), a fill that ends before that
+  logs its rows at its end, marked `unshown` and without the page's fields, and again
+  with them once the page reports its step. `confirm-fill-stopped` names where the fill
+  stopped (`stoppedAt`: `no-step`, `account`, `reprompt`, `plan`, `unreachable`,
+  `not-ready`, `claim`, `value`, `changed` or `delivery`, or `error`), and a fill that
+  waits for its master password window or found its step claimed logs `confirm-fill`
+  with `asked` or `claimed`; both are kept on the device like `accountSource`. A page
+  with a `confirm` recipe on a paused site logs `confirm-fill-paused`, once per document
+  and path. None claims an action
+  succeeded. The two ends that went into the page were logged only from 2026-11-21 (an
+  agent's fix after [#1761](https://github.com/risu729/pateat/issues/1761), where the
+  service's log could not tell a fill the page then lost from one that never ran).
+  `confirm-unsupported` remains for a page without an eligible confirmed context, and
+  `page-off` for a disabled verification page. The popup says whether the fill changed a
+  field or kept every value it found.
 
 The session store holds at most 100 authentication proofs and 512 generation/fill
 claims, at most 64 of them for one tab, so one long-lived tab cannot turn confirmation

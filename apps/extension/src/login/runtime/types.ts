@@ -206,6 +206,8 @@ type ConfirmVisit = {
   shown?: Shown;
   /** The `not-started` details already logged for this visit, each logged once. */
   noted?: Set<string>;
+  /** The details logged `unshown`, before the page reported its first step shown. */
+  unshown?: Set<string>;
 };
 
 export /** Why a page offered for generation is not sent, for the log (ADR 0019). */
