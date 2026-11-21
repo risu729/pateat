@@ -891,17 +891,26 @@ Decisions:
    or the tab's URL is no longer the page's, the page refuses `sso-in-progress` with
    detail `idp:left`, ends nothing, and the tab's next page is read. One still the
    tab's page ends the flow as before.
+   - **A closed master password ends the flow anyway.** A master password window the
+     person closed, or one that could not be asked, ends the flow
+     (`sso-reprompt-required`) wherever the tab went. Only a window cut off (`aborted`)
+     or a page no longer the flow's counts as the tab leaving it.
+   - **Once per document.** A document is refused so once; a second such failure of
+     the same document ends the flow with its own reason, so a page that keeps
+     changing its URL cannot keep a failure waiting.
 2. **The flow keeps its SSO mapping.** It replaces decision 2 of 2026-11-21. Every scope
    check of the flow, in its policy checks, its IdP pages' admissions and its effects,
    uses one read of the flow's SSO mapping (`ssoMapping`) while what that read depends
    on is unchanged: the settings revision and whether a settings sync is pending, the
-   flow's RP method and IdP choice, and both accounts' vault connections as the catalog
-   has them, with their snapshots, states and quarantined items. Any other of these
-   reads it again. Everything else in each scope check is read again, as before: the
-   tab, pauses, settings, the flow's dependencies, item eligibility, and each account's
-   vault being open on its snapshot (`bindingSnapshotCurrent`), checked synchronously
-   before the mapping is used and again in the check's fence, so a locked vault refuses
-   as before. The mapping is kept in memory only, with the flow, and never stored.
+   flow's whole source (`work.source`: the RP account, its method and its
+   `sourceEvidence`) and its IdP choice, and both accounts' vault connections as the
+   catalog has them, with their snapshots, states and quarantined items. Any other of
+   these reads it again. Everything else in each scope check is read again, as before:
+   the tab, pauses, settings, the flow's dependencies, item eligibility, and each
+   account's vault being open on its snapshot (`bindingSnapshotCurrent`), checked
+   synchronously before the mapping is used and again in the check's fence, so a locked
+   vault refuses as before. The mapping is kept in memory only, with the flow, and never
+   stored.
    - **Dropped on a notice.** Every vault notice (a sync, a lock, a timeout or any
      other write of a vault's state) and every settings save, a choice-only one too,
      drops every flow's mapping (`dropSsoMappings`). A read under way when it is
@@ -919,14 +928,18 @@ Decisions:
 Checked with local runtime tests (`sso-idp-interstitial.test.ts`): an IdP page that
 posts itself on during its username read or during its reading, then the method chooser
 and the TOTP page, which fail without decision 1, and one that counts the mapping reads
-of one admission. Checked with local runtime tests (`sso-mapping-cache.test.ts`) that
-fail without decision 2 or without each of its drops: repeated checks read the mapping
-once; a vault sync that changed an account's snapshot refuses as before; a settings save
-that stops logins still stops the IdP login; a choice-only save reads the mapping again
-and keeps the new read, also when it lands between two scope checks; a locked vault
-refuses, and its unlock reads the mapping again; a revoked mapping refuses, is asked
-for again at the next check, and a read under way when it was revoked is not used. Not
-checked on the real site.
+of one admission. Others end the flow on a page the tab is still on, for an unread
+username, a closed master password window and an unreadable page, and fail if every such
+failure counted as a leave; one ends it on a closed window after the page posted itself
+on, and one at a second failure of a document whose URL keeps changing. Checked with
+local runtime tests (`sso-mapping-cache.test.ts`) that fail without decision 2 or
+without each of its drops: repeated checks read the mapping once; a vault sync that
+changed an account's snapshot refuses as before; a settings save that stops logins still
+stops the IdP login; a choice-only save reads the mapping again and keeps the new read,
+also when it lands between two scope checks; a locked vault refuses, and its unlock
+reads the mapping again; a revoked mapping refuses, is asked for again at the next
+check, and a read under way when it was revoked is not used. Not checked on the real
+site.
 
 ## Known limits 2026-11-16
 
