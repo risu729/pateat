@@ -120,3 +120,75 @@ describe("an IdP page that posts itself on while it is read", () => {
     expect(validate).toHaveBeenCalledTimes(1);
   });
 });
+
+/** Makes the IdP item ask for the master password on the IdP, answered by `answer`. */
+async function reprompting(
+  h: Awaited<ReturnType<typeof submitted>>["h"],
+  answer: () => Promise<"verified" | "closed" | "unavailable">,
+) {
+  const settings = vi.mocked(h.rt.settings.handle);
+  const before = await settings.getMockImplementation()!({ version: 1, type: "settings.get" });
+  if (!before.ok) throw new Error("The synthetic settings are unavailable");
+  const asked = structuredClone(before);
+  asked.snapshot.settings.repromptSites = [
+    { hostname: new URL(idp).hostname, includeSubdomains: false },
+  ];
+  asked.catalog.connections = asked.catalog.connections.map((connection) =>
+    connection.id === "idp-vault"
+      ? { ...connection, items: connection.items.map((item) => ({ ...item, reprompt: true })) }
+      : connection,
+  );
+  settings.mockImplementation(async () => structuredClone(asked));
+  h.work.saved = structuredClone(asked);
+  const ask = vi.fn(answer);
+  h.rt.options.askMasterPassword = ask;
+  return ask;
+}
+/** The IdP's risk page, admitted where the tab stays on it unless the test moves it. */
+async function riskPage() {
+  const { h } = await submitted();
+  idpReadings.set("idp-risk", { kind: "unknown", controls: false });
+  const risk = h.page(idp, "idp-risk", "/risk/v3.0/authz/pages/compute", "?txn=1");
+  return { h, risk };
+}
+
+describe("an IdP page the tab is still on when its admission fails", () => {
+  it("ends the flow when the IdP username cannot be read", async () => {
+    const { h, risk } = await riskPage();
+    vi.mocked(h.rt.fields).mockResolvedValue(undefined as never);
+    expect(await ssoAdmit(h.rt, risk.ctx)).toEqual({
+      ok: false,
+      reason: "sso-username-unavailable",
+    });
+    expect(risk.ctx.refuse).toHaveBeenCalledWith("sso-username-unavailable");
+    expect(h.work).toMatchObject({ ended: true, endReason: "sso-username-unavailable" });
+  });
+  it("ends the flow when the master password's window is closed", async () => {
+    const { h, risk } = await riskPage();
+    const ask = await reprompting(h, async () => "closed");
+    expect(await ssoAdmit(h.rt, risk.ctx)).toEqual({ ok: false, reason: "sso-reprompt-required" });
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(risk.ctx.refuse).toHaveBeenCalledWith("sso-reprompt-required");
+    expect(h.work).toMatchObject({ ended: true, endReason: "sso-reprompt-required" });
+  });
+  it("ends the flow when the page cannot be read", async () => {
+    const { h, risk } = await riskPage();
+    idpReadings.delete("idp-risk");
+    expect(await ssoAdmit(h.rt, risk.ctx)).toEqual({ ok: false, reason: "sso-idp-unreadable" });
+    expect(risk.ctx.refuse).toHaveBeenCalledWith("sso-idp-unreadable");
+    expect(h.work).toMatchObject({ ended: true, endReason: "sso-cancelled" });
+  });
+});
+
+describe("an IdP page the tab left while it was admitted", () => {
+  it("ends the flow when the person closed the master password's window", async () => {
+    const { h, risk } = await riskPage();
+    // The page posts itself on while the window is open, and the person closes it.
+    await reprompting(h, async () => {
+      fake.state.tabUrls[7] = idp + "/mfa?PolicyId=macotp";
+      return "closed";
+    });
+    expect(await ssoAdmit(h.rt, risk.ctx)).toEqual({ ok: false, reason: "sso-reprompt-required" });
+    expect(h.work).toMatchObject({ ended: true, endReason: "sso-reprompt-required" });
+  });
+});
