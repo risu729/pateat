@@ -10,6 +10,10 @@ proceed on a working rule and decide afterwards. Found on x.com
 
 Date: 2026-10-23
 
+Amended on 2026-11-21 by an agent
+([below](#amendment-2026-11-21-fields-outside-a-form)): the instruction line says that
+only a field inside a form is submitted by Enter.
+
 ## Context
 
 x.com's sign-in (`/i/jf/onboarding/web?mode=login`, checked in cloud Chrome 156 on
@@ -115,3 +119,23 @@ form, else calls `requestSubmit()` on it
   a site cannot be handled without it.
 - **Typing a real Enter key**: a content script cannot send a trusted key press;
   `click()` on the default button is what the browser's implicit submission does.
+
+## Amendment 2026-11-21: fields outside a form
+
+The instruction line of decision 1 said only "if the form shows no such button", while
+the local check accepts the field as the action only inside a `<form>`. On DOCOMO SMTB
+Net Bank's customer-details verification page
+([#1760](https://github.com/risu729/pateat/issues/1760)) the password input and its
+「表示する」 button are in no form, and the production role (`claude-opus-5-5`, effort
+`low`) named the password input as the action, which the check refused
+(`duplicate-candidate`) and the page showed as a failed generation: 5 of 5 calls on
+2026-11-21 with the observation from `inference_log`. The line now adds: "Only a field
+inside a form, one with a group, is submitted so: for fields with no group, the action
+is the button after them in page order that submits them." The same observation then
+gave 2 correct plans (`表示する` as the action) and 3 `insufficient-evidence`
+abstentions in 5 calls, and 5 of 5 correct plans with the request's `signedIn` hint set
+to true. The synthetic corpus scored 16 correct, 3 correct abstentions, 1 missed and no
+false submit; the request-log corpus 133 correct, 15 correct abstentions, 1 missed, 3
+invalid outputs and 2 false submits, both on account-list pages (wise.com and
+platform.openai.com) whose reruns gave the same mix of correct answers and false
+submits on the line before this change.

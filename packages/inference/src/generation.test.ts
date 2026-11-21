@@ -148,6 +148,8 @@ describe("recipe generation role", () => {
     );
     expect(planDescription("irreversible")).toMatch(/cannot be undone/u);
     expect(generationInstructions).toContain("a sign-in form shown again after a session");
+    // Enter submits only a field inside a form, as the plan check requires (ADR 0064).
+    expect(generationInstructions).toContain("Only a field inside a form, one with a group");
   });
 
   it("returns the account switch a plan names as its locator", async () => {
