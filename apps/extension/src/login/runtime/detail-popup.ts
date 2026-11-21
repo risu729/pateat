@@ -56,6 +56,7 @@ import {
   askOf,
   askedSource,
   sameLink,
+  declineProposal,
   readDetail,
   sameQuestion,
   writeDetailLinks,
@@ -183,12 +184,7 @@ export async function answerCandidate<T extends { itemId: string; fieldId: strin
   const ask = { question: paired.question };
   const shown = await askedSource(rt, live, path, field.target, [{ ask }]);
   return shown
-    ? {
-        candidate: pairing.candidate,
-        ask,
-        question: paired.question,
-        shown: paired.shown,
-      }
+    ? { candidate: pairing.candidate, ask, question: paired.question, shown: paired.shown }
     : undefined;
 }
 
@@ -254,11 +250,9 @@ export async function guessCard<T extends { itemId: string }>(
       last4: v.pipe(v.array(v.pipe(v.string(), v.regex(/^\d{4}$/u))), v.maxLength(MAX_CARD_LAST_4)),
       brands: v.pipe(v.array(v.picklist(cardBrands)), v.maxLength(cardBrands.length)),
     }),
-    await send(rt, live, {
-      type: "login.detail.card",
-      path: offer.path,
-      target,
-    }).catch(() => undefined),
+    await send(rt, live, { type: "login.detail.card", path: offer.path, target }).catch(
+      () => undefined,
+    ),
   );
   // The page did not answer: the last result for this input, while the vault is the same.
   if (!answer.success) return kept?.vault === vault ? apply(kept) : byName;
@@ -298,11 +292,7 @@ export async function guessCard<T extends { itemId: string }>(
         try {
           // Serial reads through the shared vault host, as for a fill.
           // eslint-disable-next-line no-await-in-loop
-          value = await rt.fields({
-            account: { ...offer.account, itemId },
-            connection,
-            fieldId,
-          });
+          value = await rt.fields({ account: { ...offer.account, itemId }, connection, fieldId });
         } catch {
           return byName;
         }
@@ -347,8 +337,9 @@ export async function guessCard<T extends { itemId: string }>(
  * master password; a candidate read whose value no fill can use is dropped. The site and
  * the login item must still be allowed, as for a fill. The values are kept for the
  * offer's detail while the settings and the vault stay the same, so the popup's polls
- * read the vault again only when they change. A read that throws, or one that gives
- * nothing, as a locked vault does, shows no value and drops none.
+ * read the vault again only when they change, and are dropped when the vault locks or the
+ * login ends. A field that gives nothing shows no value; a read that throws, or none that
+ * gives anything, as from a locked vault, shows no values and drops none.
  */
 export async function showDetails<T extends DetailCandidate>(
   rt: Runtime,
@@ -367,8 +358,11 @@ export async function showDetails<T extends DetailCandidate>(
     isSiteExcluded(policy, offer.account.origin) ||
     !isSiteAllowed(policy, offer.account.origin) ||
     !getItemEligibility(policy, catalog, connection.id, offer.account.itemId).eligible
-  )
+  ) {
+    // A locked vault or a site no longer allowed keeps no value read before.
+    rt.shownDetails.delete(`${offer.attemptId} ${offer.document.documentId} ${detail}`);
     return candidates;
+  }
   const field = (entry: T) => JSON.stringify([entry.itemId, entry.fieldId]);
   const read = candidates.slice(0, MAX_DETAIL_CANDIDATES).filter((entry) => {
     const item = connection.items.find((other) => other.id === entry.itemId);
@@ -400,8 +394,12 @@ export async function showDetails<T extends DetailCandidate>(
     } catch {
       return candidates;
     }
-    gave ||= value !== undefined;
-    shown.set(field(entry), (value !== undefined && shownDetail(detail, value)) || "");
+    // A field that gives nothing is shown without a value; one whose value no fill can
+    // use is not listed.
+    if (value !== undefined) {
+      gave = true;
+      shown.set(field(entry), shownDetail(detail, value) ?? "");
+    }
     value = "";
   }
   if (!gave) return candidates;
@@ -441,11 +439,7 @@ export async function popupDetail(rt: Runtime, tabId: number): Promise<DetailRes
       catalog,
       found.connection,
       field.detail,
-      {
-        host: page.url.hostname,
-        title: page.title,
-        loginItemId: found.owner.itemId,
-      },
+      { host: page.url.hostname, title: page.title, loginItemId: found.owner.itemId },
       isCardDetail(field.detail) ? Infinity : MAX_DETAIL_CANDIDATES,
     );
     // A secret question's answer is offered only from the field named as the page's
@@ -611,10 +605,7 @@ export async function popupDetailFill(
     snapshot.catalog,
     found.connection,
     field.detail,
-    {
-      host: new URL(offer.account.origin).hostname,
-      loginItemId: offer.account.itemId,
-    },
+    { host: new URL(offer.account.origin).hostname, loginItemId: offer.account.itemId },
     Infinity,
   );
   const chosen = offered.find(
@@ -798,19 +789,26 @@ export async function popupDetailRemove(
   if (!found || !snapshot?.ok) return { ok: false, reason: "no-link" };
   const kept = rt.pendingDetails.get(tabId) ?? [];
   const rest = kept.filter((entry) => !sameLink(rt, entry.link, found.owner, detail));
+  // A removed link to a birth date's or phone number's field is not filled unasked as
+  // the only candidate again in this browser session (ADR 0061).
+  const decline = (links: DetailLink[]) => {
+    for (const link of links) if (isPersonalDetail(link.detail)) declineProposal(rt, link);
+  };
   if (rest.length !== kept.length) {
+    decline(kept.filter((entry) => !rest.includes(entry)).map((entry) => entry.link));
     if (rest.length) rt.pendingDetails.set(tabId, rest);
     else rt.pendingDetails.delete(tabId);
     await quietly(rt, () => saveSession(rt));
     return { ok: true };
   }
   // A secret question's answers go together, as the popup shows them in one row.
-  if (!savedDetailLinks(snapshot.snapshot.settings, found.owner, detail).length)
-    return { ok: false, reason: "no-link" };
+  const saved = savedDetailLinks(snapshot.snapshot.settings, found.owner, detail);
+  if (!saved.length) return { ok: false, reason: "no-link" };
   const written = await writeDetailLinks(rt, undefined, (links) =>
     links.filter((link) => !sameLink(rt, link, found.owner, detail)),
   );
-  return written === "saved" || written === "unchanged"
-    ? { ok: true }
-    : { ok: false, reason: "not-saved" };
+  if (written !== "saved" && written !== "unchanged") return { ok: false, reason: "not-saved" };
+  decline(saved);
+  await quietly(rt, () => saveSession(rt));
+  return { ok: true };
 }

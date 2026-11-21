@@ -204,12 +204,7 @@ export function createDetailClient(send: (message: unknown) => Promise<unknown>)
     remove: async (tab, detail) =>
       v.parse(
         detailRemoveResponseSchema,
-        await send({
-          version: 1,
-          type: "login.detail.remove",
-          tabId: tab,
-          detail,
-        }),
+        await send({ version: 1, type: "login.detail.remove", tabId: tab, detail }),
       ),
   };
 }

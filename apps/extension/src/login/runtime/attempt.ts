@@ -571,8 +571,10 @@ export async function change(
     run.metadata.outcome === "credential-rejected" &&
     previous.outcome !== "credential-rejected"
   ) {
-    await settleDetails(rt, run, false);
+    // The refused values first, while the tab still keeps what this login filled from
+    // an only candidate, so that candidate is not filled unasked again.
     await forgetDetail(rt, run);
+    await settleDetails(rt, run, false);
   }
   // Refused links that another login kept from being removed are removed once one ends.
   if (rt.refusedDetails.size && terminal(run.metadata) && !terminal(previous))

@@ -121,6 +121,7 @@ describe("a birth date or phone number from the person's own items (ADR 0061)", 
     handlers: [handler("birth-date")],
   });
   const phoneRecipe = parseLoginRecipe({ ...birthRecipe, handlers: [handler("phone-last-4")] });
+  const rejecting = parseLoginRecipe({ ...birthRecipe, rejection: target("rejected") });
   const toConfirm = { path: "/signin", present: ["birth", "confirm"] };
   const noPasskey = vi.fn(async () => ({ passkey: false, discoverable: false }));
   const birthLink: DetailLink = {
@@ -179,6 +180,66 @@ describe("a birth date or phone number from the person's own items (ADR 0061)", 
       [0, "detail", "entered"],
       [0, "detail", "detail-saved"],
     ]);
+  }, 10_000);
+
+  it("never fills it unasked again once the login is rejected", async () => {
+    onClick({ login: toConfirm, confirm: { path: "/signin", present: ["rejected"] } });
+    const { h, report } = start([identity], rejecting);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "blocked", outcome: "credential-rejected" }]),
+    );
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-refused-proposals.v1"]).toHaveLength(1),
+    );
+    expect(handlerReports(report)).toEqual([
+      [0, "detail", "entered"],
+      [0, "detail", "detail-forgotten"],
+    ]);
+    expect(h.settings.settings.detailLinks).toEqual([]);
+    expect(fake.state.session["pateat.login-pending-details.v1"]).toEqual([]);
+  }, 10_000);
+
+  it("never fills it unasked again once the person removed its link", async () => {
+    onClick({ login: toConfirm, confirm: toHome });
+    const { h } = start([identity]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(h.settings.settings.detailLinks).toEqual([birthLink]), {
+      timeout: 6_000,
+    });
+    expect(
+      await h.login.handle(
+        { version: 1, type: "login.detail.remove", tabId: 1, detail: "birth-date" },
+        popup,
+      ),
+    ).toEqual({ ok: true });
+    expect(h.settings.settings.detailLinks).toEqual([]);
+    expect(fake.state.session["pateat.login-refused-proposals.v1"]).toHaveLength(1);
+  }, 10_000);
+
+  it("fills the only field when the saved link names a field the device may no longer read", async () => {
+    onClick({ login: toConfirm, confirm: toHome });
+    const report = vi.fn<(report: LoginReport) => void>();
+    const elsewhere = { ...birthLink, source: { itemId: siteId, field: { custom: "生年月日" } } };
+    const h = harness(
+      { detailLinks: [elsewhere] },
+      {
+        passkeys: noPasskey,
+        report,
+        extraItems: [identity, { id: siteId, custom: [{ name: "生年月日", kind: "text" }] }],
+      },
+    );
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === birthField ? "1990-04-01" : "synthetic-secret",
+    );
+    h.recipes.recipe.mockResolvedValue(birthRecipe);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+      timeout: 6_000,
+    });
+    expect(reads(h).at(-1)).toEqual([identityId, birthField]);
+    // The link the login confirmed replaces the one it could not read.
+    await vi.waitFor(() => expect(h.settings.settings.detailLinks).toEqual([birthLink]));
   }, 10_000);
 
   it("never fills it unasked again once the site refused it, and the popup still offers it", async () => {

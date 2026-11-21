@@ -568,12 +568,14 @@ When a `detail` handler shows and no link has a value for any of its inputs:
 3. The popup's "This page" section shows what the page asks for and the candidates, the
    first one selected unless the guess is a tie, for example "This page asks for your
    birth year and month." and "本人 › 生年月日", with **Fill**. A birth date or phone
-   number shows the value its fill types beside each field, as "本人 › 電話番号, 1234"
-   or "1990-04-01", read on the device for the popup only (decided 5 still holds). An
+   number shows the value its fill types under each field's name, as "1234" under "本人
+   › 電話番号" or "1990-04-01", read on the device for the popup only (decided 5 still
+   holds). An
    item with Bitwarden's re-prompt is not read for it, on any site, and shows its name
    only; a field whose value no fill can use is not listed. The values are read once
    per offer and kept in the worker's memory while the settings and vault stay the
-   same, so the popup's polls read nothing more.
+   same, so the popup's polls read nothing more; they are dropped when the vault locks
+   or the login ends.
 4. **Fill** fills the input, or every part's input of a split value, in the tab's
    current document, checking its choosing radio, when that document is the login's, the
    tab's login is still the one that stopped there, the site and the login item are
@@ -590,13 +592,16 @@ The popup shows nothing more when there is no candidate; the person types the va
 birth date or phone number with none says where to save one: in an identity's phone
 number, or in a custom field named as a birth date in an identity or a secure note.
 
-A birth date or phone number with no saved link and exactly one candidate skips steps 1
-to 4 (decided 13): the login fills it and presses the button as for a linked value, and
-keeps the link for the tab as a **Fill** does, saved once the login ends
-`authenticated`. An item with re-prompt that waits for the master password is asked for
-as a linked one is ([below](#items-with-bitwardens-re-prompt)). Refused, the candidate
-is not filled unasked again in that browser session; its key (site, login item, detail,
-item and field) is kept in `storage.session`, and the popup still offers it.
+A birth date or phone number with no saved link the device may read, as one to another
+site's login item, and exactly one candidate skips steps 1 to 4 (decided 13): the login
+fills it and presses the button as for a linked value, and keeps the link for the tab as
+a **Fill** does, saved once the login ends `authenticated`. An item with re-prompt that
+waits for the master password is asked for as a linked one is
+([below](#items-with-bitwardens-re-prompt)). Refused, as when the login is rejected or
+the handler's page shows again, or its link removed with **Remove**, the candidate is
+not filled unasked again in that browser session; its key (site, login item, detail,
+item and field) is kept in `storage.session`, and the popup still offers it. A link
+refused but not yet removed is not filled as the only candidate either.
 
 ### The card guess
 

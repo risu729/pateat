@@ -96,9 +96,22 @@ export const proposalKey = (_rt: Runtime, link: DetailLink) =>
   ]);
 
 /**
+ * Keeps a login from filling `link`'s field as the only candidate unasked again in this
+ * browser session (ADR 0061), once the site refused it or the person removed it. The
+ * popup still offers it. The oldest of the 256 kept go first.
+ */
+export function declineProposal(rt: Runtime, link: DetailLink): void {
+  const key = proposalKey(rt, link);
+  rt.refusedProposals.delete(key);
+  rt.refusedProposals.add(key);
+  if (rt.refusedProposals.size > 256)
+    rt.refusedProposals.delete(rt.refusedProposals.values().next().value!);
+}
+
+/**
  * The field a login fills `detail` from (ADR 0061): its saved link's, unless the site
- * refused it; else, for a birth date or phone number without a saved link, the only
- * candidate (`proposedField`, owner 2026-11-21 10:12 UTC), with the link it makes, unless
+ * refused it; else, for a birth date or phone number without a link the device may read,
+ * the only candidate (`proposedField`, owner 2026-11-21 10:12 UTC), with the link it makes, unless
  * the site refused that one in this browser session.
  */
 export function detailSource(
@@ -110,10 +123,12 @@ export function detailSource(
   detail: Exclude<LoginDetail, "secret-answer">,
 ): { itemId: string; fieldId: string; proposed?: DetailLink } | undefined {
   const link = savedDetailLink(settings, owner, detail);
-  if (link)
-    return rt.refusedDetails.has(refusalKey(rt, owner, detail))
-      ? undefined
-      : linkedField(settings, catalog, connection, link);
+  // A refused link's value is not filled again, from its field or as the only one.
+  if (link && rt.refusedDetails.has(refusalKey(rt, owner, detail))) return undefined;
+  const linked = link && linkedField(settings, catalog, connection, link);
+  // A link the device may no longer read, as one to another site's login item, gives
+  // way to the only candidate.
+  if (linked) return linked;
   const only = proposedField(settings, catalog, connection, detail, {
     host: new URL(owner.origin).hostname,
     loginItemId: owner.itemId,
@@ -202,12 +217,7 @@ export async function detailInput(
     const item = found.connection.items.find((entry) => entry.id === source.itemId);
     const wait =
       item && waitsForMasterPassword(authorized.settings, item, found.owner.itemId, site)
-        ? {
-            detail: field.detail,
-            itemId: source.itemId,
-            fieldId: source.fieldId,
-            targets,
-          }
+        ? { detail: field.detail, itemId: source.itemId, fieldId: source.fieldId, targets }
         : undefined;
     return [{ index, targets, answer: false, ...(wait ? { wait } : {}) }];
   });
@@ -351,10 +361,7 @@ export async function asksAnotherQuestion(
     authorized.catalog,
     found.connection,
     "secret-answer",
-    {
-      host: new URL(run.metadata.account.origin).hostname,
-      loginItemId: item.id,
-    },
+    { host: new URL(run.metadata.account.origin).hostname, loginItemId: item.id },
     Infinity,
   ).flatMap((candidate) => {
     const name = item.fields.find((entry) => entry.id === candidate.fieldId)?.name;
@@ -399,11 +406,7 @@ export async function offerDetails(
       return pairing
         ? {
             ...field,
-            paired: {
-              field: pairing.field,
-              question: pairing.question,
-              shown: pairing.shown,
-            },
+            paired: { field: pairing.field, question: pairing.question, shown: pairing.shown },
           }
         : field;
     });
@@ -436,13 +439,7 @@ export function filledDetails(
   run: Execution,
 ): { handler: number; detail: LoginDetail; field?: DetailSourceField }[] {
   return run.metadata.handlers.flatMap(
-    (
-      entry,
-    ): {
-      handler: number;
-      detail: LoginDetail;
-      field?: DetailSourceField;
-    }[] => {
+    (entry): { handler: number; detail: LoginDetail; field?: DetailSourceField }[] => {
       const handler = run.recipe.handlers?.[entry.index];
       if (handler?.kind !== "detail" || entry.field === undefined) return [];
       const field = handler.fields[entry.field];
@@ -565,11 +562,7 @@ export async function forgetDetail(
     proposals.find((proposal) => proposal.handler === entry.handler);
   for (const entry of filled) {
     const proposal = proposed(entry);
-    if (!proposal) continue;
-    rt.refusedProposals.add(proposalKey(rt, proposal.link));
-    // The oldest go first, as the session holds 256 at most.
-    if (rt.refusedProposals.size > 256)
-      rt.refusedProposals.delete(rt.refusedProposals.values().next().value!);
+    if (proposal) declineProposal(rt, proposal.link);
   }
   const links = filled.filter((entry) => !proposed(entry));
   if (proposals.length) {
@@ -639,6 +632,9 @@ export async function settleDetails(
   // the page stays in the same document.
   const offered = rt.detailOffers.get(tabId)?.attemptId === run.metadata.id;
   if (offered) rt.detailOffers.delete(tabId);
+  // The values the popup showed for this login's offer go with it.
+  for (const slot of rt.shownDetails.keys())
+    if (slot.startsWith(`${run.metadata.id} `)) rt.shownDetails.delete(slot);
   const kept = rt.pendingDetails.get(tabId)?.filter((entry) => entry.attemptId === run.metadata.id);
   if (!kept?.length) {
     if (offered) await quietly(rt, () => saveSession(rt));
@@ -694,11 +690,7 @@ export async function readDetail(
     let value: string | undefined;
     try {
       // eslint-disable-next-line no-await-in-loop
-      value = await rt.fields({
-        account: { ...login, itemId },
-        connection,
-        fieldId: id,
-      });
+      value = await rt.fields({ account: { ...login, itemId }, connection, fieldId: id });
     } catch {
       value = undefined;
     }
@@ -724,10 +716,7 @@ export async function detailFill(
   authorized: Authorized,
   stepIndex: number,
 ): Promise<
-  | (Omit<DetailFillValue, "secret"> & {
-      secret?: LoginSecretKind;
-      question?: AskedQuestion;
-    })[]
+  | (Omit<DetailFillValue, "secret"> & { secret?: LoginSecretKind; question?: AskedQuestion })[]
   | "unreadable"
   | "unavailable"
   | "unfit"
@@ -805,10 +794,15 @@ export async function detailFill(
     // login is confirmed as a Fill's is; refused, it is not filled unasked again.
     const { tabId } = run.live.document;
     await rt.vars.sessionLoaded;
+    // A login that ended meanwhile was settled already: it keeps nothing.
+    if (!current(rt, run)) {
+      for (const entry of values) entry.value = "";
+      return "unavailable";
+    }
+    const mine = (entry: { attemptId: string; handler: number }) =>
+      entry.attemptId === run.metadata.id && entry.handler === index;
     rt.pendingDetails.set(tabId, [
-      ...(rt.pendingDetails.get(tabId) ?? []).filter(
-        (entry) => !(entry.attemptId === run.metadata.id && entry.handler === index),
-      ),
+      ...(rt.pendingDetails.get(tabId) ?? []).filter((entry) => !mine(entry)),
       {
         tabId,
         attemptId: run.metadata.id,
@@ -820,6 +814,10 @@ export async function detailFill(
     ]);
     await quietly(rt, () => saveSession(rt));
     if (!current(rt, run)) {
+      const rest = (rt.pendingDetails.get(tabId) ?? []).filter((entry) => !mine(entry));
+      if (rest.length) rt.pendingDetails.set(tabId, rest);
+      else rt.pendingDetails.delete(tabId);
+      await quietly(rt, () => saveSession(rt));
       for (const entry of values) entry.value = "";
       return "unavailable";
     }

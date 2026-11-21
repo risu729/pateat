@@ -132,9 +132,7 @@ export function DetailSection({
             <legend id={`popup-detail-${detail}`} className="popup-detail-ask">
               {question
                 ? t("This page asks \u201C{{question}}\u201D.", { question })
-                : t("This page asks for {{detail}}.", {
-                    detail: detailName(detail, t, format),
-                  })}
+                : t("This page asks for {{detail}}.", { detail: detailName(detail, t, format) })}
             </legend>
             {question && (
               // The AI's pairing of the question with a field named otherwise is only a
@@ -206,12 +204,8 @@ export function DetailSection({
                   </span>
                   <span className="popup-choice-sub">
                     {link.pending
-                      ? t("Filled from {{field}} (not saved yet)", {
-                          field: sourceLabel(link),
-                        })
-                      : t("Filled from {{field}}", {
-                          field: sourceLabel(link),
-                        })}
+                      ? t("Filled from {{field}} (not saved yet)", { field: sourceLabel(link) })
+                      : t("Filled from {{field}}", { field: sourceLabel(link) })}
                   </span>
                 </span>
                 <Button

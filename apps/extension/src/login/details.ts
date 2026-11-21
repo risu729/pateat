@@ -589,15 +589,9 @@ function nearPage(name: string, page: { host: string; title?: string | undefined
 /** The most card items whose number and brand one guess reads (ADR 0061). */
 export const MAX_CARD_GUESS_READS = 20;
 /** What a page shows about the card it asks for (`login.detail.card`). */
-export type CardHints = {
-  last4: readonly string[];
-  brands: readonly CardBrand[];
-};
+export type CardHints = { last4: readonly string[]; brands: readonly CardBrand[] };
 /** What a card item holds, as read for the guess: its number's last four digits and its brand. */
-export type CardFacts = {
-  last4?: string | undefined;
-  brand?: CardBrand | undefined;
-};
+export type CardFacts = { last4?: string | undefined; brand?: CardBrand | undefined };
 
 /** Whether `detail` is read only from a card item's built-in fields. */
 export const isCardDetail = (detail: LoginDetail) => cardDetails.includes(detail);

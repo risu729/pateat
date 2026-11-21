@@ -240,17 +240,16 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           excludingLive([{ custom: "生年月日", position: 1, count: 1 }], identityId),
         ],
       ])(
-        "is not used when it names %s",
+        "is not used when it names %s, so the only field left, the note's, is",
         async (_label, overrides) => {
           onClick({ login: toConfirm, confirm: toHome });
           const { h, report } = start([birthLink], birthValue, detailed, overrides);
           expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() =>
-            expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
-          );
-          expect(detailFills()).toEqual([]);
-          expect(reads(h)).toEqual([[itemId, "login.password"]]);
-          expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+          await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+          expect([reads(h).at(-1), handlerReports(report).at(-1)?.[2]]).toEqual([
+            [noteId, birthField],
+            "detail-saved",
+          ]);
         },
         10_000,
       );
