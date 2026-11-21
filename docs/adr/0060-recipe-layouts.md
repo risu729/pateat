@@ -630,7 +630,10 @@ page. "A page whose start path changes is still a new recipe" above records that
 - A signed-in site's page that asks for the identifier and the password again with the
   same locators, read as signed out because it shows no learned marker and no matching
   username, is still taken for the start page, and a login runs there. The identifier
-  guard and the `signedIn` guard leave only that case.
+  guard and the `signedIn` guard leave only that case. Since
+  [ADR 0035's 2026-11-21 amendment](0035-page-kinds-per-site.md#amendment-2026-11-21-signed-in-after-the-tabs-own-login),
+  such a page generated automatically in a tab that holds its own `authenticated` login
+  is sent signed in and is not taken for the start page.
 - A continuation on one of the other start paths is stored on the start path. Should a
   site show the next step of a login in place on such a path, a login started on the
   start path does not find it there.
