@@ -57,8 +57,8 @@ export async function startLoginFixture(
     const requestedRunId = fixtureUrl.searchParams.get("runId");
     const issuedRunId =
       requestedRunId !== null && runs.has(requestedRunId) ? requestedRunId : undefined;
-    // `/sign-in-submit` is the `?button=script-url` sign-in form's own POST, which answers
-    // with a redirect to the account page instead of JSON.
+    // `/sign-in-submit` is the `?button=script-url` or `script-form` sign-in form's own
+    // POST, which answers with a redirect to the account page instead of JSON.
     const formPost = path === "/sign-in-submit";
     if ((path.startsWith("/effect/") || formPost) && request.method === "POST") {
       const run = runs.get(formPost ? (requestedRunId ?? "") : path.slice("/effect/".length));
@@ -795,7 +795,8 @@ export async function startLoginFixture(
       // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's;
       // `?button=script-url` a link whose `javascript:` URL alone copies the shown password
       // into a hidden input and submits the form, as SMBC Trust Bank's, so only the hidden
-      // input reaches the server; `?button=labelled` a submit input without id, name or
+      // input reaches the server; `?button=script-form` a submit button whose form's action
+      // is that `javascript:` URL; `?button=labelled` a submit input without id, name or
       // value, laid over the `aria-hidden` text that labels it, as Amazon.co.jp's.
       // `?button=shadow` renders the password input in a component's open shadow root and
       // the button in another's closed one, as Reddit's sign-in components do (ADR 0070).
@@ -826,8 +827,8 @@ export async function startLoginFixture(
           ? '<a id="login" onclick="return false">Log in</a>'
           : variant === "script-link"
             ? '<a href="javascript:;" onclick="return false"><span>Log in</span></a>'
-            : variant === "script-url"
-              ? '<input type="hidden" name="source" value="click"><input type="hidden" name="password"><a href="javascript:copyAndSubmit()"><span>Log in</span></a>'
+            : variant === "script-url" || variant === "script-form"
+              ? `<input type="hidden" name="source" value="click"><input type="hidden" name="password">${variant === "script-url" ? '<a href="javascript:copyAndSubmit()"><span>Log in</span></a>' : "<button>Log in</button>"}`
               : variant === "labelled"
                 ? '<span style="position:relative;display:inline-block"><input type="submit" aria-labelledby="login-say" style="position:absolute;inset:0;opacity:0.01"><span id="login-say" aria-hidden="true">Log in</span></span>'
                 : '<button id="login" type="button">Log in</button>';
@@ -836,7 +837,7 @@ export async function startLoginFixture(
         html(
           shadow
             ? "<h1>Synthetic sign-in</h1><form><x-password></x-password><x-login></x-login></form>"
-            : `<h1>Synthetic sign-in</h1><form${variant === "script-url" ? ' method="post"' : ""}><label>Password<input id="${field}" type="password"></label>${button}</form>`,
+            : `<h1>Synthetic sign-in</h1><form${variant === "script-url" ? ' method="post"' : variant === "script-form" ? ' method="post" action="javascript:copyAndSubmit()"' : ""}><label>Password<input id="${field}" type="password"></label>${button}</form>`,
           shadow
             ? `const passwordRoot = document.querySelector('x-password').attachShadow({mode: 'open'});
           passwordRoot.innerHTML = '<label>Password<input id="password" type="password"></label>';
@@ -850,7 +851,7 @@ export async function startLoginFixture(
           if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:shown.value})});
           location.href = ${JSON.stringify(account)};
         });`
-            : variant === "script-url"
+            : variant === "script-url" || variant === "script-form"
               ? `function copyAndSubmit() {
           const form = document.querySelector('form');
           const shown = document.getElementById('password').value;

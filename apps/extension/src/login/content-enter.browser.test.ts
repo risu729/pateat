@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { observedPath } from "../observation/path";
+import {
+  MAIN_WORLD_CLICK,
+  MAIN_WORLD_SUBMIT,
+  installMainWorldClicks,
+} from "../page/script-url-click";
 import { installLoginContent } from "./content";
 
 type Listener = (
@@ -169,5 +174,38 @@ describe("Enter submission with form properties shadowed by named controls", () 
     });
     expect(Reflect.get(form, "isConnected")).toBeInstanceOf(HTMLInputElement);
     expect(submitted).not.toHaveBeenCalled();
+  });
+});
+
+describe("Enter submission of a form whose action is a `javascript:` URL", () => {
+  // Chrome runs the URL under the policy of the world that submits, which for the content
+  // script's isolated world refuses it, so the page's main world submits instead. Its
+  // listener keeps the calls it found at install, so spies installed afterwards count only
+  // the isolated world's.
+  it.each([
+    ["the form's default button", MAIN_WORLD_CLICK, true],
+    ["requestSubmit()", MAIN_WORLD_SUBMIT, false],
+  ] as const)("submits through %s from the main world", async (_, type, button) => {
+    const removeMainWorld = installMainWorldClicks();
+    const { form, submitted } = await formWith([], { action: " JavaScript:void(0);" });
+    if (button) form.insertAdjacentHTML("beforeend", '<button type="submit">Sign in</button>');
+    const click = vi.spyOn(HTMLElement.prototype, "click");
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit");
+    const events: Event[] = [];
+    const record = (event: Event) => events.push(event);
+    addEventListener(type, record, true);
+    let isolated: number[] = [];
+    try {
+      expect(await execute("click")).toMatchObject({ ok: true, mutation: "possible" });
+      isolated = [click.mock.calls.length, requestSubmit.mock.calls.length];
+    } finally {
+      removeEventListener(type, record, true);
+      removeMainWorld();
+      click.mockRestore();
+      requestSubmit.mockRestore();
+    }
+    expect(submitted).toHaveBeenCalledOnce();
+    expect(events.map((event) => event.defaultPrevented)).toEqual([true]);
+    expect(isolated).toEqual([0, 0]);
   });
 });
