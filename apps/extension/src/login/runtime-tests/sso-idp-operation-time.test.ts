@@ -24,16 +24,91 @@ const { idp, delivery, idpReadings, harness, idpChild, step, click, fill } = sso
   io,
 );
 
+/** The IdP's own login, its email step done, ready to fill its password on its page. */
+async function atPasswordStep() {
+  const h = await harness();
+  const form = h.page(idp, "idp-form", "/authsvc", "?PolicyId=synthetic");
+  idpReadings.set("idp-form", { kind: "native" });
+  const run = idpChild(h, form.live);
+  expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
+  // The email step went in and its Continue showed the password step in place.
+  step(run, [...fill("username"), ...click("next"), { type: "OBSERVED", result: "continue" }]);
+  expect(run.metadata).toMatchObject({ state: "ready", stepIndex: 2 });
+  return { h, form, run };
+}
+type Delivered = {
+  attemptId: string;
+  operationId: string;
+  expiresAt: number;
+  document: { documentId: string };
+  step: { kind: string };
+};
+/**
+ * The page asks for each operation's authorization as it starts it, as the content script
+ * does, after `before`, and answers with its result.
+ */
+function answerSteps(
+  { h, form, run }: Awaited<ReturnType<typeof atPasswordStep>>,
+  before: (operation: Delivered) => void = () => undefined,
+) {
+  const validate = vi.mocked(h.rt.options.sso!.validate);
+  const answers: { kind: string; authorized: unknown; reads: number; kept: boolean }[] = [];
+  const sender = {
+    id: fake.browser.runtime.id,
+    tab: { id: 7, incognito: false, url: form.live.url },
+    frameId: 0,
+    documentId: "idp-form",
+    origin: idp,
+    url: form.live.url,
+  } as never;
+  const base = delivery.getMockImplementation()!;
+  delivery.mockImplementation(async (tabId, message, options) => {
+    if (message["type"] !== "login.execute") return base(tabId, message, options);
+    const operation = message["operation"] as Delivered;
+    // The login keeps the operation it delivered as the one the page's checks validate.
+    const kept = run.operation === operation;
+    before(operation);
+    const read = validate.mock.calls.length;
+    const authorized = await dispatch(
+      h.rt,
+      {
+        version: 1,
+        type: "login.operation.authorize",
+        token: message["token"],
+        attemptId: operation.attemptId,
+        operationId: operation.operationId,
+      },
+      sender,
+    );
+    answers.push({
+      kind: operation.step.kind,
+      authorized,
+      reads: validate.mock.calls.length - read,
+      kept,
+    });
+    return authorized === true
+      ? {
+          ok: true,
+          operationId: operation.operationId,
+          documentId: operation.document.documentId,
+          mutation: "possible",
+        }
+      : {
+          ok: false,
+          reason: "cancelled",
+          detail: "not-authorized",
+          mutation: "none",
+          operationId: operation.operationId,
+          documentId: operation.document.documentId,
+        };
+  });
+  return answers;
+}
+
 describe("an SSO flow's IdP login on its password step after its email step", () => {
   it("has its password fill authorized although its scope checks take most of 15 seconds", async () => {
-    const h = await harness();
-    const form = h.page(idp, "idp-form", "/authsvc", "?PolicyId=synthetic");
-    idpReadings.set("idp-form", { kind: "native" });
-    const run = idpChild(h, form.live);
-    expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
-    // The email step went in and its Continue showed the password step in place.
-    step(run, [...fill("username"), ...click("next"), { type: "OBSERVED", result: "continue" }]);
-    expect(run.metadata).toMatchObject({ state: "ready", stepIndex: 2 });
+    const at = await atPasswordStep();
+    const { h, run } = at;
     // Each policy check of the hop reads the flow's mapping from the vault, for both its
     // scope checks: 5 seconds each here.
     const realNow = Date.now.bind(Date);
@@ -50,61 +125,7 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
       offset += 5000;
       return "Synthetic value";
     });
-    // The page asks for each operation's authorization as it starts it, as the content
-    // script does, and answers with its result.
-    const answers: { kind: string; authorized: unknown; reads: number }[] = [];
-    const sender = {
-      id: fake.browser.runtime.id,
-      tab: { id: 7, incognito: false, url: form.live.url },
-      frameId: 0,
-      documentId: "idp-form",
-      origin: idp,
-      url: form.live.url,
-    } as never;
-    const base = delivery.getMockImplementation()!;
-    delivery.mockImplementation(async (tabId, message, options) => {
-      if (message["type"] !== "login.execute") return base(tabId, message, options);
-      const operation = message["operation"] as {
-        attemptId: string;
-        operationId: string;
-        document: { documentId: string };
-        step: { kind: string };
-      };
-      const read = validate.mock.calls.length;
-      const authorized = await dispatch(
-        h.rt,
-        {
-          version: 1,
-          type: "login.operation.authorize",
-          token: message["token"],
-          attemptId: operation.attemptId,
-          operationId: operation.operationId,
-        },
-        sender,
-      );
-      answers.push({
-        kind: operation.step.kind,
-        authorized,
-        reads: validate.mock.calls.length - read,
-      });
-      // Only the password fill is followed here: its submit click is left for the page.
-      if (operation.step.kind === "click") clock.mockRestore();
-      return authorized === true
-        ? {
-            ok: true,
-            operationId: operation.operationId,
-            documentId: operation.document.documentId,
-            mutation: "possible",
-          }
-        : {
-            ok: false,
-            reason: "cancelled",
-            detail: "not-authorized",
-            mutation: "none",
-            operationId: operation.operationId,
-            documentId: operation.document.documentId,
-          };
-    });
+    const answers = answerSteps(at);
     try {
       await drive(h.rt, run);
     } finally {
@@ -112,20 +133,40 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
     }
     // The password fill ran more than 15 seconds after it was built, and was authorized.
     // Each authorization read the flow's mapping once.
-    expect(answers[0]).toEqual({ kind: "fill", authorized: true, reads: 1 });
-    expect(answers.every((answer) => answer.authorized === true && answer.reads === 1)).toBe(true);
+    expect(answers[0]).toEqual({ kind: "fill", authorized: true, reads: 1, kept: true });
+    expect(
+      answers.every((answer) => answer.authorized === true && answer.reads === 1 && answer.kept),
+    ).toBe(true);
     expect(run.metadata.outcome).not.toBe("cancelled");
     expect(h.report).not.toHaveBeenCalledWith(
       expect.objectContaining({ ssoChild: true, outcome: "cancelled" }),
     );
   });
+  it("has its delivered fill refused once 15 seconds passed since its delivery", async () => {
+    const at = await atPasswordStep();
+    const { h, run } = at;
+    const realNow = Date.now.bind(Date);
+    let offset = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => realNow() + offset);
+    let delivered: number | undefined;
+    // The page asks for the fill's authorization 15,001 ms after it was delivered.
+    const answers = answerSteps(at, (operation) => {
+      delivered = Date.now();
+      expect(operation.expiresAt).toBeGreaterThan(delivered);
+      expect(operation.expiresAt).toBeLessThanOrEqual(delivered + 15_000);
+      offset += 15_001;
+    });
+    try {
+      await drive(h.rt, run);
+    } finally {
+      clock.mockRestore();
+    }
+    expect(delivered).toBeDefined();
+    expect(answers).toEqual([{ kind: "fill", authorized: false, reads: 1, kept: true }]);
+    expect(run.metadata).toMatchObject({ state: "blocked", outcome: "cancelled" });
+  });
   it("reads the flow's mapping once per policy check, and again at the next one", async () => {
-    const h = await harness();
-    const form = h.page(idp, "idp-form", "/authsvc", "?PolicyId=synthetic");
-    idpReadings.set("idp-form", { kind: "native" });
-    const run = idpChild(h, form.live);
-    expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
-    step(run, [...fill("username"), ...click("next"), { type: "OBSERVED", result: "continue" }]);
+    const { h, run } = await atPasswordStep();
     const validate = vi.mocked(h.rt.options.sso!.validate);
     validate.mockClear();
     // One check of the hop's step checks its flow's scope twice, with one vault read.
@@ -139,12 +180,7 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
     expect(validate).toHaveBeenCalledTimes(3);
   });
   it("reads the mapping again when a choice-only save lands between the scope checks", async () => {
-    const h = await harness();
-    const form = h.page(idp, "idp-form", "/authsvc", "?PolicyId=synthetic");
-    idpReadings.set("idp-form", { kind: "native" });
-    const run = idpChild(h, form.live);
-    expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
-    step(run, [...fill("username"), ...click("next"), { type: "OBSERVED", result: "continue" }]);
+    const { h, run } = await atPasswordStep();
     const validate = vi.mocked(h.rt.options.sso!.validate);
     const mapped = await validate.getMockImplementation()!(undefined as never, undefined as never);
     if (!mapped.ok) throw new Error("The synthetic mapping is refused");
