@@ -189,6 +189,22 @@ const runUsernames = new WeakMap<
   { itemId: string; fieldId: string; username: string | undefined }
 >();
 
+/**
+ * Whether the login reads a new document after its own effect step: one other than the
+ * step's, in the step's frame. A sign-in field such a document only keeps hidden is not
+ * its sign-in form, as My Digital Connect's signed-in page keeps hidden copies of its
+ * fields (ADR 0029 amendment of 2026-11-21); a form hidden again in the step's own
+ * document still is. Without the step in memory, as after a worker restart, it is not.
+ */
+export function afterOwnStep(rt: Runtime, run: Execution): boolean {
+  const effect = rt.effects.get(run.live.document.tabId);
+  return (
+    effect?.attemptId === run.metadata.id &&
+    effect.document.frameId === run.live.document.frameId &&
+    !sameLoginDocument(effect.document, run.live.document)
+  );
+}
+
 export async function readSignInState(
   rt: Runtime,
   run: Execution,
@@ -214,9 +230,9 @@ export async function readSignInState(
   const { recipe, metadata } = run;
   // Each marker shown, with the fields it needs gone counted even when hidden, as the
   // completion check counts them: a login form that hides itself again after a failed
-  // sign-in is not a sign-in.
+  // sign-in is not a sign-in. In a new document after the login's own step, only shown.
   // The markers are read on their own, so they never crowd out the sign-in fields.
-  const proof = markerProof(recipe);
+  const proof = markerProof(recipe, recipe.origin, { hiddenGone: afterOwnStep(rt, run) });
   const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24);
   // Only a shown input counts as a field: another page may give a sign-in field's locator
   // to another element, as Wise's signed-in page gave its React ID to an empty div

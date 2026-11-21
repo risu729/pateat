@@ -28,7 +28,7 @@ import { type LoginReport } from "./report";
 import { pauseOf } from "./pause";
 import { effectful, terminal } from "./attempt-state";
 import { failureRejects, observe, passkeyStepAnswered, toStop } from "./reconcile";
-import { passkeyButton, readSignInState } from "./sign-in";
+import { afterOwnStep, passkeyButton, readSignInState } from "./sign-in";
 import { onLoginStart, routeOf, takeOver } from "./continuation";
 import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
@@ -360,13 +360,17 @@ export async function learn(
     .filter((entry) => entry.origin === undefined)
     .map((entry) => entry.target);
   const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
+  // A sign-in input counts even hidden, but only shown in a new document after the login's
+  // own step, which may keep hidden copies of the form once signed in, as My Digital
+  // Connect's does (ADR 0029 amendment of 2026-11-21).
+  const field = afterOwnStep(rt, run) ? ("shown-input" as const) : ("input" as const);
   // A hidden marker proves nothing and does not keep the page from the judge.
   const remaining = await observe(
     rt,
     run,
     [...fills, ...marker],
     [
-      ...fills.map((target) => (passkeyButton(rt, run, target) ? "present" : "input")),
+      ...fills.map((target) => (passkeyButton(rt, run, target) ? "present" : field)),
       ...marker.map(() => "shown" as const),
     ],
     marker.length > 0

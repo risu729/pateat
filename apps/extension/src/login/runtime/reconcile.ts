@@ -33,7 +33,7 @@ import { fallBack, parkedFor, bridgeAnswer, reviewRequests } from "./passkey";
 import { switchLayout, continueOn } from "./continuation";
 import { listOf, listReadiness } from "./markers";
 import { enterHandler } from "./handlers";
-import { advanceMiss, signInState, signedInAtOnce } from "./sign-in";
+import { advanceMiss, afterOwnStep, signInState, signedInAtOnce } from "./sign-in";
 import { repairLaterStep } from "./repair-run";
 import { addAskFill } from "./relogin";
 import { quietly, forget } from "./session-store";
@@ -152,7 +152,11 @@ export async function reconcile(
       : undefined;
   const nextTargets = inPlace ? inPlace.targets : next ? stepTargets(next) : [];
   const { rejection } = run.recipe;
-  const proof = markerProof(run.recipe);
+  // In a new document after the step, an element a marker needs gone counts only shown
+  // (ADR 0029 amendment of 2026-11-21).
+  const proof = markerProof(run.recipe, run.recipe.origin, {
+    hiddenGone: afterOwnStep(rt, run),
+  });
   const checks = [...proof.targets, ...(rejection ? [rejection] : [])];
   const targets = [...checks, ...nextTargets];
   const observed = await observe(

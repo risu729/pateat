@@ -107,6 +107,12 @@ export function createBrowserFake() {
      */
     disabled: new Set<string>(),
     /**
+     * Present inputs that are hidden, as under a `display: none` ancestor: unusable for
+     * every requirement but `present` and `input`, which count hidden inputs. `unusable`
+     * stands for elements that are no such input as well.
+     */
+    hiddenInputs: new Set<string>(),
+    /**
      * Present elements that a step's wait counts as usable but the page's description does
      * not see: hidden from assistive technology, transparent, tiny or off-screen, as a
      * password input an email form keeps for the browser.
@@ -270,6 +276,8 @@ export function createBrowserFake() {
               : ([undefined, "present"].includes(require) === false && state.unusable.has(value)) ||
                   ([undefined, "present", "shown"].includes(require) === false &&
                     state.disabled.has(value)) ||
+                  ([undefined, "present", "input"].includes(require) === false &&
+                    state.hiddenInputs.has(value)) ||
                   (require?.startsWith("described-") === true && state.faint.has(value)) ||
                   (require === "totp-code" && state.codeSent.has(value)) ||
                   (require === "watched-totp-code" && !state.appCode.has(value))
