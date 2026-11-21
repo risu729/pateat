@@ -850,13 +850,96 @@ Decisions:
    chosen in another tab, still stops nothing running, and any other change is checked
    as a scope check of its own would check it. Nothing is kept from one policy check to
    the next, so a vault change applies at the next check. Direct logins of the same
-   recipe logged `check_ms` of 2 to 5 seconds in all.
+   recipe logged `check_ms` of 2 to 5 seconds in all. The amendment of 2026-11-22
+   replaces this decision with a mapping kept for the flow.
 
 Checked with local tests (`sso-idp-operation-time.test.ts`): one whose scope checks and
 vault reads take 15 seconds or more before the page's authorization ends, which fails
 without decision 1, one that counts the mapping reads per policy check, which fails
 without decision 2, and one with a choice-only save between the two scope checks. Not
 checked on the real site.
+
+## Amendment 2026-11-22: an IdP page the tab leaves while it is read ends nothing
+
+Status: accepted. An agent made these decisions within this ADR and implemented them.
+
+On build `c2e54686`, the IdP's own login of an SSO flow through IBMid submitted its
+password at 19:26:45 UTC. The IdP's next page, a risk check
+(`/risk/v3.0/authz/pages/compute`) that posts itself on at once, was refused
+`sso-username-unavailable` at 19:26:54 and ended the flow (`cancelled`). The tab moved
+on to the IdP's method chooser, which nothing read. On `1f892101` the same flow passed
+that page, the chooser and the TOTP page. What the code showed (agent's reading,
+2026-11-21):
+
+- **The admission of an IdP page outlasted the page.** Admitting an IdP page checks the
+  flow's scope four times, two of them inside the IdP username read (`username`), and
+  each scope check read the flow's SSO mapping from the vault. The vault's jobs run one
+  at a time, behind the IdP login's own policy checks. A scope check refuses once the
+  tab's URL is no longer the page's, so a page that posted itself on during those reads
+  failed the username read, and a failed username read ended the flow. Only a failed
+  first scope check was told apart from a page the tab had left
+  ([decision 4 of 2026-11-20](#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).
+- **The path itself did not change** since `1f892101`; neither the amendment of
+  2026-11-21 nor the hiding of usernames changed it. Slower vault reads made the
+  admission longer than the risk page's stay.
+
+Decisions:
+
+1. **An IdP page the tab left while it was read ends nothing.** When a later part of an
+   IdP page's admission fails (the master password, the username read, or the page's
+   reading and its scope check after it), and the page is no longer the tab's document
+   or the tab's URL is no longer the page's, the page refuses `sso-in-progress` with
+   detail `idp:left`, ends nothing, and the tab's next page is read. One still the
+   tab's page ends the flow as before.
+   - **A closed master password ends the flow anyway.** A master password window the
+     person closed, or one that could not be asked, ends the flow
+     (`sso-reprompt-required`) wherever the tab went. Only a window cut off (`aborted`)
+     or a page no longer the flow's counts as the tab leaving it.
+   - **Once per document.** A document is refused so once; a second such failure of
+     the same document ends the flow with its own reason, so a page that keeps
+     changing its URL cannot keep a failure waiting.
+2. **The flow keeps its SSO mapping.** It replaces decision 2 of 2026-11-21. Every scope
+   check of the flow, in its policy checks, its IdP pages' admissions and its effects,
+   uses one read of the flow's SSO mapping (`ssoMapping`) while what that read depends
+   on is unchanged: the settings revision and whether a settings sync is pending, the
+   flow's whole source (`work.source`: the RP account, its method and its
+   `sourceEvidence`) and its IdP choice, and both accounts' vault connections as the
+   catalog has them, with their snapshots, states and quarantined items. Any other of
+   these reads it again. Everything else in each scope check is read again, as before:
+   the tab, pauses, settings, the flow's dependencies, item eligibility, and each
+   account's vault being open on its snapshot (`bindingSnapshotCurrent`), checked
+   synchronously before the mapping is used and again in the check's fence, so a locked
+   vault refuses as before. The mapping is kept in memory only, with the flow, and never
+   stored.
+   - **Dropped on a notice.** Every vault notice (a sync, a lock, a timeout or any
+     other write of a vault's state) and every settings save, a choice-only one too,
+     drops every flow's mapping (`dropSsoMappings`). A read under way when it is
+     dropped is not used: the scope check reads the vault again.
+   - **Refusals are never kept.** A read that the vault refused or that failed is not
+     kept, so the next check asks the vault again, and a mapping the vault revoked is
+     never served from what was kept.
+   - **What it saves.** Each read of the mapping is two vault jobs (`ssoMethods` and
+     `ssoCandidates`), run one at a time on the vault's lane. In a local runtime test
+     of the IdP login's password fill and its submit click, the scope checks read it
+     42 times before 2026-11-21, about 21 times with decision 2 of 2026-11-21, and once
+     now: two vault jobs for the flow rather than about 20 for each step, beside the
+     step's own value reads.
+
+Checked with local runtime tests (`sso-idp-interstitial.test.ts`): an IdP page that
+posts itself on during its username read or during its reading, then the method chooser
+and the TOTP page, which fail without decision 1, and one that counts the mapping reads
+of one admission. Others end the flow on a page the tab is still on, for an unread
+username, a closed master password window and an unreadable page, and fail if every such
+failure counted as a leave; one ends it on a closed window after the page posted itself
+on, and one at a second failure of a document whose URL keeps changing. Checked with
+local runtime tests (`sso-mapping-cache.test.ts`) that fail without decision 2 or
+without each of its drops: repeated checks read the mapping once; a vault sync that
+changed an account's snapshot refuses as before; a settings save that stops logins still
+stops the IdP login; a choice-only save reads the mapping again and keeps the new read,
+also when it lands between two scope checks; a locked vault refuses, and its unlock
+reads the mapping again; a revoked mapping refuses, is asked for again at the next
+check, and a read under way when it was revoked is not used. Not checked on the real
+site.
 
 ## Known limits 2026-11-16
 

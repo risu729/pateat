@@ -2,6 +2,7 @@ import { ssoDescribed, ssoMoved } from "./sso/moved";
 import { authorizeSso } from "./sso-effects";
 import { ssoAuthorizeSchema } from "../sso-operation-wire";
 import { cancelSso, ssoVaultChanged } from "./sso/flow";
+import { dropSsoMappings } from "./sso-scope";
 import * as v from "valibot";
 import { ssoPopupMessage } from "./sso-choices";
 import { authorizeConfirmation } from "./confirm-fill";
@@ -538,6 +539,9 @@ export function settingsChanged(
   source: "synced" | "saved",
   cause?: SettingsChangeCause,
 ): void {
+  // Every save drops the SSO flows' kept mappings, a choice-only one too (ADR 0026,
+  // amendment of 2026-11-22).
+  dropSsoMappings(rt);
   if (cause !== undefined && CHOICE_ONLY_CAUSES.has(cause)) return;
   void rt.ssoChoices?.settingsChanged().catch(() => undefined);
   // An SSO flow ends only when what it depends on changed; its effects check meanwhile.

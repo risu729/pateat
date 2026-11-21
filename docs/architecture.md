@@ -5083,6 +5083,11 @@ exact IdP child. Separate inspect/prepare/commit commands and a durable intent j
 handle entry effects. The journal is secret-free diagnostics and interruption evidence;
 a restarted worker cannot restore click authority. Final delivery checks include current
 vault snapshots and synchronous recipe-cache epochs after awaited policy/mapping reads.
+The flow keeps its SSO mapping in memory, read once for the settings revision, the
+flow's whole source (`work.source`, its `sourceEvidence` included), its IdP choice and
+both accounts' vault connections it was read under, and drops it on every vault notice
+and settings save; a refused read is never kept
+([ADR 0026, 2026-11-22](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-22-an-idp-page-the-tab-leaves-while-it-is-read-ends-nothing)).
 
 Only a confirmed return to the original RP records parent authentication. IdP child
 identity survives parent cancellation so late callbacks cannot save an IdP default or
@@ -5121,8 +5126,12 @@ with detail `idp-step`, at info the first time for its document and path, which 
 the service as a problem line, and at debug for each repeat there; when the tab's URL is
 no longer the document's, the login stops reading it and asks it once to announce again
 (`leftDocument`); an IdP document that announces, or is checked, once the tab has left
-it refuses `sso-in-progress` with detail `idp:left` and ends nothing, and one still the
-tab's document, whose URL its own routing replaced, is asked once to announce again.
+it refuses `sso-in-progress` with detail `idp:left` and ends nothing, as does one the
+tab left while it was admitted, as a risk check that posts itself on at once, once per
+document and not when the person closed the master password's window
+([ADR 0026, 2026-11-22](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-22-an-idp-page-the-tab-leaves-while-it-is-read-ends-nothing));
+one still the tab's document, whose URL its own routing replaced, is asked once to
+announce again.
 After the IdP, an RP page that shows neither the sign-in nor the site's sign-in form,
 another account or an unsafe page waits (`sso-in-progress`, detail `rp-return:` and why,
 such as `unobserved` or `loading`) only while it is loading, cannot be read, shows
