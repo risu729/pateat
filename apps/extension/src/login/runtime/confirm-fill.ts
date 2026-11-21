@@ -20,7 +20,7 @@ import {
 } from "../wire";
 import { loginSecretKind, loginUsernameFieldId } from "../vault";
 import { send } from "./attempt";
-import { claimConfirm, hasConfirmClaim, type ConfirmWork } from "./confirm-state";
+import { claimConfirm, hasConfirmClaim, type ConfirmStop, type ConfirmWork } from "./confirm-state";
 import {
   confirmCurrent,
   confirmPlan,
@@ -131,10 +131,14 @@ export async function fillConfirmation(
   const steps = confirmationSteps(recipe, work.live.path);
   if (steps.some(({ index }) => hasConfirmClaim(rt, claimOf(work, recipe, index))))
     return "claimed";
+  const stop = (at: ConfirmStop) => {
+    work.stoppedAt = at;
+    return "stopped" as const;
+  };
   const found = await confirmAccount(rt, work);
-  if (!found) return "stopped";
+  if (!found) return stop("account");
   const reprompted = await confirmReprompt(rt, work, found);
-  if (reprompted !== true) return reprompted || "stopped";
+  if (reprompted !== true) return reprompted || stop("reprompt");
   work.reprompted = true;
   if (found.scope !== undefined) work.scopeMark = found.scope;
   work.policyRevision = found.snapshot.snapshot.revision;
@@ -142,7 +146,10 @@ export async function fillConfirmation(
   for (const { step, index } of steps) {
     const slots = step.fields.map((field) => field.slot);
     const plan = await confirmPlan(rt, work, recipe, slots);
-    if (!plan) continue;
+    if (!plan) {
+      stop("plan");
+      continue;
+    }
     const ready = v.safeParse(
       awaitResultSchema,
       await send(rt, work.live, {
@@ -151,8 +158,11 @@ export async function fillConfirmation(
         timeoutMs: LOGIN_STEP_WAIT_MS,
       }).catch(() => undefined),
     );
-    if (!ready.success || !ready.output.ok || !confirmCurrent(rt, work)) continue;
-    if (!(await claimConfirm(rt, work, claimOf(work, recipe, index)))) return "stopped";
+    if (!ready.success || !ready.output.ok || !confirmCurrent(rt, work)) {
+      stop("not-ready");
+      continue;
+    }
+    if (!(await claimConfirm(rt, work, claimOf(work, recipe, index)))) return stop("claim");
     const operation: LoginOperation = {
       version: 1,
       // The person's press may replace a value Pateat put in the page; a login's may not.
@@ -171,15 +181,16 @@ export async function fillConfirmation(
     try {
       for (const field of step.fields) {
         const reference = plan.binding.slots.find((entry) => entry.slot === field.slot);
-        if (!reference) return "stopped";
+        if (!reference) return stop("plan");
         const secret = loginSecretKind(plan.connection, plan.account.itemId, reference.fieldId);
-        if (secret === "otp") return "stopped";
+        if (secret === "otp") return stop("value");
         const value = await rt.fields({
           account: plan.account,
           connection: plan.connection,
           fieldId: reference.fieldId,
         });
-        if (!value || !confirmCurrent(rt, work)) return "stopped";
+        if (!value) return stop("value");
+        if (!confirmCurrent(rt, work)) return stop("changed");
         values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
       }
       const username = loginUsernameFieldId(plan.connection, plan.account.itemId);
@@ -189,12 +200,12 @@ export async function fillConfirmation(
           connection: plan.connection,
           fieldId: username,
         });
-        if (!confirmCurrent(rt, work)) return "stopped";
+        if (!confirmCurrent(rt, work)) return stop("changed");
         if (value) account = { username: value };
       }
       const latest = await confirmPlan(rt, work, recipe, slots);
       if (!latest || !sameAuthority(plan, latest) || !latest.fence() || !plan.fence())
-        return "stopped";
+        return stop("changed");
       work.operation = operation;
       const response = v.safeParse(
         executionResultSchema,
@@ -205,14 +216,14 @@ export async function fillConfirmation(
           ...(account ? { account } : {}),
         }).catch(() => undefined),
       );
-      if (!confirmCurrent(rt, work)) return "stopped";
+      if (!confirmCurrent(rt, work)) return stop("changed");
       const ok =
         response.success &&
         response.output.ok &&
         response.output.operationId === operation.operationId &&
         response.output.documentId === work.live.document.documentId;
       // The evaluation row is logged once, with the page's fields, by the admission.
-      if (!ok) return "stopped";
+      if (!ok) return stop("delivery");
       return response.output.mutation === "none" ? "kept" : "filled";
     } finally {
       for (const value of values) value.value = "";
@@ -220,6 +231,8 @@ export async function fillConfirmation(
       delete work.operation;
     }
   }
+  // Every step was skipped: the last reason stands.
+  work.stoppedAt ??= "not-ready";
   return "stopped";
 }
 

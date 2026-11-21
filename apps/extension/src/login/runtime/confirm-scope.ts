@@ -285,6 +285,7 @@ export async function confirmReprompt(
               "confirm-fill-stopped",
               current && answer === "closed",
               pick ? "pick" : "login",
+              "reprompt",
             );
           return undefined;
         }

@@ -317,7 +317,10 @@ function runConfirmWork(
     let end: ConfirmFillEnd = "stopped";
     try {
       const account = await confirmAccount(rt, work);
-      if (!account) return;
+      if (!account) {
+        work.stoppedAt = "account";
+        return;
+      }
       work.policyRevision = account.snapshot.snapshot.revision;
       if (account.connection.snapshotId !== undefined)
         work.snapshotId = account.connection.snapshotId;
@@ -375,6 +378,7 @@ function runConfirmWork(
             OUTCOMES[end],
             false,
             work.pick ? "pick" : "login",
+            end === "stopped" ? work.stoppedAt : undefined,
           );
       }
     }

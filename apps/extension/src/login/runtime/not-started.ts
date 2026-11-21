@@ -1,7 +1,7 @@
 import { type LoginRecipe } from "@pateat/contracts";
 import { publish, report } from "./attempt";
 import { confirmSigns } from "./markers";
-import type { ConfirmAccountSource, ConfirmOutcome } from "./confirm-state";
+import type { ConfirmAccountSource, ConfirmOutcome, ConfirmStop } from "./confirm-state";
 import type { Runtime } from "./state";
 import type { ConfirmVisit, LiveDocument, Shown } from "./types";
 
@@ -15,11 +15,21 @@ export function noteNotStarted(
   visit?: ConfirmVisit,
   /** For a confirmation fill: whose account fills, the login's or the person's pick. */
   accountSource?: ConfirmAccountSource,
+  /**
+   * For a confirmation fill's end: where it stopped, and `unshown` when the page never
+   * reported its first step shown, so its rows are logged at the end without it.
+   */
+  end: { stoppedAt?: ConfirmStop | undefined; unshown?: boolean } = {},
 ): void {
-  if (shown?.path !== live.path || live.notStarted === detail || visit?.noted?.has(detail)) return;
+  if (
+    (!(visit && end.unshown) && shown?.path !== live.path) ||
+    live.notStarted === detail ||
+    visit?.noted?.has(detail)
+  )
+    return;
   live.notStarted = detail;
   if (visit) {
-    visit.shown = shown;
+    if (shown) visit.shown = shown;
     (visit.noted ??= new Set()).add(detail);
   }
   const refused = {
@@ -30,7 +40,10 @@ export function noteNotStarted(
     detail,
     ...(live.document.frameId === 0 ? {} : { frame: true as const }),
     ...(accountSource ? { accountSource } : {}),
+    ...(end.stoppedAt ? { stoppedAt: end.stoppedAt } : {}),
   };
+  // A row logged without the page's report carries none of its fields, nor E1 or E2.
+  const unshown = visit !== undefined && end.unshown === true && shown?.path !== live.path;
   if (!visit) {
     const later = shown?.later;
     report(rt, live.document, {
@@ -50,7 +63,8 @@ export function noteNotStarted(
   const amount = shown?.amount;
   // After the visit's row before it, so a fill's end never comes before its check.
   const before = visit.logged;
-  visit.logged = confirmSigns(rt, live).then(async (signs) => {
+  const read = unshown ? Promise.resolve({}) : confirmSigns(rt, live);
+  visit.logged = read.then(async (signs: { e1?: boolean; e2?: boolean }) => {
     await before?.catch(() => undefined);
     report(rt, live.document, {
       ...refused,
@@ -59,6 +73,7 @@ export function noteNotStarted(
       pageKind: visit.recipe.pageKind,
       ...(amount === undefined ? {} : { amount }),
       ...signs,
+      ...(unshown ? { unshown: true as const } : {}),
       url: live.url,
     });
     // Read as the `signedIn` hint false: the page was read and neither shows, E2 also
@@ -85,9 +100,13 @@ export function noteConfirmFill(
   shown: Shown | undefined,
   visit: ConfirmVisit,
   accountSource: ConfirmAccountSource = "login",
+  /** Logs the rows now, at the fill's end, though the page never reported its step shown. */
+  unshown = false,
 ): void {
   const reported = shown?.path === live.path ? shown : visit.shown;
-  noteNotStarted(rt, live, reported, "confirm-fill", undefined, visit, accountSource);
+  noteNotStarted(rt, live, reported, "confirm-fill", undefined, visit, accountSource, {
+    unshown,
+  });
   const outcome = rt.confirmFill.outcomes.get(documentOf(live));
   // Only an end of this visit's fill: a page the tab comes back to logs no earlier end.
   if (outcome?.path === live.path && outcome.visit === visit)
@@ -99,6 +118,7 @@ export function noteConfirmFill(
       undefined,
       visit,
       outcome.accountSource ?? accountSource,
+      { stoppedAt: outcome.stoppedAt, unshown },
     );
 }
 
@@ -124,6 +144,7 @@ export async function settleConfirmFill(
   reason: ConfirmOutcome,
   declined = false,
   accountSource: ConfirmAccountSource = "login",
+  stoppedAt?: ConfirmStop,
 ): Promise<void> {
   const current = rt.confirmVisits.get(page.document.tabId);
   const visit =
@@ -137,11 +158,14 @@ export async function settleConfirmFill(
     reason,
     accountSource,
     ...(declined ? { declined: true as const } : {}),
+    ...(stoppedAt ? { stoppedAt } : {}),
     ...(visit ? { visit } : {}),
   });
   if (page.path !== path) return;
   page.state = "watching";
   page.reason = reason;
-  if (visit) noteConfirmFill(rt, page, undefined, visit, accountSource);
+  // A page that never reported its first step shown logs its rows now, without its fields,
+  // so a fill that ended unseen still leaves them (APA Hotel, #1761).
+  if (visit) noteConfirmFill(rt, page, undefined, visit, accountSource, true);
   await publish(rt, page);
 }

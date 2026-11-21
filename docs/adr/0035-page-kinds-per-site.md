@@ -579,7 +579,12 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   `not-started` names `confirm-fill` when checking the page and how the fill ended:
   `confirm-filled` when it changed a field, `confirm-fill-kept` when it kept every value
   it found, `confirm-fill-stopped` when filling cannot continue, each once per visit and
-  with the page's fields, logged when the page reports its first step shown. None claims
+  with the page's fields, logged when the page reports its first step shown, or, for a
+  page that never did, at the fill's end without them, marked `unshown` (from
+  2026-11-21, [#1761](https://github.com/risu729/pateat/issues/1761)).
+  `confirm-fill-stopped` also names where the fill stopped (`stoppedAt`: `account`,
+  `reprompt`, `plan`, `not-ready`, `claim`, `value`, `changed` or `delivery`), kept on
+  the device like `accountSource`. None claims
   an action succeeded. The two ends that went into the page were logged only from
   2026-11-21 (an agent's fix after
   [#1761](https://github.com/risu729/pateat/issues/1761), where the service's log could

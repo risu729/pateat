@@ -11,6 +11,7 @@ import {
 } from "@pateat/contracts";
 import type { AttemptSpans } from "./spans";
 import type { AttemptMethods } from "./methods";
+import type { ConfirmStop } from "./confirm-state";
 import type { ServiceTiming } from "../../service/transport";
 import { type ListMissReport as ListMiss, type ExecutionDetail, type LaterMiss } from "../wire";
 import { type AskReason } from "../choice-wire";
@@ -285,6 +286,13 @@ export type LoginReport = (
        * confirmed login's or the person's **Fill** pick's (ADR 0035, amended 2026-11-17).
        */
       accountSource?: "login" | "pick";
+      /** For `confirm-fill-stopped`: where the fill stopped (ADR 0035, #1761). */
+      stoppedAt?: ConfirmStop;
+      /**
+       * For a confirmation fill's rows logged at its end because the page never reported
+       * its first step shown: they carry none of the page's fields.
+       */
+      unshown?: true;
       /**
        * Also for `confirm-unsupported`, what the page showed for the evaluation of page
        * kinds, never a value or page text (ADR 0035): whether an amount shows in the form of

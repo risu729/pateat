@@ -63,9 +63,28 @@ export type ConfirmWork = {
   reprompted?: true;
   operation?: LoginOperation;
   recipe?: LoginRecipe;
+  /** Where a fill that stopped stopped, for its log row only (ADR 0035 delivery 3). */
+  stoppedAt?: ConfirmStop;
   cancelled: boolean;
   generation: boolean;
 };
+
+/**
+ * Where a confirmation fill stopped: no account or vault read (`account`), no master
+ * password (`reprompt`), no binding for its slots (`plan`), the step never ready in the
+ * page (`not-ready`), another fill's claim (`claim`), a value it may not or could not read
+ * (`value`), its authority changed while it read (`changed`), or the page refused the
+ * delivery (`delivery`).
+ */
+export type ConfirmStop =
+  | "account"
+  | "reprompt"
+  | "plan"
+  | "not-ready"
+  | "claim"
+  | "value"
+  | "changed"
+  | "delivery";
 
 /** Session evidence outlives the worker, never a browser restart. No values are stored. */
 export function createConfirmState() {
@@ -86,6 +105,7 @@ export function createConfirmState() {
         reason: ConfirmOutcome;
         declined?: true;
         accountSource?: ConfirmAccountSource;
+        stoppedAt?: ConfirmStop;
         /** The visit the fill ended in, whose rows alone log this end. */
         visit?: ConfirmVisit;
       }

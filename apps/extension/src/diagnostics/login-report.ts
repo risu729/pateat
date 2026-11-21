@@ -47,6 +47,8 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             pageKind: report.pageKind,
             permissionSource: report.permissionSource,
             accountSource: report.accountSource,
+            stoppedAt: report.stoppedAt,
+            unshown: report.unshown,
             amount: report.amount,
             e1: report.e1,
             e2: report.e2,
