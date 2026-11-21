@@ -64,10 +64,13 @@ describe("a sign-in form kept hidden after the submit (ADR 0029)", () => {
     ...unmarked,
     completion: [{ target: target("logout"), absent: [target("password")] }],
   });
-  function start(chosen: typeof recipe) {
+  function start(
+    chosen: typeof recipe,
+    answer: Awaited<ReturnType<LoginGeneration["judge"]>> = { verdict: "signed-in" },
+  ) {
     const judge = vi.fn<LoginGeneration["judge"]>(async (...args) => {
       args[4]?.();
-      return { verdict: "signed-in" };
+      return answer;
     });
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness(
@@ -132,18 +135,60 @@ describe("a sign-in form kept hidden after the submit (ADR 0029)", () => {
     expect(judge).not.toHaveBeenCalled();
   }, 10_000);
 
-  it("still reads a form the submit's own document hides as the sign-in page", async () => {
-    const { h, judge, report } = start(marked);
-    signsIn(h, false);
+  it("completes such a page only on the judge's own signed-in, never undecided", async () => {
+    // A failure page may keep its form hidden too: no sign shows, and the judge cannot
+    // decide.
+    fake.state.signs = {
+      password: false,
+      code: false,
+      captcha: false,
+      invalid: false,
+      alert: false,
+    };
+    const { h, judge, report } = start(withoutMarker, {
+      verdict: "unclear",
+      reason: "daily-limit",
+    });
+    signsIn(h, true);
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(
       () =>
         expect(report).toHaveBeenCalledWith(
-          expect.objectContaining({ type: "judge", verdict: "not-sent" }),
+          expect.objectContaining({
+            type: "judge",
+            verdict: "unclear",
+            notCompleted: "hidden-field",
+          }),
         ),
       { timeout: 6_000 },
     );
+    expect(judge).toHaveBeenCalledTimes(1);
     expect(status()).not.toMatchObject([{ state: "authenticated" }]);
-    expect(judge).not.toHaveBeenCalled();
   }, 10_000);
+
+  it.each([
+    ["", false],
+    [" with a marker", true],
+  ])(
+    "still reads a form the submit's own document hides as the sign-in page%s",
+    async (_label, withMarker) => {
+      const { h, judge, report } = start(withMarker ? marked : withoutMarker);
+      signsIn(h, false);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () =>
+          expect(report).toHaveBeenCalledWith(
+            expect.objectContaining({
+              type: "judge",
+              verdict: "not-sent",
+              reason: "sign-in-shown",
+            }),
+          ),
+        { timeout: 6_000 },
+      );
+      expect(status()).not.toMatchObject([{ state: "authenticated" }]);
+      expect(judge).not.toHaveBeenCalled();
+    },
+    10_000,
+  );
 });

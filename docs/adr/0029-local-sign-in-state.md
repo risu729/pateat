@@ -1135,12 +1135,19 @@ card):
   step's frame, a route's sign-in input counts for the judge gate only when shown
   (`shown-input`), and a marker's `absent` element counts only when shown: one only
   hidden there is missing. This holds for the completion check after a step and for E1
-  in the sign-in state (`afterOwnStep` in `apps/extension/src/login/runtime/sign-in.ts`,
-  `hiddenGone` in `markerProof`).
+  in the sign-in state, the other layouts' markers included (ADR 0060)
+  (`afterOwnStep` in `apps/extension/src/login/runtime/sign-in.ts`, `hiddenGone` in
+  `markerProof`). The step may be any effect step: a submit, an `advance` or a passkey
+  step.
+- A page that goes to the judge only because its sign-in input is hidden completes the
+  login only on the judge's own `signed-in`: an undecided or `optional` answer does not
+  complete it (`recipe.judge` `notCompleted` `hidden-field`), since a site may answer a
+  failed sign-in with a new document that keeps its form hidden too (agent's addition
+  after review).
 - In the step's own document nothing changes: a form that hides itself again after a
   failure there is still the sign-in page. Without the step in memory, as after a worker
   restart, and for E1 before a login's first step, hidden elements count as before.
-- Watched logins, whose steps are the person's, and markers read at a login's start or
+- Watched logins, whose pages are the person's, and markers read at a login's start or
   on another origin after a move keep the earlier rule.
 
 Not chosen (the agent's): counting hidden fields as before, which leaves such a site

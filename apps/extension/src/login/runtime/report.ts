@@ -595,7 +595,7 @@ export type LoginReport = (
        * description left out a disabled field (ADR 0029), or the login stopped before the
        * password its item lacks, which an undecided answer never completes (ADR 0036).
        */
-      notCompleted?: "disabled-left-out" | "password-empty";
+      notCompleted?: "disabled-left-out" | "hidden-field" | "password-empty";
       /**
        * The page is on another origin, which a login's tab moved to right after one of its
        * steps, on any route (ADR 0022); `origin` is that page's.

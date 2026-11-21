@@ -392,6 +392,23 @@ export async function learn(
     remaining.targets
       .slice(0, fills.length)
       .some((state) => state !== "missing" && state !== "unusable");
+  // In a new document after the login's own step, a route's sign-in input only kept hidden
+  // lets the page go to the judge, but the login then completes only on the judge's own
+  // `signed-in`, never as an undecided or optional page, as a failure page may keep its
+  // form hidden too (ADR 0029 amendment of 2026-11-21). One that cannot be read counts.
+  let hiddenField = false;
+  if (field === "shown-input" && !fieldShown && paths.includes(remaining.path) && fills.length) {
+    const kept = await observe(
+      rt,
+      run,
+      fills,
+      fills.map(() => "input" as const),
+    );
+    if (!current(rt, run)) return true;
+    hiddenField =
+      kept === undefined ||
+      kept.targets.some((state) => state !== "missing" && state !== "unusable");
+  }
   // One on a route path of a password login without a chooser or a stop, read on the
   // recipe's own origin, in the tab's page or a frame of it (ADR 0086), may stand beside
   // another form that asks for a detail, which is judged on its own (ADR 0061); a failure
@@ -461,7 +478,7 @@ export async function learn(
       reason?: string;
       takenOver?: boolean;
       completed?: true;
-      notCompleted?: "disabled-left-out" | "password-empty";
+      notCompleted?: "disabled-left-out" | "hidden-field" | "password-empty";
     } = {},
   ) =>
     report(rt, run.live.document, {
@@ -555,6 +572,7 @@ export async function learn(
     ...candidate,
     again,
     disabledLeftOut,
+    hiddenField,
     passkeyButton: run.metadata.passkeyButton === true,
     // Only an optional page must still be on its path: an undecided one keeps ADR 0029's
     // rule, as on a single-page app that routes on while it is judged.

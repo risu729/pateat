@@ -170,7 +170,7 @@ export async function otherLayoutsMarked(
   /* eslint-disable no-await-in-loop */
   for (const other of layouts ?? []) {
     if (other.layout === recipe.layout && sameMarkers(other, recipe)) continue;
-    const proof = markerProof(other);
+    const proof = markerProof(other, other.origin, { hiddenGone: afterOwnStep(rt, run) });
     if (!proof.targets.length) continue;
     const marked = await observe(rt, run, proof.targets, proof.shown, {
       links: proof.links,
@@ -191,7 +191,8 @@ const runUsernames = new WeakMap<
 
 /**
  * Whether the login reads a new document after its own effect step: one other than the
- * step's, in the step's frame. A sign-in field such a document only keeps hidden is not
+ * step's, in the step's frame, while it is not watched, as a watch's pages are the
+ * person's. A sign-in field such a document only keeps hidden is not
  * its sign-in form, as My Digital Connect's signed-in page keeps hidden copies of its
  * fields (ADR 0029 amendment of 2026-11-21); a form hidden again in the step's own
  * document still is. Without the step in memory, as after a worker restart, it is not.
@@ -199,6 +200,7 @@ const runUsernames = new WeakMap<
 export function afterOwnStep(rt: Runtime, run: Execution): boolean {
   const effect = rt.effects.get(run.live.document.tabId);
   return (
+    run.metadata.watch === undefined &&
     effect?.attemptId === run.metadata.id &&
     effect.document.frameId === run.live.document.frameId &&
     !sameLoginDocument(effect.document, run.live.document)
