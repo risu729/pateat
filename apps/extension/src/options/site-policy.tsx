@@ -9,6 +9,7 @@ import {
   type LocalSettings,
   type SiteAccountsResponse,
   type SiteDefault,
+  type SiteItemReference,
   type VaultCatalog,
 } from "@pateat/contracts";
 import { sitePauseRules } from "@pateat/contracts/site";
@@ -51,7 +52,7 @@ import {
   usernameOf,
   withUsername,
 } from "./site-policy-rules";
-import type { SiteItemReference } from "./client";
+
 export { siteAccountOptions } from "./site-policy-rules";
 type ExcludedSite = LocalSettings["excludedSites"][number];
 /**
@@ -70,6 +71,8 @@ const originSchema = v.pipe(
 );
 
 export const SITE_ACCOUNTS_DELAY_MS = 300;
+/** The most items one search names, as `settings.site-accounts` accepts. */
+const MAX_NAMED_ITEMS = 10_000;
 const WAIT_FOR_ACCOUNTS = "Wait until the matching accounts are listed.";
 
 function ruleName(rule: ExcludedSite): string {
@@ -249,22 +252,18 @@ export function SitePolicy({
   }, [accountOrigin]);
   // The draft's connections, items and exclusions decide what is searched.
   // A vault sync changes the answer too, so each connection's snapshot is part of the key.
+  // The vault policies decide which items are used and whose usernames may be read.
   const scope = JSON.stringify([
     draft.connections,
     draft.excludedSites,
-    catalog.connections.map((entry) => entry.snapshotId ?? null),
+    draft.accountPolicies,
+    draft.itemPolicies,
+    draft.customFieldReviews,
+    catalog.connections.map((entry) => [entry.snapshotId ?? null, entry.quarantinedItemIds ?? []]),
   ]);
-  // Listing the items that do not match names them too, so same-named ones can be told apart.
-  const unmatched: SiteItemReference[] = showAllAccounts
-    ? catalog.connections.flatMap((connection) =>
-        connection.items
-          .filter((item) => draftAllows(draft, catalog, connection.id, item.id))
-          .map((item) => ({ connectionId: connection.id, itemId: item.id })),
-      )
-    : [];
   const accounts = useQuery({
-    queryKey: ["settings", "site-accounts", queriedOrigin, scope, showAllAccounts],
-    queryFn: () => findSiteAccounts(queriedOrigin!, draft, unmatched),
+    queryKey: ["settings", "site-accounts", queriedOrigin, scope],
+    queryFn: () => findSiteAccounts(queriedOrigin!, draft),
     enabled: queriedOrigin !== undefined && queriedOrigin === accountOrigin,
     // Vault syncs change the answer; ask again for each origin entered.
     staleTime: 0,
@@ -301,7 +300,37 @@ export function SitePolicy({
     !accountsPending && accounts.data?.ok && accounts.data.origin === accountOrigin
       ? accounts.data
       : undefined;
-  const accountOptions = siteAccountOptions(catalog, found, showAllAccounts, draft);
+  // Listing the items that do not match names them too, so same-named ones can be told
+  // apart. A separate search, so ticking the box keeps the matches listed meanwhile.
+  const unmatchedNames = useQuery({
+    queryKey: ["settings", "site-accounts", "unmatched", found?.origin, scope],
+    queryFn: () => {
+      const unmatched: SiteItemReference[] = catalog.connections.flatMap((connection) =>
+        connection.items
+          .filter(
+            (item) =>
+              !found!.accounts.some(
+                (entry) => entry.connectionId === connection.id && entry.itemId === item.id,
+              ) && draftAllows(draft, catalog, connection.id, item.id),
+          )
+          .map((item) => ({ connectionId: connection.id, itemId: item.id })),
+      );
+      return findSiteAccounts(found!.origin, draft, unmatched.slice(0, MAX_NAMED_ITEMS));
+    },
+    enabled: showAllAccounts && found !== undefined,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const named =
+    showAllAccounts && unmatchedNames.data?.ok && unmatchedNames.data.origin === found?.origin
+      ? unmatchedNames.data.named
+      : undefined;
+  const accountOptions = siteAccountOptions(
+    catalog,
+    found && named ? { ...found, named } : found,
+    showAllAccounts,
+    draft,
+  );
   const matchedCount = accountOptions.filter((entry) => entry.uri || entry.passkey).length;
   const selectedAccount = useSelector(siteForm.store, (state) => state.values.account);
   const shownAccount = accountOptions.some((entry) => entry.value === selectedAccount)

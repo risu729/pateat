@@ -73,6 +73,7 @@ export const siteAccountsResponseSchema = v.variant("ok", [
   }),
 ]);
 
+export type SiteItemReference = v.InferOutput<typeof itemReference>;
 export type SiteAccountsRequest = v.InferOutput<typeof siteAccountsRequestSchema>;
 export type SiteAccountsResponse = v.InferOutput<typeof siteAccountsResponseSchema>;
 

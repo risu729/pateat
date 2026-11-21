@@ -237,6 +237,27 @@ describe("findSiteAccounts", () => {
     ).toEqual([["live", [uriItem, otherItem]]]);
   });
 
+  it("does not name an item the draft no longer uses", async () => {
+    const readUsernames = vi.fn<LoginUsernameSource>(async () => ({}));
+    const value = enabled();
+    const live = value.catalog.connections.find((entry) => entry.id === "live")!;
+    const result = await findSiteAccounts({
+      saved: value,
+      // Saved as usable, but excluded in the unsaved draft.
+      settings: excludeItem(draft(), live, otherItem),
+      origin: "https://bank.example",
+      named: [{ connectionId: "live", itemId: otherItem }],
+      matchUris: async () => ({
+        ok: true,
+        data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+      }),
+      findPasskeys: passkeys(),
+      readUsernames,
+    });
+    expect(result).not.toHaveProperty("named");
+    expect(readUsernames).not.toHaveBeenCalled();
+  });
+
   it("answers without named usernames when none was read", async () => {
     const result = await findSiteAccounts({
       saved: saved(),

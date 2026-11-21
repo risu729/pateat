@@ -259,7 +259,6 @@ export function registerSitePolicy({
     expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
       "https://xn--bcher-kva.example",
       expect.anything(),
-      expect.anything(),
     );
     for (const [revision, spelling] of [
       "HTTPS://Bank.Example",
@@ -277,11 +276,11 @@ export function registerSitePolicy({
       await expect
         .element(control("settings-status"))
         .toMatchTextContent(`saved (revision ${revision + 1}).`);
-      expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+      // The saved row names its item in a search of its own.
+      expect(client.findSiteAccounts.mock.calls.at(-1)?.slice(0, 2)).toEqual([
         "https://bank.example",
         expect.anything(),
-        expect.anything(),
-      );
+      ]);
       expect(client.saveSettings.mock.calls[revision]?.[0].settings.siteDefaults).toEqual([
         expect.objectContaining({ origin: "https://bank.example", itemId: "primary" }),
       ]);
@@ -387,10 +386,13 @@ export function registerSitePolicy({
     await expect
       .element(control("default-account-note"))
       .toMatchTextContent("No vault item matches");
+    const searches = client.findSiteAccounts.mock.calls.length;
     await control("default-account-all").click();
     await expect
       .element(control("default-account"))
       .toMatchTextContent("Demo team account · team@example.test (no match for this origin)");
+    // Only the unmatched items are named, in one more search; the matches stay listed.
+    expect(client.findSiteAccounts).toHaveBeenCalledTimes(searches + 1);
     expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
       "https://none.example",
       expect.anything(),

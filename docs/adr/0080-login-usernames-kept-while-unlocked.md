@@ -113,9 +113,10 @@ list names every login by its username.
 
 `settings.site-accounts` now also takes `named`, the items the settings page shows for
 the origin whether or not they match: the saved default's item on its origin row, and
-every listed item when the add form lists the items that do not match. Their usernames
-are read under the same rules as decision 3 (eligible under the saved settings, the
-username an eligible field that the draft does not exclude, not quarantined, never a
+the items that do not match when the add form lists them, in a search of its own so the
+matches stay listed. A named item must be used by the draft, as every match is. Its
+username is read under the same rules as decision 3 (eligible under the saved settings,
+the username an eligible field that the draft does not exclude, not quarantined, never a
 demo vault) and with the same revision check as decision 4. The answer keeps the matches
 in `accounts` and adds the usernames of the named items that did not match in `named`;
 when decision 4 drops the usernames, it drops `named` too. The toolbar popup sends no

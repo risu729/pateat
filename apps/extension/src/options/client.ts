@@ -5,6 +5,7 @@ import {
   type SettingsRequest,
   type SettingsResponse,
   type SiteAccountsResponse,
+  type SiteItemReference,
 } from "@pateat/contracts";
 import { QueryClient } from "@tanstack/react-query";
 
@@ -25,8 +26,6 @@ export interface SettingsClient {
     named?: SiteItemReference[],
   ): Promise<SiteAccountsResponse>;
 }
-
-export type SiteItemReference = { connectionId: string; itemId: string };
 
 /**
  * Only metadata contracts may cross this UI boundary, plus the login usernames of the items

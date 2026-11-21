@@ -109,11 +109,16 @@ export async function findSiteAccounts(input: {
     if (!found.complete) complete = false;
     for (const entry of found.candidates) add(entry.connectionId, entry.itemId, "passkey");
   }
-  // The requested items that did not match are named apart from the matches.
+  // The requested items that did not match are named apart from the matches, when the
+  // draft uses them too, as it does every match.
   const named = new Map<string, { connectionId: string; itemId: string; username?: string }>();
   for (const entry of input.named ?? []) {
     const key = JSON.stringify([entry.connectionId, entry.itemId]);
-    if (!accounts.has(key))
+    if (
+      !accounts.has(key) &&
+      connectionUse(settings, catalog, entry.connectionId) !== "disabled" &&
+      getItemEligibility(settings, catalog, entry.connectionId, entry.itemId).eligible
+    )
       named.set(key, { connectionId: entry.connectionId, itemId: entry.itemId });
   }
   // Only matched and named items, so same-named items can be told apart; no other value is
