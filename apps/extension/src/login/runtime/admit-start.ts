@@ -23,6 +23,7 @@ import { loginReadiness, type ListMissReport as ListMiss } from "../wire";
 import { observedPath } from "../../observation/path";
 import { newId } from "@pateat/contracts/ids";
 import { quietly } from "./session-store";
+import type { PickedAccount } from "./session-schemas";
 import { frameKey, documentKey, codeAwaitsClick, autoSubmitted } from "./steps";
 import { asksEveryTime } from "./entry-press";
 import {
@@ -148,6 +149,13 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   // A paused site starts no login by itself; a resumed one goes on (ADR 0062).
   const pausedStart = ctx.paused && !ctx.previous;
 
+  // A **Log in now** pick plans only the request it came with (ADR 0088), or the login it
+  // started, which each later page of the tab resumes under the login's own scope.
+  const foreignManual = (pick: PickedAccount | undefined) =>
+    pick?.manual === true &&
+    pick !== manual?.pick &&
+    (ctx.previous === undefined || pick.attemptId !== ctx.previous.id);
+
   const planOf = async (
     route: LoginRecipe,
     from: typeof ctx.later,
@@ -166,8 +174,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       (planned.ok &&
         "chosen" in planned &&
         planned.chosen?.source === "pick" &&
-        planned.chosen.pick?.manual &&
-        planned.chosen.pick !== manual?.pick)
+        foreignManual(planned.chosen.pick))
     )
       return undefined;
     if (planned.ok && "fillOnly" in planned && planned.route.route !== "password") {
@@ -179,10 +186,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       if (rt.documents.get(ctx.key) !== ctx.live) return undefined;
       if (
         !manualCurrent() ||
-        (planned.ok &&
-          "chosen" in planned &&
-          planned.chosen?.pick?.manual &&
-          planned.chosen.pick !== manual?.pick)
+        (planned.ok && "chosen" in planned && foreignManual(planned.chosen?.pick))
       )
         return undefined;
     }
