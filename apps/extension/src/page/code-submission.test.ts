@@ -386,9 +386,14 @@ describe("splitCodeInputs without maxlength (ADR 0027 amendment of 2026-11-04)",
     // Epic Games' six inputs, each marked one-time-code.
     document.body.innerHTML = `<form>${notion(undefined, () => 'autocomplete="one-time-code"')}</form>`;
     expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
-    // A token the description does not show, a length past 1024 or of 0.
-    document.body.innerHTML = `<form>${notion('autocomplete="section-otp one-time-code" maxlength="2000"', () => 'autocomplete="section-otp off" maxlength="0"')}</form>`;
+    // A token the description does not show, or a length past 1024.
+    document.body.innerHTML = `<form>${notion('autocomplete="section-otp one-time-code" maxlength="2000"', () => 'autocomplete="section-otp off" maxlength="2000"')}</form>`;
     expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
+    // A digit with a length of 0 takes no character, and the description leaves it out
+    // (ADR 0027 amendment of 2026-11-22).
+    document.body.innerHTML = `<form>${notion('autocomplete="one-time-code"', (place) => (place === 3 ? 'autocomplete="off" maxlength="0"' : 'autocomplete="off"'))}</form>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toBeUndefined();
+    expect(splitCodeOf(input("d1"), usable)).toBeUndefined();
     // A search or date input, which the description leaves out, takes no digit.
     document.body.innerHTML = `<form><input type="search"><input type="date">${notion()}</form>`;
     expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
