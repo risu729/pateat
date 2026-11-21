@@ -427,10 +427,17 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
   /**
    * Ends the flow for `reason`, unless the tab left this IdP page while it was read, as a
    * risk check that posts itself on at once: such a page ends nothing, and the tab's next
-   * page is read (ADR 0026, amendment of 2026-11-22).
+   * page is read, once per document; a document refused so before ends the flow, so a
+   * page that keeps changing its URL cannot keep a failure waiting (ADR 0026, amendment
+   * of 2026-11-22).
    */
   const stop = async (reason: string, cancel = reason) => {
-    if (rt.documents.get(ctx.key) !== ctx.live || (await leftIdp())) {
+    const id = ctx.document.documentId;
+    if (
+      !work.leftWhileRead?.has(id) &&
+      (rt.documents.get(ctx.key) !== ctx.live || (await leftIdp()))
+    ) {
+      (work.leftWhileRead ??= new Set()).add(id);
       if (work.live === ctx.live) work.live = prior;
       return left();
     }

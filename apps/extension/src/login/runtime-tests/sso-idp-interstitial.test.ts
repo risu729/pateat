@@ -191,4 +191,23 @@ describe("an IdP page the tab left while it was admitted", () => {
     expect(await ssoAdmit(h.rt, risk.ctx)).toEqual({ ok: false, reason: "sso-reprompt-required" });
     expect(h.work).toMatchObject({ ended: true, endReason: "sso-reprompt-required" });
   });
+  it("ends the flow at a second failure of the same document, whose URL keeps changing", async () => {
+    const { h, risk } = await riskPage();
+    let moves = 0;
+    vi.mocked(h.rt.fields).mockImplementation(async () => {
+      fake.state.tabUrls[7] = idp + "/risk/v3.0/authz/pages/compute?txn=" + (2 + moves++);
+      return undefined as never;
+    });
+    // The first failure, after the URL changed, waits for the page to announce again.
+    expect(await ssoAdmit(h.rt, risk.ctx)).toEqual({ ok: false, reason: "sso-in-progress" });
+    expect(risk.ctx.refuse).toHaveBeenCalledWith("sso-in-progress", "idp:left");
+    expect(h.work.ended).toBe(false);
+    // The same document announces at its new URL, and fails again as its URL changes.
+    const again = h.page(idp, "idp-risk", "/risk/v3.0/authz/pages/compute", "?txn=2");
+    expect(await ssoAdmit(h.rt, again.ctx)).toEqual({
+      ok: false,
+      reason: "sso-username-unavailable",
+    });
+    expect(h.work).toMatchObject({ ended: true, endReason: "sso-username-unavailable" });
+  });
 });

@@ -66,6 +66,11 @@ export type SsoWork = {
   refresh?: LiveDocument;
   /** The IdP document refused as one the tab left, asked once to announce again. */
   leftAsked?: string;
+  /**
+   * The IdP documents whose admission failed after the tab left them, refused `idp:left`
+   * once each (ADR 0026, amendment of 2026-11-22).
+   */
+  leftWhileRead?: Set<string>;
   reprompted?: boolean;
   generation?: boolean;
   /** The RP document and path the RP-return judge was last asked about: once each. */
