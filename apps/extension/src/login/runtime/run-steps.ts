@@ -4,6 +4,7 @@ import {
   fillOnlyStops,
   keypadStep,
   nextLoginOperation,
+  deliverLoginOperation,
   loginStepEffect,
   parseAttemptMetadata,
   passkeyAnswersRequest,
@@ -651,10 +652,15 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
         selfSubmitStep(run.recipe, run.metadata, operation.stepIndex) === undefined &&
         following?.kind === "click" &&
         following.path === operation.step.path;
+      // The operation's time counts again from its delivery, so the checks and vault reads
+      // above, which an SSO hop's login repeats for its flow's scope, leave the page its
+      // whole time to authorize and run the step (ADR 0026, amendment of 2026-11-21).
+      const delivered = deliverLoginOperation(operation);
+      run.operation = delivered;
       const execute = () =>
         send(rt, run.live, {
           type: "login.execute",
-          operation,
+          operation: delivered,
           values,
           ...(expected ? { account: expected } : {}),
           ...(accountAtPress ? { accountAtPress: true as const } : {}),

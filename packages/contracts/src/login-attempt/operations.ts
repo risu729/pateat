@@ -100,6 +100,12 @@ export function attemptPlan(
   return plan;
 }
 
+/**
+ * How long a step's operation stays valid: from when the worker builds it, and again from
+ * when it delivers it to the page, after its checks and vault reads (`deliverLoginOperation`).
+ */
+export const LOGIN_OPERATION_MS = 15_000;
+
 export function nextLoginOperation(
   value: unknown,
   recipeValue: unknown,
@@ -143,7 +149,7 @@ export function nextLoginOperation(
     // A fill-only attempt fills a step's other fields without its code.
     step: metadata.fillOnly === true || metadata.signInFill === true ? fillOnlyStep(step) : step,
     ...(metadata.signInFill ? { signInFill: true } : {}),
-    expiresAt: now + 15000,
+    expiresAt: now + LOGIN_OPERATION_MS,
   });
 }
 
@@ -183,6 +189,16 @@ export function validateLoginOperation(
     sameLoginDocument(operation.document, document) &&
     sameLoginDocument(metadata.document, document) &&
     now < operation.expiresAt &&
-    operation.expiresAt <= now + 15000
+    operation.expiresAt <= now + LOGIN_OPERATION_MS
   );
+}
+
+/**
+ * The operation as the worker delivers it to the page: valid for `LOGIN_OPERATION_MS` from
+ * now, so the worker's own checks and vault reads before its delivery, which an SSO hop's
+ * login repeats for its flow's scope, do not spend the page's time for its authorization
+ * and its effect (ADR 0026, amendment of 2026-11-21).
+ */
+export function deliverLoginOperation<T extends LoginOperation>(operation: T, now = Date.now()): T {
+  return { ...operation, expiresAt: now + LOGIN_OPERATION_MS };
 }

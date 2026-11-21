@@ -68,15 +68,26 @@ export const ssoChildOn = (rt: Runtime, document: LoginDocument) => {
 /** A synchronous check that the scope one {@link ssoScope} call checked still holds. */
 export type SsoFence = () => boolean;
 /**
+ * The reads one policy check shares between its scope checks: the flow's SSO mapping,
+ * read from the vault once per check rather than once per scope check (ADR 0026,
+ * amendment of 2026-11-21). A later check reads it again.
+ */
+export type SsoReads = {
+  /** The mapping read under way or done: a promise, awaited by each scope check. */
+  mappingRead?: ReturnType<NonNullable<Runtime["options"]["sso"]>["validate"]>;
+};
+/**
  * A fresh mapping is evidence only; item, page, policy and operation epochs authorize
  * delivery. Returns the fence of this check, to recheck after later awaits, or undefined
  * when it fails. Each caller keeps its own fence, so another check of the same flow, as
- * for its IdP child's document, never replaces it.
+ * for its IdP child's document, never replaces it. With `reads`, the mapping one check
+ * read already is used again; every other part of the scope is checked afresh.
  */
 export async function ssoScope(
   rt: Runtime,
   work: SsoWork,
   live: LiveDocument = work.live,
+  reads?: SsoReads,
 ): Promise<SsoFence | undefined> {
   if (
     !ssoCurrent(rt, work, live) ||
@@ -138,7 +149,13 @@ export async function ssoScope(
     )
       return undefined;
   }
-  const mapping = await rt.options.sso.validate(work.source, work.selected);
+  const { sso } = rt.options;
+  const validate = () => sso.validate(work.source, work.selected);
+  let mapping = await (reads ? (reads.mappingRead ??= validate()) : validate());
+  // A shared mapping read under settings that changed since, as by a choice-only save
+  // between the two scope checks, is read again, as a scope check of its own would.
+  if (reads && mapping.ok && mapping.data.policyRevision < saved.snapshot.revision)
+    mapping = await (reads.mappingRead = validate());
   if (!mapping.ok || !ssoCurrent(rt, work, live)) return undefined;
   // The selection was validated on these settings, or on later ones that only wrote
   // choices (`onlyChoicesSince`).

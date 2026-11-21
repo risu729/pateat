@@ -687,3 +687,42 @@ for (const scenario of ["same-document", "same-document-dom"] as const) {
     },
   );
 }
+
+// An identifier-first IdP, as IBMid: its email step advances to its password step,
+// in a new document or in the same one at a new URL, and the password fill is authorized.
+for (const scenario of ["identifier-first", "identifier-first-in-place"] as const) {
+  test(
+    "an identifier-first IdP fills its password after its email step (" + scenario + ")",
+    async () => {
+      await withVaultProfile(async (open) => {
+        const browser = await open();
+        const { options, evidence } = await configureSso(browser, scenario);
+        const page = await browser.context.newPage();
+        await page.goto(origins.rp + "/login");
+        await chooseExample(await openSsoPopup(browser, options, page));
+        try {
+          await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+        } catch (error) {
+          throw new Error(
+            "Synthetic identifier-first IdP failed: " +
+              JSON.stringify({ url: page.url(), evidence, status: await ssoStatus(options) }),
+            { cause: error },
+          );
+        }
+        await expect
+          .poll(
+            async () =>
+              (await ssoStatus(options)).attempts.find((attempt) => attempt.route === "sso")?.state,
+          )
+          .toBe("authenticated");
+        expect(evidence).toEqual({
+          entries: 1,
+          posts: 1,
+          matched: true,
+          returns: 1,
+          unsafeClicks: 0,
+        });
+      });
+    },
+  );
+}
