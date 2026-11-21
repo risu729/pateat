@@ -32,17 +32,23 @@ async function mount(
   settings: LocalSettings,
   manual: ManualClient,
   choice: ChoiceResponse = { ok: false, reason: "no-choice" },
+  listing?: SettingsClient["findSiteAccounts"],
 ) {
   const client = {
     getSettings: vi.fn<SettingsClient["getSettings"]>(async () => saved(settings)),
     saveSettings: vi.fn<SettingsClient["saveSettings"]>(),
-    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>(async () => ({
-      version: 1,
-      ok: true,
-      origin,
-      accounts: [{ connectionId: "demo-personal", itemId: "primary", uri: true, passkey: false }],
-      complete: true,
-    })),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>(
+      listing ??
+        (async () => ({
+          version: 1,
+          ok: true,
+          origin,
+          accounts: [
+            { connectionId: "demo-personal", itemId: "primary", uri: true, passkey: false },
+          ],
+          complete: true,
+        })),
+    ),
   };
   const choices = {
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue(choice),
@@ -194,6 +200,15 @@ test("Log in now shows after the choice while another tab's login holds its Log 
   await expect
     .element(page.getByRole("combobox", { name: "Account to log in with" }))
     .toBeVisible();
+});
+
+test("Log in now stays while a held choice's accounts are still being listed", async () => {
+  const manual = manualClient(async () => ({ ok: true, targets: [target(choiceDocument)] }));
+  // The listing never answers: the choice cannot show, and its Log in is held anyway.
+  await mount(createDefaultSettings(), manual, offer({ held: true }), () => new Promise(() => {}));
+  await expect.element(page.getByText("Listing the accounts that match this page…")).toBeVisible();
+  await expect.element(manualHeading()).toBeVisible();
+  await expect.element(choiceHeading()).not.toBeInTheDocument();
 });
 
 test("Log in now shows after the choice when it can log in to another document", async () => {

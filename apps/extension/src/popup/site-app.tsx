@@ -522,7 +522,8 @@ export function SiteApp({
                 candidates: offered.candidates,
                 held: offered.held === true,
               }
-            : (choice.isPending && choice.isEnabled) || (offered && !labelled)
+            : (choice.isPending && choice.isEnabled) ||
+                (offered && !labelled && offered.held !== true)
               ? "checking"
               : undefined
         }

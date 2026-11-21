@@ -291,8 +291,9 @@ default account, resuming automatic login or remembering the account for later l
 While the popup asks you to **Choose an account** for the page, log in there instead:
 its **Make it the default** checkbox can keep the account, so **Log in now** is hidden.
 It shows below that choice only while another tab's login keeps the choice's **Log in**
-from starting, when it can log in to another page or embedded form, or with an account
-the choice does not list, and while a request it started is still at work.
+from starting, when it can log in to another page or embedded form, fill a page, or use
+an account the choice does not list, and once a **Log in now** request for the tab is at
+work, until the popup closes.
 Pateat may ask the configured AI to inspect the page again; its normal limits and costs
 apply. The popup shows whether it is preparing, generating a recipe, starting or unable
 to continue; **Cancel this login** stops a request that is still preparing, as when the

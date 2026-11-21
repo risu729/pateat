@@ -251,8 +251,9 @@ tab's login holds the site.
 - While the popup shows the tab's account choice, **Log in now** (or **Fill**) is not
   shown. The choice is where to log in then, and its checkbox makes the account the
   default. Without a choice, **Log in now** keeps its place above the rest of the popup.
-- It shows after the choice section, its notes and **Remove default**, while any of
-  these holds:
+- It shows after the choice section, its notes and **Remove default** (for a choice in
+  an embedded frame, also after the page's own default account list and account switch),
+  while any of these holds:
   - Another tab's login holds the site (the choice's `held`), so the choice's **Log in**
     is disabled. **Log in now** checks the narrower hold of an explicit request
     (`manualHeldElsewhere`), so it can still start, or says why it cannot.
@@ -274,6 +275,7 @@ The following are the agent's choices, not confirmed by the owner:
   provider, which a choice of several matches leaves out.
 - **Log in now** is also hidden while the popup still checks whether the tab waits for a
   choice, or lists the choice's accounts, so it does not show first and then vanish
-  under the pointer as the choice appears.
+  under the pointer as the choice appears. While another tab's login holds the site it
+  is not hidden for the listing, since it is then the only way to log in.
 - The decision lives in the popup. The worker's offer, start and hold checks are
   unchanged.
