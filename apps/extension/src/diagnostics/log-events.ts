@@ -350,6 +350,11 @@ export const LOG_EVENTS = {
       // `confirm-fill-stopped`): `login` or `pick`, whose account fills, never the account
       // (ADR 0035, amended 2026-11-17).
       accountSource: "code",
+      // For `confirm-fill-stopped`: where the fill stopped; and for a fill's rows logged at
+      // its end because the page never reported its first step shown, `unshown`, without
+      // the page's fields (ADR 0035, #1761).
+      stoppedAt: "code",
+      unshown: "flag",
       // Also for `confirm-unsupported`, for the evaluation of page kinds: whether an amount
       // shows in the form, ADR 0029's E1 and E2, and the tab's previous page (ADR 0035).
       amount: "flag",

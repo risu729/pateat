@@ -24,7 +24,13 @@ import {
 } from "./confirm-state";
 import { confirmAccount, confirmCurrent } from "./confirm-scope";
 import { fillConfirmation, type ConfirmFillEnd } from "./confirm-fill";
-import { confirmEnded, noteConfirmFill, settleConfirmFill } from "./not-started";
+import {
+  confirmEnded,
+  noteConfirmFill,
+  noteConfirmSkipped,
+  noteConfirmWaiting,
+  settleConfirmFill,
+} from "./not-started";
 import { manualPending } from "./manual-scope";
 import { confirmPickFor, endConfirmPick, type ConfirmPick } from "./confirm-pick-scope";
 import { explicitlyPicked } from "./page-permission";
@@ -137,7 +143,10 @@ export async function admitConfirm(rt: Runtime, ctx: AdmitContext): Promise<Read
   const permission = pagePermission(snapshot.snapshot.settings, ctx.live.url, "confirm");
   if (recipe && permission.permission !== "fill")
     return pageOff(rt, ctx.live, recipe, permission.source, ctx.shown?.amount);
-  if (ctx.paused) return;
+  if (ctx.paused) {
+    if (recipe) noteConfirmSkipped(rt, ctx.live, recipe, "paused");
+    return;
+  }
   const visit = recipe && confirmPage(rt, ctx.live, recipe);
   if (
     confirmBusy(rt, ctx.document.tabId) &&
@@ -317,7 +326,10 @@ function runConfirmWork(
     let end: ConfirmFillEnd = "stopped";
     try {
       const account = await confirmAccount(rt, work);
-      if (!account) return;
+      if (!account) {
+        work.stoppedAt = "account";
+        return;
+      }
       work.policyRevision = account.snapshot.snapshot.revision;
       if (account.connection.snapshotId !== undefined)
         work.snapshotId = account.connection.snapshotId;
@@ -345,6 +357,9 @@ function runConfirmWork(
           },
         });
       }
+    } catch (error) {
+      work.stoppedAt = "error";
+      throw error;
     } finally {
       finish();
       // A recipe that came back holds the page even when it reached it no more.
@@ -362,10 +377,15 @@ function runConfirmWork(
               ? answered
               : "stopped",
       );
-      // The document's latest announcement, which may have replaced this one meanwhile.
+      // The document's latest announcement, which may have replaced this one meanwhile. A
+      // newer fill of the same document, which cancelled this one, settles for itself.
       const page = rt.documents.get(ctx.key);
-      if (recipe && page?.document.documentId === ctx.document.documentId) {
+      const newer = rt.confirmFill.work.get(ctx.document.tabId);
+      const superseded =
+        newer !== undefined && newer.live.document.documentId === ctx.document.documentId;
+      if (recipe && !superseded && page?.document.documentId === ctx.document.documentId) {
         if (end === "asked" || end === "claimed") {
+          noteConfirmWaiting(rt, page, ctx.live.path, end, work.pick ? "pick" : "login");
           if (page === ctx.live) await publish(rt, ctx.live);
         } else
           await settleConfirmFill(
@@ -375,6 +395,7 @@ function runConfirmWork(
             OUTCOMES[end],
             false,
             work.pick ? "pick" : "login",
+            end === "stopped" ? work.stoppedAt : undefined,
           );
       }
     }

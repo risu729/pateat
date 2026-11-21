@@ -63,9 +63,37 @@ export type ConfirmWork = {
   reprompted?: true;
   operation?: LoginOperation;
   recipe?: LoginRecipe;
+  /** Where a fill that stopped stopped, for its log row only (ADR 0035 delivery 3). */
+  stoppedAt?: ConfirmStop;
   cancelled: boolean;
   generation: boolean;
 };
+
+/**
+ * Where a confirmation fill stopped: the recipe has no fillable step on the path
+ * (`no-step`); no account, or the page, settings or vault no longer admit the fill
+ * (`account`); no master password could be asked or it was not given (`reprompt`); no
+ * binding for its slots (`plan`); the page's content script did not answer (`unreachable`)
+ * or the step never became ready there (`not-ready`); another fill's claim (`claim`); a
+ * value it may not use, could not read or that its inputs cannot take (`value`); its
+ * authority changed meanwhile (`changed`); the page refused the delivery (`delivery`); or
+ * an error (`error`). A fill that waits for its master password window or found its step
+ * already claimed logs `asked` or `claimed` instead, on its `confirm-fill` row.
+ */
+export type ConfirmStop =
+  | "no-step"
+  | "account"
+  | "reprompt"
+  | "plan"
+  | "unreachable"
+  | "not-ready"
+  | "claim"
+  | "value"
+  | "changed"
+  | "delivery"
+  | "error"
+  | "asked"
+  | "claimed";
 
 /** Session evidence outlives the worker, never a browser restart. No values are stored. */
 export function createConfirmState() {
@@ -86,6 +114,7 @@ export function createConfirmState() {
         reason: ConfirmOutcome;
         declined?: true;
         accountSource?: ConfirmAccountSource;
+        stoppedAt?: ConfirmStop;
         /** The visit the fill ended in, whose rows alone log this end. */
         visit?: ConfirmVisit;
       }
