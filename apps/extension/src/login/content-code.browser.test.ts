@@ -198,6 +198,16 @@ describe("a totp handler's code (ADR 0027 amendment of 2026-11-07)", () => {
     await fillCode("code");
     expect((document.getElementById("code") as HTMLInputElement).value).toBe("123456");
   });
+
+  it("types the whole code into one text input limited to 6 characters, as on ImmiAccount", async () => {
+    await install(
+      `<form><input id="authenticationCode" type="text" maxlength="6">${button}</form>`,
+    );
+    await fillCode("authenticationCode");
+    expect((document.getElementById("authenticationCode") as HTMLInputElement).value).toBe(
+      "123456",
+    );
+  });
 });
 
 describe("a username fill on a code input (issue #1413)", () => {

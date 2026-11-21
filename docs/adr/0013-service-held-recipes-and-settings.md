@@ -204,9 +204,9 @@ The executor enforces these regardless of where a recipe came from:
   linked field, such as a birth date or a secret question's answer kept in a Hidden
   field, follows [ADR 0061](0061-personal-details-during-a-login.md)'s rules instead.
 - TOTP fills only `autocomplete=one-time-code` or short numeric inputs; the length
-  limit is set at implementation. Amended by ADR 0027 (amendments of 2026-11-07 and
-  2026-11-08): also a text input without `maxlength` that the judge names as a `totp`
-  handler's code field.
+  limit is set at implementation. Amended by ADR 0027 (amendments of 2026-11-07,
+  2026-11-08 and 2026-11-21): also a text input without `maxlength`, or with one of 6 to
+  10, that the judge names as a `totp` handler's code field.
 - All fills of one step share one form owner, or all have none.
 
 There is no per-binding exception. A bank PIN input with `type=tel` therefore cannot

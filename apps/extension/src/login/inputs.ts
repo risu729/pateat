@@ -46,14 +46,16 @@ const describedInputModes: ReadonlySet<string> = new Set(observedInputModes);
 /**
  * A text input whose `inputmode` the page's description shows as absent, `text` or
  * `numeric`, that declares no `maxlength` (or 0 or one past 1024, which the page's
- * description leaves out too) and whose `autocomplete` names no token the page's
- * description shows, so the description shows it with none or `off`, as the service's
- * `judgedCodeInput` reads one (ADR 0027 amendments of 2026-11-07 and 2026-11-08): a
- * `totp` handler's code may go in, as HCP Cloud's "Enter your one-time code" and
- * Supabase's "Authentication code", though the page is no code page for it.
+ * description leaves out too) or one of 6 to 10, and whose `autocomplete` names no token
+ * the page's description shows, so the description shows it with none or `off`, as the
+ * service's `judgedCodeInput` reads one (ADR 0027 amendments of 2026-11-07, 2026-11-08
+ * and 2026-11-21): a `totp` handler's code may go in, as HCP Cloud's "Enter your one-time
+ * code", Supabase's "Authentication code" and ImmiAccount's "Authentication code" with
+ * `maxlength="6"`, though the page is no code page for it.
  */
-function unlimitedTextInput(input: SecretInput): boolean {
+function judgedTextInput(input: SecretInput): boolean {
   const mode = input.getAttribute("inputmode")?.trim().toLowerCase();
+  const maxLength = input.maxLength ?? -1;
   return (
     input.type === "text" &&
     (mode === undefined ||
@@ -61,7 +63,7 @@ function unlimitedTextInput(input: SecretInput): boolean {
       mode === "numeric" ||
       !describedInputModes.has(mode)) &&
     // The description leaves out a `maxlength` of 0 or past 1024, as no limit.
-    ((input.maxLength ?? -1) < 1 || (input.maxLength ?? -1) > 1024) &&
+    (maxLength < 1 || maxLength > 1024 || (maxLength >= 6 && maxLength <= 10)) &&
     !autocompleteTokens(input).some((token) => describedTokens.has(token))
   );
 }
@@ -96,7 +98,7 @@ export function maskedSecret(secret: LoginSecretKind | undefined): boolean {
 /**
  * Secret values go only where a login form expects them, so a recipe cannot place a
  * password in a search box or comment field. A TOTP code may also use a short numeric
- * field, or a text input that declares no `maxlength` (`unlimitedTextInput`),
+ * field, or a text input that declares no `maxlength` or one of 6 to 10 (`judgedTextInput`),
  * and a Hidden custom field may use a password input or a short numeric field
  * (for example a PIN), never a plain text input. A personal detail (ADR 0061) goes into
  * a text, tel or number input, a split date's part also into a single-choice select, a
@@ -112,7 +114,7 @@ export function acceptsSecret(input: SecretInput, secret: LoginSecretKind | unde
   if (select && secret !== "date-part") return false;
   if (secret === "password") return passwordInput(input);
   if (secret === "hidden") return passwordInput(input) || shortNumericInput(input);
-  if (secret === "otp") return codeInput(input) || unlimitedTextInput(input);
+  if (secret === "otp") return codeInput(input) || judgedTextInput(input);
   if (
     detailKinds.includes(secret) &&
     autocompleteTokens(input).some((token) => signInTokens.includes(token))

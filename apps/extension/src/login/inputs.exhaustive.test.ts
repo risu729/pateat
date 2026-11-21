@@ -26,7 +26,7 @@ import type { LoginSecretKind } from "./wire";
 // field it was told to fill.
 
 const inputTypes = ["text", "email", "tel", "number", "password"];
-const maxLengths = [-1, 1, 2, 3, 4, 6, 10, 11, 2000];
+const maxLengths = [-1, 1, 2, 3, 4, 5, 6, 10, 11, 1024, 1025, 2000];
 const minLengths = [-1, 5];
 const inputModes = [null, "numeric", " Numeric ", "tel", "text", "kana"];
 const autocompletes = [

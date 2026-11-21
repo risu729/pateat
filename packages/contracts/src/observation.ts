@@ -519,11 +519,12 @@ function unmarkedDigit(candidate: ObservedCandidate): boolean {
 
 /**
  * A text input with no `inputmode` or one of `text` or `numeric`, that declares no
- * `maxlength` and whose `autocomplete` names nothing or only `off` (ADR 0027 amendments of
- * 2026-11-07 and 2026-11-08), as HCP Cloud's "Enter your one-time code" and Supabase's
- * "Authentication code" are: a `totp` handler's code field when the judge names it, though
- * {@link isCodeField} does not count it as a code input anywhere else. The extension's
- * TOTP fill rule takes it the same way (`acceptsSecret`).
+ * `maxlength` or one of 6 to 10, and whose `autocomplete` names nothing or only `off` (ADR
+ * 0027 amendments of 2026-11-07, 2026-11-08 and 2026-11-21), as HCP Cloud's "Enter your
+ * one-time code", Supabase's "Authentication code" and ImmiAccount's
+ * `<input id="authenticationCode" maxlength="6">` are: a `totp` handler's code field when
+ * the judge names it, though {@link isCodeField} does not count it as a code input
+ * anywhere else. The extension's TOTP fill rule takes it the same way (`acceptsSecret`).
  */
 export function judgedCodeInput(candidate: ObservedCandidate): boolean {
   return (
@@ -531,7 +532,8 @@ export function judgedCodeInput(candidate: ObservedCandidate): boolean {
     (candidate.inputMode === undefined ||
       candidate.inputMode === "text" ||
       candidate.inputMode === "numeric") &&
-    candidate.maxLength === undefined &&
+    (candidate.maxLength === undefined ||
+      (candidate.maxLength >= 6 && candidate.maxLength <= 10)) &&
     (candidate.autocomplete === undefined || candidate.autocomplete === "off")
   );
 }

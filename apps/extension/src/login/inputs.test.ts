@@ -62,6 +62,13 @@ describe("secret input rule", () => {
     ["otp", input({ inputMode: "email" }), false],
     ["otp", input({ autocomplete: "email" }), false],
     ["otp", input({ maxLength: 12 }), false],
+    // A text input limited to 6 to 10 characters, as ImmiAccount's code input (ADR 0027
+    // amendment of 2026-11-21).
+    ["otp", input({ maxLength: 6 }), true],
+    ["otp", input({ maxLength: 10, autocomplete: "off" }), true],
+    ["otp", input({ maxLength: 5 }), false],
+    ["otp", input({ maxLength: 11 }), false],
+    ["otp", input({ maxLength: 6, autocomplete: "username" }), false],
     ["otp", input({ type: "email" }), false],
     ["otp", longTel, false],
     // A numeric text input without a maxlength, as HCP Cloud's code input (ADR 0027

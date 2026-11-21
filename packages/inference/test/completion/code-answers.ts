@@ -143,6 +143,39 @@ export function registerUnboundedCodeCases({
     ).toMatchObject({ value: { totp: kept } });
   });
 
+  it("keeps the code in a plain text input limited to 6 to 10 characters", async () => {
+    // ImmiAccount's /lusc/login "App authentication" step (2026-11-21 10:27 UTC, issue
+    // #1750): one text input `#authenticationCode` labelled "Authentication code" with
+    // `maxlength="6"` and no `inputmode` or `autocomplete` (ADR 0027 amendment of
+    // 2026-11-21).
+    const outcomes = await Promise.all(
+      [6, 10, 5, 11, 64].map((maxLength) =>
+        judged([field({ inputMode: undefined, maxLength }), submit()], answer()),
+      ),
+    );
+    for (const outcome of outcomes.slice(0, 2))
+      expect(outcome).toMatchObject({
+        status: "ok",
+        value: { decision: "challenge", totp: kept },
+      });
+    for (const outcome of outcomes.slice(2))
+      expect(outcome).toMatchObject({ value: { totpDropped: "not-code-field" } });
+  });
+
+  it("drops a code input beside a text input limited to a code's length in its form", async () => {
+    // A name or username input with a `maxlength` of 6 to 10 counts like one without.
+    const code = field({ inputMode: undefined, maxLength: undefined });
+    const other = field({
+      id: "other",
+      target: { by: "id", value: "name" },
+      inputMode: undefined,
+      maxLength: 8,
+    });
+    expect(await judged([code, other, submit()], answer())).toMatchObject({
+      value: { totpDropped: "several-code-fields" },
+    });
+  });
+
   it("drops a text input without inputmode beside another text input of its form", async () => {
     const code = field({ inputMode: undefined, maxLength: undefined });
     const other = field({

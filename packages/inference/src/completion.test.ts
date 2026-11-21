@@ -422,7 +422,8 @@ describe("TOTP code on a challenge page (ADR 0027)", () => {
   it.each([
     [
       "a field that is not a code field",
-      [{ ...codeField, autocomplete: undefined, inputMode: undefined }, verify],
+      // A plain text input limited past a code (ADR 0027 amendment of 2026-11-21).
+      [{ ...codeField, autocomplete: undefined, inputMode: undefined, maxLength: 12 }, verify],
       "not-code-field",
     ],
     [
