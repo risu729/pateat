@@ -258,6 +258,26 @@ describe("findSiteAccounts", () => {
     expect(readUsernames).not.toHaveBeenCalled();
   });
 
+  it("does not name an item whose username the draft excludes", async () => {
+    const value = enabled();
+    const live = value.catalog.connections.find((entry) => entry.id === "live")!;
+    const readUsernames = vi.fn<LoginUsernameSource>(async () => ({}));
+    const result = await findSiteAccounts({
+      saved: value,
+      settings: excludeField(draft(), live, otherItem, "login.username"),
+      origin: "https://bank.example",
+      named: [{ connectionId: "live", itemId: otherItem }],
+      matchUris: async () => ({
+        ok: true,
+        data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+      }),
+      findPasskeys: passkeys(),
+      readUsernames,
+    });
+    expect(result).not.toHaveProperty("named");
+    expect(readUsernames).not.toHaveBeenCalled();
+  });
+
   it("answers without named usernames when none was read", async () => {
     const result = await findSiteAccounts({
       saved: saved(),

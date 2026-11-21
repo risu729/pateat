@@ -10,6 +10,8 @@ const originSchema = v.pipe(
   }, "Use an exact HTTP(S) origin"),
 );
 
+/** The most items one `settings.site-accounts` request names. */
+export const SITE_ACCOUNTS_MAX_NAMED = 10_000;
 const itemReference = v.strictObject({ connectionId: identifier, itemId: identifier });
 
 /**
@@ -24,7 +26,7 @@ export const siteAccountsRequestSchema = v.strictObject({
   type: v.literal("settings.site-accounts"),
   origin: originSchema,
   settings: localSettingsSchema,
-  named: v.optional(v.pipe(v.array(itemReference), v.maxLength(10_000))),
+  named: v.optional(v.pipe(v.array(itemReference), v.maxLength(SITE_ACCOUNTS_MAX_NAMED))),
 });
 
 /**

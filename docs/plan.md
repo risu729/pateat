@@ -2043,11 +2043,11 @@ real Bitwarden Cloud US account in their Chrome
   each page. Its row asks the same question for its origin and names its item: when its
   item matches, the row shows how; when every vault was searched and it does not match
   `origin/`, the row says so; otherwise the row keeps the neutral note. In each case the
-  row shows the item's login username when the saved settings let it be read, looked up
-  again on each visit and never saved.
-  The background answers these lookups one at a time, since a vault's crypto Worker
-  takes one job at a time. The owner confirmed both the picker and the saved row against
-  a real vault in the installed Chrome on 2026-10-11
+  row shows the item's login username when the saved settings and the draft let it be
+  read, looked up again on each visit and never saved. The background answers these
+  lookups one at a time, since a vault's crypto Worker takes one job at a time. The
+  owner confirmed both the picker and the saved row against a real vault in the
+  installed Chrome on 2026-10-11
   ([evidence](research/2026-10-10-feasibility.md#default-account-picker-on-a-real-vault-2026-10-11)).
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is

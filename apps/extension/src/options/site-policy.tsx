@@ -6,6 +6,7 @@ import {
   parseSiteUrl,
   resolveSiteAccount,
   siteDefaultConnection,
+  SITE_ACCOUNTS_MAX_NAMED,
   type LocalSettings,
   type SiteAccountsResponse,
   type SiteDefault,
@@ -71,8 +72,6 @@ const originSchema = v.pipe(
 );
 
 export const SITE_ACCOUNTS_DELAY_MS = 300;
-/** The most items one search names, as `settings.site-accounts` accepts. */
-const MAX_NAMED_ITEMS = 10_000;
 const WAIT_FOR_ACCOUNTS = "Wait until the matching accounts are listed.";
 
 function ruleName(rule: ExcludedSite): string {
@@ -315,7 +314,9 @@ export function SitePolicy({
           )
           .map((item) => ({ connectionId: connection.id, itemId: item.id })),
       );
-      return findSiteAccounts(found!.origin, draft, unmatched.slice(0, MAX_NAMED_ITEMS));
+      // Every listed item matched: nothing more to name.
+      if (!unmatched.length) return found!;
+      return findSiteAccounts(found!.origin, draft, unmatched.slice(0, SITE_ACCOUNTS_MAX_NAMED));
     },
     enabled: showAllAccounts && found !== undefined,
     staleTime: 0,
