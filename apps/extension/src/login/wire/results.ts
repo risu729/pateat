@@ -130,7 +130,8 @@ export const executionResultSchema = v.strictObject({
    * failure, the form was replaced, the target is missing or not writable (or, for a
    * `password` handler's click, its text no longer names the password, ADR 0048), the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
-   * fill, two of its fields name the same input, its fields are in different forms, an
+   * fill, two of its fields name the same input, its fields are in different forms, a
+   * split identifier's inputs are not the ones its recipe field names (ADR 0089), an
    * input refused its secret, the page's inputs have no value setter, a code field's
    * submission watch could not start, the form or the clicked button would send the form
    * off the document's origin to a destination the background did not allow, or the
@@ -154,6 +155,7 @@ export const executionResultSchema = v.strictObject({
       "unexpected-values",
       "fields-shared",
       "fields-split",
+      "split-mismatch",
       "secret-refused",
       "unsupported-input",
       "code-watch-failed",

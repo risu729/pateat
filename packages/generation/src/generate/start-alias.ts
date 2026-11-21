@@ -61,7 +61,7 @@ function firstPage(steps: readonly LoginStep[], start: string): LoginStep[] | un
 function firstPageElements(
   layout: LoginLayout,
   start: string,
-): { target: LoginTarget; keypad?: unknown; roles: ReadonlySet<string> }[] {
+): { target: LoginTarget; keypad?: unknown; split?: unknown; roles: ReadonlySet<string> }[] {
   if (!runsLogin(layout) || layout.passkeyOnly) return [];
   const elements: ReturnType<typeof firstPageElements> = [];
   for (const steps of [layout.steps, ...(layout.alternatives ?? []).map((entry) => entry.steps)]) {
@@ -86,6 +86,7 @@ function firstPageElements(
         elements.push({
           target: field.target,
           keypad: field.keypad,
+          split: field.split,
           roles: field.slot === "password" ? passwordRoles : identifierRoles,
         });
       }
@@ -102,8 +103,10 @@ function firstPageElements(
  * Whether the page described shows the layout's first page unchanged: each element it
  * names is exactly one candidate of the description, of a role its slot takes (an
  * identifier a text, email or telephone input, the password a password input, a click a
- * button), with the same software keyboard if any; and the page has no password input
- * the layout does not fill, so a form that asks for a new password never matches.
+ * button), with the same software keyboard if any and, for an identifier split over
+ * several inputs (ADR 0089), as the first of as many parts of the same lengths
+ * (`splitLengths`); and the page has no password input the layout does not fill, so a
+ * form that asks for a new password never matches.
  */
 export function showsFirstPage(
   layout: LoginLayout,
@@ -122,7 +125,9 @@ export function showsFirstPage(
       found.length !== 1 ||
       !candidate ||
       !element.roles.has(candidate.role) ||
-      JSON.stringify(candidate.keypad ?? null) !== JSON.stringify(element.keypad ?? null)
+      JSON.stringify(candidate.keypad ?? null) !== JSON.stringify(element.keypad ?? null) ||
+      JSON.stringify(splitLengths(observation, candidate) ?? null) !==
+        JSON.stringify(element.split ?? null)
     )
       return false;
     named.add(candidate.id);
@@ -130,6 +135,23 @@ export function showsFirstPage(
   return observation.candidates.every(
     (candidate) => candidate.role !== "password" || named.has(candidate.id),
   );
+}
+
+/**
+ * The parts' lengths of the split identifier whose first part `candidate` is, as a fill
+ * field's `split` holds them (ADR 0089); `[]` for a later part, which no field names, and
+ * `undefined` for an input of no group.
+ */
+function splitLengths(
+  observation: LoginObservation,
+  candidate: ObservedCandidate,
+): (number | undefined)[] | undefined {
+  const { split } = candidate;
+  if (!split) return undefined;
+  if (split.part !== 1) return [];
+  return observation.candidates
+    .filter((entry) => entry.split?.group === split.group)
+    .map((entry) => entry.maxLength);
 }
 
 /**

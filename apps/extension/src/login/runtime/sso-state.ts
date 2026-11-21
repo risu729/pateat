@@ -12,7 +12,7 @@ import {
   type SettingsResponse,
   type SsoRecipeDocument,
 } from "@pateat/contracts";
-import type { SsoSourceRef, SsoIdpChoice } from "../sso-vault";
+import type { SsoSourceRef, SsoIdpChoice, VaultSsoSource } from "../sso-vault";
 import type { Choice, LiveDocument, UnsavedChoice } from "./types";
 const KEY = "session:pateat.sso-intents.v1";
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
@@ -66,6 +66,11 @@ export type SsoWork = {
   refresh?: LiveDocument;
   /** The IdP document refused as one the tab left, asked once to announce again. */
   leftAsked?: string;
+  /**
+   * The IdP documents whose admission failed after the tab left them, refused `idp:left`
+   * once each (ADR 0026, amendment of 2026-11-22).
+   */
+  leftWhileRead?: Set<string>;
   reprompted?: boolean;
   generation?: boolean;
   /** The RP document and path the RP-return judge was last asked about: once each. */
@@ -98,7 +103,14 @@ export type SsoWork = {
   /** Why `cancelSso` ended the flow, for a completion that was being written meanwhile. */
   endReason?: string;
   timer?: ReturnType<typeof setTimeout>;
+  /**
+   * The flow's SSO mapping, read from the vault once for what it was read under and kept
+   * in memory only, with the flow (`ssoMapping`, ADR 0026 amendment of 2026-11-22).
+   */
+  mapping?: { key: string; read: Promise<SsoMapping> } | undefined;
 };
+/** What the vault answers for a flow's SSO mapping (`sso.validate`). */
+export type SsoMapping = Awaited<ReturnType<VaultSsoSource["validate"]>>;
 export type SsoNativeChoice = {
   document: LoginDocument;
   account: LoginAccount;

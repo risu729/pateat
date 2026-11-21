@@ -1,8 +1,9 @@
 import { observedAutocompleteTokens } from "@pateat/contracts";
-import { fieldLabel } from "../observation/extract";
+import { fieldLabel, groupLabel } from "../observation/extract-labels";
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
 import { closestAcross, formOf, inputsOf, queryAll } from "./shadow";
+import { groupStem, splitGroups } from "./split-identifier";
 
 /**
  * Words that name an account identifier (ADR 0016), matched as whole words of an input's
@@ -159,6 +160,27 @@ function identifierNamed(input: HTMLInputElement): boolean {
 }
 
 /**
+ * Whether an identifier split over several inputs (ADR 0089) names an identifier, as
+ * `identifierNamed` reads one input: by its parts' own texts and their shared name or id
+ * without the numbers (`groupStem`), as `tel` of `tel1` to `tel3`, or else by the text that
+ * labels the group by layout (`groupLabel`). A word of another kind of field, as `zip`, in
+ * any of them leaves it out.
+ */
+export function groupNamed(group: readonly HTMLInputElement[]): boolean {
+  const stem = groupStem(group);
+  const own = [stem, ...group.flatMap(descriptions)];
+  if (own.some((text) => holds(text, otherWords, otherParts))) return false;
+  if (own.some((text) => holds(text, identifierWords, identifierParts))) return true;
+  const other = [stem, ...group.flatMap((input) => [input.name, input.id])].some((text) =>
+    holds(text, numberOthers, numberOtherParts),
+  );
+  if (!other && namesNumber(own)) return true;
+  const label = groupLabel(group);
+  if (label === undefined || holds(label, otherWords, otherParts)) return false;
+  return holds(label, identifierWords, identifierParts) || (!other && namesNumber([...own, label]));
+}
+
+/**
  * The HTML autofill field names, which mark an input for something; `on`, `off`, the
  * section, shipping, billing and contact prefixes and other tokens do not.
  */
@@ -219,7 +241,9 @@ function signUpForm(input: HTMLInputElement): boolean {
  * names an identifier or a number an account is known by. A search box, or an
  * input with a word of a coupon, order, tracking, postal or newsletter field, neither
  * counts nor is counted beside one, and an input in a sign-up form never counts. Only
- * the page's own markup is read, never a value.
+ * the page's own markup is read, never a value. An identifier split over several inputs
+ * (`splitGroups`, ADR 0089) counts as one input: such a group alone on the page, with no
+ * autofill field name on any part, is `sole` when it names an identifier (`groupNamed`).
  */
 export function identifierInput(document: Document): "sole" | "email" | undefined {
   const inputs = queryAll<HTMLInputElement>(document, "input").filter(
@@ -230,10 +254,21 @@ export function identifierInput(document: Document): "sole" | "email" | undefine
       (input.type === "email" || autocompleteTokens(input).includes("email")) && !signUpForm(input),
   );
   if (emails.length) return inputs.length === 1 ? "sole" : "email";
-  if (inputs.length !== 1) return undefined;
-  const [input] = inputs as [HTMLInputElement];
-  const unmarked = !autocompleteTokens(input).some((token) => fieldNames.has(token));
-  return input.type === "text" && unmarked && !signUpForm(input) && identifierNamed(input)
+  // An identifier split over several inputs counts as one input, its first (ADR 0089).
+  const groups = splitGroups(document).filter((group) =>
+    group.every((input) => inputs.includes(input)),
+  );
+  const counted = inputs.filter(
+    (input) => !groups.some((group) => group.includes(input) && group[0] !== input),
+  );
+  if (counted.length !== 1) return undefined;
+  const [input] = counted as [HTMLInputElement];
+  const unmarked = (field: HTMLInputElement) =>
+    !autocompleteTokens(field).some((token) => fieldNames.has(token));
+  const group = groups.find((entry) => entry[0] === input);
+  if (group)
+    return group.every(unmarked) && !signUpForm(input) && groupNamed(group) ? "sole" : undefined;
+  return input.type === "text" && unmarked(input) && !signUpForm(input) && identifierNamed(input)
     ? "sole"
     : undefined;
 }

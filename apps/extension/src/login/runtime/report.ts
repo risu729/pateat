@@ -835,7 +835,9 @@ export type PolicyChange = { cause: PolicyChangeCause; reason?: string };
  * could not answer its page's own passkey request (`answer-failed`, ADR 0034), the page
  * showed a CAPTCHA, so its click was left to the person (`captcha-shown`, ADR 0029), the
  * page after an effect step settled as unknown while it still showed the sign-in form
- * (S1) with no failure that acted (`sign-in-shown`, ADR 0029), or the page's own reason
+ * (S1) with no failure that acted (`sign-in-shown`, ADR 0029), the value of an identifier
+ * split over several inputs did not fit them, so the page was left to the person
+ * (`identifier-unfit`, ADR 0089), or the page's own reason
  * (`ExecutionDetail`), including the fixed check that rejected a fill (ADR 0010).
  */
 export type StopCause =
@@ -850,6 +852,7 @@ export type StopCause =
   | "document-gone"
   | "captcha-shown"
   | "sign-in-shown"
+  | "identifier-unfit"
   | ExecutionDetail;
 
 /**

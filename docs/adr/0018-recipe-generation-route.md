@@ -64,6 +64,11 @@ Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (ow
 advance as one in the tab's page is, under ADR 0017's rule that its item matches the
 tab's URL too.
 
+Amended on 2026-11-21 by [ADR 0089](0089-identifiers-split-over-several-inputs.md)
+(owner, 19:00 UTC, implemented): a plan maps an identifier split over several inputs to
+its first part only, and its fill field carries the parts' lengths
+([below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
+
 Date: 2026-10-11
 
 ## Context
@@ -519,3 +524,19 @@ owner's approval. Tests use a fake token endpoint and fake models.
 - Use a generated recipe from the next visit, or only after the owner confirms it in the
   web UI.
 - Keep the log 30 days, or until deleted.
+
+## Amendment 2026-11-21: an identifier split over several inputs
+
+Status: accepted by the owner on 2026-11-21 through
+[ADR 0089](0089-identifiers-split-over-several-inputs.md) (decision card answered option
+A at 19:00 UTC; implemented).
+
+A login page's description marks each part of an identifier split over several inputs
+with `split: { group, part, of }`, only for a group that names an identifier. A marked
+part is never a code input, so a click after only its first part advances and Enter may
+be pressed in its last part, whatever the parts' type. A plan may map only an identifier
+slot into such a group, and only to its first part; the plan check refuses any other
+(`incompatible-role`). The validated fill field names the first part and gains `split`,
+each part's `maxlength` from the description, and a click that presses Enter in the
+group's form names its last part. The value check compares the value without its spaces
+and hyphens with the parts together.

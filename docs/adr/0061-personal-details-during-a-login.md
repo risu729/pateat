@@ -58,6 +58,11 @@ starts with a minus sign says a negative number
 never matches, and such a value is left out of the range check; both are small new rules
 the owner has not yet reviewed.
 
+Related on 2026-11-21: [ADR 0089](0089-identifiers-split-over-several-inputs.md) splits
+an identifier over several inputs by a page rule and marks the parts on the login page's
+description only, so this ADR's judge and its split values are unchanged
+([below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
+
 Date: 2026-10-23
 
 ## Context
@@ -783,3 +788,16 @@ and `2024-01` or `1-15`, with two runs, says none.
 - A pairing arrives only with the login whose page the service judged: a page is judged
   once per revision and path, so a second account, or a worker restart before the
   offer is in session, gets none and needs a field named as the question.
+
+## Amendment 2026-11-21: an identifier split over several inputs
+
+A note, not a change to this ADR's rules.
+[ADR 0089](0089-identifiers-split-over-several-inputs.md) (owner, 2026-11-21 19:00 UTC)
+fills a route's identifier split over several inputs, found by numbered names and
+`maxlength`, not by the judge: the recipe field names the first input and each part's
+length, and the content script finds the others. Its mark (`split`) is on the login
+page's description only, which this ADR's judge does not read, so the judge still names
+every part of a split value itself. Its value is split as a card number's is here,
+letters allowed, and one that does not fit ends the login `challenge` with
+`identifier-unfit`,
+as a split value that fits none of its inputs does with `detail-unfit`.

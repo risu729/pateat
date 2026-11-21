@@ -1,4 +1,4 @@
-import { closestAcross, composedParent, queryAll, treeOf } from "../page/shadow";
+import { closestAcross, composedParent, containsAcross, queryAll, treeOf } from "../page/shadow";
 import { renderedText, shown } from "../page/text";
 import { rawLimit, uncutText, visibleText } from "./extract-text";
 import { controls, fields } from "./extract-controls";
@@ -75,10 +75,24 @@ function otherControl(node: Element, element: Element): boolean {
  * across another control's area, a software keyboard's keys (`keys`, ADR 0067) or out of
  * the field's form.
  */
-function adjacentText(element: Element, keys?: ReadonlySet<Element>): string | undefined {
+function adjacentText(
+  element: Element,
+  keys?: ReadonlySet<Element>,
+  group?: ReadonlySet<Element>,
+): string | undefined {
+  // Around a group of inputs (`groupLabel`), any field of another kind stops the search but
+  // a checkbox or radio button, such as one that saves the number, does not.
+  const others = (node: Element) =>
+    group
+      ? queryAll(node, fields).some(
+          (field) =>
+            !group.has(field) &&
+            !(field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type)),
+        )
+      : queryAll(node, fields).length > 1;
   let node: Element | null = element;
   for (let depth = 0; node && depth <= labelDepth; depth += 1) {
-    if (depth > 0 && queryAll(node, fields).length > 1) return undefined;
+    if ((depth > 0 || group) && others(node)) return undefined;
     if (node instanceof HTMLFormElement || node === node.ownerDocument.body) return undefined;
     for (let sibling = node.previousElementSibling; sibling;) {
       const before: Element = sibling;
@@ -117,6 +131,19 @@ export function fieldLabel(
     adjacentText(input, keys) ??
     uncutText(input.title)
   );
+}
+
+/**
+ * The label of an identifier split over several inputs (ADR 0089): the text that labels
+ * the inputs' nearest common ancestor by layout, by the rule `fieldLabel` reads a field's
+ * nearby text with, as `以下の欄に、お客さま番号を入力してください。` above a row of three
+ * boxes. A checkbox beside the group does not stop it.
+ */
+export function groupLabel(inputs: readonly HTMLInputElement[]): string | undefined {
+  let ancestor: Element | null = inputs[0] ?? null;
+  while (ancestor && !inputs.every((input) => containsAcross(ancestor!, input)))
+    ancestor = composedParent(ancestor);
+  return ancestor ? adjacentText(ancestor, undefined, new Set(inputs)) : undefined;
 }
 
 export function actionLabel(element: HTMLElement): string | undefined {

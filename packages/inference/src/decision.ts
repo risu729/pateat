@@ -30,6 +30,7 @@ import {
   namesPasskey,
   registersPasskey,
   slotAcceptsOn,
+  splitParts,
   validateGeneratedPage,
 } from "./plan";
 
@@ -44,16 +45,30 @@ const none = "none";
 const enter = "enter";
 const candidateOption = (candidate: ObservedCandidate) => `c:${candidate.id}`;
 const slotOption = (slot: SemanticSlot) => `s:${slot.id}`;
-/** What a question shows of an element: never its locator. */
-const describe = (candidate: ObservedCandidate) => ({
+/**
+ * What a question shows of an element: never its locator. The first input of an
+ * identifier split over several inputs (`parts`, ADR 0089) shows the length of all its
+ * parts together, as the value goes into them without its spaces and hyphens.
+ */
+const describeElement = (candidate: ObservedCandidate, parts?: readonly ObservedCandidate[]) => ({
   role: candidate.role,
   ...(candidate.label === undefined ? {} : { label: candidate.label }),
   ...(candidate.placeholder === undefined ? {} : { placeholder: candidate.placeholder }),
   ...(candidate.description === undefined ? {} : { description: candidate.description }),
   ...(candidate.autocomplete === undefined ? {} : { autocomplete: candidate.autocomplete }),
   ...(candidate.group === undefined ? {} : { group: candidate.group }),
-  ...(candidate.maxLength === undefined ? {} : { maxLength: candidate.maxLength }),
-  ...(candidate.minLength === undefined ? {} : { minLength: candidate.minLength }),
+  ...(parts
+    ? {
+        maxLength: parts.reduce((sum, part) => sum + part.maxLength!, 0),
+        split: `the first of ${parts.length} inputs that take one value in parts, without its spaces and hyphens`,
+      }
+    : {
+        ...(candidate.maxLength === undefined ? {} : { maxLength: candidate.maxLength }),
+        ...(candidate.minLength === undefined ? {} : { minLength: candidate.minLength }),
+        ...(candidate.split === undefined
+          ? {}
+          : { split: `part ${candidate.split.part} of ${candidate.split.of} of one value` }),
+      }),
   ...(candidate.inputMode === undefined ? {} : { inputMode: candidate.inputMode }),
 });
 const untrusted =
@@ -82,12 +97,12 @@ function slotText(slot: SemanticSlot) {
   return parts.join("; ");
 }
 
-type Criterion = string | ReturnType<typeof describe>;
+type Criterion = string | ReturnType<typeof describeElement>;
 type ChoiceQuestion = {
   type: "choice";
   instructions:
     | string
-    | { question: string; element: { id: string } & ReturnType<typeof describe> };
+    | { question: string; element: { id: string } & ReturnType<typeof describeElement> };
   criteria: Record<string, Criterion>;
 };
 type BooleanQuestion = { type: "boolean"; instructions: string };
@@ -132,6 +147,8 @@ const text = {
  * Undefined when no element fits a slot: no form to map.
  */
 export function buildFieldQuestions(observation: LoginObservation, slots: readonly SemanticSlot[]) {
+  const describe = (candidate: ObservedCandidate) =>
+    describeElement(candidate, splitParts(observation, candidate));
   const form: Questions = {};
   for (const candidate of observation.candidates) {
     const fits = slots.filter((slot) => slotAcceptsOn(observation, slot.kind, candidate));
@@ -253,7 +270,7 @@ export const fieldDecisionPromptVersion = promptVersionOf(
     optionText,
     // The code that writes slots and elements into questions and state.
     slotText: slotText.toString(),
-    describe: describe.toString(),
+    describe: describeElement.toString(),
     build: buildFieldQuestions.toString(),
     enter,
     rules: { confirmAt, otherSetsAt, irreversibleYesAt, irreversibleNoAt },

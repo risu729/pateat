@@ -10,6 +10,7 @@ import {
   type LoginOperation,
   type LoginStep,
   sameLoginDocument,
+  splitIdentifier,
 } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
 import {
@@ -180,6 +181,8 @@ export async function fillConfirmation(
           fieldId: reference.fieldId,
         });
         if (!value || !confirmCurrent(rt, work)) return "stopped";
+        // An identifier its split inputs cannot take never reaches the page (ADR 0089).
+        if (field.split && !splitIdentifier(value, field.split)) return "stopped";
         values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
       }
       const username = loginUsernameFieldId(plan.connection, plan.account.itemId);

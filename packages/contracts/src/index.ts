@@ -8,6 +8,7 @@ export * from "./site-accounts";
 export * from "./login/account";
 export * from "./login/branch-schema";
 export * from "./login/details";
+export * from "./login/split";
 export {
   loginEntryRecipeSchema,
   loginChooserRecipeSchema,

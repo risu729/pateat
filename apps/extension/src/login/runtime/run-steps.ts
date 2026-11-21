@@ -14,6 +14,7 @@ import {
   WATCH_PATH_MAX,
   detailSlot,
   isDetailSlot,
+  splitIdentifier,
   type DatePart,
   validateLoginOperation,
 } from "@pateat/contracts";
@@ -479,6 +480,24 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
           // Locked, resynchronized or newly denied vault access withdraws this grant.
           if (value === undefined) {
             await change(rt, run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
+            return;
+          }
+          // An identifier its split inputs cannot take is left to the person, as a
+          // personal detail no input takes is (ADR 0089); the value is never logged.
+          if (field.split && !splitIdentifier(value, field.split)) {
+            await change(
+              rt,
+              run,
+              {
+                type: "VALUE_REJECTED",
+                operationId: operation.operationId,
+                document: run.live.document,
+                stage: "before-fill",
+                challenge: true,
+              },
+              undefined,
+              "identifier-unfit",
+            );
             return;
           }
           // A code, as any `totp` handler's fill, fills only a code input.
