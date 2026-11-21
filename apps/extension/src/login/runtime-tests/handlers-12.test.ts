@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseLoginRecipe, type DetailLink } from "@pateat/contracts";
+import type { LoginGeneration } from "../runtime/deps";
 import type { LoginReport } from "../runtime/report";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
@@ -180,6 +181,70 @@ describe("a birth date or phone number from the person's own items (ADR 0061)", 
       [0, "detail", "entered"],
       [0, "detail", "detail-saved"],
     ]);
+  }, 10_000);
+
+  it("completes on a signed-in page that keeps the handler's form hidden", async () => {
+    // My Digital Connect (2026-11-21): the form posts to a new document on the same path,
+    // signed in, which still holds the detail form's inputs and button, all hidden.
+    // Without a signed-in marker, the page itself decides, as the recipe there has none.
+    const judge = vi.fn<LoginGeneration["judge"]>(async (...args) => {
+      args[4]?.();
+      return { verdict: "signed-in" };
+    });
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness(
+      { detailLinks: [] },
+      {
+        passkeys: noPasskey,
+        report,
+        extraItems: [identity],
+        generation: {
+          available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+          generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+            outcome: "skipped",
+            reason: "sent",
+          })),
+          generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+          judge,
+          slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+        },
+      },
+    );
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === birthField ? "1990-04-01" : "synthetic-secret",
+    );
+    h.recipes.recipe.mockResolvedValue(
+      parseLoginRecipe({ ...unlearned, handlers: [handler("birth-date")] }),
+    );
+    onClick({ login: toConfirm });
+    const onLogin = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      const step = (message["operation"] as { step: { kind: string; target?: { value: string } } })
+        .step;
+      if (step.kind !== "click" || step.target?.value !== "confirm") return onLogin(message, tabId);
+      fake.state.gone.add("synthetic-document");
+      fake.state.present = new Set(["logout", "birth", "confirm"]);
+      fake.state.unusable = new Set(["birth", "confirm"]);
+      fake.state.extracted = {
+        "signed-in": { ...homePage, observation: { ...homePage.observation, path: "/signin" } },
+      };
+      setTimeout(() => void h.hello({ documentId: "signed-in" }, false), 0);
+      throw new Error("Could not establish connection. Receiving end does not exist.");
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(
+      () =>
+        expect(status()).toMatchObject([
+          { state: "authenticated", document: { documentId: "signed-in" } },
+        ]),
+      { timeout: 6_000 },
+    );
+    await vi.waitFor(() => expect(h.settings.settings.detailLinks).toEqual([birthLink]));
+    expect(handlerReports(report)).toEqual([
+      [0, "detail", "entered"],
+      [0, "detail", "detail-saved"],
+    ]);
+    expect(judge).toHaveBeenCalledTimes(1);
   }, 10_000);
 
   it("never fills it unasked again once the login is rejected", async () => {

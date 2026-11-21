@@ -160,6 +160,11 @@ that asks for the account first when that layout shows; the route is still chose
 rule 1 says
 ([A passkey button before the account](#amendment-2026-11-18-a-passkey-button-before-the-account)).
 
+Amended on 2026-11-21 (agent, for the owner's My Digital Connect login; implemented): a
+handler that already ran counts as shown again only while its page shows, so a
+signed-in page that keeps the handler's form hidden is read for its result
+([A handler's form kept hidden](#amendment-2026-11-21-a-handlers-form-kept-hidden)).
+
 Date: 2026-10-11
 
 ## Context
@@ -743,23 +748,25 @@ new owner decision:
   `addHandler` still apply. The added text, at most 360 characters, stays in the
   request log for a year under the same terms as `nearCode`. The judge's prompt version
   changed with it.
-- **Entering handlers.** A handler that has not run is entered when all its elements
-  are unique and usable on its path: a `totp` handler's field a shown writable input,
-  and its button, like a `passkey` handler's, a shown one, enabled or not, since many
-  code pages keep Verify disabled until the code is typed; the click step still waits
-  for the button to be enabled. A code input rendered hidden with the sign-in form
-  therefore never stands for a code page. A `totp` handler whose button is also a route
-  step's click target on that path is entered only while none of the route's fill
-  fields there shows, since the page is still the sign-in page while one does. A
-  handler that already ran counts as shown again when its elements are merely present,
-  hidden or disabled, so its page never goes to the judge instead. When several shown
-  handlers qualify, a `passkey` handler goes first, as the routes put the passkey first
-  and it types nothing. A handler is passed over when it already ran (`shown-again`),
-  the item lacks its fact (`missing-fact`), or, for a `totp` handler, the login already
-  types a TOTP code (`code-used`); when every shown handler is passed over, the login
-  ends `challenge` and the first one's reason is logged. A new document that shows a
-  `passkey` handler that already ran beside a `totp` handler the item can use therefore
-  enters the `totp` handler.
+- **Entering handlers.** A handler that has not run is entered when all its elements are
+  unique and usable on its path: a `totp` handler's field a shown writable input, and
+  its button, like a `passkey` handler's, a shown one, enabled or not, since many code
+  pages keep Verify disabled until the code is typed; the click step still waits for the
+  button to be enabled. A code input rendered hidden with the sign-in form therefore
+  never stands for a code page. A `totp` handler whose button is also a route step's
+  click target on that path is entered only while none of the route's fill fields there
+  shows, since the page is still the sign-in page while one does. A handler that already
+  ran counts as shown again when its elements show, even disabled or busy (for a
+  `detail` handler, its inputs merely present and its button shown), so its page never
+  goes to the judge instead; elements only kept hidden do not count
+  ([amendment of 2026-11-21](#amendment-2026-11-21-a-handlers-form-kept-hidden)). When
+  several shown handlers qualify, a `passkey` handler goes first, as the routes put the
+  passkey first and it types nothing. A handler is passed over when it already ran
+  (`shown-again`), the item lacks its fact (`missing-fact`), or, for a `totp` handler,
+  the login already types a TOTP code (`code-used`); when every shown handler is passed
+  over, the login ends `challenge` and the first one's reason is logged. A new document
+  that shows a `passkey` handler that already ran beside a `totp` handler the item can
+  use therefore enters the `totp` handler.
 - **One code per login.** A login types at most one TOTP code: a `totp` handler is never
   entered by a login whose route fills a `totp` slot or that entered a `totp` handler,
   so a wrong code is never followed by another, which ADR 0013 and the lockout rule
@@ -2123,3 +2130,34 @@ item's passkey instead of the password route. The owner chose option
   path, the login goes on with that layout's identifier and Continue, stops just past
   them and answers the page's passkey request with its item. It never falls back to
   typing the password, as this ADR says of the `passkey` route.
+
+## Amendment 2026-11-21: a handler's form kept hidden
+
+On My Digital Connect (2026-11-21 11:26 UTC, Real Chrome on
+[249401f](https://github.com/risu729/pateat/commit/249401f)) the owner's login filled
+the phone number's last four digits in the `detail` handler's lightbox form and pressed
+its button. The form posted to a new document on the same path, signed in with its
+ログアウト link, but that document still held the lightbox form: its ID and password
+copies, both radio buttons, the birth date and phone inputs and the button, all inside
+an element shown with `display: none`. The handler's check took those hidden elements
+for its page shown again (`login.handler` `shown-again`), dropped the phone number link
+as refused (`detail-forgotten`) and ended the login `challenge`.
+
+Before this amendment, a handler that already ran counted as shown again when its
+elements were merely present, hidden included, so that a page drawn again in a state
+the entering check would refuse, as a code field disabled after a wrong code, still
+went to the person rather than the judge. Hidden elements are not that page: a site
+that keeps its handler's form in every page's markup would never complete. The agent
+changed it, without asking the owner, as the fix of the reported login:
+
+- A handler that already ran counts as shown again when each element it needs to be
+  entered shows, disabled or busy included: a `detail` handler's inputs present, as a
+  choice page may hide all but one, and its button shown; every other handler's elements
+  shown. The held handler's rule
+  ([amendment of 2026-11-08](#amendment-2026-11-08-a-held-handler-shown-again)) already
+  read its elements this way.
+- A page whose handler elements are all hidden goes on as any page after the step: its
+  marker, its sign-in state and the judge decide it.
+- Not chosen: ignoring a handler shown again only in a new document. A wrong value
+  answered with the same form in a new document must still end the login there, and the
+  form's visibility tells the two apart without a rule about documents.

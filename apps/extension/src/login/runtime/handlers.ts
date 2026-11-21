@@ -168,7 +168,15 @@ export async function enterHandler(
         targets: [...targets, ...(sameForm ? routeFields : [])],
         require: [
           ...(ran
-            ? targets.map(() => (index === held ? ("shown" as const) : ("present" as const)))
+            ? // Shown again as it shows when entered, disabled or busy included: a `detail`
+              // handler's inputs present and its button shown, every other element shown.
+              // Elements a signed-in page only keeps hidden, as My Digital Connect keeps
+              // its detail form's (2026-11-21), are not its page shown again.
+              targets.map((_, at) =>
+                handler.kind === "detail" && at < targets.length - 1 && index !== held
+                  ? ("present" as const)
+                  : ("shown" as const),
+              )
             : handler.kind === "totp"
               ? // Its code field writable on a page whose words do not say the code was
                 // sent, so an emailed code's page on the same path never takes the TOTP

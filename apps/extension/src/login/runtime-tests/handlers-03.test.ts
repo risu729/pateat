@@ -644,8 +644,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(await h.hello()).toEqual({ ok: true });
         await until(() => clicks("verify") === 1);
         // A wrong code: the page loads the code form again. A handler that ran counts as
-        // shown again whatever state its elements are in.
-        if (unusable) fake.state.unusable = new Set(["app-code", "verify"]);
+        // shown again while its elements show, disabled or busy too.
+        if (unusable) fake.state.disabled = new Set(["app-code", "verify"]);
         fake.state.pageUrl = `${origin}/two-factor`;
         await h.hello({ documentId: "again" }, false);
         await until(settled("watching", "challenge"), 5_000);
