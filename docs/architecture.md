@@ -1841,8 +1841,10 @@ field's digest (code source and nearby headings, never a text) changes, checked 
 change of the page, and that page is read as the tab's next page
 ([ADR 0027 amendment of 2026-11-17](adr/0027-per-account-login-routes.md#part-3-the-authenticator-apps-code-during-a-watch)).
 Route steps that fill the `totp` slot are not checked this way. A handler that
-already ran counts as shown again when its elements are present at all, hidden or
-disabled; the one whose click the document still holds, shown again there before the
+already ran counts as shown again when its elements show as its entering check needs
+them, disabled or busy included, or, on a page that shows a route fill field writable,
+when they are present at all, hidden too (ADR 0027 amendment of 2026-11-21); the one
+whose click the document still holds, shown again there before the
 login settled, holds the page as its button does instead, so a code page drawn again on
 the way to the signed-in page ends nothing (ADR 0027 amendment of 2026-11-08). The
 `passkey` handler clicks a button such as "Use security key" only for an item with a

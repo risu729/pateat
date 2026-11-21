@@ -60,9 +60,12 @@ export async function enterHandler(
   // the button to be enabled. A `totp` handler whose button is also a route step's on
   // this path, as in a form that asks for the code after the password, needs every fill
   // field of the route there gone: while one shows, the page is still the sign-in page. A
-  // handler that already ran counts as shown again whenever its elements are there,
-  // hidden or disabled, so it never runs twice; only in the document that holds its click
-  // is one the page hid gone instead.
+  // handler that already ran counts as shown again when its elements show as they show
+  // when it is entered, disabled or busy included, and, on a page that shows a fill field
+  // of the route writable, the sign-in page again, whenever they are there at all, hidden
+  // too, so it never runs twice and a refused value is never filled again; only in the
+  // document that holds its click is one the page hid gone instead (ADR 0027 amendment of
+  // 2026-11-21).
   const routeFields = passwordVariants(run.recipe)
     .flatMap((variant) => variant.steps)
     .filter((step) => step.path === path)
@@ -161,11 +164,21 @@ export async function enterHandler(
         handler.kind === "password" ||
         handler.kind === "authenticator");
     const targets = handlerTargets(handler);
+    // A handler that ran is read twice, then beside the route's fill fields: its elements
+    // there at all, and shown as it shows when entered, so a page that only keeps them
+    // hidden, as My Digital Connect's signed-in page keeps its detail form (2026-11-21),
+    // is its page shown again only while it is the sign-in page again. The held handler
+    // needs every element shown already, and one whose second reading would not fit an
+    // observation's 24 elements counts its elements there at all, as before.
+    const again =
+      ran && index !== held && 2 * targets.length + routeFields.length <= 24
+        ? [...targets, ...routeFields]
+        : [];
     return [
       {
         handler,
         index,
-        targets: [...targets, ...(sameForm ? routeFields : [])],
+        targets: [...targets, ...(sameForm ? routeFields : []), ...again],
         require: [
           ...(ran
             ? targets.map(() => (index === held ? ("shown" as const) : ("present" as const)))
@@ -191,8 +204,19 @@ export async function enterHandler(
                       (["authenticator-choice"] as const)
                     : (["shown"] as const)),
           ...(sameForm ? routeFields.map(() => "writable" as const) : []),
+          // Shown again as it shows when entered: a `detail` handler's inputs present and
+          // its button shown, every other element shown.
+          ...(again.length
+            ? targets.map((_, at) =>
+                handler.kind === "detail" && at < targets.length - 1
+                  ? ("present" as const)
+                  : ("shown" as const),
+              )
+            : []),
+          ...(again.length ? routeFields.map(() => "writable" as const) : []),
         ],
         own: targets.length,
+        again: again.length > 0,
       },
     ];
   });
@@ -267,10 +291,14 @@ export async function enterHandler(
       offsets.set(entry.index, offset);
       const states = observed.targets.slice(offset, offset + entry.targets.length);
       offset += entry.targets.length;
+      if (states.length !== entry.targets.length) return false;
+      const own = states.slice(0, entry.own);
+      const rest = states.slice(entry.own);
+      if (!own.every((state) => state === "unique")) return false;
+      if (!entry.again) return rest.every((state) => state !== "unique");
       return (
-        states.length === entry.targets.length &&
-        states.slice(0, entry.own).every((state) => state === "unique") &&
-        states.slice(entry.own).every((state) => state !== "unique")
+        rest.slice(0, entry.own).every((state) => state === "unique") ||
+        rest.slice(entry.own).some((state) => state === "unique")
       );
     })
     .sort(byOrder);
