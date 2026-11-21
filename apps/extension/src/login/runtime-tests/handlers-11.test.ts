@@ -294,7 +294,7 @@ describe("a page handler not entered (ADR 0066 amendment of 2026-11-07)", () => 
     const reading = (targets: string[]) => (entry: (typeof fake.state.messages)[number]) =>
       entry.type === "login.observe" &&
       // The handler's check, which reads its targets first, then again with the route's.
-      JSON.stringify(entry.targets.slice(0, targets.length)) ===
+      JSON.stringify(entry.targets?.slice(0, targets.length)) ===
         JSON.stringify(targets.map((value) => target(value)));
     // What the page shows once Verify was pressed, by the reading that asks: the click's
     // own check finds "Verifying...", the handler's check right after it finds the page

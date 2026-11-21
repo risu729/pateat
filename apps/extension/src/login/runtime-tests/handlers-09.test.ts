@@ -407,8 +407,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         onClick({ login: toConfirm });
         const asks = (targets: string[]) => (entry: (typeof fake.state.messages)[number]) =>
           entry.type === "login.observe" &&
-          // The handler's check, which reads its targets first, then again with the route's.
-          JSON.stringify(entry.targets.slice(0, targets.length)) ===
+          JSON.stringify(entry.targets?.slice(0, targets.length)) ===
             JSON.stringify(targets.map((value) => target(value)));
         let redrawn: number | undefined;
         Object.defineProperty(fake.state, "present", {

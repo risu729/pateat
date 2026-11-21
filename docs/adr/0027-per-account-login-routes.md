@@ -2167,6 +2167,8 @@ changed it, without asking the owner, as the fix of the reported login:
   handler's form closed in its markup still ends the login `challenge` and drops the
   link (ADR 0061, "Refused values"), so the refused value is never filled again
   (review of [#1755](https://github.com/risu729/pateat/pull/1755)).
+  A handler whose elements, read twice beside the route's fill fields, would not fit
+  an observation's 24 elements keeps the earlier rule: present at all.
 - Any other page where one element the handler needs shown is hidden goes on as any
   page after the step: its marker, its sign-in state and the judge decide it.
   Nothing is entered twice there, since a handler that ran is refused `shown-again`

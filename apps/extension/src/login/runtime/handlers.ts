@@ -167,8 +167,13 @@ export async function enterHandler(
     // A handler that ran is read twice, then beside the route's fill fields: its elements
     // there at all, and shown as it shows when entered, so a page that only keeps them
     // hidden, as My Digital Connect's signed-in page keeps its detail form (2026-11-21),
-    // is its page shown again only while it is the sign-in page again.
-    const again = ran ? [...targets, ...routeFields] : [];
+    // is its page shown again only while it is the sign-in page again. The held handler
+    // needs every element shown already, and one whose second reading would not fit an
+    // observation's 24 elements counts its elements there at all, as before.
+    const again =
+      ran && index !== held && 2 * targets.length + routeFields.length <= 24
+        ? [...targets, ...routeFields]
+        : [];
     return [
       {
         handler,
@@ -201,17 +206,17 @@ export async function enterHandler(
           ...(sameForm ? routeFields.map(() => "writable" as const) : []),
           // Shown again as it shows when entered: a `detail` handler's inputs present and
           // its button shown, every other element shown.
-          ...(ran
+          ...(again.length
             ? targets.map((_, at) =>
-                handler.kind === "detail" && at < targets.length - 1 && index !== held
+                handler.kind === "detail" && at < targets.length - 1
                   ? ("present" as const)
                   : ("shown" as const),
               )
             : []),
-          ...(ran ? routeFields.map(() => "writable" as const) : []),
+          ...(again.length ? routeFields.map(() => "writable" as const) : []),
         ],
         own: targets.length,
-        ran,
+        again: again.length > 0,
       },
     ];
   });
@@ -290,7 +295,7 @@ export async function enterHandler(
       const own = states.slice(0, entry.own);
       const rest = states.slice(entry.own);
       if (!own.every((state) => state === "unique")) return false;
-      if (!entry.ran) return rest.every((state) => state !== "unique");
+      if (!entry.again) return rest.every((state) => state !== "unique");
       return (
         rest.slice(0, entry.own).every((state) => state === "unique") ||
         rest.slice(entry.own).some((state) => state === "unique")
