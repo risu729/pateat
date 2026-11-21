@@ -504,8 +504,9 @@ function interpret(
     request.carriedNames,
   );
   // Options are pre-filtered, so a rejection here is a cross-form joint mapping, a lone
-  // `new-password` field without an identifier of its form, or an account switch that
-  // does not fit; generation answers those.
+  // `new-password` field without an identifier of its form, an account switch that does
+  // not fit, or `enter` on a last field outside any form (ADR 0064); generation answers
+  // those.
   if (!validated.ok) return { status: "abstained", reason: "inconsistent-mapping" };
   // A form that also sets a new password is generation's to answer: its kind, and the one
   // input a verification may fill there (owner, 2026-11-19, ADR 0035). A sign-in plan
