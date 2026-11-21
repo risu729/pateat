@@ -145,7 +145,8 @@ export function codeSourceOf(texts: readonly string[]): CodeSource | undefined {
  * its code was sent, and its "Two-Factor Authentication" page on the same path names an
  * authenticator app. A page without a code field that `isCodeField` takes reads its only
  * input that the judge may name a code field (`judgedCodeInput`), as ImmiAccount's
- * `#authenticationCode` (ADR 0027 amendment of 2026-11-22); with none, or several, it has
+ * `#authenticationCode` (ADR 0027 amendment of 2026-11-22), without near texts, which the
+ * description carries only beside an `isCodeField` input; with none, or several, it has
  * no code field. Empty on a page without a code field, or whose texts say neither or both.
  * The service keys a page's kept judgement by it; the extension sends a watched code page to
  * the judge only when it is `authenticator`, and a watched login takes over the `totp`

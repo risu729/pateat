@@ -2233,8 +2233,7 @@ Decision:
   input refuses the code (`several-code-fields`) and the person types it. Inputs outside
   any form count as one form here too, so a code input outside any form beside a postal
   code input with `maxlength="7"` outside any form is refused as well.
-- A watched login still left this page to the person, as it did HCP Cloud's and
-  Supabase's, until the
+- A watched login still left this page to the person until the
   [amendment of 2026-11-22](#amendment-2026-11-22-a-watched-page-with-a-plain-code-input).
 - Changing `judgedCodeInput` changes the digest of a judged page's inputs
   (ADR 0029 amendment of 2026-11-07) for every page with such an input, so a row kept
@@ -2285,13 +2284,19 @@ Decision:
   authenticator choice.
 - `judgedCodeSource` reads, when no input `isCodeField` takes shows, the page's only
   input that `judgedCodeInput` takes; with several such inputs, as a page with a search
-  box and a name field, the page has no code field and stays empty. A page's kept row of
-  a judgement may so be keyed by a source it was not keyed by before, which judges it
-  again once.
+  box and a name field, the page has no code field and stays empty. A page whose only
+  such input is a search box gets a source from its title and headings too, so a page's
+  kept row of a judgement may be keyed by a source it was not keyed by before, which
+  judges it again once, and pages of one path whose headings differ, as an inbox and its
+  sent folder, are judged apart. Such a page's `nearCode` stays empty, as the
+  description collects it only beside an input `isCodeField` takes, so a page that names
+  the app only in a paragraph near a plain code input reads no source here.
 - A watched page that reads `judge` (no sign of a sign-in going on) gets a `totp`
   handler the recipe has on its path and has not run entered as a `continuing` page does
   (`watchedCode`, with `watched-totp-code`: the field empty and writable on a page whose
-  words name an authenticator app). With no such handler it is judged as any such page,
+  words name an authenticator app), once one of those handlers' code fields is there at
+  all; a signed-in page on the same path, as ImmiAccount's `/lusc/login`, is judged
+  without a handler miss in the log. With no such handler it is judged as any such page,
   and when its description's code source is `authenticator` and the login may type its
   item's TOTP (`watchesCode`: the tab's page on the recipe's origin, not only filling,
   the item has a TOTP, no code typed or planned), a revision that adds a `totp` handler

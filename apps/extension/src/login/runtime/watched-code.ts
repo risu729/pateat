@@ -2,6 +2,7 @@ import { type Execution, type SignInReading } from "./types";
 import { current } from "./attempt";
 import { enterHandler } from "./handlers";
 import { learn, watchesCode } from "./judge";
+import { observe } from "./reconcile";
 import { pathNow } from "./steps";
 import type { Runtime } from "./state";
 
@@ -30,13 +31,27 @@ export async function watchedCode(
   if ((reading.decision !== "continuing" && reading.decision !== "judge") || !watchesCode(run))
     return false;
   const path = pathNow(run.live);
-  const known = (recipe.handlers ?? []).some(
+  const known = (recipe.handlers ?? []).filter(
     (handler, index) =>
       handler.kind === "totp" &&
       handler.path === path &&
       !metadata.handlers.some((entered) => entered.index === index),
   );
-  if (known) {
+  if (known.length) {
+    // A page with no sign of a sign-in going on is a code page only while a known
+    // handler's code field is there: a signed-in page on the same path, as ImmiAccount's
+    // /lusc/login is, is judged as before and logs no handler miss.
+    if (reading.decision === "judge") {
+      const fields = known.flatMap((handler) => (handler.kind === "totp" ? [handler.field] : []));
+      const seen = await observe(
+        rt,
+        run,
+        fields,
+        fields.map(() => "present" as const),
+      );
+      if (!current(rt, run)) return true;
+      if (!seen?.targets.some((state) => state !== "missing")) return false;
+    }
     await enterHandler(rt, run, path);
     return !current(rt, run) || run.metadata.state !== "watching";
   }

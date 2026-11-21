@@ -380,4 +380,24 @@ describe("an authenticator app's code page the person reaches in a new document"
       report.mock.calls.some(([value]) => value.type === "judge" && value.takenOver === true),
     ).toBe(false);
   });
+
+  it("judges a signed-in page on a known handler's path without a handler miss", async () => {
+    vi.useFakeTimers();
+    const { h, report, generation } = start(async (...args) => {
+      args[4]?.();
+      const { path } = args[3] as { path: string };
+      return path === "/app-auth" ? { verdict: "signed-in" } : { verdict: "challenge" };
+    });
+    h.recipes.recipe.mockResolvedValue(appCoded);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    // The person typed the code: the signed-in page shows on the same path, without it.
+    open("/app-auth");
+    fake.state.present = new Set(["submit"]);
+    await h.hello({ documentId: "account" }, false);
+    await until(() => judgedPaths(generation).includes("/app-auth"));
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(codeFills()).toEqual([]);
+    expect(handlerReports(report)).not.toContainEqual([0, "totp", "not-shown"]);
+  });
 });
