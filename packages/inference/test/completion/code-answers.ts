@@ -162,7 +162,7 @@ export function registerUnboundedCodeCases({
       expect(outcome).toMatchObject({ value: { totpDropped: "not-code-field" } });
   });
 
-  it("drops a code input beside a text input limited past a code in its form", async () => {
+  it("drops a code input beside a text input limited to a code's length in its form", async () => {
     // A name or username input with a `maxlength` of 6 to 10 counts like one without.
     const code = field({ inputMode: undefined, maxLength: undefined });
     const other = field({

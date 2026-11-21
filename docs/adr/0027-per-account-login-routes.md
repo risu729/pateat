@@ -2220,7 +2220,15 @@ Decision:
   into it.
 - Another text input of its form that the rule takes now includes one limited to 6 to
   10 characters, so a form that also asks for a short name or member number in such an
-  input refuses the code (`several-code-fields`) and the person types it.
+  input refuses the code (`several-code-fields`) and the person types it. Inputs outside
+  any form count as one form here too, so a code input outside any form beside a postal
+  code input with `maxlength="7"` outside any form is refused as well.
+- A watched login, where the person typed the password, still leaves this page to the
+  person, as it does HCP Cloud's and Supabase's: `judgedCodeSource` reads only an input
+  `isCodeField` takes, so the page is not sent to the judge (`code-unnamed`), and
+  "App authentication" and "Authentication code" are not the words of an authenticator
+  app that `codeSourceOf` reads (`authentication app`). Only a login that Pateat typed
+  the password in enters the `totp` handler, after its step.
 - Changing `judgedCodeInput` changes the digest of a judged page's inputs
   (ADR 0029 amendment of 2026-11-07) for every page with such an input, so a row kept
   `challenge` is judged again once. ImmiAccount's code page kept no row of its own: the
