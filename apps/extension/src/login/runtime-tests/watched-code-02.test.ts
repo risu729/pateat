@@ -101,6 +101,27 @@ describe("an authenticator app's code page the person reaches in a new document"
         ],
       },
     },
+    // ImmiAccount's app authentication step (2026-11-21, #1750): a plain text input with
+    // `maxlength="6"`, which the sign-in state does not read as a code input (ADR 0027
+    // amendment of 2026-11-22).
+    "/app-auth": {
+      present: ["authenticationCode", "submit"],
+      observation: {
+        title: "ImmiAccount",
+        headings: ["Authenticate ImmiAccount", "App authentication"],
+        candidates: [
+          {
+            id: "c1",
+            role: "text",
+            target: target("authenticationCode"),
+            label: "Authentication code",
+            maxLength: 6,
+            group: "f1",
+          },
+          { id: "c2", role: "button", target: target("submit"), label: "Submit", group: "f1" },
+        ],
+      },
+    },
     "/otp": {
       present: ["otp-code", "verify"],
       observation: {
@@ -121,14 +142,19 @@ describe("an authenticator app's code page the person reaches in a new document"
       },
     },
   };
-  /** Shows `path`'s page; `codePage` when it asks for the authenticator app's code. */
-  function open(path: string, codePage = false) {
+  /**
+   * Shows `path`'s page; `codePage` when it asks for the authenticator app's code,
+   * `plainInput` when its code input is one the sign-in state does not read as one.
+   */
+  function open(path: string, codePage = false, plainInput = false) {
     const page = pages[path]!;
     fake.state.pageUrl = `${origin}${path}`;
     fake.state.observedPath = path;
     fake.state.present = new Set(page.present);
-    fake.state.appCode = codePage ? new Set(["otp-code"]) : new Set();
-    fake.state.signs = codePage ? codeSign : noSign;
+    fake.state.appCode = codePage
+      ? new Set([plainInput ? "authenticationCode" : "otp-code"])
+      : new Set();
+    fake.state.signs = codePage && !plainInput ? codeSign : noSign;
     fake.state.extracted = {
       "signed-in": {
         ok: true,
@@ -267,5 +293,111 @@ describe("an authenticator app's code page the person reaches in a new document"
     await until(() => clicks("verify") === 1);
     await vi.advanceTimersByTimeAsync(20_000);
     expect(codeFills()).toHaveLength(1);
+  });
+
+  const appAuth = {
+    kind: "totp" as const,
+    path: "/app-auth",
+    field: target("authenticationCode"),
+    target: target("submit"),
+  };
+  const appCoded = parseLoginRecipe({ ...plain, revision: 2, handlers: [appAuth] });
+
+  it("judges a code page with only a plain text code input and types the code it learns", async () => {
+    vi.useFakeTimers();
+    const { h, report, generation } = start(async (...args) => {
+      args[4]?.();
+      const { path } = args[3] as { path: string };
+      if (path === "/app-auth") return { verdict: "challenge", recipe: appCoded };
+      return { verdict: "challenge" };
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    // No sign of a sign-in going on: the page is judged as any such page, and the `totp`
+    // handler the judge learns on a page that names an authenticator app is taken over.
+    open("/app-auth", true, true);
+    await h.hello({ documentId: "app-auth" }, false);
+    await until(() => codeFills().length > 0);
+    expect(judgedPaths(generation)).toEqual(["/push", "/app-auth"]);
+    expect(codeFills()).toHaveLength(1);
+    expect(handlerReports(report)).toContainEqual([0, "totp", "entered"]);
+    expect(
+      report.mock.calls.some(
+        ([value]) => value.type === "judge" && value.watched === true && value.takenOver === true,
+      ),
+    ).toBe(true);
+    await until(() => clicks("submit") === 1);
+  });
+
+  it("types the code with a known handler on a page with only a plain text code input", async () => {
+    vi.useFakeTimers();
+    const { h, report, generation } = start(async (...args) => {
+      args[4]?.();
+      return { verdict: "challenge" };
+    });
+    h.recipes.recipe.mockResolvedValue(appCoded);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    const judged = generation.judge.mock.calls.length;
+    open("/app-auth", true, true);
+    await h.hello({ documentId: "app-auth" }, false);
+    await until(() => codeFills().length > 0);
+    expect(generation.judge).toHaveBeenCalledTimes(judged);
+    expect(handlerReports(report)).toContainEqual([0, "totp", "entered"]);
+    await until(() => clicks("submit") === 1);
+  });
+
+  it("takes over no code handler on a plain page whose words name no authenticator app", async () => {
+    vi.useFakeTimers();
+    const { h, report, generation } = start(async (...args) => {
+      args[4]?.();
+      const { path } = args[3] as { path: string };
+      if (path === "/app-auth") return { verdict: "challenge", recipe: appCoded };
+      return { verdict: "challenge" };
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    open("/app-auth", true, true);
+    fake.state.extracted = {
+      "signed-in": {
+        ok: true,
+        observation: {
+          version: 1,
+          origin,
+          path: "/app-auth",
+          language: "en",
+          complete: true,
+          headings: ["Verify it's you"],
+          candidates: (pages["/app-auth"]!.observation as { candidates: unknown[] }).candidates,
+        },
+      },
+    };
+    await h.hello({ documentId: "app-auth" }, false);
+    await until(() => judgedPaths(generation).length === 2);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(codeFills()).toEqual([]);
+    expect(
+      report.mock.calls.some(([value]) => value.type === "judge" && value.takenOver === true),
+    ).toBe(false);
+  });
+
+  it("judges a signed-in page on a known handler's path without a handler miss", async () => {
+    vi.useFakeTimers();
+    const { h, report, generation } = start(async (...args) => {
+      args[4]?.();
+      const { path } = args[3] as { path: string };
+      return path === "/app-auth" ? { verdict: "signed-in" } : { verdict: "challenge" };
+    });
+    h.recipes.recipe.mockResolvedValue(appCoded);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    // The person typed the code: the signed-in page shows on the same path, without it.
+    open("/app-auth");
+    fake.state.present = new Set(["submit"]);
+    await h.hello({ documentId: "account" }, false);
+    await until(() => judgedPaths(generation).includes("/app-auth"));
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(codeFills()).toEqual([]);
+    expect(handlerReports(report)).not.toContainEqual([0, "totp", "not-shown"]);
   });
 });

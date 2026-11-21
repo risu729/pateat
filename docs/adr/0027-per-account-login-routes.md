@@ -171,6 +171,12 @@ Amended on 2026-11-21 (agent, for the owner's issue
 field may also be a plain text input whose `maxlength` is 6 to 10
 ([A plain code input with a maxlength](#amendment-2026-11-21-a-plain-code-input-with-a-maxlength)).
 
+Amended on 2026-11-22 (owner's request at 20:49 UTC on 2026-11-21 to fix the gaps that
+amendment left; implemented): a watched login types the item's TOTP into a page whose
+only code input is such a plain text input, and "app authentication" names an
+authenticator app
+([A watched page with a plain code input](#amendment-2026-11-22-a-watched-page-with-a-plain-code-input)).
+
 Related on 2026-11-21: [ADR 0089](0089-identifiers-split-over-several-inputs.md) fills
 an identifier split over several inputs by its own rule, apart from the split code
 inputs here ([below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
@@ -2227,12 +2233,8 @@ Decision:
   input refuses the code (`several-code-fields`) and the person types it. Inputs outside
   any form count as one form here too, so a code input outside any form beside a postal
   code input with `maxlength="7"` outside any form is refused as well.
-- A watched login, where the person typed the password, still leaves this page to the
-  person, as it does HCP Cloud's and Supabase's: `judgedCodeSource` reads only an input
-  `isCodeField` takes, so the page is not sent to the judge (`code-unnamed`), and
-  "App authentication" and "Authentication code" are not the words of an authenticator
-  app that `codeSourceOf` reads (`authentication app`). Only a login that Pateat typed
-  the password in enters the `totp` handler, after its step.
+- A watched login still left this page to the person until the
+  [amendment of 2026-11-22](#amendment-2026-11-22-a-watched-page-with-a-plain-code-input).
 - Changing `judgedCodeInput` changes the digest of a judged page's inputs
   (ADR 0029 amendment of 2026-11-07) for every page with such an input, so a row kept
   `challenge` is judged again once. ImmiAccount's code page kept no row of its own: the
@@ -2251,3 +2253,61 @@ apart from the code split into one input per digit here
 detection, an input of one character is never such a part, and only the typing is
 shared. A part marked in a page's description is never a code input (`isCodeField`),
 whatever its type or `inputmode`.
+
+## Amendment 2026-11-22: a watched page with a plain code input
+
+Owner's request of 2026-11-21 at 20:49 UTC (「そういうのちゃんと直して」), after the
+amendment of 2026-11-21 noted that a watched login still left ImmiAccount's code page
+to the person. A login watches its pages once its result stops at `challenge` or settles
+as unknown ([Watching after a challenge](#watching-after-a-challenge)), as at a stop
+before a password its item lacks or when a page after the step was not judged. Such a
+login types the item's TOTP only into a page that asks for another sign-in step
+(`continuing`) and whose words name an authenticator app (amendment of 2026-11-17, part
+3). ImmiAccount's page missed every part of that, though a login that Pateat started and
+judged right after its step fills it since 2026-11-21:
+
+- Its only code input, `<input type="text" id="authenticationCode" maxlength="6">`, is
+  no code input for the sign-in state (S3, `shownCodeInputs`, as `isCodeField`), so the
+  page reads `judge`, not `continuing`, and `watchedCode` never ran there.
+- `judgedCodeSource`, which gates a watched code page's judge and keys the service's
+  judged-page rows, read only an input `isCodeField` takes, so the page had no code
+  source.
+- Its words, the heading "App authentication" and the label "Authentication code", named
+  no authenticator app: `codeSourceOf` reads `authentication app` in that order.
+
+Decision:
+
+- `codeSourceOf` (`packages/contracts/src/authenticator-choice.ts`) also reads `app
+  authentication` and `app-based authentication`, as whole words, as an authenticator
+  app. "Authentication code" stays neutral. `namesAuthenticatorChoice` (ADR 0081) does
+  not change, so a button "App authentication" is still not pressed as an
+  authenticator choice.
+- `judgedCodeSource` reads, when no input `isCodeField` takes shows, the page's only
+  input that `judgedCodeInput` takes; with several such inputs, as a page with a search
+  box and a name field, the page has no code field and stays empty. A page whose only
+  such input is a search box gets a source from its title and headings too, so a page's
+  kept row of a judgement may be keyed by a source it was not keyed by before, which
+  judges it again once, and pages of one path whose headings differ, as an inbox and its
+  sent folder, are judged apart. Such a page's `nearCode` stays empty, as the
+  description collects it only beside an input `isCodeField` takes, so a page that names
+  the app only in a paragraph near a plain code input reads no source here.
+- A watched page that reads `judge` (no sign of a sign-in going on) gets a `totp`
+  handler the recipe has on its path and has not run entered as a `continuing` page does
+  (`watchedCode`, with `watched-totp-code`: the field empty and writable on a page whose
+  words name an authenticator app), once one of those handlers' code fields is there at
+  all; a signed-in page on the same path, as ImmiAccount's `/lusc/login`, is judged
+  without a handler miss in the log. With no such handler it is judged as any such page,
+  and when its description's code source is `authenticator` and the login may type its
+  item's TOTP (`watchesCode`: the tab's page on the recipe's origin, not only filling,
+  the item has a TOTP, no code typed or planned), a revision that adds a `totp` handler
+  on its path is taken over and the handler entered, as for a `continuing` page. A page
+  whose words do not name an authenticator app is judged as before and nothing learned
+  there is taken over.
+- Not chosen: counting a plain text input in the sign-in state (S3). Such an input is
+  also a search box or a name field on many signed-in pages; S3 would keep those pages
+  from completing on evidence. The judge's answer, with the page's words, is what names
+  it a code field.
+- A code page that the document swaps in place without a new document is reported by
+  the document's code watch (`login.code.watch`) only for a code field `isCodeField`
+  takes, so such a swap with only a plain text code input is read only when the page
+  is read again for another reason.

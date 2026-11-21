@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import {
   attemptPlan,
+  attemptUsesCode,
   pagesLeft,
   watchedAtStop,
   loginObservationSchema,
@@ -332,6 +333,26 @@ export function credentialSent(_rt: Runtime, run: Execution): boolean {
     );
 }
 
+/**
+ * Whether this login, watched, may type its item's TOTP into a page that asks for an
+ * authenticator app's code (ADR 0027 amendment of 2026-11-17): in the tab's page on the
+ * recipe's own origin, by a login that does not only fill, whose item has a TOTP and that
+ * typed or means to type no code yet.
+ */
+export function watchesCode(run: Execution): boolean {
+  const { metadata, recipe } = run;
+  const { document } = run.live;
+  return (
+    metadata.state === "watching" &&
+    metadata.fillOnly !== true &&
+    metadata.signInFill !== true &&
+    document.frameId === 0 &&
+    document.origin === recipe.origin &&
+    metadata.facts.totp === true &&
+    !attemptUsesCode(recipe, metadata)
+  );
+}
+
 export async function learn(
   rt: Runtime,
   run: Execution,
@@ -449,9 +470,12 @@ export async function learn(
   delete run.described;
   const { observation, disabledLeftOut, inputLeftOut, usernameShape: shape } = described;
   // A watched code page that does not name an authenticator app is the person's: no
-  // handler the judge could learn there would be entered.
-  if (options.code && judgedCodeSource(observation) !== "authenticator")
-    return notSent("code-unnamed");
+  // handler the judge could learn there would be entered. One with no sign of a sign-in
+  // going on whose words name one, as ImmiAccount's page with only a plain text code
+  // input (ADR 0027 amendment of 2026-11-22), is a code page too once described.
+  const codeSource = judgedCodeSource(observation);
+  if (options.code && codeSource !== "authenticator") return notSent("code-unnamed");
+  const codePage = options.code === true || (watchesCode(run) && codeSource === "authenticator");
   // The sign-in form beside another form with a text-like input and its own button, on a
   // path without a `detail` handler, as the service checks (ADR 0061); otherwise the page
   // is still the sign-in page.
@@ -588,7 +612,7 @@ export async function learn(
   // login takes over only a revision with such a handler on the page's path, so one that
   // learned another handler leaves the watch's recipe as it was.
   const watchedTotp =
-    options.code === true &&
+    codePage &&
     (routeOf(rt, run, added && onLoginStart(run, added))?.handlers ?? []).some(
       (handler, index) =>
         handler.kind === "totp" &&

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   codeSourceOf,
+  judgedCodeSource,
   namesAuthenticatorChoice,
   namesOtherThanAuthenticator,
 } from "./authenticator-choice";
@@ -98,6 +99,9 @@ describe("where a code comes from, by the words around its field (ADR 0027 amend
     // The account's address, raw or as the observation redacts it, is no word.
     [["[email]", "Enter the code from your authenticator app"]],
     [["[email]でログイン中", "認証アプリのコードを入力"]],
+    // ImmiAccount's heading over its code field (ADR 0027 amendment of 2026-11-22).
+    [["Authenticate ImmiAccount", "App authentication", "Authentication code"]],
+    [["Enter the code for app-based authentication"]],
   ])("reads %j as an authenticator app's code", (texts) => {
     expect(codeSourceOf(texts)).toBe("authenticator");
   });
@@ -148,6 +152,8 @@ describe("where a code comes from, by the words around its field (ADR 0027 amend
     [["Enter the code from the app on your phone"]],
     [["Check Microsoft Authenticator"]],
     [["Check your messages"]],
+    [["Authentication code"]],
+    [["Approve the sign-in in the app"]],
     [["Enter the text shown"]],
     [["Signed in as nobody@mail.example.com", "Enter code"]],
     [["確認コードを入力してください"]],
@@ -170,5 +176,41 @@ describe("where a code comes from, by the words around its field (ADR 0027 amend
     [["認証アプリまたはメールに届いたコードを入力"]],
   ])("reads %j as saying neither, or both", (texts) => {
     expect(codeSourceOf(texts)).toBeUndefined();
+  });
+});
+
+describe("the code source of a judged page (ADR 0029 amendment of 2026-11-17)", () => {
+  const page = (candidates: unknown[], headings: string[]) =>
+    ({
+      version: 1,
+      origin: "https://login.example",
+      path: "/login",
+      complete: true,
+      headings,
+      candidates,
+    }) as Parameters<typeof judgedCodeSource>[0];
+  const plain = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    role: "text",
+    target: { by: "id", value: id },
+    group: "f1",
+    ...extra,
+  });
+
+  it("reads the only plain text input the judge may name when no code field shows", () => {
+    // ImmiAccount (ADR 0027 amendment of 2026-11-22).
+    const code = plain("authenticationCode", { label: "Authentication code", maxLength: 6 });
+    expect(judgedCodeSource(page([code], ["App authentication"]))).toBe("authenticator");
+    // Several such inputs are no code field, nor is a page with none.
+    expect(judgedCodeSource(page([code, plain("name")], ["App authentication"]))).toBe("");
+    expect(judgedCodeSource(page([], ["App authentication"]))).toBe("");
+    expect(judgedCodeSource(page([plain("q", { maxLength: 64 })], ["App authentication"]))).toBe(
+      "",
+    );
+  });
+
+  it("prefers a code field the rules take on their own", () => {
+    const marked = plain("otp", { autocomplete: "one-time-code", label: "Code we sent you" });
+    expect(judgedCodeSource(page([plain("search"), marked], ["Verify"]))).toBe("sent");
   });
 });
