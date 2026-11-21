@@ -73,7 +73,8 @@ export type SsoFence = () => boolean;
  * amendment of 2026-11-21). A later check reads it again.
  */
 export type SsoReads = {
-  mapping?: ReturnType<NonNullable<Runtime["options"]["sso"]>["validate"]>;
+  /** The mapping read under way or done: a promise, awaited by each scope check. */
+  mappingRead?: ReturnType<NonNullable<Runtime["options"]["sso"]>["validate"]>;
 };
 /**
  * A fresh mapping is evidence only; item, page, policy and operation epochs authorize
@@ -150,11 +151,11 @@ export async function ssoScope(
   }
   const { sso } = rt.options;
   const validate = () => sso.validate(work.source, work.selected);
-  let mapping = await (reads ? (reads.mapping ??= validate()) : validate());
+  let mapping = await (reads ? (reads.mappingRead ??= validate()) : validate());
   // A shared mapping read under settings that changed since, as by a choice-only save
   // between the two scope checks, is read again, as a scope check of its own would.
   if (reads && mapping.ok && mapping.data.policyRevision < saved.snapshot.revision)
-    mapping = await (reads.mapping = validate());
+    mapping = await (reads.mappingRead = validate());
   if (!mapping.ok || !ssoCurrent(rt, work, live)) return undefined;
   // The selection was validated on these settings, or on later ones that only wrote
   // choices (`onlyChoicesSince`).
