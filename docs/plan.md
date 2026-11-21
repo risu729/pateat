@@ -803,8 +803,9 @@ than in this repository.
 - A login press that submits a form whose action is a `javascript:` URL, or clicks
   inside a `javascript:` link, still ran the URL from the content script's isolated
   world: on 2026-11-21 (10:55 UTC) the owner's Chrome logged the same `script-src`
-  refusal from `content-scripts/login.js` on the Azure AD B2C sign-in page of
-  connect.britishcouncil.org, whose standard form is `action="JavaScript:void(0);"`.
+  refusal from `content-scripts/login.js` on the Azure AD B2C sign-in page on
+  identity.britishcouncil.org (the sign-in for connect.britishcouncil.org), whose
+  standard form is `action="JavaScript:void(0);"`.
   Such clicks, and an Enter's `requestSubmit()` on such a form, are now made in the
   page's main world too ([architecture](architecture.md#declarative-recipes-and-ai);
   agent implementation choice under the owner's 2026-10-11 and 2026-10-18 decisions;

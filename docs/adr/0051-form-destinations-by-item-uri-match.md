@@ -16,6 +16,10 @@ by the login's item, never the item that supplies the detail. The content script
 the destinations of every field's form and of every submitter of those forms, the shown
 handler button and a hidden default button that a pressed Enter would use included.
 
+Amended on 2026-11-21 (agent amendment, not yet confirmed by the owner): a `javascript:`
+destination's URL now runs when Pateat submits to it
+([below](#amendment-2026-11-21-a-javascript-destination-runs-under-the-pages-policy)).
+
 Date: 2026-10-19
 
 ## Context
@@ -98,3 +102,31 @@ that all of these hold, and the step is refused otherwise:
   background and, without a cached match, one URI evaluation in the crypto Worker.
 - This differs from the official clients, which check no destination
   ([differences](../bitwarden-differences.md#form-destination)).
+
+## Amendment 2026-11-21: a `javascript:` destination runs under the page's policy
+
+A `javascript:` destination stays allowed, but the reason the check gave for it, that
+submitting to it sends the values nowhere, held only while the URL never ran. The
+executor's click or Enter submitted from the content script's isolated world, where
+Chrome refuses a `javascript:` URL under the extension's own `script-src 'self'` policy;
+on 2026-11-21 the owner's Chrome logged that refusal on an Azure AD B2C sign-in page,
+whose form is `<form action="JavaScript:void(0);">`. Such a submission is now made in
+the page's main world, as `javascript:` links have been since
+[#671](https://github.com/risu729/pateat/pull/671), so the URL runs under the page's own
+content security policy with the filled values in the form
+([architecture](../architecture.md#declarative-recipes-and-ai)).
+
+This is accepted because:
+
+- A person's click or Enter on the same form runs the same URL under the same policy;
+  Pateat's submission does nothing the page could not do after a person's press.
+- The submission still sends no request of its own. Whatever the URL's script then sends
+  is the page's own script, which this check never constrained: it does not cover values
+  the page sends with `fetch` or `XMLHttpRequest` either.
+- The checks before the press are unchanged: the destination of every form the fill
+  wrote into and of the pressed control is checked before the fill and again before the
+  click, so a form whose action names another origin is still refused.
+- The same holds for `javascript:` links, which already run their URL this way.
+
+The behavior of the check does not change: the content script allows a `javascript:`
+destination without asking the background, as before.
