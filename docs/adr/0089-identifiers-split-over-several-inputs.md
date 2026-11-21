@@ -116,7 +116,8 @@ value, by the judge naming each part (ADR 0061).
    [ADR 0035](0035-page-kinds-per-site.md), a sign-in fill and a confirmation fill (the
    latter also from the popup's **Fill** on a confirmation page), with every part as the
    field's input: a value kept in any part, or any part the person edited, keeps the
-   whole field; each part is claimed and protected as the one input would be; and once
+   whole field; the field is claimed once, through its first part, and every other
+   part is protected by the check that the person has not edited it; and once
    the form's destinations change, every part the person has not edited gets back its
    value from before the fill ([ADR 0051](0051-form-destinations-by-item-uri-match.md)).
    A sign-in fill's value that does not fit ends `identifier-unfit` as in 6, since it
@@ -157,6 +158,12 @@ Known misses:
   group, since every part must be shown and writable when the page is read: it is
   neither sent as one that asks for an identifier alone nor filled as a split
   identifier.
+- When a part of the trigger's group does not become a candidate of the page's
+  description (its stricter visibility check, or the candidate limit), the page is
+  sent as one that asks for an identifier alone but no part carries `split`. The model
+  then maps the identifier to the first input alone, the device's value check refuses
+  the plan as too long, and the request is spent without a recipe. Nothing is filled
+  wrongly; it is rare and left as it is.
 
 ## Alternatives
 
