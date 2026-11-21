@@ -66,11 +66,13 @@ describe("a sign-in form kept hidden after the submit (ADR 0029)", () => {
   });
   function start(
     chosen: typeof recipe,
-    answer: Awaited<ReturnType<LoginGeneration["judge"]>> = { verdict: "signed-in" },
+    answer:
+      | Awaited<ReturnType<LoginGeneration["judge"]>>
+      | (() => Awaited<ReturnType<LoginGeneration["judge"]>>) = { verdict: "signed-in" },
   ) {
     const judge = vi.fn<LoginGeneration["judge"]>(async (...args) => {
       args[4]?.();
-      return answer;
+      return typeof answer === "function" ? answer() : answer;
     });
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness(
@@ -165,6 +167,56 @@ describe("a sign-in form kept hidden after the submit (ADR 0029)", () => {
     expect(judge).toHaveBeenCalledTimes(1);
     expect(status()).not.toMatchObject([{ state: "authenticated" }]);
   }, 10_000);
+
+  it("keeps a watched login's later pages, which are the person's, on the earlier rule", async () => {
+    let calls = 0;
+    const { h, report } = start(marked, () =>
+      (calls += 1) === 1 ? { verdict: "challenge" } : { verdict: "unclear" },
+    );
+    // The submit's page asks for something else: the login is left to the person.
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: { kind: string } }).step;
+      if (step.kind !== "click") return;
+      fake.state.present = new Set();
+      fake.state.extracted = {
+        "signed-in": {
+          ...signedInPage,
+          observation: {
+            ...signedInPage.observation,
+            candidates: [{ id: "c1", role: "button", target: target("other"), label: "Continue" }],
+          },
+        },
+      };
+      fake.state.gone.add("synthetic-document");
+      setTimeout(() => void h.hello({ documentId: "asked" }, false), 0);
+      throw new Error("Could not establish connection. Receiving end does not exist.");
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "watching" }]), {
+      timeout: 8_000,
+    });
+    // The person's own later page: the marker shows and the password input is only hidden.
+    fake.state.present = new Set(["logout", "password"]);
+    fake.state.hiddenInputs = new Set(["password"]);
+    fake.state.extracted = { "signed-in": signedInPage };
+    fake.state.gone.add("asked");
+    fake.state.signs = {
+      password: false,
+      code: false,
+      captcha: false,
+      invalid: false,
+      alert: false,
+    };
+    await h.hello({ documentId: "theirs" }, false);
+    await vi.waitFor(
+      () =>
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "marker-shown" }),
+        ),
+      { timeout: 8_000 },
+    );
+    expect(status()).toMatchObject([{ state: "watching" }]);
+  }, 20_000);
 
   it.each([
     ["", false],

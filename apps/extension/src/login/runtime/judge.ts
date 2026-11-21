@@ -398,11 +398,13 @@ export async function learn(
   // form hidden too (ADR 0029 amendment of 2026-11-21). One that cannot be read counts.
   let hiddenField = false;
   if (field === "shown-input" && !fieldShown && paths.includes(remaining.path) && fills.length) {
+    // Every copy, as several hidden copies would otherwise read as none.
     const kept = await observe(
       rt,
       run,
       fills,
       fills.map(() => "input" as const),
+      { hidden: fills.map(() => true) },
     );
     if (!current(rt, run)) return true;
     hiddenField =
