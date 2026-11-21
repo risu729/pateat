@@ -159,6 +159,51 @@ type Offer = Extract<ManualOfferResponse, { ok: true }>;
 const targetKey = (target: Offer["targets"][number]) =>
   JSON.stringify([target.document.frameId, target.document.documentId, target.scope]);
 
+/**
+ * The account choice the popup shows for the tab (ADR 0021 B): the document it waits in,
+ * the accounts it offers and whether another tab's login holds the site, so its **Log in**
+ * cannot be pressed. It is `"checking"` while the popup is still finding out whether the
+ * tab waits for one.
+ */
+export type ShownChoice =
+  | {
+      documentId: string;
+      candidates: readonly { connectionId: string; itemId: string }[];
+      held: boolean;
+    }
+  | "checking";
+
+/**
+ * Whether **Log in now** shows beside the account choice (ADR 0088, amended 2026-11-21):
+ * only where it does what the choice cannot. That is while the choice's **Log in** waits
+ * for another tab's login, when it can target another document of the tab, offers **Fill**
+ * or an account the choice does not, and while a request of this tab runs or this popup
+ * shows how one went.
+ */
+export function shownBesideChoice(
+  choice: ShownChoice,
+  targets: Offer["targets"] | undefined,
+  active: boolean,
+): boolean {
+  if (active) return true;
+  if (choice === "checking") return false;
+  return (
+    choice.held ||
+    (targets ?? []).some(
+      (entry) =>
+        entry.fill === true ||
+        entry.document.documentId !== choice.documentId ||
+        entry.candidates.some(
+          (account) =>
+            !choice.candidates.some(
+              (offered) =>
+                offered.connectionId === account.connectionId && offered.itemId === account.itemId,
+            ),
+        ),
+    )
+  );
+}
+
 /** The popup's section, shown on a web page once settings are read. */
 export function PopupManualLogin({
   client,
@@ -173,6 +218,7 @@ export function PopupManualLogin({
   saved: Extract<SettingsResponse, { ok: true }> | undefined;
   accounts: SiteAccountsResponse | undefined;
   host: { close(): void };
+  choice?: ShownChoice | undefined;
   disabled: boolean;
   onBusy(busy: boolean): void;
   onReprompt(): void;
@@ -196,6 +242,7 @@ export function ManualLogin({
   tabId,
   saved,
   accounts,
+  choice,
   disabled,
   onBusy,
   onStarted,
@@ -205,6 +252,8 @@ export function ManualLogin({
   tabId: number;
   saved: Extract<SettingsResponse, { ok: true }>;
   accounts?: Extract<SiteAccountsResponse, { ok: true }> | undefined;
+  /** The account choice the popup shows for the tab, if any. */
+  choice?: ShownChoice | undefined;
   disabled: boolean;
   onBusy(busy: boolean): void;
   onStarted(): void;
@@ -215,6 +264,10 @@ export function ManualLogin({
   const [account, setAccount] = useState("");
   const [submitted, setSubmitted] = useState<string>();
   const [failure, setFailure] = useState<string>();
+  // This popup pressed **Log in now**, **Fill** or **Cancel this login**, or saw a request
+  // at work: beside an account choice, the section then stays until the popup closes, so
+  // its status and result never disappear.
+  const [kept, setKept] = useState(false);
   const running = useRef(false);
   const offer = useQuery({
     queryKey: ["popup", "manual", tabId, saved.snapshot.revision],
@@ -275,6 +328,9 @@ export function ManualLogin({
   // A verification page offers **Fill** in place of **Log in now** (ADR 0035): the chosen
   // account's password goes in, and the person presses the page's button.
   const filling = selected ? selected.fill === true : press !== undefined;
+  // A request seen at work keeps the section, as React allows a component to adjust its
+  // own state while it renders.
+  if (preparing && !kept) setKept(true);
   useEffect(() => {
     if (
       submitted &&
@@ -294,6 +350,7 @@ export function ManualLogin({
   async function start() {
     if (!selected || !picked || disabled || preparing || running.current) return;
     running.current = true;
+    setKept(true);
     onBusy(true);
     const requestId = crypto.randomUUID();
     setSubmitted(requestId);
@@ -327,6 +384,7 @@ export function ManualLogin({
   async function cancel() {
     if (!pending || running.current) return;
     running.current = true;
+    setKept(true);
     onBusy(true);
     try {
       await client.cancel(tabId, pending);
@@ -347,6 +405,9 @@ export function ManualLogin({
         : account && !picked && !preparing
           ? "no-account"
           : found?.reason);
+  // The account choice is the place to log in while it shows; Log in now stays only for
+  // what the choice cannot do (owner, 2026-11-21 11:26 UTC).
+  if (choice && !shownBesideChoice(choice, found?.targets, kept || preparing)) return null;
   return (
     <section className="popup-section" aria-labelledby="popup-manual-heading">
       <div className="popup-section-head">

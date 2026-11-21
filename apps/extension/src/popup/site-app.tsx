@@ -502,6 +502,37 @@ export function SiteApp({
       pageDetails.data?.ok && pageDetails.data.origin === origin ? pageDetails.data : undefined;
     const detailOffer = detailState?.offer;
     const detailLinks = detailState?.links ?? [];
+    // While the tab's account choice shows, or the popup is still finding out whether it
+    // will, the choice is where to log in: its Make it the default box saves the account
+    // (ADR 0021 B), which Log in now never does. Log in now then shows only for what the
+    // choice cannot do, after it (ADR 0088, amended 2026-11-21); otherwise it comes first.
+    // It keeps its key, so moving it keeps a running request's state.
+    const choiceShown = Boolean(offered && showChoice);
+    const manualSection = (
+      <PopupManualLogin
+        key="popup-manual-login"
+        client={manual}
+        tabId={tabId}
+        saved={saved}
+        accounts={accounts.data}
+        choice={
+          offered && showChoice
+            ? {
+                documentId: offered.documentId,
+                candidates: offered.candidates,
+                held: offered.held === true,
+              }
+            : (choice.isPending && choice.isEnabled) ||
+                (offered && !labelled && offered.held !== true)
+              ? "checking"
+              : undefined
+        }
+        disabled={busy}
+        onBusy={setBusy}
+        host={host}
+        onReprompt={() => void askAgain()}
+      />
+    );
     const detailSection = (detailOffer || detailLinks.length > 0) && (
       <DetailSection
         t={t}
@@ -516,6 +547,7 @@ export function SiteApp({
     );
     body = (
       <>
+        {!choiceShown && manualSection}
         {(status || detailSection) && (
           <PageStatusSection
             status={status}
@@ -737,6 +769,7 @@ export function SiteApp({
             {switchSection}
           </>
         )}
+        {choiceShown && manualSection}
         <PopupPagePermissions
           settings={saved.snapshot.settings}
           origin={origin}
@@ -817,16 +850,6 @@ export function SiteApp({
           </span>
         </p>
       )}
-      <PopupManualLogin
-        client={manual}
-        tabId={origin ? tabId : undefined}
-        saved={saved}
-        accounts={accounts.data}
-        disabled={busy}
-        onBusy={setBusy}
-        host={host}
-        onReprompt={() => void askAgain()}
-      />
       {body}
       <PopupSsoChoice client={sso} tabId={tabId} origin={origin} />
       <PopupBindingReview client={bindingReviews} tabId={tabId} origin={origin} host={host} />

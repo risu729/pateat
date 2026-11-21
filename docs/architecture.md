@@ -838,7 +838,14 @@ browser closes or a default is set
 ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
 The popup's **Log in now** action starts one explicit login with an eligible matching
 account, including a single match, independently of the optional **This page** section
-([ADR 0088](adr/0088-popup-manual-login.md)). It lists the current admitted page and
+([ADR 0088](adr/0088-popup-manual-login.md)). It comes first in the popup, except while
+the tab's account choice shows or the popup still checks for one: it is then hidden, and
+shows after the choice only while the choice is `held`, while its offer lists another
+document, a **Fill** target or an account the choice does not offer, or while a request
+of the tab is at work or this popup sent or cancelled one; the section keeps its React
+key as it moves, so a request's state survives
+([ADR 0088, amended 2026-11-21](adr/0088-popup-manual-login.md#amendment-2026-11-21-hidden-beside-the-account-choice)).
+It lists the current admitted page and
 eligible embedded forms separately. Its offer fingerprints the exact document, URL,
 frame and containing page; the worker checks the offer again before using the account.
 The request can retry its own ended or settled-unknown login and bypass automatic
