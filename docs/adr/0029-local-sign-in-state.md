@@ -70,6 +70,10 @@ it is reads as complete, and a login form whose only field it is is refused
 `no-candidates`. A read-only field marked `current-password`, `new-password` or
 `one-time-code`, or beside its own software keyboard, still counts as
 `unfillable-field`.
+Amended on 2026-11-21 by the owner (implemented): in a new document after the login's
+own step, a sign-in field or a marker's `absent` element that is only hidden does not
+count; see
+[A sign-in form kept hidden after the submit](#amendment-a-sign-in-form-kept-hidden-after-the-submit-2026-11-21).
 
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
 owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe
@@ -347,7 +351,8 @@ unknown too. On the `passkey` route the reading was only logged until 2026-10-24
 the owner had it read as on the `password` route (amendment below). E1 does not count on
 the completion's own path while one of the completion's `absent` elements is there, even
 hidden, as the completion check counts it: a sign-in form that hides itself again after
-a failure on that path is not a sign-in.
+a failure on that path is not a sign-in (in a new document after the login's own step,
+only shown; amendment of 2026-11-21).
 
 The other rows act since 2026-10-12, on the `password` route, and on the `passkey` route
 since 2026-10-24 (amendment below), except that a failure there rejects no credential
@@ -424,7 +429,8 @@ steps, passkey route or handlers use on any path, nor its account switch or reje
 (2026-10-23), since it would then prove a sign-in on their pages. A marker learned on a
 step's own path keeps that path's fill fields as `absent` elements, which must now be
 missing on every path, so a site that keeps a hidden sign-in form on its signed-in pages
-does not complete on that marker. The recipes already stored when this shipped keep
+does not complete on that marker, except in a new document after the login's own step
+(amendment of 2026-11-21). The recipes already stored when this shipped keep
 working: on 2026-10-12 at 18:07 UTC the owner chose to rewrite them once, so D1
 migration 0013 turns each stored completion into a one-marker list, and leaves out one
 whose locator another element of the recipe also uses.
@@ -1107,3 +1113,43 @@ Not chosen (the agent's): withholding the early completion on a page that may st
 for a second factor (that would need a wait for a request that may never come, which
 [ADR 0082](0082-waits-on-signals.md) rules out), and turning the login back to running
 (it would undo the account choice and the record already sent).
+
+## Amendment: a sign-in form kept hidden after the submit (2026-11-21)
+
+Context: on My Digital Connect (`https://www2.cr.mufg.jp/newsplus/`, Real Chrome on
+build c2e5468, 2026-11-21 19:45 UTC) the owner's login submitted its last step and the
+site loaded a new document on the same path, signed in with its ログアウト link. That
+document still keeps the sign-in inputs' copies (`#webId2`, `#webPassword2` and the
+detail form's inputs) inside an element shown with `display: none`. The judge gate
+counted a route's sign-in input even hidden, so the page was not sent (`recipe.judge`
+`not-sent` `sign-in-shown`), and the login ended `blocked` `unknown-submit` ten minutes
+later. A marker the judge could learn there would not have helped either: its `absent`
+elements, the route's fields on that path, also counted even hidden (`marker-shown`).
+The account the owner chose with "Make it the default" was not saved, since a choice is
+saved only once the login is `authenticated` (ADR 0013).
+
+Decision (owner, 2026-11-21 20:02 UTC, 「新しいページでは数えない」 on a decision
+card):
+
+- In a new document after the login's own effect step, one other than the step's in the
+  step's frame, a route's sign-in input counts for the judge gate only when shown
+  (`shown-input`), and a marker's `absent` element counts only when shown: one only
+  hidden there is missing. This holds for the completion check after a step and for E1
+  in the sign-in state, the other layouts' markers included (ADR 0060)
+  (`afterOwnStep` in `apps/extension/src/login/runtime/sign-in.ts`, `hiddenGone` in
+  `markerProof`). The step may be any effect step: a submit, an `advance` or a passkey
+  step.
+- A page that goes to the judge only because its sign-in input is hidden completes the
+  login only on the judge's own `signed-in`: an undecided or `optional` answer does not
+  complete it (`recipe.judge` `notCompleted` `hidden-field`), since a site may answer a
+  failed sign-in with a new document that keeps its form hidden too (agent's addition
+  after review).
+- In the step's own document nothing changes: a form that hides itself again after a
+  failure there is still the sign-in page. Without the step in memory, as after a worker
+  restart, and for E1 before a login's first step, hidden elements count as before.
+- Watched logins, whose pages are the person's, and markers read at a login's start or
+  on another origin after a move keep the earlier rule.
+
+Not chosen (the agent's): counting hidden fields as before, which leaves such a site
+`unknown-submit` at every login with no default saved; reading only the elements inside
+a hidden handler form as gone, which would be a rule for one site's layout (ADR 0033).

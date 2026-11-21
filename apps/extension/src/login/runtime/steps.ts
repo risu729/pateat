@@ -482,31 +482,43 @@ export function branchField(metadata: LoginAttemptMetadata): { branch?: string }
   return branch ? { branch } : {};
 }
 
-/**
- * The recipe's signed-in markers as elements to observe (ADR 0029): each marker, which may
- * be a link located by its text (ADR 0018), then the elements it needs missing. `proves`
- * reads their states from `offset`: whether one marker shows once, visible, while each
- * element it needs missing is missing even hidden, on any path. Only the markers learned
- * on `pageOrigin` count: the recipe's own origin by default, or another origin that a
- * login's tab moved to (ADR 0022).
- */
 /** Whether two recipes hold the same signed-in markers, so reading one reads the other. */
 export const sameMarkers = (left: LoginRecipe, right: LoginRecipe) =>
   JSON.stringify(left.completion ?? []) === JSON.stringify(right.completion ?? []);
 
-export function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
+/**
+ * The recipe's signed-in markers as elements to observe (ADR 0029): each marker, which may
+ * be a link located by its text (ADR 0018), then the elements it needs missing. `proves`
+ * reads their states from `offset`: whether one marker shows once, visible, while each
+ * element it needs missing is missing even hidden, on any path. With `hiddenGone`, in a
+ * new document after the login's own step, an element it needs missing that is only
+ * hidden there counts as missing (ADR 0029 amendment of 2026-11-21). Only the markers
+ * learned on `pageOrigin` count: the recipe's own origin by default, or another origin
+ * that a login's tab moved to (ADR 0022).
+ */
+export function markerProof(
+  recipe: LoginRecipe,
+  pageOrigin = recipe.origin,
+  { hiddenGone = false }: { hiddenGone?: boolean } = {},
+) {
   const markers = (recipe.completion ?? []).filter(
     (marker) => (marker.origin ?? recipe.origin) === pageOrigin,
   );
   return {
     targets: markers.flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
     links: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => false)]),
-    /** Every copy counts, hidden or not, as the markers were learned (ADR 0037 amendment). */
-    hidden: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => true)]),
-    /** Each marker must be visible; the elements it needs gone count even when hidden. */
+    /**
+     * Every copy counts, hidden or not, as the markers were learned (ADR 0037 amendment);
+     * with `hiddenGone`, an element it needs gone counts only its shown copies.
+     */
+    hidden: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => !hiddenGone)]),
+    /**
+     * Each marker must be visible; the elements it needs gone count even when hidden, or
+     * with `hiddenGone` only when shown.
+     */
     shown: markers.flatMap((marker) => [
       "shown" as const,
-      ...(marker.absent ?? []).map(() => "present" as const),
+      ...(marker.absent ?? []).map(() => (hiddenGone ? ("shown" as const) : ("present" as const))),
     ]),
     proves(states: readonly string[], offset = 0): boolean {
       let at = offset;
@@ -514,7 +526,11 @@ export function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
         const absent = marker.absent ?? [];
         if (
           states[at] === "unique" &&
-          absent.every((_target, index) => states[at + 1 + index] === "missing")
+          absent.every(
+            (_target, index) =>
+              states[at + 1 + index] === "missing" ||
+              (hiddenGone && states[at + 1 + index] === "unusable"),
+          )
         )
           return true;
         at += 1 + absent.length;

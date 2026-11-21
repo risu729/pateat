@@ -77,6 +77,7 @@ export function settleCompletion({
   stopHeld,
   again,
   disabledLeftOut,
+  hiddenField,
   path,
   passkeyButton = false,
 }: {
@@ -90,11 +91,20 @@ export function settleCompletion({
   again?: { decision: SignInDecision; loaded: boolean; path?: string } | undefined;
   disabledLeftOut?: boolean;
   /**
+   * A route's sign-in input is kept hidden on the page, in a new document after the
+   * login's own step (ADR 0029 amendment of 2026-11-21): only the judge's `signed-in`
+   * completes it.
+   */
+  hiddenField?: boolean;
+  /**
    * An optional page's path (ADR 0065), which the fresh reading must still be on; left out
    * for an undecided page, which ADR 0029 lets route on while it is judged.
    */
   path?: string;
-}): { completes: boolean; notCompleted: "disabled-left-out" | "password-empty" | undefined } {
+}): {
+  completes: boolean;
+  notCompleted: "disabled-left-out" | "hidden-field" | "password-empty" | undefined;
+} {
   if (completes)
     completes =
       again?.loaded === true &&
@@ -103,9 +113,11 @@ export function settleCompletion({
   const notCompleted =
     completes && disabledLeftOut
       ? "disabled-left-out"
-      : stopHeld && !passkeyButton
-        ? "password-empty"
-        : undefined;
+      : completes && hiddenField
+        ? "hidden-field"
+        : stopHeld && !passkeyButton
+          ? "password-empty"
+          : undefined;
   return { completes: completes && !stopHeld && notCompleted === undefined, notCompleted };
 }
 
