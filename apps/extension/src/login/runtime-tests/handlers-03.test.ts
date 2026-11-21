@@ -657,6 +657,26 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ]);
       },
     );
+    it("goes on past a page that only keeps the code form it ran hidden", async () => {
+      vi.useFakeTimers();
+      onClick({ login: toCode, verify: toCode });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      withTotp(h);
+      codes(h);
+      h.recipes.recipe.mockResolvedValue(coded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks("verify") === 1);
+      // The next page keeps the code form in its markup, hidden, and no sign-in field shows:
+      // the form is not shown again (ADR 0027 amendment of 2026-11-21).
+      fake.state.unusable = new Set(["app-code", "verify"]);
+      fake.state.pageUrl = `${origin}/two-factor`;
+      await h.hello({ documentId: "again" }, false);
+      await until(settled("reconciling", "unknown-submit"), 300_000);
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks("verify")).toBe(1);
+      expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+    });
     describe("a route's code page that submits by itself", () => {
       const routeCode = parseLoginRecipe({
         version: 1,

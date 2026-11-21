@@ -247,6 +247,33 @@ describe("a birth date or phone number from the person's own items (ADR 0061)", 
     expect(judge).toHaveBeenCalledTimes(1);
   }, 10_000);
 
+  it.each([
+    ["the sign-in page again with the form kept hidden", ["password", "login", "birth", "confirm"]],
+    ["its inputs hidden beside its button", ["birth", "confirm"]],
+  ])("never fills it unasked again once refused by %s", async (_label, present) => {
+    vi.useFakeTimers();
+    onClick({ login: toConfirm, confirm: toConfirm });
+    const { h, report } = start([identity]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => clicks("confirm") === 1);
+    // The site refused the value and loads a new document on the same path: the sign-in
+    // form again with the detail form only in its markup, or the detail form with its
+    // inputs hidden. Either is the handler's page shown again (ADR 0061).
+    fake.state.present = new Set(present);
+    fake.state.unusable = new Set(present.includes("password") ? ["birth", "confirm"] : ["birth"]);
+    await h.hello({ documentId: "again" }, false);
+    await until(settled("watching", "challenge"), 5_000);
+    expect(detailFills()).toHaveLength(1);
+    expect(clicks("confirm")).toBe(1);
+    expect(handlerReports(report)).toEqual([
+      [0, "detail", "entered"],
+      [0, "detail", "detail-forgotten"],
+      [0, "detail", "shown-again"],
+    ]);
+    expect(h.settings.settings.detailLinks).toEqual([]);
+    expect(fake.state.session["pateat.login-refused-proposals.v1"]).toHaveLength(1);
+  });
+
   it("never fills it unasked again once the login is rejected", async () => {
     onClick({ login: toConfirm, confirm: { path: "/signin", present: ["rejected"] } });
     const { h, report } = start([identity], rejecting);

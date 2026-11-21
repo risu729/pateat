@@ -161,8 +161,9 @@ rule 1 says
 ([A passkey button before the account](#amendment-2026-11-18-a-passkey-button-before-the-account)).
 
 Amended on 2026-11-21 (agent, for the owner's My Digital Connect login; implemented): a
-handler that already ran counts as shown again only while its page shows, so a
-signed-in page that keeps the handler's form hidden is read for its result
+handler that already ran counts as shown again only while its page shows, or while
+the sign-in page shows again, so a signed-in page that keeps the handler's form hidden
+is read for its result
 ([A handler's form kept hidden](#amendment-2026-11-21-a-handlers-form-kept-hidden)).
 
 Date: 2026-10-11
@@ -758,7 +759,8 @@ new owner decision:
   shows, since the page is still the sign-in page while one does. A handler that already
   ran counts as shown again when its elements show, even disabled or busy (for a
   `detail` handler, its inputs merely present and its button shown), so its page never
-  goes to the judge instead; elements only kept hidden do not count
+  goes to the judge instead; elements only kept hidden count only on a page that shows
+  a fill field of the route writable, the sign-in page again
   ([amendment of 2026-11-21](#amendment-2026-11-21-a-handlers-form-kept-hidden)). When
   several shown handlers qualify, a `passkey` handler goes first, as the routes put the
   passkey first and it types nothing. A handler is passed over when it already ran
@@ -1798,7 +1800,9 @@ reading, took the same button as a wrong code. The owner asked for it to be fixe
   again in the next round; a page that stays, as after a wrong code in the same
   document, ends `challenge` once the click's two-minute hold ends, and nothing is
   typed again. A new document that shows the handler again, a settled login, and a
-  login at a stop (ADR 0036) still end `challenge` with `shown-again` at once. A
+  login at a stop (ADR 0036) still end `challenge` with `shown-again` at once (what
+  counts as shown again:
+  [amendment of 2026-11-21](#amendment-2026-11-21-a-handlers-form-kept-hidden)). A
   revision the judge sent that finds the held handler shown again is not taken over
   into the handler: the judge's answer settles the page.
 
@@ -2150,14 +2154,26 @@ went to the person rather than the judge. Hidden elements are not that page: a s
 that keeps its handler's form in every page's markup would never complete. The agent
 changed it, without asking the owner, as the fix of the reported login:
 
-- A handler that already ran counts as shown again when each element it needs to be
-  entered shows, disabled or busy included: a `detail` handler's inputs present, as a
-  choice page may hide all but one, and its button shown; every other handler's elements
-  shown. The held handler's rule
-  ([amendment of 2026-11-08](#amendment-2026-11-08-a-held-handler-shown-again)) already
-  read its elements this way.
-- A page whose handler elements are all hidden goes on as any page after the step: its
-  marker, its sign-in state and the judge decide it.
+- A handler that already ran counts as shown again when its elements show as the
+  entering check needs them, disabled or busy included: a `detail` handler's inputs
+  present, as a choice page may disable all but one (ADR 0061), and its button shown;
+  every other handler's elements shown. The held handler, in the document that holds
+  its click
+  ([amendment of 2026-11-08](#amendment-2026-11-08-a-held-handler-shown-again)), still
+  needs every element shown.
+- It also counts as shown again, as before, when its elements are merely present on a
+  page that shows a fill field of the route on that path writable: the sign-in page
+  again. A site that refuses a `detail` value by loading the sign-in page with the
+  handler's form closed in its markup still ends the login `challenge` and drops the
+  link (ADR 0061, "Refused values"), so the refused value is never filled again
+  (review of [#1755](https://github.com/risu729/pateat/pull/1755)).
+- Any other page where one element the handler needs shown is hidden goes on as any
+  page after the step: its marker, its sign-in state and the judge decide it.
+  Nothing is entered twice there, since a handler that ran is refused `shown-again`
+  whenever it is read as shown.
 - Not chosen: ignoring a handler shown again only in a new document. A wrong value
   answered with the same form in a new document must still end the login there, and the
   form's visibility tells the two apart without a rule about documents.
+- Not chosen: keeping hidden elements counted until the page reads signed in. That
+  needs the sign-in state read before every handler check, and the route's fields
+  already tell the sign-in page apart.
