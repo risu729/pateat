@@ -442,7 +442,7 @@ describe("confirmation classification after authentication", () => {
     "re-admits a generated %s recipe without replacing the authenticated login",
     async (kind) => {
       const { service, answer } = generation();
-      const { h, original } = await authenticated({
+      const { h, original, reports } = await authenticated({
         username: true,
         custom: [],
         generation: service,
@@ -489,6 +489,13 @@ describe("confirmation classification after authentication", () => {
       expect(await offer()).toMatchObject({ ok: false, reason: "generating" });
       await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
       const request = service.generate.mock.calls[0]![0];
+      // The tab's own login vouches for the session (ADR 0035, amended 2026-11-21).
+      expect(request.signedIn).toBe(true);
+      await vi.waitFor(() =>
+        expect(reports).toContainEqual(
+          expect.objectContaining({ type: "generation", outcome: "sent", signedIn: true }),
+        ),
+      );
       expect(JSON.stringify(request)).not.toContain("whole-synthetic-user@example.test");
       expect(h.fields.mock.calls.every(([read]) => read.account.itemId === itemId)).toBe(true);
       expect(stored()).toEqual(original);

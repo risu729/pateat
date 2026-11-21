@@ -100,6 +100,12 @@ export async function generateFor(
     current(): Promise<boolean>;
     reconnect(): void;
     only?: boolean;
+    /**
+     * Set for the automatic generation in a tab whose own login ended `authenticated`:
+     * the page is sent as signed in, whatever its header shows (ADR 0035, amended
+     * 2026-11-21).
+     */
+    signedIn?: true;
     /** Hears the service's answer, whatever it was. */
     answered?(outcome: GenerationOutcome): void;
   },
@@ -235,11 +241,16 @@ export async function generateFor(
     const shape = usernames && usernameShape(rt, scope, usernames);
     // A recipe's first page carries whether it shows the person signed in, read before
     // the usernames are dropped; a list, a chooser's branch and a later step's repair carry
-    // none (ADR 0035).
+    // none. A page met right after the tab's own login is signed in by that login, so
+    // no header is read for it (ADR 0035, amended 2026-11-21).
     const signedIn =
-      list || base || repair?.later || !usernames
+      list || base || repair?.later
         ? undefined
-        : await signedInHint(rt, live, usernames);
+        : confirmation?.signedIn
+          ? true
+          : usernames
+            ? await signedInHint(rt, live, usernames)
+            : undefined;
     // The account's own usernames never reach the service.
     const hidden = hideUsernames(rt, observation, usernames, live);
     if (rt.documents.get(key) !== live) return;

@@ -69,6 +69,12 @@ signed-in form that saves its changes only with the current password, beside new
 confirmation password fields, is a `confirm` page whose **Fill** fills the current
 password alone. Implemented on a branch, synthetic tests only.
 
+Amended on 2026-11-21 by the owner (19:00 UTC,
+[below](#amendment-2026-11-21-signed-in-after-the-tabs-own-login)): the automatic
+generation of a page in a tab whose own login finished `authenticated` sends `signedIn`
+true, whatever the page's header shows; a **Fill** press keeps E1 and E2. Implemented on
+a branch, synthetic tests only.
+
 Date: 2026-10-12
 
 ## Context
@@ -124,8 +130,10 @@ No site list is kept ([ADR 0033](0033-no-site-specific-features.md)).
 - The extension adds `signedIn` to the generation request as a hint: true when the
   recipe's learned signed-in marker or the username of a URI-matching item shows in the
   header or navigation, read as [ADR 0029](0029-local-sign-in-state.md)'s E1 and E2. The
-  page text and username stay on the device; the flag reaches the service, the model
-  and the request log.
+  page text and username stay on the device; the flag reaches the service, the model and
+  the request log. Since
+  [2026-11-21](#amendment-2026-11-21-signed-in-after-the-tabs-own-login) it is also true
+  for a page generated automatically in a tab that holds its own `authenticated` login.
 - Entry recipes ([ADR 0031](0031-sign-in-entry-pages.md)) and chooser recipes
   ([ADR 0028](0028-account-chooser-login-pages.md)) are always `sign-in`. A continuation
   ([ADR 0018](0018-recipe-generation-route.md)) keeps the first page's kind.
@@ -790,3 +798,53 @@ The details below are the agent's choices, not confirmed by the owner:
   with the current password alone, and a reset form that abstains. A truth may now name
   its kind, and a plan answering `sign-in` on a `confirm` truth scores as a false
   submit, since it would press the button.
+
+## Amendment 2026-11-21: signed in after the tab's own login
+
+DOCOMO SMTB Net Bank ([#1760](https://github.com/risu729/pateat/issues/1760)) asks for
+the password again on its first page after the login, in a tab whose own Pateat login
+had just finished `authenticated`. Its header shows neither a learned signed-in marker
+nor the username, so the request carried `signedIn` false. With
+[ADR 0064's 2026-11-21 amendment](0064-enter-in-a-form-without-a-button.md#amendment-2026-11-21-fields-outside-a-form),
+the page's logged observation gave 2 correct `confirm` plans and 3
+`insufficient-evidence` abstentions in 5 calls, and 5 of 5 correct plans with `signedIn`
+true. The owner decided on 2026-11-21 at 19:00 UTC (「自動入力時だけ伝える」, on a card
+that read "send true only for automatic input after the tab's own Pateat login"):
+
+- The automatic generation of [delivery 3](#implementation-of-delivery-3), which runs
+  only in a tab whose own login finished `authenticated`, sends `signedIn` true without
+  reading E1 or E2. That login is the evidence. A page whose usernames cannot be read is
+  still skipped as `username-unread`.
+- A **Fill** press ([amendment 2026-11-17](#amendment-2026-11-17-fill-from-the-popup)),
+  also one in a tab that holds its own login, keeps the hint read from E1 and E2. Every
+  other request is unchanged.
+
+The details below are the agent's choices, not confirmed by the owner:
+
+- The generation instructions are unchanged: they still describe the hint as a
+  signed-in element or the username shown on the page. Two wordings that named the new
+  source ("a sign-in just finished in this tab", and "the extension finished signing the
+  user in on this tab before this page") turned the same page's 5 calls with `signedIn`
+  true from 4 correct and 1 `insufficient-evidence` abstention (unchanged instructions,
+  rerun) into 0 correct, all abstentions. The model may read a sign-in that just
+  finished as a reason to doubt that the page asks to confirm.
+- A true hint sends the page past Clef to Claude
+  ([ADR 0083](0083-clef-first-for-sign-in-forms.md)), as for any page the device reports
+  signed in. Its request log row is kept until labelled, as for any row sent with
+  `signedIn` true, and a `recipe.generate` problem line for it carries no path
+  ([ADR 0066](0066-problem-lines-sent-to-the-service.md)), as for any page sent signed
+  in.
+- A true hint also skips the start path alias
+  ([ADR 0060](0060-recipe-layouts.md)), which runs only for a page sent with `signedIn`
+  false. A page on this path that shows the origin's start form unchanged is no longer
+  answered by the sign-in recipe without a call; it goes to Claude, which may store it
+  as `confirm`.
+- The evidence lasts while the tab holds that login, until its record for the origin is
+  released or the tab closes, not only on the first page after it. Risk: when the site's
+  session ended meanwhile, its sign-in form is sent as signed in and may be stored as a
+  `confirm` recipe, which never starts a login. The model still judges the page's
+  structure, and the hint stays "not proof". `login.confirm-left`'s `nextE1` still reads
+  E1 and E2 on the visit, not the hint sent.
+- The hint's source is not logged apart. A generation row sent with `signedIn` true
+  while the same tab holds an `authenticated` login on that origin may have come from
+  this path.
