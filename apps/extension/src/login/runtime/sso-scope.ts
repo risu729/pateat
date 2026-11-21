@@ -150,7 +150,11 @@ export async function ssoScope(
   }
   const { sso } = rt.options;
   const validate = () => sso.validate(work.source, work.selected);
-  const mapping = await (reads ? (reads.mapping ??= validate()) : validate());
+  let mapping = await (reads ? (reads.mapping ??= validate()) : validate());
+  // A shared mapping read under settings that changed since, as by a choice-only save
+  // between the two scope checks, is read again, as a scope check of its own would.
+  if (reads && mapping.ok && mapping.data.policyRevision < saved.snapshot.revision)
+    mapping = await (reads.mapping = validate());
   if (!mapping.ok || !ssoCurrent(rt, work, live)) return undefined;
   // The selection was validated on these settings, or on later ones that only wrote
   // choices (`onlyChoicesSince`).

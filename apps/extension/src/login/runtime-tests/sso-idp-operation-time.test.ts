@@ -138,4 +138,40 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
     expect(await allowed(h.rt, run)).toBeUndefined();
     expect(validate).toHaveBeenCalledTimes(3);
   });
+  it("reads the mapping again when a choice-only save lands between the scope checks", async () => {
+    const h = await harness();
+    const form = h.page(idp, "idp-form", "/authsvc", "?PolicyId=synthetic");
+    idpReadings.set("idp-form", { kind: "native" });
+    const run = idpChild(h, form.live);
+    expect(await ssoAdmit(h.rt, form.ctx)).toBeUndefined();
+    step(run, [...fill("username"), ...click("next"), { type: "OBSERVED", result: "continue" }]);
+    const validate = vi.mocked(h.rt.options.sso!.validate);
+    const mapped = await validate.getMockImplementation()!(undefined as never, undefined as never);
+    if (!mapped.ok) throw new Error("The synthetic mapping is refused");
+    const settings = vi.mocked(h.rt.settings.handle);
+    const before = await settings.getMockImplementation()!({ version: 1, type: "settings.get" });
+    if (!before.ok) throw new Error("The synthetic settings are unavailable");
+    // Another tab saves a choice of SSO method once the first scope check read the mapping:
+    // a revision that writes only a choice stops nothing running (`CHOICE_ONLY_CAUSES`).
+    const saved = {
+      ...before,
+      snapshot: {
+        ...before.snapshot,
+        revision: 4,
+        changes: [{ revision: 4, cause: "sso-mapping" as const }],
+      },
+    };
+    validate.mockClear();
+    validate.mockImplementationOnce(async () => {
+      settings.mockImplementation(async () => structuredClone(saved));
+      validate.mockImplementation(async () => ({
+        ...mapped,
+        data: { ...mapped.data, policyRevision: 4 },
+      }));
+      return mapped;
+    });
+    expect(await allowed(h.rt, run)).toBeDefined();
+    // The second scope check read the mapping again, under the newer settings.
+    expect(validate).toHaveBeenCalledTimes(2);
+  });
 });

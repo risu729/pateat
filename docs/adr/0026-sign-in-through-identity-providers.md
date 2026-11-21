@@ -842,18 +842,21 @@ Decisions:
    checks validate. The page's own authorization still checks the policy, the flow's
    scope and the operation at once before the step acts, and the page still stops a
    step whose operation ran out. It applies to every login's steps, not only an IdP's.
-2. **One mapping read per policy check.** The two scope checks of one policy check of
-   an SSO hop's login (`allowed`), as one page authorization makes, read the flow's SSO
+2. **One mapping read per policy check.** The two scope checks of one policy check of an
+   SSO hop's login (`allowed`), as one page authorization makes, read the flow's SSO
    mapping from the vault once and share it (`SsoReads`); everything else in each scope
-   check is read again, and a mapping read under older settings fails the second check.
-   Nothing is kept from one policy check to the next, so a vault change applies at the
-   next check. Direct logins of the same recipe logged `check_ms` of 2 to 5 seconds in
-   all.
+   check is read again. A shared mapping read under settings older than the second
+   check's is read again there, so a save that only writes a choice, as an SSO method
+   chosen in another tab, still stops nothing running, and any other change is checked
+   as a scope check of its own would check it. Nothing is kept from one policy check to
+   the next, so a vault change applies at the next check. Direct logins of the same
+   recipe logged `check_ms` of 2 to 5 seconds in all.
 
 Checked with local tests (`sso-idp-operation-time.test.ts`): one whose scope checks and
 vault reads take 15 seconds or more before the page's authorization ends, which fails
-without decision 1, and one that counts the mapping reads per policy check, which fails
-without decision 2. Not checked on the real site.
+without decision 1, one that counts the mapping reads per policy check, which fails
+without decision 2, and one with a choice-only save between the two scope checks. Not
+checked on the real site.
 
 ## Known limits 2026-11-16
 
