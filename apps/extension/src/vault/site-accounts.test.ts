@@ -195,6 +195,105 @@ describe("findSiteAccounts", () => {
     ).toEqual([["live", [uriItem, passkeyItem]]]);
   });
 
+  it("reads the login usernames of named items that do not match, under the same rules", async () => {
+    const readUsernames = vi.fn<LoginUsernameSource>(async (_connection, itemIds) =>
+      Object.fromEntries(itemIds.map((itemId) => [itemId, `${itemId.slice(0, 1)}@example.test`])),
+    );
+    const result = await findSiteAccounts({
+      saved: enabled(),
+      settings: draft(),
+      origin: "https://bank.example",
+      // The saved default's item, a matched item, an excluded item and a demo item.
+      named: [
+        { connectionId: "live", itemId: otherItem },
+        { connectionId: "live", itemId: uriItem },
+        { connectionId: "live", itemId: excludedItem },
+        { connectionId: "demo-personal", itemId: "primary" },
+      ],
+      matchUris: async () => ({
+        ok: true,
+        data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+      }),
+      findPasskeys: passkeys({ "bank.example": [uriItem] }),
+      readUsernames,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      accounts: expect.arrayContaining([
+        {
+          connectionId: "live",
+          itemId: uriItem,
+          uri: false,
+          passkey: true,
+          username: "4@example.test",
+        },
+      ]),
+      // A named item that matched is listed once, under the matches.
+      named: [{ connectionId: "live", itemId: otherItem, username: "6@example.test" }],
+    });
+    // An excluded item and the demo vaults are never asked for.
+    expect(
+      readUsernames.mock.calls.map(([connection, itemIds]) => [connection.id, itemIds]),
+    ).toEqual([["live", [uriItem, otherItem]]]);
+  });
+
+  it("does not name an item the draft no longer uses", async () => {
+    const readUsernames = vi.fn<LoginUsernameSource>(async () => ({}));
+    const value = enabled();
+    const live = value.catalog.connections.find((entry) => entry.id === "live")!;
+    const result = await findSiteAccounts({
+      saved: value,
+      // Saved as usable, but excluded in the unsaved draft.
+      settings: excludeItem(draft(), live, otherItem),
+      origin: "https://bank.example",
+      named: [{ connectionId: "live", itemId: otherItem }],
+      matchUris: async () => ({
+        ok: true,
+        data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+      }),
+      findPasskeys: passkeys(),
+      readUsernames,
+    });
+    expect(result).not.toHaveProperty("named");
+    expect(readUsernames).not.toHaveBeenCalled();
+  });
+
+  it("does not name an item whose username the draft excludes", async () => {
+    const value = enabled();
+    const live = value.catalog.connections.find((entry) => entry.id === "live")!;
+    const readUsernames = vi.fn<LoginUsernameSource>(async () => ({}));
+    const result = await findSiteAccounts({
+      saved: value,
+      settings: excludeField(draft(), live, otherItem, "login.username"),
+      origin: "https://bank.example",
+      named: [{ connectionId: "live", itemId: otherItem }],
+      matchUris: async () => ({
+        ok: true,
+        data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+      }),
+      findPasskeys: passkeys(),
+      readUsernames,
+    });
+    expect(result).not.toHaveProperty("named");
+    expect(readUsernames).not.toHaveBeenCalled();
+  });
+
+  it("answers without named usernames when none was read", async () => {
+    const result = await findSiteAccounts({
+      saved: saved(),
+      settings: draft(),
+      origin: "https://bank.example",
+      named: [{ connectionId: "live", itemId: otherItem }],
+      matchUris: async () => ({
+        ok: true,
+        data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+      }),
+      findPasskeys: passkeys(),
+      readUsernames: async () => ({}),
+    });
+    expect(result).not.toHaveProperty("named");
+  });
+
   it("lists the matches without usernames when reading them fails", async () => {
     const result = await findSiteAccounts({
       saved: enabled(),
@@ -463,6 +562,38 @@ describe("createSiteAccountsHandler settings changes", () => {
     expect(answer.ok && answer.accounts.some((account) => "username" in account)).toBe(false);
     // Three searches, each with its read before and its check after.
     expect(revision).toBe(9);
+  });
+
+  it("drops the named usernames too while the settings keep changing", async () => {
+    let revision = 3;
+    const handle = createSiteAccountsHandler({
+      settings: settingsAt(() => revision++),
+      matchUris,
+      findPasskeys: passkeys(),
+      readUsernames: named,
+    });
+    const answer = await handle({
+      ...request(),
+      named: [{ connectionId: "live", itemId: otherItem }],
+    });
+    expect(answer).toMatchObject({ ok: true });
+    expect(answer).not.toHaveProperty("named");
+    expect(revision).toBe(9);
+  });
+
+  it("names the requested items when the settings stay the same", async () => {
+    const handle = createSiteAccountsHandler({
+      settings: settingsAt(() => 3),
+      matchUris,
+      findPasskeys: passkeys(),
+      readUsernames: named,
+    });
+    expect(
+      await handle({ ...request(), named: [{ connectionId: "live", itemId: otherItem }] }),
+    ).toMatchObject({
+      ok: true,
+      named: [{ connectionId: "live", itemId: otherItem, username: "bob@example.test" }],
+    });
   });
 
   it("does not compare the settings when no username was read", async () => {

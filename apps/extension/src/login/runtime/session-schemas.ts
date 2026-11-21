@@ -65,6 +65,12 @@ export const DETAIL_OFFERS_KEY = "session:pateat.login-detail-offers.v1";
 
 export const PENDING_DETAILS_KEY = "session:pateat.login-pending-details.v1";
 
+/**
+ * The only candidates a site refused when a login filled a birth date or phone number
+ * from one without a link (ADR 0061), so no later login fills it again unasked.
+ */
+export const REFUSED_PROPOSALS_KEY = "session:pateat.login-refused-proposals.v1";
+
 export const CONFIG_KEY = "pateat.login-probe-origin.v1";
 
 /**
@@ -258,6 +264,11 @@ export const pendingDetailSchema = v.strictObject({
   handler: v.pipe(v.number(), v.integer(), v.minValue(0)),
   connectionId: v.string(),
   link: detailLinkSchema,
+  /**
+   * Filled by the login from the only candidate, without a link (ADR 0061, owner
+   * 2026-11-21 10:12 UTC), rather than by the popup's Fill.
+   */
+  proposed: v.optional(v.literal(true)),
 });
 
 export type PendingDetail = v.InferOutput<typeof pendingDetailSchema>;

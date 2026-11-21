@@ -141,7 +141,6 @@ export const settingsEn = {
   "{{item}} in {{account}}{{availability}}": "{{item}} in {{account}}{{availability}}",
   " (not available here)": " (not available here)",
   " (unavailable)": " (unavailable)",
-  "No default": "No default",
   "Remove default for {{origin}}": "Remove default for {{origin}}",
   Origin: "Origin",
   "Also list items that do not match": "Also list items that do not match",

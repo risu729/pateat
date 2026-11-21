@@ -22,6 +22,13 @@ const sourceSchema = v.strictObject({
   fieldId: id,
   itemLabel: label,
   fieldLabel: label,
+  /**
+   * For a birth date or phone number: the value the fill types, as year-month-day or the
+   * last four digits, read on this device for the popup only (ADR 0061, owner 2026-11-21
+   * 10:12 UTC). Absent for an item with Bitwarden's re-prompt, and while the vault is
+   * locked.
+   */
+  shown: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(10))),
 });
 export const detailResponseSchema = v.variant("ok", [
   v.strictObject({
@@ -30,7 +37,8 @@ export const detailResponseSchema = v.variant("ok", [
     /**
      * The page's `detail` handler that the tab's last login stopped at for want of a link,
      * with the vault fields that could give each detail it asks for, the best guess first.
-     * Absent when no login stopped there or no field could give one.
+     * A birth date or phone number is listed without fields too, so the popup says where
+     * to save it (ADR 0061). Absent when no login stopped there or nothing is listed.
      */
     offer: v.optional(
       v.strictObject({
@@ -40,7 +48,8 @@ export const detailResponseSchema = v.variant("ok", [
             v.strictObject({
               detail: loginDetailSchema,
               format: v.optional(detailFormatSchema),
-              candidates: v.pipe(v.array(sourceSchema), v.minLength(1), v.maxLength(20)),
+              /** Empty only for a birth date or phone number no field gives. */
+              candidates: v.pipe(v.array(sourceSchema), v.maxLength(20)),
               /**
                * The first candidate is no guess and is not selected, as for a member ID,
                * whose fields' names say little.

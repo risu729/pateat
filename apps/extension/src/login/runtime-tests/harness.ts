@@ -203,6 +203,10 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
         id: string;
         custom: CustomField[];
         builtin?: { id: string; label: string; kind: "text" | "hidden" }[];
+        /** A secure note: no login's password field. */
+        note?: true;
+        /** Bitwarden's master password re-prompt. */
+        reprompt?: true;
       }[];
       /** Cached sign-in entry recipes (ADR 0031). */
       entries?: LoginEntryRecipe[];
@@ -365,17 +369,22 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
                 ...(live.extraItems ?? []).map((extra) => ({
                   id: extra.id,
                   label: "Extra synthetic item",
+                  ...(extra.reprompt ? { reprompt: true as const } : {}),
                   allowedOrigins: [],
                   groupIds: [],
                   evidence: liveEvidence,
                   revisionDate: liveRevisionDate,
                   fields: [
-                    {
-                      id: "login.password",
-                      label: "Password",
-                      name: null,
-                      kind: "hidden" as const,
-                    },
+                    ...(extra.note
+                      ? []
+                      : [
+                          {
+                            id: "login.password",
+                            label: "Password",
+                            name: null,
+                            kind: "hidden" as const,
+                          },
+                        ]),
                     ...(extra.builtin ?? []).map((field) => ({ ...field, name: null })),
                     ...customFields(extra.custom),
                   ],

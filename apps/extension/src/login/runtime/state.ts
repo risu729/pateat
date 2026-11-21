@@ -394,6 +394,20 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   /** Refused links not removed yet, by site, login item and detail (ADR 0061). */
   const refusedDetails = new Map<string, RefusedDetail>();
 
+  /**
+   * The only candidates a site refused when a login filled a birth date or phone number
+   * from one without a link (`proposalKey`, ADR 0061), so no later login in this browser
+   * session fills it again unasked; the popup still offers it.
+   */
+  const refusedProposals = new Set<string>();
+
+  /**
+   * The popup's last read of an offer's birth date or phone number candidates (ADR 0061),
+   * by attempt, document and detail: its key (the settings revision, vault snapshot and
+   * candidates) and what each candidate shows, by item and field.
+   */
+  const shownDetails = new Map<string, { key: string; shown: Map<string, string> }>();
+
   /** Account choices being saved; each bumps the policy revision (ADR 0022). */
   const savingChoices = new Set<Promise<void>>();
 
@@ -556,6 +570,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     cardGuesses,
     pendingDetails,
     refusedDetails,
+    refusedProposals,
+    shownDetails,
     savingChoices,
     attemptRecords,
     confirmFill: createConfirmState(),

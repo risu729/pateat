@@ -34,6 +34,8 @@ export async function findSiteAccounts(input: {
    */
   settings: LocalSettings;
   origin: string;
+  /** Other items the page shows for the origin, whose usernames are read too. */
+  named?: readonly { connectionId: string; itemId: string }[];
   matchUris: LiveUriMatcher;
   findPasskeys: PasskeyFinder;
   /** Matched live items' login usernames, kept by each open snapshot; never the demo vaults. */
@@ -107,9 +109,21 @@ export async function findSiteAccounts(input: {
     if (!found.complete) complete = false;
     for (const entry of found.candidates) add(entry.connectionId, entry.itemId, "passkey");
   }
-  // Only matched items, so same-named items can be told apart; no other value is read.
-  // A username is read only under the saved settings, as a fill would be: the item is
-  // eligible, its login username is not excluded, and it waits for no custom-field review.
+  // The requested items that did not match are named apart from the matches, when the
+  // draft uses them too, as it does every match.
+  const named = new Map<string, { connectionId: string; itemId: string; username?: string }>();
+  for (const entry of input.named ?? []) {
+    const key = JSON.stringify([entry.connectionId, entry.itemId]);
+    if (
+      !accounts.has(key) &&
+      connectionUse(settings, catalog, entry.connectionId) !== "disabled" &&
+      getItemEligibility(settings, catalog, entry.connectionId, entry.itemId).eligible
+    )
+      named.set(key, { connectionId: entry.connectionId, itemId: entry.itemId });
+  }
+  // Only matched and named items, so same-named items can be told apart; no other value is
+  // read. A username is read only under the saved settings, as a fill would be: the item
+  // is eligible, its login username is not excluded, and it waits for no custom-field review.
   if (input.readUsernames) {
     const saved = input.saved.snapshot.settings;
     const wanted = new Map<
@@ -119,7 +133,7 @@ export async function findSiteAccounts(input: {
         accounts: { itemId: string; username?: string }[];
       }
     >();
-    for (const account of accounts.values()) {
+    for (const account of [...accounts.values(), ...named.values()]) {
       const connection = live.connections.find((entry) => entry.id === account.connectionId);
       const eligibility = getItemEligibility(saved, catalog, account.connectionId, account.itemId);
       if (
@@ -148,7 +162,17 @@ export async function findSiteAccounts(input: {
       }
     }
   }
-  return { version: 1, ok: true, origin: input.origin, accounts: [...accounts.values()], complete };
+  const usernames = [...named.values()].flatMap((entry) =>
+    entry.username ? [{ ...entry, username: entry.username }] : [],
+  );
+  return {
+    version: 1,
+    ok: true,
+    origin: input.origin,
+    accounts: [...accounts.values()],
+    ...(usernames.length ? { named: usernames } : {}),
+    complete,
+  };
 }
 
 /** Answers `settings.site-accounts` from the settings page or the toolbar popup; callers check the sender. */
@@ -178,11 +202,13 @@ export function createSiteAccountsHandler(options: {
         saved,
         settings: request.output.settings,
         origin: request.output.origin,
+        ...(request.output.named ? { named: request.output.named } : {}),
         matchUris: options.matchUris,
         findPasskeys: options.findPasskeys,
         ...(options.readUsernames ? { readUsernames: options.readUsernames } : {}),
       });
-      if (!found.ok || !found.accounts.some((account) => account.username)) return found;
+      if (!found.ok || (!found.accounts.some((account) => account.username) && !found.named))
+        return found;
       // Only the revision is compared, so the snapshot alone is read again, without the catalog.
       // oxlint-disable-next-line no-await-in-loop -- compares with the settings searched
       const latest = await options.settings.read().catch(() => undefined);
@@ -190,8 +216,9 @@ export function createSiteAccountsHandler(options: {
       if (latest.revision === saved.snapshot.revision) return found;
     }
     if (!found?.ok) return found ?? { version: 1, ok: false, reason: "unavailable" };
+    const { named: _named, ...rest } = found;
     return {
-      ...found,
+      ...rest,
       accounts: found.accounts.map(({ username: _username, ...account }) => account),
     };
   };

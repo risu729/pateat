@@ -253,6 +253,63 @@ export function registerPopupDetailCases({
       .toBeVisible();
     expect(details.get).not.toHaveBeenCalled();
   });
+
+  test("a birth date or phone number shows the value its fill types beside each field", async () => {
+    const { client } = store();
+    const phone = {
+      connectionId: "demo-personal",
+      itemId: "identity-1",
+      fieldId: "identity.phone",
+      itemLabel: "本人",
+      fieldLabel: "電話番号",
+      shown: "1234",
+    };
+    const offer = {
+      documentId: "detail-document",
+      details: [{ detail: "phone-last-4" as const, candidates: [phone] }],
+    };
+    await mount(
+      client,
+      "https://bank.example/login",
+      noChoice(),
+      false,
+      undefined,
+      withDetails({ offer }),
+    );
+    const asks = page.getByRole("group", {
+      name: "This page asks for the last 4 digits of your phone number.",
+    });
+    await expect.element(asks.getByRole("radio", { name: "本人 › 電話番号, 1234" })).toBeChecked();
+    await expect.element(asks.getByText("1234")).toBeVisible();
+  });
+
+  test("a phone number no field gives says where to save it, with nothing to fill", async () => {
+    const { client } = store();
+    const offer = {
+      documentId: "detail-document",
+      details: [{ detail: "phone-last-4" as const, candidates: [] }],
+    };
+    await mount(
+      client,
+      "https://bank.example/login",
+      noChoice(),
+      false,
+      undefined,
+      withDetails({ offer }),
+    );
+    const asks = page.getByRole("group", {
+      name: "This page asks for the last 4 digits of your phone number.",
+    });
+    await expect
+      .element(
+        asks.getByText(
+          "Save your phone number in a Bitwarden identity, and Pateat fills it from there.",
+        ),
+      )
+      .toBeVisible();
+    expect(asks.getByRole("radio").elements()).toHaveLength(0);
+    expect(page.getByRole("button", { name: "Fill" }).query()).toBeNull();
+  });
 }
 
 export function registerPopupAvailabilityCases({
