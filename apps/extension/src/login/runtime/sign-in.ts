@@ -585,8 +585,12 @@ export async function watchPage(rt: Runtime, run: Execution, routed = false): Pr
     return;
   }
   // A page that asks for an authenticator app's code gets the item's TOTP once (ADR 0027
-  // amendment of 2026-11-17).
-  if (state?.decision === "continuing" && state.confirmed && (await watchedCode(rt, run, state)))
+  // amendments of 2026-11-17 and 2026-11-22), also one with no sign of a sign-in going on.
+  if (
+    (state?.decision === "continuing" || state?.decision === "judge") &&
+    state.confirmed &&
+    (await watchedCode(rt, run, state))
+  )
     return;
   // Only a page with no sign of a sign-in going on is judged; an undecided answer never
   // completes a watched login, an optional page after the sign-in does (ADR 0065).
