@@ -26,7 +26,7 @@ import { choiceAccount, itemMatchesUrl } from "../plan";
 import { hideUsernames } from "../markers";
 import { openPasswordWindow } from "../master-password";
 import { openMethods, type MethodMarks } from "../methods";
-import { ssoCurrent, ssoReturnOrigin, ssoScope } from "../sso-scope";
+import { dropSsoMappings, ssoCurrent, ssoReturnOrigin, ssoScope } from "../sso-scope";
 import { ssoPress } from "../sso-effects";
 import { ssoChild, type SsoWork } from "../sso-state";
 import { ssoObservation, inspectSsoTarget } from "./entry";
@@ -43,15 +43,28 @@ type Saved = Extract<SettingsResponse, { ok: true }>;
 /** The layout's entry for a label, ignoring letter case; a layout holds one per label. */
 const entryFor = (layout: SsoLayout, label: string) =>
   layout.entries.find((entry) => normalizeSsoLabel(entry.label) === normalizeSsoLabel(label));
-export async function ssoReprompt(rt: Runtime, work: SsoWork, live: LiveDocument, idp = false) {
+/**
+ * The master password for the flow's item on `live`, when the item asks for it there:
+ * `verified` when given or not asked for, `closed` when the person closed its window,
+ * `unavailable` when it cannot be asked, and `interrupted` when the window was cut off or
+ * the page is no longer the flow's, as after the tab left it (ADR 0026, amendment of
+ * 2026-11-22).
+ */
+export async function ssoReprompt(
+  rt: Runtime,
+  work: SsoWork,
+  live: LiveDocument,
+  idp = false,
+): Promise<"verified" | "closed" | "unavailable" | "interrupted"> {
   const account = idp ? { ...work.selected.account, origin: work.selected.origin } : work.account;
   const connection = work.saved.catalog.connections.find(
     (entry) => entry.id === account.connectionId,
   );
   const item = connection?.items.find((entry) => entry.id === account.itemId);
-  if (!connection || !item) return false;
-  if (!itemAsksForMasterPassword(work.saved.snapshot.settings, item, live.url)) return true;
-  if (!rt.options.askMasterPassword || !ssoCurrent(rt, work, live)) return false;
+  if (!connection || !item) return "unavailable";
+  if (!itemAsksForMasterPassword(work.saved.snapshot.settings, item, live.url)) return "verified";
+  if (!rt.options.askMasterPassword) return "unavailable";
+  if (!ssoCurrent(rt, work, live)) return "interrupted";
   const key = `${live.document.tabId} ${live.document.documentId}`;
   const ask =
     rt.passwordAsks.get(key) ??
@@ -63,12 +76,10 @@ export async function ssoReprompt(rt: Runtime, work: SsoWork, live: LiveDocument
       item,
     });
   const answer = await ask.answer;
-  return (
-    answer.answer === "verified" &&
-    !answer.aborted &&
-    ask.connectionId === connection.id &&
-    ssoCurrent(rt, work, live)
-  );
+  if (answer.aborted) return "interrupted";
+  if (answer.answer !== "verified") return answer.answer;
+  if (ask.connectionId !== connection.id) return "unavailable";
+  return ssoCurrent(rt, work, live) ? "verified" : "interrupted";
 }
 /**
  * Ends a tab's flow. `goesOn` names a document that goes on with its own login, such as the
@@ -138,6 +149,9 @@ export async function ssoVaultChanged(
   rt: Runtime,
   reason: "sso-vault-changed" | "sso-settings-changed" = "sso-vault-changed",
 ): Promise<void> {
+  // A vault notice or a settings save drops each flow's kept mapping (ADR 0026, amendment
+  // of 2026-11-22), whether or not the flow goes on.
+  dropSsoMappings(rt);
   if (rt.sso.flows.size === 0) return;
   const saved = await rt.settings
     .handle({ version: 1, type: "settings.get" })
@@ -192,7 +206,7 @@ export async function beginSso(
   rt.sso.flows.set(ctx.document.tabId, work);
   work.timer = setTimeout(() => cancelSso(rt, ctx.document.tabId, "sso-expired"), SSO_FLOW_MS);
   try {
-    if (!(await ssoScope(rt, work)) || !(await ssoReprompt(rt, work, ctx.live)))
+    if (!(await ssoScope(rt, work)) || (await ssoReprompt(rt, work, ctx.live)) !== "verified")
       throw new Error("sso-scope-changed");
     const described = await rt.options.sso!.describe(account);
     const method =
@@ -410,6 +424,26 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
   };
   if (await leftIdp()) return left();
   const prior = work.live;
+  /**
+   * Ends the flow for `reason`, unless the tab left this IdP page while it was read, as a
+   * risk check that posts itself on at once: such a page ends nothing, and the tab's next
+   * page is read, once per document; a document refused so before ends the flow, so a
+   * page that keeps changing its URL cannot keep a failure waiting (ADR 0026, amendment
+   * of 2026-11-22).
+   */
+  const stop = async (reason: string, cancel = reason) => {
+    const id = ctx.document.documentId;
+    if (
+      !work.leftWhileRead?.has(id) &&
+      (rt.documents.get(ctx.key) !== ctx.live || (await leftIdp()))
+    ) {
+      (work.leftWhileRead ??= new Set()).add(id);
+      if (work.live === ctx.live) work.live = prior;
+      return left();
+    }
+    cancelSso(rt, ctx.document.tabId, cancel);
+    return ctx.refuse(reason);
+  };
   work.live = ctx.live;
   if (!(await ssoScope(rt, work))) {
     if (await leftIdp()) {
@@ -504,23 +538,22 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
   learnPressedEntry(work);
   work.phase = "at-idp";
   const child = rt.attempts.get(ctx.document.tabId);
-  if (!(await ssoReprompt(rt, work, ctx.live, true))) {
+  // A person who closed the master password's window ends the flow, wherever the tab went.
+  const reprompt = await ssoReprompt(rt, work, ctx.live, true);
+  if (reprompt === "interrupted") return stop("sso-reprompt-required");
+  if (reprompt !== "verified") {
     cancelSso(rt, ctx.document.tabId, "sso-reprompt-required");
     return ctx.refuse("sso-reprompt-required");
   }
   let value = await username(rt, work, ctx.live, true);
-  if (!value) {
-    cancelSso(rt, ctx.document.tabId, "sso-username-unavailable");
-    return ctx.refuse("sso-username-unavailable");
-  }
+  if (!value) return stop("sso-username-unavailable");
   const parsed = v.safeParse(
     ssoIdpResultSchema,
     await send(rt, ctx.live, { type: "login.sso.idp", username: value }).catch(() => undefined),
   );
   if (!parsed.success || !(await ssoScope(rt, work))) {
     value = undefined;
-    cancelSso(rt, ctx.document.tabId);
-    return ctx.refuse("sso-idp-unreadable");
+    return stop("sso-idp-unreadable", "sso-cancelled");
   }
   // The IdP's own login runs in the tab: it has not ended signed in or stopped, and it is
   // watched only for its result (ADR 0027).
