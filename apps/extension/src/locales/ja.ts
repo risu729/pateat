@@ -507,6 +507,10 @@ export const ja = {
   "This page shows another account, so nothing was filled.":
     "このページには別のアカウントが表示されているため、何も入力しませんでした。",
   "ID {{id}}": "ID {{id}}",
+  "Save your phone number in a Bitwarden identity, and Pateat fills it from there.":
+    "Bitwarden の ID に電話番号を保存すると、Pateat がそこから入力します。",
+  "Add a custom field named \u201Cbirth date\u201D to a Bitwarden identity or secure note, and Pateat fills it from there.":
+    "Bitwarden の ID かセキュアメモに「生年月日」という名前のカスタムフィールドを追加すると、Pateat がそこから入力します。",
   vaultsLocked_one:
     "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",
   vaultsLocked_other:

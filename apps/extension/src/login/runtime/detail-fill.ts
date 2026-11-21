@@ -10,6 +10,8 @@ import {
   sameLoginTarget,
   detailFieldInputs,
   resolveDetailSourceField,
+  customFieldReference,
+  detailLinkSchema,
   type DetailLink,
   type LoginFieldTarget,
   type LoginDetail,
@@ -28,6 +30,7 @@ import {
   detailFieldValues,
   detailValue,
   linkedField,
+  proposedField,
   savedDetailLink,
   savedDetailLinks,
   type DetailFillValue,
@@ -57,6 +60,68 @@ export const refusalKey = (
   detail: LoginDetail,
   field?: DetailSourceField,
 ) => detailKey(owner, detail, field);
+
+/**
+ * The link a login makes from the only candidate for a birth date or phone number
+ * (`proposedField`, ADR 0061): the candidate's item and its field, a custom one by its
+ * reference. Undefined when the field has no reference.
+ */
+export function proposedLink(
+  _rt: Runtime,
+  connection: VaultConnectionMetadata,
+  owner: DetailOwner,
+  detail: LoginDetail,
+  source: { itemId: string; fieldId: string },
+): DetailLink | undefined {
+  const item = connection.items.find((entry) => entry.id === source.itemId);
+  const reference = source.fieldId.startsWith("custom.")
+    ? item && customFieldReference(item.fields, source.fieldId)
+    : source.fieldId;
+  const field = v.safeParse(detailLinkSchema.entries.source.entries.field, reference);
+  return field.success
+    ? {
+        ...owner,
+        detail,
+        source: { itemId: source.itemId, field: field.output },
+      }
+    : undefined;
+}
+
+/** A refused proposal of the login item's `detail` from one field (`refusedProposals`). */
+export const proposalKey = (_rt: Runtime, link: DetailLink) =>
+  JSON.stringify([
+    detailKey(link, link.detail),
+    link.source.itemId,
+    detailSourceFieldKey(link.source.field),
+  ]);
+
+/**
+ * The field a login fills `detail` from (ADR 0061): its saved link's, unless the site
+ * refused it; else, for a birth date or phone number without a saved link, the only
+ * candidate (`proposedField`, owner 2026-11-21 10:12 UTC), with the link it makes, unless
+ * the site refused that one in this browser session.
+ */
+export function detailSource(
+  rt: Runtime,
+  settings: LocalSettings,
+  catalog: VaultCatalog,
+  connection: VaultConnectionMetadata,
+  owner: DetailOwner,
+  detail: Exclude<LoginDetail, "secret-answer">,
+): { itemId: string; fieldId: string; proposed?: DetailLink } | undefined {
+  const link = savedDetailLink(settings, owner, detail);
+  if (link)
+    return rt.refusedDetails.has(refusalKey(rt, owner, detail))
+      ? undefined
+      : linkedField(settings, catalog, connection, link);
+  const only = proposedField(settings, catalog, connection, detail, {
+    host: new URL(owner.origin).hostname,
+    loginItemId: owner.itemId,
+  });
+  const proposed = only && proposedLink(rt, connection, owner, detail, only);
+  if (!only || !proposed || rt.refusedProposals.has(proposalKey(rt, proposed))) return undefined;
+  return { itemId: only.itemId, fieldId: only.fieldId, proposed };
+}
 
 /** The login item a run's links belong to, or none while its vault account is unknown. */
 export function detailOwner(
@@ -123,17 +188,26 @@ export async function detailInput(
     const targets = detailFieldInputs(field).map((input) => input.target);
     if (field.detail === "secret-answer")
       return answers.length ? [{ index, targets, answer: true }] : [];
-    if (rt.refusedDetails.has(refusalKey(rt, found.owner, field.detail))) return [];
-    const link = savedDetailLink(authorized.settings, found.owner, field.detail);
-    const source =
-      link && linkedField(authorized.settings, authorized.catalog, found.connection, link);
+    const source = detailSource(
+      rt,
+      authorized.settings,
+      authorized.catalog,
+      found.connection,
+      found.owner,
+      field.detail,
+    );
     if (!source) return [];
     // A linked item with Bitwarden's re-prompt is read only once this login holds the
     // master password (owner, 2026-10-23 21:50 UTC).
     const item = found.connection.items.find((entry) => entry.id === source.itemId);
     const wait =
       item && waitsForMasterPassword(authorized.settings, item, found.owner.itemId, site)
-        ? { detail: field.detail, itemId: source.itemId, fieldId: source.fieldId, targets }
+        ? {
+            detail: field.detail,
+            itemId: source.itemId,
+            fieldId: source.fieldId,
+            targets,
+          }
         : undefined;
     return [{ index, targets, answer: false, ...(wait ? { wait } : {}) }];
   });
@@ -277,7 +351,10 @@ export async function asksAnotherQuestion(
     authorized.catalog,
     found.connection,
     "secret-answer",
-    { host: new URL(run.metadata.account.origin).hostname, loginItemId: item.id },
+    {
+      host: new URL(run.metadata.account.origin).hostname,
+      loginItemId: item.id,
+    },
     Infinity,
   ).flatMap((candidate) => {
     const name = item.fields.find((entry) => entry.id === candidate.fieldId)?.name;
@@ -322,7 +399,11 @@ export async function offerDetails(
       return pairing
         ? {
             ...field,
-            paired: { field: pairing.field, question: pairing.question, shown: pairing.shown },
+            paired: {
+              field: pairing.field,
+              question: pairing.question,
+              shown: pairing.shown,
+            },
           }
         : field;
     });
@@ -355,7 +436,13 @@ export function filledDetails(
   run: Execution,
 ): { handler: number; detail: LoginDetail; field?: DetailSourceField }[] {
   return run.metadata.handlers.flatMap(
-    (entry): { handler: number; detail: LoginDetail; field?: DetailSourceField }[] => {
+    (
+      entry,
+    ): {
+      handler: number;
+      detail: LoginDetail;
+      field?: DetailSourceField;
+    }[] => {
       const handler = run.recipe.handlers?.[entry.index];
       if (handler?.kind !== "detail" || entry.field === undefined) return [];
       const field = handler.fields[entry.field];
@@ -469,22 +556,48 @@ export async function forgetDetail(
       reportDetail(rt, document, run.recipe, entry.handler, "detail-kept");
     return;
   }
+  // A value filled from the only candidate had no saved link: that candidate is not
+  // filled unasked again in this browser session, and the popup offers it.
+  const proposals = (rt.pendingDetails.get(document.tabId) ?? []).filter(
+    (entry) => entry.proposed && entry.attemptId === run.metadata.id,
+  );
+  const proposed = (entry: (typeof filled)[number]) =>
+    proposals.find((proposal) => proposal.handler === entry.handler);
+  for (const entry of filled) {
+    const proposal = proposed(entry);
+    if (!proposal) continue;
+    rt.refusedProposals.add(proposalKey(rt, proposal.link));
+    // The oldest go first, as the session holds 256 at most.
+    if (rt.refusedProposals.size > 256)
+      rt.refusedProposals.delete(rt.refusedProposals.values().next().value!);
+  }
+  const links = filled.filter((entry) => !proposed(entry));
+  if (proposals.length) {
+    const rest = rt.pendingDetails
+      .get(document.tabId)!
+      .filter((entry) => !proposals.includes(entry));
+    if (rest.length) rt.pendingDetails.set(document.tabId, rest);
+    else rt.pendingDetails.delete(document.tabId);
+    await quietly(rt, () => saveSession(rt));
+  }
   // No login uses a refused link from here, even one the settings still hold while the
   // removal is written, or after a write that failed.
-  for (const entry of filled)
+  for (const entry of links)
     rt.refusedDetails.set(refusalKey(rt, found.owner, entry.detail, entry.field), {
       ...found.owner,
       detail: entry.detail,
       ...(entry.field === undefined ? {} : { field: entry.field }),
     });
-  const written = await removeRefused(rt, run);
+  const written = links.length ? await removeRefused(rt, run) : "unchanged";
   for (const entry of filled)
     reportDetail(
       rt,
       document,
       run.recipe,
       entry.handler,
-      written === "saved" || written === "unchanged" ? "detail-forgotten" : "detail-kept",
+      written === "saved" || written === "unchanged" || proposed(entry)
+        ? "detail-forgotten"
+        : "detail-kept",
     );
 }
 
@@ -581,7 +694,11 @@ export async function readDetail(
     let value: string | undefined;
     try {
       // eslint-disable-next-line no-await-in-loop
-      value = await rt.fields({ account: { ...login, itemId }, connection, fieldId: id });
+      value = await rt.fields({
+        account: { ...login, itemId },
+        connection,
+        fieldId: id,
+      });
     } catch {
       value = undefined;
     }
@@ -607,7 +724,10 @@ export async function detailFill(
   authorized: Authorized,
   stepIndex: number,
 ): Promise<
-  | (Omit<DetailFillValue, "secret"> & { secret?: LoginSecretKind; question?: AskedQuestion })[]
+  | (Omit<DetailFillValue, "secret"> & {
+      secret?: LoginSecretKind;
+      question?: AskedQuestion;
+    })[]
   | "unreadable"
   | "unavailable"
   | "unfit"
@@ -618,7 +738,7 @@ export async function detailFill(
   const field = handler?.kind === "detail" && at !== undefined ? handler.fields[at] : undefined;
   const found = detailOwner(rt, run.metadata.account, authorized.catalog);
   if (!field || !found || index === undefined || handler?.kind !== "detail") return "unavailable";
-  let source: { itemId: string; fieldId: string } | undefined;
+  let source: { itemId: string; fieldId: string; proposed?: DetailLink } | undefined;
   let question: { field: DetailSourceField; ask: AskedQuestion } | undefined;
   if (field.detail === "secret-answer") {
     if ("parts" in field) return "unavailable";
@@ -632,13 +752,15 @@ export async function detailFill(
     if (!current(rt, run)) return "unavailable";
     source = asked?.source;
     question = asked && { field: asked.link.source.field, ask: asked.ask };
-  } else {
-    const link = savedDetailLink(authorized.settings, found.owner, field.detail);
-    source =
-      link && !rt.refusedDetails.has(refusalKey(rt, found.owner, field.detail))
-        ? linkedField(authorized.settings, authorized.catalog, found.connection, link)
-        : undefined;
-  }
+  } else
+    source = detailSource(
+      rt,
+      authorized.settings,
+      authorized.catalog,
+      found.connection,
+      found.owner,
+      field.detail,
+    );
   if (!source) return "unavailable";
   // Never a re-prompt item's value before the login holds the master password, which
   // `detailInput` asks for instead of choosing such an input.
@@ -678,5 +800,29 @@ export async function detailFill(
   }
   const values = detailFieldValues(field, read[0], read[1]);
   read.fill("");
+  if (Array.isArray(values) && source.proposed) {
+    // A value filled from the only candidate is kept as this tab's link, saved once the
+    // login is confirmed as a Fill's is; refused, it is not filled unasked again.
+    const { tabId } = run.live.document;
+    await rt.vars.sessionLoaded;
+    rt.pendingDetails.set(tabId, [
+      ...(rt.pendingDetails.get(tabId) ?? []).filter(
+        (entry) => !(entry.attemptId === run.metadata.id && entry.handler === index),
+      ),
+      {
+        tabId,
+        attemptId: run.metadata.id,
+        handler: index,
+        connectionId: found.connection.id,
+        link: source.proposed,
+        proposed: true,
+      },
+    ]);
+    await quietly(rt, () => saveSession(rt));
+    if (!current(rt, run)) {
+      for (const entry of values) entry.value = "";
+      return "unavailable";
+    }
+  }
   return values ?? "unreadable";
 }

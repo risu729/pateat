@@ -36,6 +36,7 @@ import {
   RELOGINS_KEY,
   DETAIL_OFFERS_KEY,
   PENDING_DETAILS_KEY,
+  REFUSED_PROPOSALS_KEY,
 } from "./session-schemas";
 import { scopes, quietly, keep, forget } from "./session-store";
 import { type LiveDocument, type StartTiming, type Execution } from "./types";
@@ -205,6 +206,7 @@ export async function saveSession(
     { key: RELOGINS_KEY, value: [...rt.relogins.values()] },
     { key: DETAIL_OFFERS_KEY, value: [...rt.detailOffers.values()] },
     { key: PENDING_DETAILS_KEY, value: [...rt.pendingDetails.values()].flat() },
+    { key: REFUSED_PROPOSALS_KEY, value: [...rt.refusedProposals] },
   ]);
 }
 

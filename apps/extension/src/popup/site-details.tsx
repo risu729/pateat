@@ -32,7 +32,10 @@ const DETAIL_ICON = {
 
 const sourceValue = (source: DetailSource) =>
   JSON.stringify([source.connectionId, source.itemId, source.fieldId]);
-/** How the popup names a vault field: only its item's and its own labels, never its value. */
+/**
+ * How the popup names a vault field: its item's and its own labels. A birth date's or
+ * phone number's value, read on this device, is shown beside it (`shown`, ADR 0061).
+ */
 const sourceLabel = (source: { itemLabel: string; fieldLabel: string }) =>
   `${source.itemLabel} › ${source.fieldLabel}`;
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -60,11 +63,14 @@ function DetailChoices({
     <div className="popup-choices">
       {candidates.map((source) => {
         const title = sourceLabel(source);
-        // Fields that would read the same add their item ID's first 8 characters.
-        const sub =
-          (seen.get(title) ?? 0) > 1
-            ? t("ID {{id}}", { id: source.itemId.slice(0, 8) })
-            : undefined;
+        // A birth date's or phone number's field shows the value its fill types (ADR
+        // 0061); fields that would read the same add their item ID's first 8 characters.
+        const sub = [
+          source.shown,
+          (seen.get(title) ?? 0) > 1 ? t("ID {{id}}", { id: source.itemId.slice(0, 8) }) : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
         return (
           <label key={sourceValue(source)} className="popup-choice">
             <input
@@ -126,7 +132,9 @@ export function DetailSection({
             <legend id={`popup-detail-${detail}`} className="popup-detail-ask">
               {question
                 ? t("This page asks \u201C{{question}}\u201D.", { question })
-                : t("This page asks for {{detail}}.", { detail: detailName(detail, t, format) })}
+                : t("This page asks for {{detail}}.", {
+                    detail: detailName(detail, t, format),
+                  })}
             </legend>
             {question && (
               // The AI's pairing of the question with a field named otherwise is only a
@@ -137,31 +145,47 @@ export function DetailSection({
                 )}
               </p>
             )}
-            <DetailChoices
-              detail={detail}
-              candidates={candidates}
-              checked={shown ? sourceValue(shown) : ""}
-              disabled={busy}
-              onChange={(value) => onPick(detail, value)}
-            />
-            <Button
-              id={`popup-detail-fill-${detail}`}
-              type="button"
-              className="w-full gap-2"
-              // Kept focusable while a fill runs, since Chrome moves focus away from a
-              // focused control that becomes disabled.
-              disabled={busy || !shown}
-              focusableWhenDisabled
-              aria-describedby={
-                question
-                  ? `popup-detail-${detail} popup-detail-paired-${detail}`
-                  : `popup-detail-${detail}`
-              }
-              onClick={() => shown && onFill(detail, shown)}
-            >
-              <TextCursorInput size={16} strokeWidth={2} aria-hidden="true" />
-              {t("Fill")}
-            </Button>
+            {candidates.length === 0 ? (
+              // No field gives a birth date or phone number: the popup says where to save
+              // one (ADR 0061, owner 2026-11-21 10:12 UTC).
+              <p id={`popup-detail-none-${detail}`} className="popup-choice-sub">
+                {detail === "phone-last-4"
+                  ? t(
+                      "Save your phone number in a Bitwarden identity, and Pateat fills it from there.",
+                    )
+                  : t(
+                      "Add a custom field named \u201Cbirth date\u201D to a Bitwarden identity or secure note, and Pateat fills it from there.",
+                    )}
+              </p>
+            ) : (
+              <DetailChoices
+                detail={detail}
+                candidates={candidates}
+                checked={shown ? sourceValue(shown) : ""}
+                disabled={busy}
+                onChange={(value) => onPick(detail, value)}
+              />
+            )}
+            {candidates.length > 0 && (
+              <Button
+                id={`popup-detail-fill-${detail}`}
+                type="button"
+                className="w-full gap-2"
+                // Kept focusable while a fill runs, since Chrome moves focus away from a
+                // focused control that becomes disabled.
+                disabled={busy || !shown}
+                focusableWhenDisabled
+                aria-describedby={
+                  question
+                    ? `popup-detail-${detail} popup-detail-paired-${detail}`
+                    : `popup-detail-${detail}`
+                }
+                onClick={() => shown && onFill(detail, shown)}
+              >
+                <TextCursorInput size={16} strokeWidth={2} aria-hidden="true" />
+                {t("Fill")}
+              </Button>
+            )}
           </fieldset>
         );
       })}
@@ -182,8 +206,12 @@ export function DetailSection({
                   </span>
                   <span className="popup-choice-sub">
                     {link.pending
-                      ? t("Filled from {{field}} (not saved yet)", { field: sourceLabel(link) })
-                      : t("Filled from {{field}}", { field: sourceLabel(link) })}
+                      ? t("Filled from {{field}} (not saved yet)", {
+                          field: sourceLabel(link),
+                        })
+                      : t("Filled from {{field}}", {
+                          field: sourceLabel(link),
+                        })}
                   </span>
                 </span>
                 <Button

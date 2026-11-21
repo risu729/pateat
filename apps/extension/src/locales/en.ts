@@ -503,6 +503,10 @@ export const en = {
   "This page shows another account, so nothing was filled.":
     "This page shows another account, so nothing was filled.",
   "ID {{id}}": "ID {{id}}",
+  "Save your phone number in a Bitwarden identity, and Pateat fills it from there.":
+    "Save your phone number in a Bitwarden identity, and Pateat fills it from there.",
+  "Add a custom field named \u201Cbirth date\u201D to a Bitwarden identity or secure note, and Pateat fills it from there.":
+    "Add a custom field named \u201Cbirth date\u201D to a Bitwarden identity or secure note, and Pateat fills it from there.",
   vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
   vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",
   "Unlock in settings": "Unlock in settings",

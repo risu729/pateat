@@ -29,6 +29,9 @@ import {
   detailFieldValues,
   detailValue,
   isCardDetail,
+  isPersonalDetail,
+  shownDetail,
+  type DetailCandidate,
   MAX_CARD_GUESS_READS,
   MAX_DETAIL_CANDIDATES,
   rankCards,
@@ -180,7 +183,12 @@ export async function answerCandidate<T extends { itemId: string; fieldId: strin
   const ask = { question: paired.question };
   const shown = await askedSource(rt, live, path, field.target, [{ ask }]);
   return shown
-    ? { candidate: pairing.candidate, ask, question: paired.question, shown: paired.shown }
+    ? {
+        candidate: pairing.candidate,
+        ask,
+        question: paired.question,
+        shown: paired.shown,
+      }
     : undefined;
 }
 
@@ -246,9 +254,11 @@ export async function guessCard<T extends { itemId: string }>(
       last4: v.pipe(v.array(v.pipe(v.string(), v.regex(/^\d{4}$/u))), v.maxLength(MAX_CARD_LAST_4)),
       brands: v.pipe(v.array(v.picklist(cardBrands)), v.maxLength(cardBrands.length)),
     }),
-    await send(rt, live, { type: "login.detail.card", path: offer.path, target }).catch(
-      () => undefined,
-    ),
+    await send(rt, live, {
+      type: "login.detail.card",
+      path: offer.path,
+      target,
+    }).catch(() => undefined),
   );
   // The page did not answer: the last result for this input, while the vault is the same.
   if (!answer.success) return kept?.vault === vault ? apply(kept) : byName;
@@ -288,7 +298,11 @@ export async function guessCard<T extends { itemId: string }>(
         try {
           // Serial reads through the shared vault host, as for a fill.
           // eslint-disable-next-line no-await-in-loop
-          value = await rt.fields({ account: { ...offer.account, itemId }, connection, fieldId });
+          value = await rt.fields({
+            account: { ...offer.account, itemId },
+            connection,
+            fieldId,
+          });
         } catch {
           return byName;
         }
@@ -326,6 +340,79 @@ export async function guessCard<T extends { itemId: string }>(
 }
 
 /**
+ * What each birth date or phone number candidate shows in the popup (ADR 0061, owner
+ * 2026-11-21 10:12 UTC): the value its fill would type (`shownDetail`), read one at a
+ * time as a fill reads it, for the first `MAX_DETAIL_CANDIDATES`. An item with
+ * Bitwarden's re-prompt is never read for it, on any site, as its value waits for the
+ * master password; a candidate read whose value no fill can use is dropped. The site and
+ * the login item must still be allowed, as for a fill. The values are kept for the
+ * offer's detail while the settings and the vault stay the same, so the popup's polls
+ * read the vault again only when they change. A read that throws, or one that gives
+ * nothing, as a locked vault does, shows no value and drops none.
+ */
+export async function showDetails<T extends DetailCandidate>(
+  rt: Runtime,
+  offer: DetailOffer,
+  detail: LoginDetail,
+  snapshot: { settings: LocalSettings; revision: number },
+  catalog: VaultCatalog,
+  candidates: T[],
+): Promise<T[]> {
+  const policy = snapshot.settings;
+  const connection = catalog.connections.find((entry) => entry.id === offer.account.connectionId);
+  if (
+    !candidates.length ||
+    !connection ||
+    (connection.state !== "ready" && connection.state !== "review-required") ||
+    isSiteExcluded(policy, offer.account.origin) ||
+    !isSiteAllowed(policy, offer.account.origin) ||
+    !getItemEligibility(policy, catalog, connection.id, offer.account.itemId).eligible
+  )
+    return candidates;
+  const field = (entry: T) => JSON.stringify([entry.itemId, entry.fieldId]);
+  const read = candidates.slice(0, MAX_DETAIL_CANDIDATES).filter((entry) => {
+    const item = connection.items.find((other) => other.id === entry.itemId);
+    return item !== undefined && item.reprompt !== true;
+  });
+  const slot = `${offer.attemptId} ${offer.document.documentId} ${detail}`;
+  const key = `${snapshot.revision} ${connection.snapshotId ?? ""} ${read.map(field).join(",")}`;
+  const apply = (shown: ReadonlyMap<string, string>) =>
+    candidates.flatMap((entry) => {
+      const value = shown.get(field(entry));
+      // An empty value is one no fill can use.
+      if (value === "") return [];
+      return [value === undefined ? entry : { ...entry, shown: value }];
+    });
+  const kept = rt.shownDetails.get(slot);
+  if (kept?.key === key) return apply(kept.shown);
+  const shown = new Map<string, string>();
+  let gave = false;
+  for (const entry of read) {
+    let value: string | undefined;
+    try {
+      // Serial reads through the shared vault host, as for a fill.
+      // eslint-disable-next-line no-await-in-loop
+      value = await rt.fields({
+        account: { ...offer.account, itemId: entry.itemId },
+        connection,
+        fieldId: entry.fieldId,
+      });
+    } catch {
+      return candidates;
+    }
+    gave ||= value !== undefined;
+    shown.set(field(entry), (value !== undefined && shownDetail(detail, value)) || "");
+    value = "";
+  }
+  if (!gave) return candidates;
+  rt.shownDetails.delete(slot);
+  // A few details' values at most; the oldest go first.
+  if (rt.shownDetails.size >= 32) rt.shownDetails.delete(rt.shownDetails.keys().next().value!);
+  rt.shownDetails.set(slot, { key, shown });
+  return apply(shown);
+}
+
+/**
  * What the popup shows about a page's personal details (ADR 0061): the handler the tab's
  * login stopped at with the fields that could give each detail, and the site's links for
  * the login item, by their names in the device's catalog only.
@@ -354,7 +441,11 @@ export async function popupDetail(rt: Runtime, tabId: number): Promise<DetailRes
       catalog,
       found.connection,
       field.detail,
-      { host: page.url.hostname, title: page.title, loginItemId: found.owner.itemId },
+      {
+        host: page.url.hostname,
+        title: page.title,
+        loginItemId: found.owner.itemId,
+      },
       isCardDetail(field.detail) ? Infinity : MAX_DETAIL_CANDIDATES,
     );
     // A secret question's answer is offered only from the field named as the page's
@@ -388,14 +479,27 @@ export async function popupDetail(rt: Runtime, tabId: number): Promise<DetailRes
       ({ candidates } = guess);
       preselect &&= guess.preselect;
     }
+    // A birth date or phone number shows the value each field gives.
+    if (isPersonalDetail(field.detail))
+      // eslint-disable-next-line no-await-in-loop
+      candidates = await showDetails(
+        rt,
+        offer!,
+        field.detail,
+        snapshot.snapshot,
+        catalog,
+        candidates,
+      );
     candidates = candidates.slice(0, MAX_DETAIL_CANDIDATES);
     // A split birth date is named as the one input it reads as (ADR 0061).
     const format = detailFieldFormat(field);
-    if (candidates.length)
+    // A birth date or phone number no field gives is listed still, so the popup says
+    // where to save it.
+    if (candidates.length || isPersonalDetail(field.detail))
       details.push({
         detail: field.detail,
         ...(format ? { format } : {}),
-        candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
+        candidates,
         // A member ID's fields' names say little, and two cards may show the same last
         // digits, so none is chosen for the owner.
         ...(preselect ? {} : { preselect: false as const }),
@@ -507,7 +611,10 @@ export async function popupDetailFill(
     snapshot.catalog,
     found.connection,
     field.detail,
-    { host: new URL(offer.account.origin).hostname, loginItemId: offer.account.itemId },
+    {
+      host: new URL(offer.account.origin).hostname,
+      loginItemId: offer.account.itemId,
+    },
     Infinity,
   );
   const chosen = offered.find(

@@ -698,6 +698,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ],
         custom: [],
       },
+      // A second birth date, so the birth date is no field a login fills without a link
+      // as the only one (owner, 2026-11-21 10:12 UTC).
+      {
+        id: "80000000-0000-4000-8000-000000000005",
+        note: true as const,
+        custom: [{ name: "Birth date", kind: "text" as const }],
+      },
     ];
     const detailHandler = {
       kind: "detail" as const,
