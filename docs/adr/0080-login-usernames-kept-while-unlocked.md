@@ -106,10 +106,10 @@ vault use. Credential release by a future SSO executor retains the normal use bo
 
 On 2026-11-21 at 10:08 UTC the owner showed the Sites list, where each origin row's
 select named its saved default only as `みずほダイレクト in bitwarden - risu`, and asked
-for the account ID there (「ここ、IDが出ないと区別できない」). The saved item's URI rule
-was for `web1.ib.mizuhobank.co.jp` while the rows were for `web2` and `web4`, so it did
-not match `origin/` and decision 3 read no username for it. The official Bitwarden vault
-list names every login by its username.
+for the account ID there (「ここ、IDが出ないと区別できない」). Decision 3 reads a
+username only for an item the search finds to match `origin/`, so a row whose search
+finds no match, or cannot finish, names its item without one. The official Bitwarden
+vault list names every login by its username.
 
 `settings.site-accounts` now also takes `named`, the items the settings page shows for
 the origin whether or not they match: the saved default's item on its origin row, and
