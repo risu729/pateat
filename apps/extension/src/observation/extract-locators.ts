@@ -113,8 +113,21 @@ const randomId = (value: string) =>
  */
 const libraryId = /^mantine-/u;
 
-/** True for an ID another load may change: `randomId`, or a `libraryId` prefix. */
-export const changingId = (value: string) => libraryId.test(value) || randomId(value);
+/**
+ * An ID Ember.js gave a component's element (`guidFor`): `ember` and a counter of the
+ * objects the app made before it, so another load or route gives it to another element,
+ * as on HCP's portal, whose every navigation link was `ember14` to `ember149`
+ * (2026-11-21). Its components derive IDs from it, such as `toggle-button-ember74`. A
+ * rule about the framework, as `libraryId` is (ADR 0033); `member1` is not one.
+ */
+const emberId = /(?:^|[^0-9A-Za-z])ember\d+(?![0-9A-Za-z])/u;
+
+/**
+ * True for an ID another load may change: `randomId`, a `libraryId` prefix or an Ember
+ * ID (`emberId`).
+ */
+export const changingId = (value: string) =>
+  libraryId.test(value) || emberId.test(value) || randomId(value);
 
 /**
  * An ID shaped like a render counter: lower-case words joined by `-` or `_`, ending in up

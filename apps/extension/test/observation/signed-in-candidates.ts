@@ -46,6 +46,30 @@ export function registerSignedInCandidates({
     expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
   });
 
+  it("never locates a marker by an ID Ember made", () => {
+    // HCP's portal after an SSO return (2026-11-21): every navigation link and button
+    // carried only Ember's per-load ID, so no marker could be learned from the page.
+    page(
+      `<nav><a id="ember62" href="/orgs/x/projects/y/iam">Access control (IAM)</a>
+        <button id="ember38" type="button">default-project</button>
+        <button id="toggle-button-ember74" type="button">Manage project</button>
+        <button id="ember90" type="button" aria-label="Menu"></button></nav>`,
+    );
+    expect(summary(signedIn())).toEqual([
+      {
+        role: "link",
+        target: { by: "text", value: "Access control (IAM)" },
+        label: "Access control (IAM)",
+      },
+      {
+        role: "button",
+        target: { by: "text", value: "default-project" },
+        label: "default-project",
+      },
+      { role: "button", target: { by: "text", value: "Manage project" }, label: "Manage project" },
+    ]);
+  });
+
   it("locates a link by its path when that names nobody, else by its text (ADR 0029)", () => {
     // Shaped like ニコニコ's top bar after sign-in (2026-10-13): plain divs, and the
     // account link's only text is the person's nickname.

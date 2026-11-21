@@ -128,6 +128,33 @@ export function registerLoginLocators({
     expect(observe().candidates.at(-1)?.target).toEqual({ by: "id", value: "mantine-qwhxkbtfz" });
   });
 
+  it("locates by an ID Ember made only when nothing else is unique", () => {
+    // Shaped like HCP's portal (2026-11-21): Ember gives each component's element
+    // `ember` and a counter, which the next load or route gives to another element, and
+    // its components derive IDs from it.
+    page(
+      `<form><input id="ember21" name="email">
+        <button id="toggle-button-ember74">Continue</button>
+        <button id="ember12-trigger">Options</button>
+        <button id="member1">Members</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "name", value: "email" },
+      { by: "text", value: "Continue" },
+      { by: "text", value: "Options" },
+      // `member1` is a site's own ID, not Ember's.
+      { by: "id", value: "member1" },
+    ]);
+    // With no other locator the ID is still used, so the form stays complete.
+    page(`<form><input id="ember21"><button id="ember22"></button></form>`);
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "id", value: "ember21" },
+      { by: "id", value: "ember22" },
+    ]);
+  });
+
   it("locates by an ID holding a random-looking run only when nothing else is unique", () => {
     // A Mantine-built site (2026-10-13): `useId` appends Math.random().toString(36).
     page(
