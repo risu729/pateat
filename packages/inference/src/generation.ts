@@ -176,6 +176,8 @@ export const generationInstructions = [
   "the action is the last field you fill, whose form is then submitted as pressing Enter",
   "there does. Only a field inside a form, one with a group, is submitted so: for fields",
   "with no group, the action is the button after them in page order that submits them.",
+  "Elements with split are the parts of one identifier typed in turn into consecutive",
+  "inputs without its spaces and hyphens: map its slot to part 1 alone, never another part.",
   "Use only candidate and slot IDs from the input.",
   "Never name a button that registers, creates, adds or sets up a passkey or security key,",
   "or one the plan uses, as passkeyButton.",

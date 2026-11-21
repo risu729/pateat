@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { parseSiteUrl, recipeSlotIdSchema } from "../settings";
+import { splitLengthsSchema } from "./split";
 
 export const loginIdentifierSchema = v.pipe(
   v.string(),
@@ -247,11 +248,23 @@ export const loginKeypadTargetSchema = v.variant("by", [
 ]);
 const fields = v.pipe(
   v.array(
-    v.strictObject({
-      slot: recipeSlotIdSchema,
-      target: loginFieldTargetSchema,
-      keypad: v.optional(loginKeypadTargetSchema),
-    }),
+    v.pipe(
+      v.strictObject({
+        slot: recipeSlotIdSchema,
+        target: loginFieldTargetSchema,
+        keypad: v.optional(loginKeypadTargetSchema),
+        /**
+         * An identifier split over several inputs (ADR 0089): each part's `maxlength`, in
+         * page order. `target` names the first input; the extension finds the others from
+         * it by the page rule and fills them all or none.
+         */
+        split: v.optional(splitLengthsSchema),
+      }),
+      v.check(
+        (field) => field.keypad === undefined || field.split === undefined,
+        "A split field is never entered on a keypad",
+      ),
+    ),
   ),
   v.minLength(1),
   v.maxLength(20),
@@ -280,6 +293,10 @@ export const loginStepSchema = v.variant("kind", [
     v.check(
       (step) => step.effect === "prepare" || step.fields.every((field) => !field.keypad),
       "A keypad field is entered by a preparing fill",
+    ),
+    v.check(
+      (step) => step.effect === "prepare" || step.fields.every((field) => !field.split),
+      "A split field is filled by a preparing fill",
     ),
   ),
   v.pipe(

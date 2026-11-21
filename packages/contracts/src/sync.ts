@@ -261,6 +261,7 @@ export const loginOutcomeCauseSchema = v.picklist([
   "document-gone",
   "captcha-shown",
   "sign-in-shown",
+  "identifier-unfit",
   // The page's reasons for a cancelled or failed step.
   "not-authorized",
   "document-cancelled",
@@ -276,6 +277,7 @@ export const loginOutcomeCauseSchema = v.picklist([
   "unexpected-values",
   "fields-shared",
   "fields-split",
+  "split-mismatch",
   "secret-refused",
   "unsupported-input",
   "code-watch-failed",

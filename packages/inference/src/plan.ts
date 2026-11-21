@@ -161,6 +161,34 @@ export function loneNewPassword(
 }
 
 /**
+ * The inputs of the split identifier `candidate` is the first part of (ADR 0089), in
+ * order, when every part declares its `maxlength`; undefined for any other candidate.
+ */
+export function splitParts(
+  page: Pick<LoginObservation, "candidates">,
+  candidate: ObservedCandidate,
+): ObservedCandidate[] | undefined {
+  const split = candidate.split;
+  if (split?.part !== 1) return undefined;
+  const parts = page.candidates.filter((other) => other.split?.group === split.group);
+  return parts.length === split.of && parts.every((other) => other.maxLength !== undefined)
+    ? parts
+    : undefined;
+}
+
+/**
+ * Whether a slot may go into `candidate` as far as a split identifier goes (ADR 0089): an
+ * identifier into the first part of a group, and nothing into its other parts.
+ */
+const splitAccepts = (
+  page: Pick<LoginObservation, "candidates">,
+  kind: SemanticSlot["kind"],
+  candidate: ObservedCandidate,
+) =>
+  candidate.split === undefined ||
+  (kind === "identifier" && splitParts(page, candidate) !== undefined);
+
+/**
  * {@link slotAccepts} on this page: a password or Hidden slot may also go into a lone
  * `new-password` field of a sign-in form ({@link loneNewPassword}).
  */
@@ -169,8 +197,9 @@ export const slotAcceptsOn = (
   kind: SemanticSlot["kind"],
   candidate: ObservedCandidate,
 ) =>
-  slotAccepts(kind, candidate) ||
-  ((kind === "secret" || kind === "hidden") && loneNewPassword(page, candidate));
+  splitAccepts(page, kind, candidate) &&
+  (slotAccepts(kind, candidate) ||
+    ((kind === "secret" || kind === "hidden") && loneNewPassword(page, candidate)));
 
 /** True when an observed element can carry the page action. */
 export const isActionRole = (role: ObservedCandidate["role"]) =>
@@ -438,8 +467,13 @@ export function validatePagePlan(
   // The plan's last field as the action submits its form as pressing Enter there does, for
   // a form that shows no button to press (ADR 0064): only a field inside a form, never a
   // code.
+  // For an identifier split over several inputs (ADR 0089), Enter is pressed in its last
+  // part, which the model may name as the action as well as the first.
+  const lastField = candidates.get(plan.fields.at(-1)!.candidate)!;
+  const lastPart = splitParts(observation, lastField)?.at(-1);
+  const pressed = lastPart === undefined ? undefined : candidates.get(lastPart.id);
   const submitsForm =
-    plan.fields.at(-1)!.candidate === action.id &&
+    (lastField.id === action.id || pressed?.id === action.id) &&
     action.group !== undefined &&
     !isCodeField(action);
   if (usedCandidates.has(action.id) && !submitsForm)
@@ -485,16 +519,25 @@ export function validatePagePlan(
       kind: "fill",
       path: observation.path,
       fields: plan.fields.map((field) => {
-        const { target, keypad } = candidates.get(field.candidate)!;
+        const candidate = candidates.get(field.candidate)!;
+        const { target, keypad } = candidate;
+        // An identifier split over several inputs names its first input and each part's
+        // length (ADR 0089), both from the observation.
+        const split = splitParts(observation, candidate)?.map((part) => part.maxLength!);
         // A field on the page's software keyboard is entered there (ADR 0067): the
         // keypad comes from the observation, never from the model.
-        return { slot: nameOf(field.slot) ?? field.slot, target, ...(keypad ? { keypad } : {}) };
+        return {
+          slot: nameOf(field.slot) ?? field.slot,
+          target,
+          ...(keypad ? { keypad } : {}),
+          ...(split ? { split } : {}),
+        };
       }),
     },
     {
       kind: "click",
       path: observation.path,
-      target: action.target,
+      target: submitsForm && pressed ? pressed.target : action.target,
       purpose: plan.action.purpose,
       ...(submitsForm ? { press: "enter" } : {}),
     },

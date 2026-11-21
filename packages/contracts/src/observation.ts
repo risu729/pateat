@@ -1,4 +1,5 @@
 import { detailLength } from "./login/details";
+import { SPLIT_PART_LENGTH, SPLIT_PARTS } from "./login/split";
 import {
   loginKeypadTargetSchema,
   loginMarkerTargetSchema,
@@ -171,11 +172,37 @@ export const observedCandidateSchema = v.pipe(
     // keyboard, located by its container (ADR 0067). The keys and their labels
     // are never described.
     keypad: v.optional(loginKeypadTargetSchema),
+    // One part of an identifier split over several inputs (ADR 0089), on a login page's
+    // description only: the group, this input's place in it from 1 and how many inputs it
+    // has. The inputs stay candidates of their own.
+    split: v.optional(
+      v.strictObject({
+        group: identifier,
+        part: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(SPLIT_PARTS.max)),
+        of: v.pipe(
+          v.number(),
+          v.integer(),
+          v.minValue(SPLIT_PARTS.min),
+          v.maxValue(SPLIT_PARTS.max),
+        ),
+      }),
+    ),
   }),
   v.check(
     (candidate) =>
       candidate.keypad === undefined || (fillRoles as readonly string[]).includes(candidate.role),
     "Only a fill-role field has a keypad",
+  ),
+  v.check(
+    (candidate) =>
+      candidate.split === undefined ||
+      ((candidate.role === "text" || candidate.role === "tel") &&
+        candidate.keypad === undefined &&
+        candidate.split.part <= candidate.split.of &&
+        candidate.maxLength !== undefined &&
+        candidate.maxLength >= SPLIT_PART_LENGTH.min &&
+        candidate.maxLength <= SPLIT_PART_LENGTH.max),
+    "A split part is a text or tel field of 2 to 8 characters",
   ),
 );
 
@@ -253,6 +280,10 @@ export const loginObservationSchema = v.pipe(
     "Duplicate candidate IDs",
   ),
   v.check(
+    (observation) => splitGroupsWhole(observation.candidates),
+    "A split group needs each of its parts once, in order and in one form",
+  ),
+  v.check(
     (observation) =>
       unique(observation.candidates.map((candidate) => JSON.stringify(candidate.target))),
     "Duplicate candidate targets",
@@ -311,6 +342,27 @@ export const loginObservationSchema = v.pipe(
     "Accessible-name and password-form text locators apply only to buttons",
   ),
 );
+
+/**
+ * Whether every split group of these candidates (ADR 0089) lists its parts 1 to `of` once
+ * each, in page order, in one form (or all outside every form), each with the same `of`.
+ */
+function splitGroupsWhole(candidates: readonly ObservedCandidate[]): boolean {
+  const groups = Map.groupBy(
+    candidates.filter((candidate) => candidate.split !== undefined),
+    (candidate) => candidate.split!.group,
+  );
+  return [...groups.values()].every(
+    (parts) =>
+      parts.length === parts[0]!.split!.of &&
+      parts.every(
+        (part, at) =>
+          part.split!.part === at + 1 &&
+          part.split!.of === parts.length &&
+          part.group === parts[0]!.group,
+      ),
+  );
+}
 
 /** Character classes of a value shape, in their canonical order. */
 export const valueCharacterClasses = [

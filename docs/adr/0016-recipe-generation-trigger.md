@@ -91,6 +91,12 @@ Amended on 2026-11-18 by
 [a page where no recipe starts](#pages-where-no-recipe-starts) that shows another
 recipe's form unchanged starts that recipe instead of a new one.
 
+Amended on 2026-11-21 by [ADR 0089](0089-identifiers-split-over-several-inputs.md)
+(owner, decision card answered option A at 19:00 UTC, implemented):
+[an identifier split over several inputs](#amendment-2026-11-21-an-identifier-split-over-several-inputs)
+counts as one input, which changes the "Not covered" line on a text input beside
+another.
+
 Date: 2026-10-11
 
 ## Context
@@ -495,3 +501,22 @@ Verified in the owner's Chrome on 2026-11-11 (build `84c64dd5`): Mizuho Direct's
 customer number was filled and 次へ pressed on `web.ib`, the password page opened on
 `web4.ib`, its password was filled and the login ended `authenticated` (11:15:17 UTC,
 `personMs` 0).
+
+## Amendment 2026-11-21: an identifier split over several inputs
+
+Status: accepted by the owner on 2026-11-21 through
+[ADR 0089](0089-identifiers-split-over-several-inputs.md) (decision card answered option
+A at 19:00 UTC; implemented) ([#1758](https://github.com/risu729/pateat/issues/1758)).
+
+A group of 2 to 6 inputs that split one identifier, such as ゆうちょダイレクト's
+customer number in `okyakusamaBangou1` to `okyakusamaBangou3`, counts as one input, its
+first, for
+[a page that asks for an identifier alone](#pages-that-ask-for-an-identifier-alone):
+such a group alone on the page, with no autofill field name on any part and in no
+sign-up form, is `sole` when its parts' texts, their shared name without the numbers, or
+else the text that labels the group by layout names an identifier or a number an account
+is known by, with the exclusions of the
+[2026-11-09 amendment](#amendment-2026-11-09-an-identifier-inputs-label-by-layout-and-customer-numbers).
+The group rule and how the parts are filled are ADR 0089's. The "Not covered" line above
+still holds for a text input beside any other text input that is not part of such a
+group.
