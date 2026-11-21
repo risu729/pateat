@@ -87,11 +87,9 @@ describe("runsScriptUrl", () => {
     document.body.innerHTML = `<div id="slotted-host"><span id="slotted">S</span></div>
       <form action="javascript:;"><label><div id="shadow-host"></div><input type="submit"></label></form>`;
     // The label is inside a shadow tree, and the span is slotted into it.
-    document
-      .getElementById("slotted-host")!
-      .attachShadow({
-        mode: "open",
-      }).innerHTML = `<form action="javascript:;"><label><slot></slot><input type="submit"></label></form>`;
+    document.getElementById("slotted-host")!.attachShadow({
+      mode: "open",
+    }).innerHTML = `<form action="javascript:;"><label><slot></slot><input type="submit"></label></form>`;
     // The span is in a shadow tree whose host is inside the label.
     const inner = document.createElement("span");
     document.getElementById("shadow-host")!.attachShadow({ mode: "open" }).append(inner);
