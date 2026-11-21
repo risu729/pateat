@@ -26,7 +26,7 @@ import { choiceAccount, itemMatchesUrl } from "../plan";
 import { hideUsernames } from "../markers";
 import { openPasswordWindow } from "../master-password";
 import { openMethods, type MethodMarks } from "../methods";
-import { ssoCurrent, ssoReturnOrigin, ssoScope } from "../sso-scope";
+import { ssoCurrent, ssoReturnOrigin, ssoScope, type SsoReads } from "../sso-scope";
 import { ssoPress } from "../sso-effects";
 import { ssoChild, type SsoWork } from "../sso-state";
 import { ssoObservation, inspectSsoTarget } from "./entry";
@@ -409,9 +409,25 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
     return ctx.refuse("sso-in-progress", "idp:left");
   };
   if (await leftIdp()) return left();
+  // An IdP page's admission checks the flow's scope four times: with one read of its SSO
+  // mapping, as a policy check does (ADR 0026, amendment of 2026-11-21).
+  const reads: SsoReads = {};
   const prior = work.live;
+  /**
+   * Ends the flow for `reason`, unless the tab left this IdP page while it was read, as a
+   * risk check that posts itself on at once: such a page ends nothing, and the tab's next
+   * page is read (ADR 0026, amendment of 2026-11-22).
+   */
+  const stop = async (reason: string, cancel = reason) => {
+    if (rt.documents.get(ctx.key) !== ctx.live || (await leftIdp())) {
+      if (work.live === ctx.live) work.live = prior;
+      return left();
+    }
+    cancelSso(rt, ctx.document.tabId, cancel);
+    return ctx.refuse(reason);
+  };
   work.live = ctx.live;
-  if (!(await ssoScope(rt, work))) {
+  if (!(await ssoScope(rt, work, work.live, reads))) {
     if (await leftIdp()) {
       if (work.live === ctx.live) work.live = prior;
       return left();
@@ -504,23 +520,16 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext): Promise<Readines
   learnPressedEntry(work);
   work.phase = "at-idp";
   const child = rt.attempts.get(ctx.document.tabId);
-  if (!(await ssoReprompt(rt, work, ctx.live, true))) {
-    cancelSso(rt, ctx.document.tabId, "sso-reprompt-required");
-    return ctx.refuse("sso-reprompt-required");
-  }
-  let value = await username(rt, work, ctx.live, true);
-  if (!value) {
-    cancelSso(rt, ctx.document.tabId, "sso-username-unavailable");
-    return ctx.refuse("sso-username-unavailable");
-  }
+  if (!(await ssoReprompt(rt, work, ctx.live, true))) return stop("sso-reprompt-required");
+  let value = await username(rt, work, ctx.live, true, reads);
+  if (!value) return stop("sso-username-unavailable");
   const parsed = v.safeParse(
     ssoIdpResultSchema,
     await send(rt, ctx.live, { type: "login.sso.idp", username: value }).catch(() => undefined),
   );
-  if (!parsed.success || !(await ssoScope(rt, work))) {
+  if (!parsed.success || !(await ssoScope(rt, work, work.live, reads))) {
     value = undefined;
-    cancelSso(rt, ctx.document.tabId);
-    return ctx.refuse("sso-idp-unreadable");
+    return stop("sso-idp-unreadable", "sso-cancelled");
   }
   // The IdP's own login runs in the tab: it has not ended signed in or stopped, and it is
   // watched only for its result (ADR 0027).

@@ -5098,8 +5098,11 @@ with detail `idp-step`, at info the first time for its document and path, which 
 the service as a problem line, and at debug for each repeat there; when the tab's URL is
 no longer the document's, the login stops reading it and asks it once to announce again
 (`leftDocument`); an IdP document that announces, or is checked, once the tab has left
-it refuses `sso-in-progress` with detail `idp:left` and ends nothing, and one still the
-tab's document, whose URL its own routing replaced, is asked once to announce again.
+it refuses `sso-in-progress` with detail `idp:left` and ends nothing, as does one the
+tab left while it was admitted, as a risk check that posts itself on at once
+([ADR 0026, 2026-11-22](adr/0026-sign-in-through-identity-providers.md#amendment-2026-11-22-an-idp-page-the-tab-leaves-while-it-is-read-ends-nothing));
+one still the tab's document, whose URL its own routing replaced, is asked once to
+announce again.
 After the IdP, an RP page that shows neither the sign-in nor the site's sign-in form,
 another account or an unsafe page waits (`sso-in-progress`, detail `rp-return:` and why,
 such as `unobserved` or `loading`) only while it is loading, cannot be read, shows

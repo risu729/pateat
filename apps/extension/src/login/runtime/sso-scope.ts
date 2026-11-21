@@ -70,7 +70,9 @@ export type SsoFence = () => boolean;
 /**
  * The reads one policy check shares between its scope checks: the flow's SSO mapping,
  * read from the vault once per check rather than once per scope check (ADR 0026,
- * amendment of 2026-11-21). A later check reads it again.
+ * amendments of 2026-11-21 and 2026-11-22). A later check reads it again. A vault sync
+ * while they are shared, as during a wait for the master password, changes a snapshot the
+ * flow depends on and so fails each later scope check before its mapping is used.
  */
 export type SsoReads = {
   /** The mapping read under way or done: a promise, awaited by each scope check. */

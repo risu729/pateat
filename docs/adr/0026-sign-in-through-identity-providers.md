@@ -858,6 +858,49 @@ without decision 1, one that counts the mapping reads per policy check, which fa
 without decision 2, and one with a choice-only save between the two scope checks. Not
 checked on the real site.
 
+## Amendment 2026-11-22: an IdP page the tab leaves while it is read ends nothing
+
+Status: accepted. An agent made these decisions within this ADR and implemented them.
+
+On build `c2e54686`, the IdP's own login of an SSO flow through IBMid submitted its
+password at 19:26:45 UTC. The IdP's next page, a risk check
+(`/risk/v3.0/authz/pages/compute`) that posts itself on at once, was refused
+`sso-username-unavailable` at 19:26:54 and ended the flow (`cancelled`). The tab moved
+on to the IdP's method chooser, which nothing read. On `1f892101` the same flow passed
+that page, the chooser and the TOTP page. What the code showed (agent's reading,
+2026-11-21):
+
+- **The admission of an IdP page outlasted the page.** Admitting an IdP page checks the
+  flow's scope four times, two of them inside the IdP username read (`username`), and
+  each scope check read the flow's SSO mapping from the vault. The vault's jobs run one
+  at a time, behind the IdP login's own policy checks. A scope check refuses once the
+  tab's URL is no longer the page's, so a page that posted itself on during those reads
+  failed the username read, and a failed username read ended the flow. Only a failed
+  first scope check was told apart from a page the tab had left
+  ([decision 4 of 2026-11-20](#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)).
+- **The path itself did not change** since `1f892101`; neither the amendment of
+  2026-11-21 nor the hiding of usernames changed it. Slower vault reads made the
+  admission longer than the risk page's stay.
+
+Decisions:
+
+1. **An IdP page the tab left while it was read ends nothing.** When a later part of an
+   IdP page's admission fails (the master password, the username read, or the page's
+   reading and its scope check after it), and the page is no longer the tab's document
+   or the tab's URL is no longer the page's, the page refuses `sso-in-progress` with
+   detail `idp:left`, ends nothing, and the tab's next page is read. One still the
+   tab's page ends the flow as before.
+2. **One mapping read per IdP page admission.** The scope checks of one admission share
+   one read of the flow's SSO mapping (`SsoReads`), as a policy check's do since
+   2026-11-21; everything else in each scope check is read again. A vault sync while it
+   is shared, as during a wait for the master password, changes a snapshot the flow
+   depends on, which fails the next scope check.
+
+Checked with local runtime tests (`sso-idp-interstitial.test.ts`): an IdP page that
+posts itself on during its username read or during its reading, then the method chooser
+and the TOTP page, which fail without decision 1, and one that counts the mapping reads
+of one admission, which fails without decision 2. Not checked on the real site.
+
 ## Known limits 2026-11-16
 
 - **A layout full of unseen markers.** An SSO layout keeps at most four RP-return
