@@ -2,6 +2,7 @@ import {
   isSsoDocument,
   sameLoginTarget,
   type GenerationUnavailableReason,
+  type LoginObservation,
   type RecipeCompletionResult,
   type SsoCompletionRequest,
 } from "@pateat/contracts";
@@ -14,7 +15,13 @@ import {
   createCompletionJudge,
   unsafeSsoObservation,
 } from "@pateat/inference";
-import type { GenerationBackend, JudgementKey, KeptJudgement, UnsentRequest } from "../backend";
+import type {
+  GenerationBackend,
+  JudgementKey,
+  KeptJudgement,
+  PageJudgementVerdict,
+  UnsentRequest,
+} from "../backend";
 import {
   answerable,
   answerUnsent,
@@ -31,6 +38,25 @@ import { ssoMarkerUnit } from "../units";
 
 /** The most signed-in markers one SSO layout keeps on the site's return page. */
 const MAX_SSO_MARKERS = 4;
+
+/**
+ * The digest of what a return page's description offers as a marker: each candidate's
+ * role and locator, in order of neither the page nor the description. A page kept
+ * `unclear` is judged again once it is described with other ones, as HCP's portal was
+ * judged while each of its links and buttons carried only Ember's per-load ID, which no
+ * marker may use, before those IDs gave way to their text (2026-11-21; ADR 0026
+ * amendment of 2026-11-22).
+ */
+export async function judgedMarkers(observation: LoginObservation): Promise<string> {
+  const offered = observation.candidates
+    .map((candidate) => JSON.stringify([candidate.role, candidate.target]))
+    .toSorted();
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(offered)),
+  );
+  return new Uint8Array(digest).toHex().slice(0, 16);
+}
 
 /**
  * Judges the site's own page after the identity provider returned (ADR 0026 amendment of
@@ -101,15 +127,42 @@ export async function judgeSsoCompletion(
     codeSource: "",
   };
   // A page of the revision and path is judged once: a later return completes only on a
-  // `signed-in` verdict and the marker it taught.
-  const judgedAnswer = (kept: KeptJudgement | undefined): GenerationUnavailableReason | undefined =>
-    !kept
+  // `signed-in` verdict and the marker it taught. One kept `unclear` is judged again once
+  // its description offers other candidates, as the native judge does for other inputs
+  // (`judgedInputs`), at most once a UTC day: a page whose links name a project or a
+  // count offers other candidates on most visits, and a retaken row adds no judgement to
+  // the recipe's daily count. A row kept before the digest was recorded holds none, and
+  // its page is judged again at once.
+  const inputs = await judgedMarkers(observation);
+  const judgedAnswer = (
+    kept: KeptJudgement | undefined,
+    now: number,
+  ): GenerationUnavailableReason | undefined =>
+    !kept ||
+    (kept.verdict === "unclear" &&
+      kept.inputs !== inputs &&
+      (!kept.inputs || kept.judgedAt === undefined || kept.judgedAt < utcDayStart(now)))
       ? undefined
       : kept.verdict === "signed-in"
         ? "judged-signed-in"
         : kept.verdict === null
           ? "judgement-unanswered"
           : "already-judged";
+  /**
+   * A retaken `unclear` row has no verdict until the new one is written, so a request
+   * that ends without one puts it back with its earlier inputs: a row left unanswered
+   * would never be judged again for the revision.
+   */
+  let kept: KeptJudgement | undefined;
+  let retaken = false;
+  const keepVerdict = async (verdict: PageJudgementVerdict, keptInputs?: string | null) => {
+    await backend.keepVerdict(judgedPage, verdict, keptInputs).catch(() => {
+      console.warn("SSO return verdict not kept", { recipeId, verdict });
+    });
+  };
+  const keepRetaken = async () => {
+    if (retaken) await keepVerdict("unclear", kept?.inputs ?? null);
+  };
   // A layout that already keeps its most markers can learn no new one, so a page that shows
   // none of them is not sent to the model only for its answer to be dropped.
   const markers = layout.completion ?? [];
@@ -128,13 +181,14 @@ export async function judgeSsoCompletion(
     await completionStopPromptVersion(),
     await completionBesidePromptVersion(),
   ];
-  const call = await backend.call({
+  const judging = backend.call({
     ...logged,
     device: request.deviceModel,
     gate: async (now) => {
       const stale = staleHead(await backend.readHead(recipeId), head.revision);
       if (stale) return stale;
-      const judged = judgedAnswer(await backend.judgement(judgedPage));
+      kept = await backend.judgement(judgedPage);
+      const judged = judgedAnswer(kept, now);
       if (judged) return judged;
       return (await backend.judgementsSince(recipeId, utcDayStart(now))) >=
         JUDGEMENTS_PER_RECIPE_DAY
@@ -142,10 +196,20 @@ export async function judgeSsoCompletion(
         : undefined;
     },
     // A row another request wrote since the gate stops this one unsent (ADR 0018).
-    beforeSend: async (now) =>
-      (await backend.recordJudgement(judgedPage, now, { expired: utcDayStart(now), versions }, ""))
-        ? undefined
-        : (judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered"),
+    beforeSend: async (now) => {
+      if (
+        await backend.recordJudgement(
+          judgedPage,
+          now,
+          { expired: utcDayStart(now), versions },
+          inputs,
+        )
+      ) {
+        retaken = kept?.verdict === "unclear";
+        return undefined;
+      }
+      return judgedAnswer(await backend.judgement(judgedPage), now) ?? "judgement-unanswered";
+    },
     invoke: (model) =>
       createCompletionJudge({ model, ...roleConfig })({
         observation,
@@ -155,17 +219,25 @@ export async function judgeSsoCompletion(
       }),
     logValue: (value) => value,
   });
-  if (call.status === "unavailable") return unsent(call.reason);
+  // A request that throws, as when a database write during the call fails, leaves no
+  // retaken row unanswered for good.
+  const call = await judging.catch(async (error: unknown) => {
+    await keepRetaken();
+    throw error;
+  });
+  if (call.status === "unavailable") {
+    await keepRetaken();
+    return unsent(call.reason);
+  }
   if (call.status === "device-call") return modelCall(call);
   const { outcome } = call;
   if (outcome.status === "failed") {
+    await keepRetaken();
     const answer = failed(failureOf(outcome.error));
     return outcome.calls === 0 ? answerUnsent(backend, logged, answer) : answer;
   }
   const verdict = outcome.status === "abstained" ? "unclear" : outcome.value.decision;
-  await backend.keepVerdict(judgedPage, verdict).catch(() => {
-    console.warn("SSO return verdict not kept", { recipeId, verdict });
-  });
+  await keepVerdict(verdict);
   if (outcome.status !== "ok" || outcome.value.decision !== "signed-in")
     return {
       version: 1,

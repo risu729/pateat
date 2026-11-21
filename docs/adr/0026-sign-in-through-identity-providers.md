@@ -941,6 +941,41 @@ reads the mapping again; a revoked mapping refuses, is asked for again at the ne
 check, and a read under way when it was revoked is not used. Not checked on the real
 site.
 
+## Amendment 2026-11-22: a return page kept unclear is judged again on other candidates
+
+Status: accepted. An agent made these decisions within this ADR and implemented them.
+
+On build `274f5903`, an SSO flow through IBMid passed the IdP's risk check, method
+chooser and TOTP page. The tab returned to the RP's portal on another origin of its
+site, which showed its project dashboard signed in. The RP-return judge answered
+`unclear` for `/` at 20:39:28 UTC and for `/orgs/[id]/projects/[id]` at 20:39:39. The
+flow then ended `sso-return-unconfirmed`. Each of the dashboard's links and buttons was
+described only by the ID Ember.js gave its element (`ember14` to `ember149`). Another
+load gives that ID to another element, so no candidate could be a marker. Those IDs now
+give way to the element's text, as Mantine's do
+([architecture](../architecture.md), locators).
+
+The page's kept verdict stayed in the way. A return page is judged once per recipe
+revision, path and judge prompt version. A later return then gets `already-judged`,
+which ends the flow, for as long as the revision lasts. The fix to the description could
+not reach the page.
+
+- **A page kept `unclear` is judged again once its description offers other
+  candidates.** The judgement's row keeps a digest of the role and locator of each
+  candidate the description offered (`judgedMarkers`). A return page whose kept verdict
+  is `unclear` is judged again when its digest differs. This matches how the native
+  judge treats a page kept `unclear` or `challenge` for other inputs
+  ([ADR 0029](0029-local-sign-in-state.md), amendments of 2026-11-06 and 2026-11-11).
+- **At most once a UTC day per page.** A return page whose links name a project, a
+  count or a date offers other candidates on most visits. A retaken row also adds no
+  judgement to the recipe's daily count, which counts rows. So a row taken today is not
+  retaken until the next UTC day. A row kept before the digest was recorded holds an
+  empty one, and its page is judged again at once.
+- **A retaken row whose request fails is put back.** It keeps `unclear` with its earlier
+  digest, so that its page can be judged again later.
+- **Other verdicts are unchanged.** A page kept `signed-in`, `rejected`, `challenge` or
+  `optional` is still judged once per revision, path and prompt version.
+
 ## Known limits 2026-11-16
 
 - **A layout full of unseen markers.** An SSO layout keeps at most four RP-return
