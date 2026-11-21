@@ -69,10 +69,12 @@ const documentOf = (live: LiveDocument) => `${live.document.tabId} ${live.docume
 
 /**
  * A verification page's rows for its confirmation fill (ADR 0035 delivery 3), each once per
- * visit and with the page's evaluation fields: `confirm-fill` once it is checked, and
- * `confirm-fill-stopped` once the fill on its path stopped. A fill that ended before the
- * page reported its first step shown is logged when it does. Both name whose account
- * fills (`accountSource`): the tab's confirmed login's, or the person's **Fill** pick's.
+ * visit and with the page's evaluation fields: `confirm-fill` once it is checked, and how
+ * the fill on its path ended once it did: `confirm-filled` when it changed a field,
+ * `confirm-fill-kept` when it kept every value it found, `confirm-fill-stopped` when it
+ * stopped. A fill that ended before the page reported its first step shown is logged when
+ * it does. Each names whose account fills (`accountSource`): the tab's confirmed login's,
+ * or the person's **Fill** pick's.
  */
 export function noteConfirmFill(
   rt: Runtime,
@@ -84,12 +86,12 @@ export function noteConfirmFill(
   const reported = shown?.path === live.path ? shown : visit.shown;
   noteNotStarted(rt, live, reported, "confirm-fill", undefined, visit, accountSource);
   const outcome = rt.confirmFill.outcomes.get(documentOf(live));
-  if (outcome?.path === live.path && outcome.reason === "confirm-fill-stopped")
+  if (outcome?.path === live.path)
     noteNotStarted(
       rt,
       live,
       reported,
-      "confirm-fill-stopped",
+      outcome.reason,
       undefined,
       visit,
       outcome.accountSource ?? accountSource,

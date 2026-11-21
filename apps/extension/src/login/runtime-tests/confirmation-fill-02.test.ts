@@ -232,7 +232,7 @@ describe("evaluation rows of a confirmation page", () => {
     expect(confirmations()).toEqual([]);
   });
 
-  it("logs a filled page once, and never fills or logs it again on a later announcement", async () => {
+  it("logs a filled page and its end once, and never fills or logs it again later", async () => {
     const { h, reports } = await authenticated();
     configure(h);
     signedIn();
@@ -248,6 +248,12 @@ describe("evaluation rows of a confirmation page", () => {
     await vi.waitFor(() =>
       expect(reports.filter((entry) => entry.type === "refused")).toEqual([
         expect.objectContaining({ detail: "confirm-fill", recipeId: "synthetic-confirm" }),
+        expect.objectContaining({
+          detail: "confirm-filled",
+          recipeId: "synthetic-confirm",
+          pageKind: "confirm",
+          accountSource: "login",
+        }),
       ]),
     );
   });
