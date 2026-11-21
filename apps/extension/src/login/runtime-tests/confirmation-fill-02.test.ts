@@ -232,7 +232,7 @@ describe("evaluation rows of a confirmation page", () => {
     expect(confirmations()).toEqual([]);
   });
 
-  it("logs a filled page once, and never fills or logs it again on a later announcement", async () => {
+  it("logs a filled page and its end once, and never fills or logs it again later", async () => {
     const { h, reports } = await authenticated();
     configure(h);
     signedIn();
@@ -248,8 +248,48 @@ describe("evaluation rows of a confirmation page", () => {
     await vi.waitFor(() =>
       expect(reports.filter((entry) => entry.type === "refused")).toEqual([
         expect.objectContaining({ detail: "confirm-fill", recipeId: "synthetic-confirm" }),
+        expect.objectContaining({
+          detail: "confirm-filled",
+          recipeId: "synthetic-confirm",
+          pageKind: "confirm",
+          accountSource: "login",
+        }),
       ]),
     );
+  });
+  it("logs a fill's end only in the visit it ended in, not when the page comes back", async () => {
+    const { h, reports } = await authenticated();
+    configure(h);
+    signedIn();
+    await announce(h);
+    await shownHello(h, { documentId: "confirmation-document" });
+    await settled(h);
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    const ends = () =>
+      reports.filter(
+        (entry) =>
+          entry.type === "refused" && (entry as { detail?: string }).detail === "confirm-filled",
+      );
+    await vi.waitFor(() => expect(ends()).toHaveLength(1));
+    // The same document moves in place to another route and back to the verification.
+    fake.state.pageUrl = `${origin}/after`;
+    fake.state.observedPath = "/after";
+    await announce(h, { url: `${origin}/after` });
+    fake.state.pageUrl = `${origin}/confirm`;
+    fake.state.observedPath = "/confirm";
+    await announce(h);
+    await shownHello(h, { documentId: "confirmation-document" });
+    await settled(h);
+    await vi.waitFor(() =>
+      expect(
+        reports.filter(
+          (entry) =>
+            entry.type === "refused" && (entry as { detail?: string }).detail === "confirm-fill",
+        ),
+      ).toHaveLength(2),
+    );
+    expect(confirmations()).toHaveLength(1);
+    expect(ends()).toHaveLength(1);
   });
 });
 

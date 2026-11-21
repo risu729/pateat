@@ -48,7 +48,10 @@ export function noteNotStarted(
   // (ADR 0035), read first, so the entry names this page's URL; its visit logs the
   // person's submission and the next page once the tab leaves it.
   const amount = shown?.amount;
-  visit.logged = confirmSigns(rt, live).then((signs) => {
+  // After the visit's row before it, so a fill's end never comes before its check.
+  const before = visit.logged;
+  visit.logged = confirmSigns(rt, live).then(async (signs) => {
+    await before?.catch(() => undefined);
     report(rt, live.document, {
       ...refused,
       recipeId: visit.recipe.id,
@@ -69,10 +72,12 @@ const documentOf = (live: LiveDocument) => `${live.document.tabId} ${live.docume
 
 /**
  * A verification page's rows for its confirmation fill (ADR 0035 delivery 3), each once per
- * visit and with the page's evaluation fields: `confirm-fill` once it is checked, and
- * `confirm-fill-stopped` once the fill on its path stopped. A fill that ended before the
- * page reported its first step shown is logged when it does. Both name whose account
- * fills (`accountSource`): the tab's confirmed login's, or the person's **Fill** pick's.
+ * visit and with the page's evaluation fields: `confirm-fill` once it is checked, and how
+ * the fill on its path ended once it did: `confirm-filled` when it changed a field,
+ * `confirm-fill-kept` when it kept every value it found, `confirm-fill-stopped` when it
+ * stopped. A fill that ended before the page reported its first step shown is logged when
+ * it does. Each names whose account fills (`accountSource`): the tab's confirmed login's,
+ * or the person's **Fill** pick's.
  */
 export function noteConfirmFill(
   rt: Runtime,
@@ -84,12 +89,13 @@ export function noteConfirmFill(
   const reported = shown?.path === live.path ? shown : visit.shown;
   noteNotStarted(rt, live, reported, "confirm-fill", undefined, visit, accountSource);
   const outcome = rt.confirmFill.outcomes.get(documentOf(live));
-  if (outcome?.path === live.path && outcome.reason === "confirm-fill-stopped")
+  // Only an end of this visit's fill: a page the tab comes back to logs no earlier end.
+  if (outcome?.path === live.path && outcome.visit === visit)
     noteNotStarted(
       rt,
       live,
       reported,
-      "confirm-fill-stopped",
+      outcome.reason,
       undefined,
       visit,
       outcome.accountSource ?? accountSource,
@@ -119,6 +125,11 @@ export async function settleConfirmFill(
   declined = false,
   accountSource: ConfirmAccountSource = "login",
 ): Promise<void> {
+  const current = rt.confirmVisits.get(page.document.tabId);
+  const visit =
+    current?.document.documentId === page.document.documentId && current.path === path
+      ? current
+      : undefined;
   // Inserted anew, so the map keeps outcomes in the order they last ended.
   rt.confirmFill.outcomes.delete(documentOf(page));
   rt.confirmFill.outcomes.set(documentOf(page), {
@@ -126,12 +137,11 @@ export async function settleConfirmFill(
     reason,
     accountSource,
     ...(declined ? { declined: true as const } : {}),
+    ...(visit ? { visit } : {}),
   });
   if (page.path !== path) return;
   page.state = "watching";
   page.reason = reason;
-  const visit = rt.confirmVisits.get(page.document.tabId);
-  if (visit?.document.documentId === page.document.documentId && visit.path === path)
-    noteConfirmFill(rt, page, undefined, visit, accountSource);
+  if (visit) noteConfirmFill(rt, page, undefined, visit, accountSource);
   await publish(rt, page);
 }

@@ -348,7 +348,7 @@ describe("production login document admission", () => {
           // and the tab's previous page of the origin, where the action was chosen.
           const refusals = () =>
             report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
-          // Logged once, with those fields, however the fill ends.
+          // Logged once, with those fields, and how the fill ended once, with the same.
           const row = {
             type: "refused",
             tabId: 1,
@@ -363,7 +363,8 @@ describe("production login document admission", () => {
             e2: false,
             previousUrl: `${origin}/signin`,
           };
-          await vi.waitFor(() => expect(refusals()).toEqual([row]));
+          const filled = { ...row, detail: "confirm-filled" };
+          await vi.waitFor(() => expect(refusals()).toEqual([row, filled]));
           // Only the safe preparing fields are filled; the original login stays signed in.
           await vi.waitFor(() =>
             expect(
@@ -381,7 +382,7 @@ describe("production login document admission", () => {
           });
           expect(attempts()).toMatchObject([{ state: "authenticated" }]);
           await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-          expect(refusals()).toEqual([row]);
+          expect(refusals()).toEqual([row, filled]);
           // The tab leaves the page without the person's submit. E1 showed there, so the
           // next page is not read for it.
           fake.state.pageUrl = `${origin}/home`;

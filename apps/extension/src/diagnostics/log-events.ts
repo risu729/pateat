@@ -346,8 +346,9 @@ export const LOG_EVENTS = {
       recipeRevision: "count",
       pageKind: "code",
       permissionSource: "code",
-      // For `confirm-fill` and `confirm-fill-stopped`: `login` or `pick`, whose account
-      // fills, never the account (ADR 0035, amended 2026-11-17).
+      // For `confirm-fill` and how its fill ended (`confirm-filled`, `confirm-fill-kept`,
+      // `confirm-fill-stopped`): `login` or `pick`, whose account fills, never the account
+      // (ADR 0035, amended 2026-11-17).
       accountSource: "code",
       // Also for `confirm-unsupported`, for the evaluation of page kinds: whether an amount
       // shows in the form, ADR 0029's E1 and E2, and the tab's previous page (ADR 0035).

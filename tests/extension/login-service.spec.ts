@@ -900,15 +900,18 @@ test("a synced confirmation recipe fills the authenticated encrypted-vault accou
               String(entry["detail"]).startsWith("confirm-fill"),
           );
         // The verification shows the recipes' signed-in marker, so its signs are read at once.
-        await expect.poll(confirmRows).toEqual([
+        // The fill's check is logged, then how it ended.
+        const confirmRow = (detail: string) =>
           expect.objectContaining({
             reason: "not-started",
-            detail: "confirm-fill",
+            detail,
             recipe: "synthetic-confirmation",
             pageKind: "confirm",
             url: "/confirm-access",
-          }),
-        ]);
+          });
+        await expect
+          .poll(confirmRows)
+          .toEqual([confirmRow("confirm-fill"), confirmRow("confirm-filled")]);
         expect(JSON.stringify(await entries())).not.toContain("test_password");
         const elsewhere = await browser.context.newPage();
         await elsewhere.goto(`${site}/confirm-access`);
@@ -926,7 +929,7 @@ test("a synced confirmation recipe fills the authenticated encrypted-vault accou
         ).toEqual({ clicks: 0, enters: 0, submits: 0 });
         expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
         // The other tab, with no confirmed login, logs `confirm-unsupported` instead, and
-        // no row of a confirmation fill.
+        // no row of a confirmation fill of its own.
         const rows = async () =>
           (await entries()).filter(
             (entry) =>
@@ -934,7 +937,7 @@ test("a synced confirmation recipe fills the authenticated encrypted-vault accou
           );
         await expect
           .poll(async () => (await rows()).map((entry) => entry["detail"]))
-          .toEqual(["confirm-fill", "confirm-unsupported"]);
+          .toEqual(["confirm-fill", "confirm-filled", "confirm-unsupported"]);
       },
       { args: ["--ignore-certificate-errors"] },
     );

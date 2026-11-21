@@ -280,7 +280,8 @@ export type LoginReport = (
       pageKind?: PageKind;
       permissionSource?: "site" | "default";
       /**
-       * For `confirm-fill` and `confirm-fill-stopped`: whose account fills, the tab's
+       * For `confirm-fill` and how its fill ended (`confirm-filled`, `confirm-fill-kept`,
+       * `confirm-fill-stopped`): whose account fills, the tab's
        * confirmed login's or the person's **Fill** pick's (ADR 0035, amended 2026-11-17).
        */
       accountSource?: "login" | "pick";
