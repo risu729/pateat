@@ -57,13 +57,15 @@ function submitsToScriptUrl(form: HTMLFormElement, submitter?: Element): boolean
 
 /**
  * The control whose activation a click on `element` runs: the nearest link, area, button
- * or input from `element` up through slots and shadow hosts, as the click's path goes. A
- * `<form>` on the way hides members behind its named controls, so they are read through
- * the prototypes (`form-native.ts`).
+ * or input from `element` up through slots and shadow hosts, as the click's path goes,
+ * or, when a `<label>` comes first, that label's control: a click on a control inside a
+ * label runs only that control's activation. A `<form>` on the way hides members behind
+ * its named controls, so they are read through the prototypes (`form-native.ts`).
  */
-function activated(element: Element): Element | undefined {
+function activated(element: Element): Element | null | undefined {
   for (let node: Element | null = element; node;) {
     if (Element.prototype.matches.call(node, "a[href], area[href], button, input")) return node;
+    if (node instanceof HTMLLabelElement) return node.control;
     const parent: ParentNode | null = nodeProperty(node, "parentNode");
     node =
       elementProperty(node, "assignedSlot") ??
@@ -75,26 +77,22 @@ function activated(element: Element): Element | undefined {
 
 /**
  * Whether a click on `element` runs a script URL: the control it activates
- * ({@link activated}), or the control of a `<label>` around it, is a link whose URL, as
- * the browser parses it, is a script URL, or a submit button or image input whose form
- * submits to one ({@link submitsToScriptUrl}), such as Azure AD B2C's Sign in button in
- * `<form action="JavaScript:void(0);">`.
+ * ({@link activated}) is a link whose URL, as the browser parses it, is a script URL, or a
+ * submit button or image input whose form submits to one ({@link submitsToScriptUrl}),
+ * such as Azure AD B2C's Sign in button in `<form action="JavaScript:void(0);">`.
  */
 export function runsScriptUrl(element: unknown): element is HTMLElement {
   if (!(element instanceof HTMLElement)) return false;
-  const label = (Element.prototype.closest.call(element, "label") as HTMLLabelElement | null)
-    ?.control;
-  return [activated(element), label].some((control) => {
-    // `protocol` reads the parsed URL: case, surrounding spaces and tabs inside do not matter.
-    if (control instanceof HTMLAnchorElement || control instanceof HTMLAreaElement)
-      return control.hasAttribute("href") && scriptSchemes.includes(control.protocol);
-    return (
-      (control instanceof HTMLButtonElement || control instanceof HTMLInputElement) &&
-      (control.type === "submit" || control.type === "image") &&
-      control.form !== null &&
-      submitsToScriptUrl(control.form, control)
-    );
-  });
+  const control = activated(element);
+  // `protocol` reads the parsed URL: case, surrounding spaces and tabs inside do not matter.
+  if (control instanceof HTMLAnchorElement || control instanceof HTMLAreaElement)
+    return control.hasAttribute("href") && scriptSchemes.includes(control.protocol);
+  return (
+    (control instanceof HTMLButtonElement || control instanceof HTMLInputElement) &&
+    (control.type === "submit" || control.type === "image") &&
+    control.form !== null &&
+    submitsToScriptUrl(control.form, control)
+  );
 }
 
 /** Whether the main world answered `type` on `target` by cancelling it. */

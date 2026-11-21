@@ -82,6 +82,34 @@ describe("runsScriptUrl", () => {
     // the walk up from `p` passes a form whose controls hide its members.
     expect(ids).toEqual(["a", "b", "c", "d", "e", "i", "k", "m", "n", "n-control", "o"]);
   });
+
+  it("follows a click to a `<label>`'s control across shadow roots and slots", () => {
+    document.body.innerHTML = `<div id="slotted-host"><span id="slotted">S</span></div>
+      <form action="javascript:;"><label><div id="shadow-host"></div><input type="submit"></label></form>`;
+    // The label is inside a shadow tree, and the span is slotted into it.
+    document
+      .getElementById("slotted-host")!
+      .attachShadow({
+        mode: "open",
+      }).innerHTML = `<form action="javascript:;"><label><slot></slot><input type="submit"></label></form>`;
+    // The span is in a shadow tree whose host is inside the label.
+    const inner = document.createElement("span");
+    document.getElementById("shadow-host")!.attachShadow({ mode: "open" }).append(inner);
+    expect([runsScriptUrl(document.getElementById("slotted")), runsScriptUrl(inner)]).toEqual([
+      true,
+      true,
+    ]);
+  });
+
+  it("leaves a link or input inside a `<label>` to its own activation", () => {
+    // A click on interactive content inside a label runs only that content's activation.
+    document.body.innerHTML = `<form action="javascript:;"><label><input type="submit">
+      <a id="a" href="https://example.test/">A</a><input id="b" type="text"></label></form>`;
+    expect(["a", "b"].map((id) => runsScriptUrl(document.getElementById(id)))).toEqual([
+      false,
+      false,
+    ]);
+  });
 });
 
 describe("pressElement", () => {
