@@ -333,6 +333,9 @@ function runConfirmWork(
           current: async () => Boolean(await confirmAccount(rt, work)),
           // A press's result reaches only the pressed document, never another tab's page.
           only: work.pick !== undefined,
+          // Only the tab's own authenticated login vouches for the session; a **Fill**
+          // press keeps the header's hint (ADR 0035, amended 2026-11-21).
+          ...(work.pick === undefined ? { signedIn: true as const } : {}),
           reconnect: () => {
             reconnected = true;
             finish();

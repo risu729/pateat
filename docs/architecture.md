@@ -1099,12 +1099,13 @@ record other than an account switch on that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). A recipe's first page that lists no
 accounts carries `signedIn`: whether a signed-in marker learned by the origin's recipes
 or a URI-matching item's username shows in its header or navigation (ADR 0029's E1 and
-E2); only the flag leaves the device. Generation answers each page's kind, stored on the
-recipe as `pageKind` (`sign-in`, `confirm` or `unclear`); a recipe that is not `sign-in`
-never starts a login, never counts as a logout, is never filled while a tab asks, and
-its path is not sent again ([ADR 0035](adr/0035-page-kinds-per-site.md)). A page that
-shows no login field once its DOM has been quiet for a second, or 5 seconds after the
-content script starts waiting
+E2), or true when the page is generated automatically in a tab that holds its own
+`authenticated` login; only the flag leaves the device. Generation answers each page's
+kind, stored on the recipe as `pageKind` (`sign-in`, `confirm` or `unclear`); a recipe
+that is not `sign-in` never starts a login, never counts as a logout, is never filled
+while a tab asks, and its path is not sent again
+([ADR 0035](adr/0035-page-kinds-per-site.md)). A page that shows no login field once its
+DOM has been quiet for a second, or 5 seconds after the content script starts waiting
 ([ADR 0057](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md)), is sent instead,
 without slots, only when its URL names another path of its site in a query value and it
 asks no secret answer ([ADR 0035](adr/0035-page-kinds-per-site.md)), and a cached entry

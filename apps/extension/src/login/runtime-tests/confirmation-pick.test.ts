@@ -399,6 +399,8 @@ describe("Fill on a page without a recipe", () => {
       expect(await press(h)).toMatchObject({ ok: true, state: "generating" });
       await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
       expect(service.generate.mock.calls[0]![0].manual).toBeUndefined();
+      // Without the tab's own login, the header's hint alone tells (ADR 0035).
+      expect(service.generate.mock.calls[0]![0].signedIn).toBe(false);
       expect(h.fields).not.toHaveBeenCalled();
       // The same page in another tab, not pressed, is not asked to announce the result.
       fake.state.reconnects.length = 0;
