@@ -1,9 +1,11 @@
 // An SSO flow's IdP login whose email step advanced to its password step, as login.ibm.com
 // did in the owner's Chrome on 2026-11-21 (10:21 UTC): the password fill was logged at
 // 10:21:08 and refused `cancelled` (`not-authorized`) at 10:21:24, while a direct login of
-// the same recipe at 10:33 filled it. Each of the hop's scope checks reads the flow's SSO
+// the same recipe at 10:33 filled it. Each of the hop's scope checks read the flow's SSO
 // mapping from the vault again, so the checks and the password read before the fill's
 // delivery, with the page's own authorization, took longer than the operation's 15 seconds.
+// The flow now keeps its mapping (ADR 0026, amendment of 2026-11-22); a slow vault read of
+// the step's own value still takes as long.
 import { describe, expect, it, vi } from "vitest";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 const io = vi.hoisted(() => ({
@@ -16,7 +18,6 @@ vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { ssoAdmit } = await import("../runtime/sso/flow");
 const { drive } = await import("../runtime/run-steps");
-const { allowed } = await import("../runtime/plan-2");
 const { handle: dispatch } = await import("../runtime/messages");
 const { ssoReturnFixture } = await import("./sso-return-fixture");
 const { idp, delivery, idpReadings, harness, idpChild, step, click, fill } = ssoReturnFixture(
@@ -106,11 +107,10 @@ function answerSteps(
 }
 
 describe("an SSO flow's IdP login on its password step after its email step", () => {
-  it("has its password fill authorized although its scope checks take most of 15 seconds", async () => {
+  it("has its password fill authorized although its checks and vault reads take over 15 seconds", async () => {
     const at = await atPasswordStep();
     const { h, run } = at;
-    // Each policy check of the hop reads the flow's mapping from the vault, for both its
-    // scope checks: 5 seconds each here.
+    // A read of the flow's mapping from the vault takes 5 seconds here.
     const realNow = Date.now.bind(Date);
     let offset = 0;
     const clock = vi.spyOn(Date, "now").mockImplementation(() => realNow() + offset);
@@ -120,9 +120,9 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
       offset += 5000;
       return mapped;
     });
-    // And each vault read of the step's values takes 5 seconds.
+    // And each vault read of the step's values takes 16 seconds.
     vi.mocked(h.rt.fields).mockImplementation(async () => {
-      offset += 5000;
+      offset += 16_000;
       return "Synthetic value";
     });
     const answers = answerSteps(at);
@@ -132,10 +132,10 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
       clock.mockRestore();
     }
     // The password fill ran more than 15 seconds after it was built, and was authorized.
-    // Each authorization read the flow's mapping once.
-    expect(answers[0]).toEqual({ kind: "fill", authorized: true, reads: 1, kept: true });
+    // Each authorization used the flow's kept mapping.
+    expect(answers[0]).toEqual({ kind: "fill", authorized: true, reads: 0, kept: true });
     expect(
-      answers.every((answer) => answer.authorized === true && answer.reads === 1 && answer.kept),
+      answers.every((answer) => answer.authorized === true && answer.reads === 0 && answer.kept),
     ).toBe(true);
     expect(run.metadata.outcome).not.toBe("cancelled");
     expect(h.report).not.toHaveBeenCalledWith(
@@ -162,52 +162,7 @@ describe("an SSO flow's IdP login on its password step after its email step", ()
       clock.mockRestore();
     }
     expect(delivered).toBeDefined();
-    expect(answers).toEqual([{ kind: "fill", authorized: false, reads: 1, kept: true }]);
+    expect(answers).toEqual([{ kind: "fill", authorized: false, reads: 0, kept: true }]);
     expect(run.metadata).toMatchObject({ state: "blocked", outcome: "cancelled" });
-  });
-  it("reads the flow's mapping once per policy check, and again at the next one", async () => {
-    const { h, run } = await atPasswordStep();
-    const validate = vi.mocked(h.rt.options.sso!.validate);
-    validate.mockClear();
-    // One check of the hop's step checks its flow's scope twice, with one vault read.
-    expect(await allowed(h.rt, run)).toBeDefined();
-    expect(validate).toHaveBeenCalledTimes(1);
-    expect(await allowed(h.rt, run)).toBeDefined();
-    expect(validate).toHaveBeenCalledTimes(2);
-    // A vault that no longer maps the method stops the next check.
-    validate.mockResolvedValueOnce({ ok: false, reason: "scope-changed" } as never);
-    expect(await allowed(h.rt, run)).toBeUndefined();
-    expect(validate).toHaveBeenCalledTimes(3);
-  });
-  it("reads the mapping again when a choice-only save lands between the scope checks", async () => {
-    const { h, run } = await atPasswordStep();
-    const validate = vi.mocked(h.rt.options.sso!.validate);
-    const mapped = await validate.getMockImplementation()!(undefined as never, undefined as never);
-    if (!mapped.ok) throw new Error("The synthetic mapping is refused");
-    const settings = vi.mocked(h.rt.settings.handle);
-    const before = await settings.getMockImplementation()!({ version: 1, type: "settings.get" });
-    if (!before.ok) throw new Error("The synthetic settings are unavailable");
-    // Another tab saves a choice of SSO method once the first scope check read the mapping:
-    // a revision that writes only a choice stops nothing running (`CHOICE_ONLY_CAUSES`).
-    const saved = {
-      ...before,
-      snapshot: {
-        ...before.snapshot,
-        revision: 4,
-        changes: [{ revision: 4, cause: "sso-mapping" as const }],
-      },
-    };
-    validate.mockClear();
-    validate.mockImplementationOnce(async () => {
-      settings.mockImplementation(async () => structuredClone(saved));
-      validate.mockImplementation(async () => ({
-        ...mapped,
-        data: { ...mapped.data, policyRevision: 4 },
-      }));
-      return mapped;
-    });
-    expect(await allowed(h.rt, run)).toBeDefined();
-    // The second scope check read the mapping again, under the newer settings.
-    expect(validate).toHaveBeenCalledTimes(2);
   });
 });

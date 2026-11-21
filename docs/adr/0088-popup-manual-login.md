@@ -23,6 +23,10 @@ entry the automatic order decides, and shows the chooser otherwise. Amended on
 the account choice, **Log in now** is hidden, and shows below the choice only for what
 the choice cannot do.
 
+Related on 2026-11-21: **Log in now** and **Fill** fill an identifier split over several
+inputs as a login does ([ADR 0089](0089-identifiers-split-over-several-inputs.md),
+[below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
+
 Date: 2026-11-11
 
 ## Context
@@ -279,3 +283,14 @@ The following are the agent's choices, not confirmed by the owner:
   is not hidden for the listing, since it is then the only way to log in.
 - The decision lives in the popup. The worker's offer, start and hold checks are
   unchanged.
+
+## Amendment 2026-11-21: an identifier split over several inputs
+
+A note, not a change to this ADR's rules. A fill field of
+[ADR 0089](0089-identifiers-split-over-several-inputs.md) that splits an identifier over
+several inputs fills them all or none for **Log in now** and **Fill** too.
+**Log in now** and a **Fill** on a sign-in page run the recipe's steps as a login does,
+so a value the inputs cannot take ends the request as the login would
+(`identifier-unfit`). A **Fill** on a confirmation page is a confirmation fill (ADR
+0035): such a value never reaches the page, and the fill stops before it sends the step,
+with no cause of its own.

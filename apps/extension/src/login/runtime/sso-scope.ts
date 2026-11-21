@@ -7,6 +7,7 @@ import {
   onlyChoicesSince,
   resolvePagePermission,
   type LoginDocument,
+  type SettingsResponse,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { frameKey, siteOf } from "./steps";
@@ -14,7 +15,7 @@ import { pauseOf } from "./pause";
 import { itemMatchesUrl } from "./plan";
 import { ssoDependenciesKept } from "./sso/dependencies";
 import type { Runtime } from "./state";
-import type { SsoWork } from "./sso-state";
+import type { SsoMapping, SsoWork } from "./sso-state";
 import type { LiveDocument } from "./types";
 
 /**
@@ -68,26 +69,66 @@ export const ssoChildOn = (rt: Runtime, document: LoginDocument) => {
 /** A synchronous check that the scope one {@link ssoScope} call checked still holds. */
 export type SsoFence = () => boolean;
 /**
- * The reads one policy check shares between its scope checks: the flow's SSO mapping,
- * read from the vault once per check rather than once per scope check (ADR 0026,
- * amendment of 2026-11-21). A later check reads it again.
+ * What a flow's SSO mapping depends on: the settings revision and whether a settings sync
+ * is pending, the flow's RP method and IdP choice, and both accounts' vault connections
+ * as the catalog has them, with their snapshots, states and quarantined items.
  */
-export type SsoReads = {
-  /** The mapping read under way or done: a promise, awaited by each scope check. */
-  mappingRead?: ReturnType<NonNullable<Runtime["options"]["sso"]>["validate"]>;
-};
+const mappingKey = (work: SsoWork, saved: Extract<SettingsResponse, { ok: true }>) =>
+  JSON.stringify([
+    saved.snapshot.revision,
+    saved.catalog.settingsSyncPending === true,
+    work.source,
+    work.selected,
+    [work.source.account, work.selected.account].map(
+      (account) =>
+        saved.catalog.connections.find((entry) => entry.id === account.connectionId) ?? null,
+    ),
+  ]);
+/**
+ * The flow's SSO mapping, read from the vault once for the settings and vault snapshots
+ * it depends on and kept with the flow, in memory only (ADR 0026, amendment of
+ * 2026-11-22). A refused or failed read is never kept, and a read dropped while it was
+ * awaited (`dropSsoMappings`) is not used: the vault is read again.
+ */
+async function ssoMapping(
+  sso: NonNullable<Runtime["options"]["sso"]>,
+  work: SsoWork,
+  saved: Extract<SettingsResponse, { ok: true }>,
+): Promise<SsoMapping> {
+  const key = mappingKey(work, saved);
+  let entry = work.mapping;
+  if (entry?.key !== key) {
+    entry = { key, read: sso.validate(work.source, work.selected) };
+    work.mapping = entry;
+  }
+  const kept = entry;
+  const mapping = await kept.read.catch((error: unknown) => {
+    if (work.mapping === kept) work.mapping = undefined;
+    throw error;
+  });
+  if (work.mapping !== kept) return sso.validate(work.source, work.selected);
+  if (!mapping.ok) work.mapping = undefined;
+  return mapping;
+}
+/**
+ * Drops every flow's kept SSO mapping, on a vault notice (a sync, a lock, a timeout) or
+ * a settings save, so the next scope check reads the vault again.
+ */
+export function dropSsoMappings(rt: Runtime): void {
+  for (const work of rt.sso.flows.values()) work.mapping = undefined;
+}
 /**
  * A fresh mapping is evidence only; item, page, policy and operation epochs authorize
  * delivery. Returns the fence of this check, to recheck after later awaits, or undefined
  * when it fails. Each caller keeps its own fence, so another check of the same flow, as
- * for its IdP child's document, never replaces it. With `reads`, the mapping one check
- * read already is used again; every other part of the scope is checked afresh.
+ * for its IdP child's document, never replaces it. The flow's SSO mapping is the one
+ * kept for the same settings and vault snapshots (`ssoMapping`); every other part of the
+ * scope is checked afresh.
  */
 export async function ssoScope(
   rt: Runtime,
   work: SsoWork,
   live: LiveDocument = work.live,
-  reads?: SsoReads,
 ): Promise<SsoFence | undefined> {
   if (
     !ssoCurrent(rt, work, live) ||
@@ -149,13 +190,7 @@ export async function ssoScope(
     )
       return undefined;
   }
-  const { sso } = rt.options;
-  const validate = () => sso.validate(work.source, work.selected);
-  let mapping = await (reads ? (reads.mappingRead ??= validate()) : validate());
-  // A shared mapping read under settings that changed since, as by a choice-only save
-  // between the two scope checks, is read again, as a scope check of its own would.
-  if (reads && mapping.ok && mapping.data.policyRevision < saved.snapshot.revision)
-    mapping = await (reads.mappingRead = validate());
+  const mapping = await ssoMapping(rt.options.sso, work, saved);
   if (!mapping.ok || !ssoCurrent(rt, work, live)) return undefined;
   // The selection was validated on these settings, or on later ones that only wrote
   // choices (`onlyChoicesSince`).

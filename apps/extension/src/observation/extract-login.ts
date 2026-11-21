@@ -12,6 +12,7 @@ import { redactsPath } from "./path";
 import { buttonText, fieldName, isButton, isScriptButton } from "../page/text";
 import type { ObservationGap, ObservationResult, Draft, Found } from "./extract-types";
 import { withGap, observe } from "./extract-observe";
+import { withSplitParts } from "./extract-split";
 import { maxCandidates, landmarks, fillTypes, presence } from "./extract-controls";
 import { locators, locatorIndex, locate } from "./extract-locators";
 import {
@@ -161,7 +162,8 @@ function loginFormsOf(
  * candidates mark it incomplete too, and inference rejects an incomplete observation. An
  * incomplete result names its first cause in `loginGaps` order as `gap`, for the log
  * only. A page without a field is refused, and so is one where nothing can be located.
- * As on every observed page, a path segment that may carry a token is sent as
+ * Each part of an identifier split over several inputs carries `split` (`withSplitParts`,
+ * ADR 0089). As on every observed page, a path segment that may carry a token is sent as
  * `REDACTED_PATH_SEGMENT` (`observedPath`, ADR 0039); on such a page an ID, name or test
  * ID that may be a token locates nothing.
  *
@@ -474,7 +476,7 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
     ...kept(links, { optional: true }).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: unlocated ? "no-locator" : "no-candidates" };
-  return withGap(observe(document, chosen, gap === undefined), gap);
+  return withGap(observe(document, withSplitParts(document, chosen), gap === undefined), gap);
 }
 
 /**

@@ -8,6 +8,11 @@ proceed on a working rule and decide afterwards. Found on x.com
 ([#860](https://github.com/risu729/pateat/issues/860)). Amends
 [ADR 0018](0018-recipe-generation-route.md) (what a plan's action may be).
 
+Amended on 2026-11-21 by [ADR 0089](0089-identifiers-split-over-several-inputs.md)
+(owner, 19:00 UTC, implemented): Enter in a form whose last field is an identifier split
+over several inputs is pressed in its last part
+([below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
+
 Date: 2026-10-23
 
 Amended on 2026-11-21 by an agent
@@ -145,3 +150,14 @@ with no fields (wise.com and platform.openai.com), which the line does not addre
 their reruns gave 2 false submits in 4 runs with the new line and 1 false submit and 2
 misses in 4 runs with the old one, so the difference is within the list answers'
 run-to-run variation as far as these runs show.
+
+## Amendment 2026-11-21: an identifier split over several inputs
+
+Status: accepted by the owner on 2026-11-21 through
+[ADR 0089](0089-identifiers-split-over-several-inputs.md) (decision card answered option
+A at 19:00 UTC; implemented).
+
+When the plan's last field is an identifier split over several inputs, its form is
+submitted by Enter in the group's last part: the model may name the first part (the
+plan's last field) or the last part as the action, and the click step names the last
+part, which the fill typed last.
