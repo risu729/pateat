@@ -1917,15 +1917,18 @@ leaves the other's intact. One identity
 (`packages/contracts/src/settings/detail-link-identity.ts`) is used for validation, sync
 and runtime matching; secret-question links additionally name their source field. A
 login fills the first input with a usable link that is writable, checking the radio
-button that chooses it first, and clicks the button; the value is made in the
-service worker from the vault read (the date or card expiry date in the input's format,
-the last four digits, a card code, a whole card number or a PIN, read only from the
-login item or a card item, as its digits; every linked value is filled, a whole card
-number and a PIN included, by the owner's decision of 2026-10-23 11:41 UTC). A `detail`
-handler with no usable link ends the attempt `challenge` with `detail-unlinked`, and the
-popup then proposes the vault fields that could give each detail, a card first when its
-last four digits or brand match those the page shows, compared in the service worker
-(owner, 2026-10-23 12:26 UTC); its **Fill** fills the input, unless the page shows
+button that chooses it first, and clicks the button; the value is made in the service
+worker from the vault read (the date or card expiry date in the input's format, the last
+four digits, a card code, a whole card number or a PIN, read only from the login item or
+a card item, as its digits; every linked value is filled, a whole card number and a PIN
+included, by the owner's decision of 2026-10-23 11:41 UTC). A `detail` handler with no
+usable link ends the attempt `challenge` with `detail-unlinked`, and the popup then
+proposes the vault fields that could give each detail, a card first when its last four
+digits or brand match those the page shows, compared in the service worker (owner,
+2026-10-23 12:26 UTC). A birth date or phone number is read only from the login item, an
+identity or a secure note, in that order; the popup shows the value each such field
+gives, and a login fills the only one without a link, keeping the link as a **Fill**
+does (owner, 2026-11-21). The popup's **Fill** fills the input, unless the page shows
 another account than the login item's, without pressing the button and keeps the link
 for the tab, saved only once the watched login ends `authenticated`. A link whose value
 the site refused, as when the login is rejected or the handler's page shows again, is

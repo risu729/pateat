@@ -150,6 +150,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
   describe("personal details from linked vault items (ADR 0061)", () => {
     const identityId = "80000000-0000-4000-8000-000000000003";
     const cardId = "80000000-0000-4000-8000-000000000004";
+    const noteId = "80000000-0000-4000-8000-000000000005";
     const birthField = `custom.${snapshotId}.0`;
     const phoneField = `custom.${snapshotId}.1`;
     const extraItems = [
@@ -169,6 +170,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ],
         custom: [],
       },
+      { id: noteId, note: true as const, custom: [{ name: "Birth date", kind: "text" as const }] },
     ];
     const detailHandler = {
       kind: "detail" as const,
@@ -238,17 +240,16 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           excludingLive([{ custom: "生年月日", position: 1, count: 1 }], identityId),
         ],
       ])(
-        "is not used when it names %s",
+        "is not used when it names %s, so the only field left, the note's, is",
         async (_label, overrides) => {
           onClick({ login: toConfirm, confirm: toHome });
           const { h, report } = start([birthLink], birthValue, detailed, overrides);
           expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() =>
-            expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
-          );
-          expect(detailFills()).toEqual([]);
-          expect(reads(h)).toEqual([[itemId, "login.password"]]);
-          expect(handlerReports(report)).toEqual([[0, "detail", "detail-unlinked", 2]]);
+          await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+          expect([reads(h).at(-1), handlerReports(report).at(-1)?.[2]]).toEqual([
+            [noteId, birthField],
+            "detail-saved",
+          ]);
         },
         10_000,
       );
@@ -590,8 +591,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         await h.hello({ documentId: "document-home" }, false);
         await vi.advanceTimersByTimeAsync(30_000);
       }
-      it("lists the fields that could give each detail the page asks for", async () => {
-        const { h } = await stopped();
+      it("lists the fields that could give each detail the page asks for, with their values", async () => {
+        const { h } = await stopped({ ...birthValue, "identity.phone": "090-1234-5678" });
+        const shown = (entry: object, value: string) => ({ ...entry, shown: value });
+        const note = { ...source(birthField, "Birth date"), itemId: noteId };
         expect(await ask(h)).toEqual({
           ok: true,
           origin,
@@ -601,18 +604,20 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
               {
                 detail: "birth-date",
                 format: "yyyymm",
-                candidates: [source(birthField, "生年月日")],
+                candidates: [
+                  shown(source(birthField, "生年月日"), "1990-04-01"),
+                  shown(note, "1990-04-01"),
+                ],
               },
+              // A field whose value has no phone number is not listed.
               {
                 detail: "phone-last-4",
-                candidates: [source("identity.phone", "Phone number"), source(phoneField, "Phone")],
+                candidates: [shown(source("identity.phone", "Phone number"), "5678")],
               },
             ],
           },
           links: [],
         });
-        // Nothing is read from the vault until the person picks a field.
-        expect(reads(h)).toEqual([[itemId, "login.password"]]);
         // A content script is not the popup.
         expect(await ask(h, sender() as never)).toBeUndefined();
       });

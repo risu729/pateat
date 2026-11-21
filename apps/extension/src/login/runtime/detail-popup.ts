@@ -29,6 +29,9 @@ import {
   detailFieldValues,
   detailValue,
   isCardDetail,
+  isPersonalDetail,
+  shownDetail,
+  type DetailCandidate,
   MAX_CARD_GUESS_READS,
   MAX_DETAIL_CANDIDATES,
   rankCards,
@@ -53,6 +56,7 @@ import {
   askOf,
   askedSource,
   sameLink,
+  declineProposal,
   readDetail,
   sameQuestion,
   writeDetailLinks,
@@ -326,6 +330,87 @@ export async function guessCard<T extends { itemId: string }>(
 }
 
 /**
+ * What each birth date or phone number candidate shows in the popup (ADR 0061, owner
+ * 2026-11-21 10:12 UTC): the value its fill would type (`shownDetail`), read one at a
+ * time as a fill reads it, for the first `MAX_DETAIL_CANDIDATES`. An item with
+ * Bitwarden's re-prompt is never read for it, on any site, as its value waits for the
+ * master password; a candidate read whose value no fill can use is dropped. The site and
+ * the login item must still be allowed, as for a fill. The values are kept for the
+ * offer's detail while the settings and the vault stay the same, so the popup's polls
+ * read the vault again only when they change, and are dropped when the vault locks or the
+ * login ends. A field that gives nothing shows no value; a read that throws, or none that
+ * gives anything, as from a locked vault, shows no values and drops none.
+ */
+export async function showDetails<T extends DetailCandidate>(
+  rt: Runtime,
+  offer: DetailOffer,
+  detail: LoginDetail,
+  snapshot: { settings: LocalSettings; revision: number },
+  catalog: VaultCatalog,
+  candidates: T[],
+): Promise<T[]> {
+  const policy = snapshot.settings;
+  const connection = catalog.connections.find((entry) => entry.id === offer.account.connectionId);
+  if (
+    !candidates.length ||
+    !connection ||
+    (connection.state !== "ready" && connection.state !== "review-required") ||
+    isSiteExcluded(policy, offer.account.origin) ||
+    !isSiteAllowed(policy, offer.account.origin) ||
+    !getItemEligibility(policy, catalog, connection.id, offer.account.itemId).eligible
+  ) {
+    // A locked vault or a site no longer allowed keeps no value read before.
+    rt.shownDetails.delete(`${offer.attemptId} ${offer.document.documentId} ${detail}`);
+    return candidates;
+  }
+  const field = (entry: T) => JSON.stringify([entry.itemId, entry.fieldId]);
+  const read = candidates.slice(0, MAX_DETAIL_CANDIDATES).filter((entry) => {
+    const item = connection.items.find((other) => other.id === entry.itemId);
+    return item !== undefined && item.reprompt !== true;
+  });
+  const slot = `${offer.attemptId} ${offer.document.documentId} ${detail}`;
+  const key = `${snapshot.revision} ${connection.snapshotId ?? ""} ${read.map(field).join(",")}`;
+  const apply = (shown: ReadonlyMap<string, string>) =>
+    candidates.flatMap((entry) => {
+      const value = shown.get(field(entry));
+      // An empty value is one no fill can use.
+      if (value === "") return [];
+      return [value === undefined ? entry : { ...entry, shown: value }];
+    });
+  const kept = rt.shownDetails.get(slot);
+  if (kept?.key === key) return apply(kept.shown);
+  const shown = new Map<string, string>();
+  let gave = false;
+  for (const entry of read) {
+    let value: string | undefined;
+    try {
+      // Serial reads through the shared vault host, as for a fill.
+      // eslint-disable-next-line no-await-in-loop
+      value = await rt.fields({
+        account: { ...offer.account, itemId: entry.itemId },
+        connection,
+        fieldId: entry.fieldId,
+      });
+    } catch {
+      return candidates;
+    }
+    // A field that gives nothing is shown without a value; one whose value no fill can
+    // use is not listed.
+    if (value !== undefined) {
+      gave = true;
+      shown.set(field(entry), shownDetail(detail, value) ?? "");
+    }
+    value = "";
+  }
+  if (!gave) return candidates;
+  rt.shownDetails.delete(slot);
+  // A few details' values at most; the oldest go first.
+  if (rt.shownDetails.size >= 32) rt.shownDetails.delete(rt.shownDetails.keys().next().value!);
+  rt.shownDetails.set(slot, { key, shown });
+  return apply(shown);
+}
+
+/**
  * What the popup shows about a page's personal details (ADR 0061): the handler the tab's
  * login stopped at with the fields that could give each detail, and the site's links for
  * the login item, by their names in the device's catalog only.
@@ -388,14 +473,27 @@ export async function popupDetail(rt: Runtime, tabId: number): Promise<DetailRes
       ({ candidates } = guess);
       preselect &&= guess.preselect;
     }
+    // A birth date or phone number shows the value each field gives.
+    if (isPersonalDetail(field.detail))
+      // eslint-disable-next-line no-await-in-loop
+      candidates = await showDetails(
+        rt,
+        offer!,
+        field.detail,
+        snapshot.snapshot,
+        catalog,
+        candidates,
+      );
     candidates = candidates.slice(0, MAX_DETAIL_CANDIDATES);
     // A split birth date is named as the one input it reads as (ADR 0061).
     const format = detailFieldFormat(field);
-    if (candidates.length)
+    // A birth date or phone number no field gives is listed still, so the popup says
+    // where to save it.
+    if (candidates.length || isPersonalDetail(field.detail))
       details.push({
         detail: field.detail,
         ...(format ? { format } : {}),
-        candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
+        candidates,
         // A member ID's fields' names say little, and two cards may show the same last
         // digits, so none is chosen for the owner.
         ...(preselect ? {} : { preselect: false as const }),
@@ -691,19 +789,26 @@ export async function popupDetailRemove(
   if (!found || !snapshot?.ok) return { ok: false, reason: "no-link" };
   const kept = rt.pendingDetails.get(tabId) ?? [];
   const rest = kept.filter((entry) => !sameLink(rt, entry.link, found.owner, detail));
+  // A removed link to a birth date's or phone number's field is not filled unasked as
+  // the only candidate again in this browser session (ADR 0061).
+  const decline = (links: DetailLink[]) => {
+    for (const link of links) if (isPersonalDetail(link.detail)) declineProposal(rt, link);
+  };
   if (rest.length !== kept.length) {
+    decline(kept.filter((entry) => !rest.includes(entry)).map((entry) => entry.link));
     if (rest.length) rt.pendingDetails.set(tabId, rest);
     else rt.pendingDetails.delete(tabId);
     await quietly(rt, () => saveSession(rt));
     return { ok: true };
   }
   // A secret question's answers go together, as the popup shows them in one row.
-  if (!savedDetailLinks(snapshot.snapshot.settings, found.owner, detail).length)
-    return { ok: false, reason: "no-link" };
+  const saved = savedDetailLinks(snapshot.snapshot.settings, found.owner, detail);
+  if (!saved.length) return { ok: false, reason: "no-link" };
   const written = await writeDetailLinks(rt, undefined, (links) =>
     links.filter((link) => !sameLink(rt, link, found.owner, detail)),
   );
-  return written === "saved" || written === "unchanged"
-    ? { ok: true }
-    : { ok: false, reason: "not-saved" };
+  if (written !== "saved" && written !== "unchanged") return { ok: false, reason: "not-saved" };
+  decline(saved);
+  await quietly(rt, () => saveSession(rt));
+  return { ok: true };
 }

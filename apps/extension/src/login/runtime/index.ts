@@ -26,6 +26,7 @@ import {
   RELOGINS_KEY,
   DETAIL_OFFERS_KEY,
   PENDING_DETAILS_KEY,
+  REFUSED_PROPOSALS_KEY,
   pickedAccountSchema,
   pendingChoiceSchema,
   askSchema,
@@ -277,6 +278,7 @@ function startRuntime(rt: Runtime) {
       RELOGINS_KEY,
       DETAIL_OFFERS_KEY,
       PENDING_DETAILS_KEY,
+      REFUSED_PROPOSALS_KEY,
     ]);
     const stored = Object.fromEntries(items.map(({ key, value }) => [key, value]));
     const repairs = v.safeParse(
@@ -351,6 +353,11 @@ function startRuntime(rt: Runtime) {
     if (kept.success)
       for (const entry of kept.output)
         rt.pendingDetails.set(entry.tabId, [...(rt.pendingDetails.get(entry.tabId) ?? []), entry]);
+    const refused = v.safeParse(
+      v.pipe(v.array(v.pipe(v.string(), v.maxLength(4096))), v.maxLength(256)),
+      stored[REFUSED_PROPOSALS_KEY] ?? [],
+    );
+    if (refused.success) for (const entry of refused.output) rt.refusedProposals.add(entry);
   });
 
   // An account switch whose worker stopped while it logged out ended with it: its pick is

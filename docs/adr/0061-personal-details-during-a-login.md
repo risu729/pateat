@@ -44,6 +44,14 @@ page): the popup proposes an identity item's fields before any other item's
 Clarified on 2026-11-17 by an agent: an identity's or a card's own field that holds no
 value is no candidate ([Guess, propose, confirm](#guess-propose-confirm)).
 
+Amended on 2026-11-21 by the owner (10:12 UTC, choosing all three changes an agent
+proposed after My Digital Connect listed another site's phone number field; 10:12 UTC,
+secure notes; 10:23 UTC, the login item first): a birth date or phone number is read
+only from the login item, an identity or a secure note, in that order; the popup shows
+the value each such field gives; and a login fills the only field that gives it without
+a link ([decided](#decided-by-the-owner) 13,
+[Guess, propose, confirm](#guess-propose-confirm)).
+
 Clarified on 2026-11-12 by an agent: a split-date select option whose text or value
 starts with a minus sign says a negative number
 ([clarification](#clarification-signed-select-option-numbers-2026-11-12)). Such text
@@ -128,6 +136,16 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
     password, and the master password is asked for first when it does not (21:50:15
     UTC, 「入力済みならそのまま、していなければ聞く、でいいんじゃない」). See
     [Items with Bitwarden's re-prompt](#items-with-bitwardens-re-prompt).
+13. A birth date or phone number is the person's own, so it is read only from the login
+    item, an identity or a secure note, never another site's login item, whose field may
+    hold that site's own number, or a card (2026-11-21 10:12 UTC). The login item's
+    field, kept for the site, comes first, then an identity's, then a secure note's
+    (10:23 UTC, 「ログイン中のアイテム自身を優先すべき」). The popup shows the value
+    each field gives, as the fill types it, and says where to save one when no field
+    gives it. When exactly one field gives it, a login fills it without a link, as a
+    linked value, and saves the link once it is confirmed (10:12 UTC, 「1・2・3
+    すべて」). This narrows decided 2 for these two details: the only field is no guess
+    to confirm.
 
 ## Decision
 
@@ -138,8 +156,8 @@ make each value. A page that asks for anything else stays `challenge`.
 
 | `detail` | Read from | Filled as | Into |
 | --- | --- | --- | --- |
-| `birth-date` | a Text or Hidden custom field named as one (below) | the date in the input's `format` | a text, tel or number input; a part also a select |
-| `phone-last-4` | `identity.phone`, or a Text or Hidden custom field named as one (below) | its last four digits | a text, tel or number input |
+| `birth-date` | a Text or Hidden custom field of the login item, an identity or a secure note named as one (below) | the date in the input's `format` | a text, tel or number input; a part also a select |
+| `phone-last-4` | `identity.phone`, or a Text or Hidden custom field of the login item, an identity or a secure note named as one (below) | its last four digits | a text, tel or number input |
 | `card-last-4` | `card.number` | its last four digits | a text, tel or number input |
 | `card-code` | `card.code` | as it is, 3 or 4 digits | a password input, or a text or tel input with `maxlength` 3 or 4 |
 | `card-number` | `card.number` | all its digits, 12 to 19 | a password, text, tel or number input whose `maxlength`, when set, holds it |
@@ -531,7 +549,8 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    name contains `phone`, `tel` or `電話` and does not read as a PIN, for
    `phone-last-4`; Text or Hidden custom fields whose name reads as a birth date
    (contains `birth`, `dob`, `生年月日` or `誕生日`, in any case) and does not read as a
-   PIN for `birth-date`; card items for `card-last-4`, `card-code` and `card-number`,
+   PIN for `birth-date`, each only of the login item, an identity or a secure note
+   (decided 13); card items for `card-last-4`, `card-code` and `card-number`,
    and those whose expiry month and year are both allowed for `card-expiry`; Text or
    Hidden custom fields named as a PIN, of the login item or a card item, for `pin`. A
    link reads only such a field, so a link edited elsewhere never types another custom
@@ -540,14 +559,23 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    nothing, so an identity without a phone number is never proposed first (agent,
    2026-11-17, after My Digital Connect's Fill read an empty one). An identity item's
    fields come first, since an identity holds the person's own details (owner,
-   2026-11-11 12:46 UTC). Then, among identity items and among the rest, an item whose
+   2026-11-11 12:46 UTC); for a birth date or phone number, the login item's own come
+   before them and a secure note's after (decided 13). Then, within each, an item whose
    name holds a run of three or more ASCII letters or digits found in the page's host
    name, or which appears whole in the page's title, comes first; for a card detail,
    what the page shows about its card ranks before that
    ([The card guess](#the-card-guess)).
 3. The popup's "This page" section shows what the page asks for and the candidates, the
    first one selected unless the guess is a tie, for example "This page asks for your
-   birth year and month." and "本人 › 生年月日", with **Fill**.
+   birth year and month." and "本人 › 生年月日", with **Fill**. A birth date or phone
+   number shows the value its fill types under each field's name, as "1234" under "本人
+   › 電話番号" or "1990-04-01", read on the device for the popup only (decided 5 still
+   holds). An
+   item with Bitwarden's re-prompt is not read for it, on any site, and shows its name
+   only; a field whose value no fill can use is not listed. The values are read once
+   per offer and kept in the worker's memory while the settings and vault stay the
+   same, so the popup's polls read nothing more; they are dropped when the vault locks
+   or the login ends.
 4. **Fill** fills the input, or every part's input of a split value, in the tab's
    current document, checking its choosing radio, when that document is the login's, the
    tab's login is still the one that stopped there, the site and the login item are
@@ -560,7 +588,20 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    is ([ADR 0023](0023-synced-vault-policy.md)); otherwise it is dropped.
 5. The popup also lists the site's saved links, each with **Remove**.
 
-The popup shows nothing more when there is no candidate; the person types the value.
+The popup shows nothing more when there is no candidate; the person types the value. A
+birth date or phone number with none says where to save one: in an identity's phone
+number, or in a custom field named as a birth date in an identity or a secure note.
+
+A birth date or phone number with no saved link the device may read, as one to another
+site's login item, and exactly one candidate skips steps 1 to 4 (decided 13): the login
+fills it and presses the button as for a linked value, and keeps the link for the tab as
+a **Fill** does, saved once the login ends `authenticated`. An item with re-prompt that
+waits for the master password is asked for as a linked one is
+([below](#items-with-bitwardens-re-prompt)). Refused, as when the login is rejected or
+the handler's page shows again, or its link removed with **Remove**, the candidate is
+not filled unasked again in that browser session; its key (site, login item, detail,
+item and field) is kept in `storage.session`, and the popup still offers it. A link
+refused but not yet removed is not filled as the only candidate either.
 
 ### The card guess
 

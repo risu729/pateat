@@ -317,11 +317,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
                 userId,
                 itemId,
                 detail: "birth-date",
-                source: { itemId: otherItemId, field: { custom: "生年月日" } },
+                source: { itemId, field: { custom: "生年月日" } },
               },
             ],
           },
-          { passkeys: noPasskey, report, otherCustom: [{ name: "生年月日", kind: "text" }] },
+          { passkeys: noPasskey, report, custom: [{ name: "生年月日", kind: "text" }] },
         );
         h.fields.mockImplementation(async (request) =>
           request.fieldId.startsWith("custom.") ? "1990-04-05" : "synthetic-secret",
@@ -342,7 +342,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-05");
         expect(h.fields.mock.calls.map(([request]) => request.account.itemId)).toEqual([
           itemId,
-          otherItemId,
+          itemId,
         ]);
         // Its selects are observed as ones a value can be set in before the fill is chosen.
         expect(fake.state.messages).toContainEqual(
@@ -371,11 +371,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
                 userId,
                 itemId,
                 detail: "birth-date",
-                source: { itemId: otherItemId, field: { custom: "生年月日" } },
+                source: { itemId, field: { custom: "生年月日" } },
               },
             ],
           },
-          { passkeys: noPasskey, report, otherCustom: [{ name: "生年月日", kind: "text" }] },
+          { passkeys: noPasskey, report, custom: [{ name: "生年月日", kind: "text" }] },
         );
         h.fields.mockImplementation(async (request) =>
           request.fieldId.startsWith("custom.") ? "1990-04-05" : "synthetic-secret",

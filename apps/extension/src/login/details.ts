@@ -77,6 +77,13 @@ const notMemberWords = [
 ];
 /** The details read only from the login item's own custom fields (ADR 0061). */
 export const ownItemDetails: readonly LoginDetail[] = ["secret-answer", "member-id"];
+/**
+ * The person's own details, read only from an identity, the login item or a secure note,
+ * never another site's login or a card (ADR 0061, owner 2026-11-21 10:12 UTC).
+ */
+export const personalDetails: readonly LoginDetail[] = ["phone-last-4", "birth-date"];
+/** Whether `detail` is one of the person's own details (`personalDetails`). */
+export const isPersonalDetail = (detail: LoginDetail) => personalDetails.includes(detail);
 
 /** Whether an item is a card: it has a card's built-in fields. */
 const isCard = (item: Pick<VaultItemMetadata, "fields">) =>
@@ -84,12 +91,20 @@ const isCard = (item: Pick<VaultItemMetadata, "fields">) =>
 /** Whether an item is a Bitwarden identity, the person's own details. */
 const isIdentity = (item: Pick<VaultItemMetadata, "fields">) =>
   item.fields.some((field) => field.id.startsWith("identity."));
+/**
+ * Whether an item is a secure note: no login's, card's or identity's built-in field, as
+ * the catalog lists every one of them for those items, even an empty one.
+ */
+const isNote = (item: Pick<VaultItemMetadata, "fields">) =>
+  !item.fields.some((field) => /^(?:login|card|identity)\./u.test(field.id));
 
 /**
  * Whether `detail` may be read from `item` for the login item `loginItemId` (ADR 0061): an
  * answer or member ID only from the login item; a PIN, a credential of one account, only
- * from the login item or a card item, never an identity or another login item; any other
- * detail from any item.
+ * from the login item or a card item, never an identity or another login item; a birth
+ * date or phone number, the person's own, only from an identity, the login item or a
+ * secure note, never another site's login item, whose field may hold that site's own
+ * number; a card's details from a card item's fields.
  */
 export function readsFrom(
   detail: LoginDetail,
@@ -98,6 +113,7 @@ export function readsFrom(
 ): boolean {
   if (ownItemDetails.includes(detail)) return item.id === loginItemId;
   if (detail === "pin") return item.id === loginItemId || isCard(item);
+  if (isPersonalDetail(detail)) return item.id === loginItemId || isIdentity(item) || isNote(item);
   return true;
 }
 
@@ -448,6 +464,8 @@ export type DetailCandidate = {
   fieldId: string;
   itemLabel: string;
   fieldLabel: string;
+  /** The value the fill types, as the popup shows it beside a birth date or phone number. */
+  shown?: string;
 };
 
 /**
@@ -455,11 +473,13 @@ export type DetailCandidate = {
  * `limit`, under the rules of `linkedField`: identity phone numbers, card numbers, codes
  * and expiry months (with their card's year), and Text or Hidden custom fields whose name
  * reads as a birth date, a phone, a PIN or a member ID; an answer or member ID only from
- * `loginItemId`, the login item, and a PIN only from it or a card item. An identity item's
- * fields, the person's own details, come first (owner, 2026-11-11 12:46 UTC); then, among
- * identity items and among the rest, an item whose name shares a run of three or more
- * ASCII letters or digits with the page's host name, or appears whole in its title;
- * otherwise the catalog's order is kept.
+ * `loginItemId`, the login item, and a PIN only from it or a card item, a birth date or
+ * phone number only from an identity, it or a secure note. An identity item's fields, the
+ * person's own details, come first (owner, 2026-11-11 12:46 UTC), but for a birth date or
+ * phone number the login item's own, kept for the site, go before them and a secure
+ * note's after (owner, 2026-11-21 10:12 and 10:23 UTC); then, within each, an item whose
+ * name shares a run of three or more ASCII letters or digits with the page's host name,
+ * or appears whole in its title; otherwise the catalog's order is kept.
  */
 export function detailCandidates(
   settings: LocalSettings,
@@ -469,7 +489,7 @@ export function detailCandidates(
   page: { host: string; title?: string | undefined; loginItemId: string },
   limit = MAX_DETAIL_CANDIDATES,
 ): DetailCandidate[] {
-  const found: (DetailCandidate & { identity: boolean; near: boolean })[] = [];
+  const found: (DetailCandidate & { rank: number; near: boolean })[] = [];
   for (const item of connection.items) {
     if (item.inactive || connection.quarantinedItemIds?.includes(item.id)) continue;
     if (!readsFrom(detail, item, page.loginItemId)) continue;
@@ -484,7 +504,13 @@ export function detailCandidates(
         fieldId: field.id,
         itemLabel: item.label,
         fieldLabel: detailFieldLabel(detail, field.id, item),
-        identity: isIdentity(item),
+        rank: !isPersonalDetail(detail)
+          ? Number(!isIdentity(item))
+          : item.id === page.loginItemId
+            ? 0
+            : isIdentity(item)
+              ? 1
+              : 2,
         near: nearPage(item.label, page),
       });
     }
@@ -493,12 +519,45 @@ export function detailCandidates(
     .map((entry, index) => ({ entry, index }))
     .sort(
       (left, right) =>
-        Number(right.entry.identity) - Number(left.entry.identity) ||
+        left.entry.rank - right.entry.rank ||
         Number(right.entry.near) - Number(left.entry.near) ||
         left.index - right.index,
     )
     .slice(0, limit)
-    .map(({ entry: { identity: _identity, near: _near, ...candidate } }) => candidate);
+    .map(({ entry: { rank: _rank, near: _near, ...candidate } }) => candidate);
+}
+
+/**
+ * The one field a birth date or phone number is filled from without a link (ADR 0061,
+ * owner 2026-11-21 10:12 UTC): the only candidate `detailCandidates` finds for it, as
+ * when the person keeps one identity with a phone number. Undefined for any other detail,
+ * and when there are none or several, which the popup offers.
+ */
+export function proposedField(
+  settings: LocalSettings,
+  catalog: VaultCatalog,
+  connection: VaultConnectionMetadata,
+  detail: LoginDetail,
+  page: { host: string; loginItemId: string },
+): DetailCandidate | undefined {
+  if (!isPersonalDetail(detail)) return undefined;
+  const found = detailCandidates(settings, catalog, connection, detail, page, 2);
+  return found.length === 1 ? found[0] : undefined;
+}
+
+/**
+ * How the popup shows a birth date or phone number beside its field (ADR 0061, owner
+ * 2026-11-21 10:12 UTC): the phone number's last four digits, as the fill types them, or
+ * the date as year-month-day. Undefined for any other detail, and for a value no fill can
+ * use.
+ */
+export function shownDetail(detail: LoginDetail, value: string): string | undefined {
+  if (detail === "phone-last-4") return detailValue(detail, undefined, value);
+  if (detail !== "birth-date") return undefined;
+  const date = readBirthDate(value);
+  return date
+    ? `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`
+    : undefined;
 }
 
 /** How the popup names the fields a detail reads: their labels, the month's and year's for an expiry. */
