@@ -7,7 +7,7 @@ import {
   sameLoginDocument,
 } from "@pateat/contracts";
 import { storage } from "wxt/utils/storage";
-import type { LiveDocument } from "./types";
+import type { ConfirmVisit, LiveDocument } from "./types";
 import type { Runtime } from "./state";
 import type { ConfirmPick } from "./confirm-pick-scope";
 
@@ -86,6 +86,8 @@ export function createConfirmState() {
         reason: ConfirmOutcome;
         declined?: true;
         accountSource?: ConfirmAccountSource;
+        /** The visit the fill ended in, whose rows alone log this end. */
+        visit?: ConfirmVisit;
       }
     >(),
     /** `tabId documentId` to the grant its window left for the document's next announcement. */
