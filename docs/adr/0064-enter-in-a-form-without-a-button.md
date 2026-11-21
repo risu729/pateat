@@ -34,7 +34,9 @@ form, else calls `requestSubmit()` on it
 
 1. **Plan.** When the form the plan fills shows no button that advances or submits, the
    generation role names the plan's last filled field as the action (one instruction
-   line; the answer format is unchanged). The local check accepts the action equal to a
+   line, which since 2026-11-21 also says that only a field inside a form is submitted
+   so and that fields in no form take the button after them; the answer format is
+   unchanged). The local check accepts the action equal to a
    filled field only when it is the last of the plan's fields, inside a `<form>` (the
    observation's `group`) and not a code field; its `advance` or `submit` is read from
    the page as for a button (#834).
@@ -135,7 +137,11 @@ is the button after them in page order that submits them." The same observation 
 gave 2 correct plans (`表示する` as the action) and 3 `insufficient-evidence`
 abstentions in 5 calls, and 5 of 5 correct plans with the request's `signedIn` hint set
 to true. The synthetic corpus scored 16 correct, 3 correct abstentions, 1 missed and no
-false submit; the request-log corpus 133 correct, 15 correct abstentions, 1 missed, 3
-invalid outputs and 2 false submits, both on account-list pages (wise.com and
-platform.openai.com) whose reruns gave the same mix of correct answers and false
-submits on the line before this change.
+false submit. The request-log corpus scored 133 correct, 15 correct abstentions, 1
+missed, 3 invalid outputs and 2 false submits, against 135 correct, 15 correct
+abstentions, 1 missed, 3 failed (two invalid outputs, one ambiguous list) and no false
+submit for the line before it on 2026-11-20. Both false submits were account-list pages
+with no fields (wise.com and platform.openai.com), which the line does not address;
+their reruns gave 2 false submits in 4 runs with the new line and 1 false submit and 2
+misses in 4 runs with the old one, so the difference is within the list answers'
+run-to-run variation as far as these runs show.
