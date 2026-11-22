@@ -158,6 +158,78 @@ export function verificationPlanRejection(
     : undefined;
 }
 
+/** A text as compared with a vault field's name: NFKC, lower case, letters and digits only. */
+const compact = (value: string) =>
+  value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replaceAll(/[^\p{L}\p{N}]+/gu, "");
+
+type SlotSet = { fields: { slot: string; candidate: string }[] };
+
+/**
+ * An input shaped for a PIN rather than an account password: one that takes digits
+ * (`inputMode` `numeric`) or at most {@link PIN_MAX_LENGTH} characters, as a bank's
+ * four-digit transaction PIN. Its custom field is the model's choice, as before.
+ */
+const PIN_MAX_LENGTH = 6;
+const pinShaped = (candidate: ObservedCandidate) =>
+  candidate.inputMode === "numeric" ||
+  (candidate.maxLength !== undefined && candidate.maxLength <= PIN_MAX_LENGTH);
+
+/**
+ * The slots a `confirm` or `unclear` plan fills, with a custom vault field kept in a
+ * password input only where the input names it (owner, 2026-11-22, ADR 0035): a slot that
+ * offers a custom field fills a `password` input only when the field's name shows in one
+ * of that input's own texts (`textsOf`: its label, `id`, `name` or test ID, placeholder,
+ * and its description), or the input is shaped for a PIN ({@link pinShaped}), as
+ * Bitwarden fills a custom field only into an input its name matches. Otherwise the set
+ * fills the account's password there, when the request offers that slot and the set
+ * fills it nowhere else and no other such input; any other set is kept as it is. Headings
+ * and the page's other text never count: ANA's page asked for 「ANAマイレージクラブの
+ * パスワード」 in an input labelled 「パスワード：」, and the model took the field
+ * 「AMCパスワード」, a four-digit PIN, for it.
+ */
+export function verificationSecretSlots<
+  Plan extends SlotSet & { alternatives?: SlotSet[] | undefined },
+>(
+  observation: Pick<LoginObservation, "candidates">,
+  slots: readonly SemanticSlot[],
+  plan: Plan,
+): Plan {
+  if (!slots.some((slot) => slot.id === "password")) return plan;
+  const candidates = new Map(observation.candidates.map((candidate) => [candidate.id, candidate]));
+  const names = new Map(
+    slots.flatMap((slot) => (slot.fieldName === undefined ? [] : [[slot.id, slot.fieldName]])),
+  );
+  const unnamed = (field: SlotSet["fields"][number]) => {
+    const name = names.get(field.slot);
+    const candidate = candidates.get(field.candidate);
+    return (
+      name !== undefined &&
+      candidate?.role === "password" &&
+      !pinShaped(candidate) &&
+      ![...textsOf(candidate), candidate.description]
+        .filter((text): text is string => text !== undefined)
+        .some((text) => compact(text).includes(compact(name)))
+    );
+  };
+  const fixed = <Fields extends SlotSet>(set: Fields): Fields => {
+    const taken = set.fields.filter(unnamed);
+    if (taken.length !== 1 || set.fields.some((field) => field.slot === "password")) return set;
+    return {
+      ...set,
+      fields: set.fields.map((field) =>
+        field === taken[0] ? { ...field, slot: "password" } : field,
+      ),
+    };
+  };
+  return {
+    ...fixed(plan),
+    ...(plan.alternatives ? { alternatives: plan.alternatives.map(fixed) } : {}),
+  };
+}
+
 /**
  * Whether a form reads, in words, as one that changes the password: one password input
  * names the current password ({@link fieldReading}) and another names a new value or

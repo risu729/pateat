@@ -75,6 +75,12 @@ generation of a page in a tab whose own login finished `authenticated` sends `si
 true, whatever the page's header shows; a **Fill** press keeps E1 and E2. Implemented on
 a branch, synthetic tests only.
 
+Amended on 2026-11-22 by the owner (15:07 UTC,
+[below](#amendment-2026-11-22-a-custom-field-in-a-verifications-password-input)): a
+`confirm` or `unclear` plan fills a custom vault field into a password input only where
+the input's own text names the field or the input is shaped for a PIN; elsewhere it
+fills the account's password when it can.
+
 Date: 2026-10-12
 
 ## Context
@@ -856,3 +862,44 @@ The details below are the agent's choices, not confirmed by the owner:
 - The hint's source is not logged apart. A generation row sent with `signedIn` true
   while the same tab holds an `authenticated` login on that origin may have come from
   this path.
+
+## Amendment 2026-11-22: a custom field in a verification's password input
+
+Context: on ANA's 会員専用機能へのログイン page (`https://cam.ana.co.jp`,
+`/amcmember/amcprofile/AMCProfileInfo`, Real Chrome, 2026-11-22 14:52 UTC), a
+verification whose heading reads 「ANAマイレージクラブのパスワードを入力してください。」
+and whose one password input is labelled 「パスワード：」, the owner pressed **Fill**.
+The recipe, generated as `confirm`, filled the item's hidden custom field
+「AMCパスワード」, four characters, and the page came back after the owner's submit. The
+site signs in with the item's own password, 14 characters. The model had compared the
+field's name with the heading, as its instructions ask; nothing it is sent tells the two
+secrets apart, and a secret's length is never sent (ADR 0010). The recipe of
+`/amcmember/amcprofile/AMCEmailInfo` made the same choice.
+
+Decision (owner, 2026-11-22 15:07 UTC, 「名前一致+手動選択」 on a decision card):
+
+- On a `confirm` or `unclear` plan for a page that starts its layout, a slot that offers
+  a custom vault field fills a `password` input only when the field's name shows in one
+  of that input's own texts (its label, `id`, `name` or test ID, placeholder or
+  description, compared in NFKC, lower case, with letters and digits only) or the input
+  is shaped for a PIN (`inputMode` `numeric`, or `maxLength` 6 or less). Headings and
+  the page's other text never count. Otherwise that set fills the account's password
+  there, when the request offers that slot, the set fills it nowhere else and no other
+  of its password inputs takes a custom field so (`verificationSecretSlots` in
+  `packages/inference/src/password-change.ts`, applied before `validateGeneratedPage`).
+  This follows Bitwarden, which fills a custom field only into an input its name
+  matches, but loosely: the name only has to show inside one of those texts. A
+  `sign-in` plan and a continuation page are unchanged.
+- The PIN shape and the description are the agent's additions after review: a bank's
+  four-digit PIN input labelled 「暗証番号」 beside a field named 「取引暗証番号」 would
+  otherwise get the account password, cut to four characters, and count toward the
+  bank's lockout.
+- The person can choose which vault field **Fill** uses in the popup, saved for the
+  account; that part is delivered separately.
+
+Not chosen: telling the model which field the site's sign-in uses, which would send
+binding data to it (ADR 0010) and still leaves the choice to the model; sending a
+secret's length, which ADR 0010 refused.
+
+Recipes stored before this change keep their slots: ANA's two `confirm` recipes are
+revoked and generated again once this is deployed.
