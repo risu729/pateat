@@ -382,15 +382,21 @@ describe("actual SSO RP-return admission and final evidence", () => {
   });
 });
 
+// `link-text`: a link's text as the marker (HCP, 2026-11-22), found only among links.
+const changes = ["stable", "link-text", "entry-returns", "unsafe-return", "different-identity"];
 describe("actual SSO judge continuation rechecks local RP evidence", () => {
-  it.each(["stable", "entry-returns", "unsafe-return", "different-identity", "marker-disappears"])(
+  it.each([...changes, "marker-disappears"])(
     "does not carry a pre-judge observation across %s",
     async (change) => {
       const h = harness({ ok: true, identity: "absent" }, false);
       await Promise.all([h.rt.sso.loaded, h.rt.confirmFill.loaded]);
       const learned = structuredClone(h.work.recipe!);
       learned.revision++;
-      learned.sso.layouts[0]!.completion = [{ target: { by: "id", value: "learned-marker" } }];
+      const taught = {
+        by: change === "link-text" ? "text" : "id",
+        value: "learned-marker",
+      } as const;
+      learned.sso.layouts[0]!.completion = [{ target: taught }];
       let judged = false;
       let marker = true;
       const judgeSso = vi.fn(async () => {
@@ -421,7 +427,7 @@ describe("actual SSO judge continuation rechecks local RP evidence", () => {
                 {
                   id: "marker",
                   role: "button",
-                  target: { by: "id", value: "learned-marker" },
+                  target: taught,
                   label: "Account menu",
                 },
               ],
@@ -443,18 +449,19 @@ describe("actual SSO judge continuation rechecks local RP evidence", () => {
           if (change === "different-identity") return { ok: true, identity: "different" };
           if (change === "marker-disappears") marker = false;
         }
+        const found = marker && (taught.by === "id" || (message["links"] as boolean[])?.[0]);
         if (
           message["type"] === "login.observe" &&
           (message["targets"] as { value?: string }[]).some(
             (target) => target.value === "learned-marker",
           )
         )
-          return { path: "/home", targets: [marker ? "unique" : "missing"] };
+          return { path: "/home", targets: [found ? "unique" : "missing"] };
         return baseDelivery(tabId, message, options);
       });
       const result = await ssoAdmit(h.rt, h.ctx);
       expect(judgeSso).toHaveBeenCalledTimes(1);
-      if (change === "stable") {
+      if (change === "stable" || change === "link-text") {
         expect(result).toEqual({ ok: false, reason: "sso-completed" });
         expect(h.work.parent).toMatchObject({
           state: "authenticated",

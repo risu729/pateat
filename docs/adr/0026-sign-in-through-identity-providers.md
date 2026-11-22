@@ -976,6 +976,17 @@ not reach the page.
 - **Other verdicts are unchanged.** A page kept `signed-in`, `rejected`, `challenge` or
   `optional` is still judged once per revision, path and prompt version.
 
+## Amendment 2026-11-22: a learned RP marker is looked up among links
+
+Status: accepted. An agent made this decision within this ADR and implemented it.
+
+On build `adc7572`, the RP-return judge answered `signed-in` for HCP's portal at
+09:09:46 UTC and taught the marker `Access control (IAM)`, a navigation link's text. The
+flow read the page again for that marker and did not find it, so it ended
+`sso-return-unconfirmed`. The read looked up a text marker among buttons only. Every
+other signed-in marker lookup (`markerProof`) looks among links too. An SSO return's
+markers are now looked up the same way.
+
 ## Known limits 2026-11-16
 
 - **A layout full of unseen markers.** An SSO layout keeps at most four RP-return

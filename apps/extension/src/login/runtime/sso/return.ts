@@ -248,7 +248,9 @@ async function ssoMarkerShown(rt: Runtime, work: SsoWork, live: LiveDocument) {
       path: live.path,
       targets,
       require: targets.map(() => "shown" as const),
-      links: targets.map((target) => target.by === "href"),
+      // A marker named by its text is looked up among links too, as every signed-in
+      // marker is (`markerProof`): a judge picks a link's text as often as a button's.
+      links: targets.map(() => true),
     }).catch(() => undefined),
   );
   return (
