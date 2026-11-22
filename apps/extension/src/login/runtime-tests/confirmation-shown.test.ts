@@ -98,6 +98,12 @@ describe("a verification page that shows one matching account's username", () =>
     });
     expect(passwordReads(h)).toEqual([otherItemId]);
     expect(clicks()).toEqual([]);
+    // The lookup also counts a masked account number; E2's own reading does not.
+    const masked = fake.state.messages
+      .filter((entry) => entry.type === "login.state")
+      .map((entry) => (entry as { account?: { masked?: true } }).account?.masked);
+    expect(masked).toContain(true);
+    expect(masked).toContain(undefined);
     await vi.waitFor(() =>
       expect(reports).toContainEqual(
         expect.objectContaining({ detail: "confirm-filled", accountSource: "shown" }),

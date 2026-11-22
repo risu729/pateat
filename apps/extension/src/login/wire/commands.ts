@@ -453,7 +453,16 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.state"),
     token: id,
-    account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
+    /**
+     * `masked` also counts an all-digit username shown masked anywhere on the page, for
+     * the fill of the account a verification page shows (ADR 0035, amended 2026-11-22).
+     */
+    account: v.optional(
+      v.strictObject({
+        username: v.pipe(v.string(), v.maxLength(4096)),
+        masked: v.optional(v.literal(true)),
+      }),
+    ),
     fields: v.optional(v.pipe(v.array(loginTargetSchema), v.maxLength(24))),
     /**
      * Reads the page once its document has loaded, waiting for its `load` event at most

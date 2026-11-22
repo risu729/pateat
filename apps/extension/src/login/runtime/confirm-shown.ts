@@ -12,7 +12,8 @@ import type { Runtime } from "./state";
 
 /**
  * The one matching account whose username the page shows in its header or navigation,
- * read once, as ADR 0029's E2 reads it: each account's username is read from the vault,
+ * or, for an all-digit username, masked anywhere on the page (`showsMaskedNumber`), read
+ * once, as ADR 0029's E2 reads it: each account's username is read from the vault,
  * sent to the page's content script for its comparison and dropped. Only items matching
  * the page's own URL count, and every one of them is compared, so two items with the
  * same username leave the page to the person. None when no account or more than one
@@ -45,7 +46,7 @@ export async function shownConfirmAccount(
     // An account whose username could not be read may be the one the page shows.
     if (username === undefined) return undefined;
     if (!username) continue;
-    const account = { username };
+    const account: { username: string; masked: true } = { username, masked: true };
     username = "";
     const page = here();
     const answer =

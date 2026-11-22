@@ -700,6 +700,7 @@ export function createContentListener(context: ContentSession) {
     }
     if (command.type === "login.state") {
       const username = command.account?.username;
+      const masked = command.account?.masked === true;
       if (command.account) command.account.username = "";
       // The sign-in form shown again in a new document: its inputs each target names alone,
       // read-only ones when entered on the page's keypad (ADR 0067).
@@ -724,7 +725,7 @@ export function createContentListener(context: ContentSession) {
               : context.submitted
                 ? { submitted: context.submitted }
                 : {}),
-            ...(username === undefined ? {} : { username }),
+            ...(username === undefined ? {} : { username, masked }),
           }),
           loaded: document.readyState === "complete",
         };

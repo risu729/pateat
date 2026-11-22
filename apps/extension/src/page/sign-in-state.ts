@@ -4,7 +4,15 @@ import { findKeypad, keypadField } from "./keypad";
 import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
 import { elementProperty } from "./form-native";
-import { composedParent, containsAcross, controlsOf, formOf, queryAll, treeOf } from "./shadow";
+import {
+  closestAcross,
+  composedParent,
+  containsAcross,
+  controlsOf,
+  formOf,
+  queryAll,
+  treeOf,
+} from "./shadow";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
 // read here, including the username compared with the header, leaves the content script:
@@ -421,6 +429,56 @@ export function showsUsername(document: Document, username: string): boolean {
   });
 }
 
+/** How much of each part's rendered text is searched for a masked account number. */
+const maskedReadLimit = 4000;
+/** The digits a masked account number shows at its end at least, as the last four of a card. */
+const maskedMinDigits = 4;
+/** Where a page names the account a form asks about: its forms, dialogs and landmarks. */
+const maskedSelector = `form, dialog, [role="dialog"], [role="alertdialog"], ${landmarkSelector}`;
+/**
+ * A masked number's run of digits and mask characters, never touching a Latin letter, a
+ * digit or `_@-/`, nor a `.` that goes on into a letter or digit (`******0287.5`).
+ */
+const maskedRun =
+  /(?<![\p{Script=Latin}\p{N}_@\-/*●•])[0-9*●•]+(?![\p{Script=Latin}\p{N}_@\-/*●•]|\.[\p{L}\p{N}])/gu;
+
+/**
+ * Whether the page shows `username`, an all-digit account number of at least
+ * {@link memberNumberMinDigits} digits, masked in a form, dialog, header or navigation:
+ * a run of digits and mask characters (`*`, `●`, `•`) as long as the number that ends in
+ * at least {@link maskedMinDigits} digits, each shown digit equal to the number's digit at
+ * its position, as ANA's 「お客様番号： ******0287」 (ADR 0035, amended 2026-11-22). Not
+ * when another masked run there, one that also ends in {@link maskedMinDigits} digits,
+ * does not fit the number, as a page listing several members' numbers. Only the fill for
+ * the account a verification page shows reads it; its lookup keeps it only when no other
+ * matching account fits too.
+ */
+export function showsMaskedNumber(document: Document, username: string): boolean {
+  const number = username
+    .replace(/\p{Cf}+/gu, "")
+    .normalize("NFKC")
+    .trim();
+  if (!/^[0-9]+$/u.test(number) || number.length < memberNumberMinDigits) return false;
+  let fits = false;
+  for (const root of queryAll(document, maskedSelector)) {
+    // A part inside another is read with it.
+    const parent = composedParent(root);
+    if (parent && closestAcross(parent, maskedSelector)) continue;
+    const text = (renderedText(root, maskedReadLimit, { everyElement: true }) ?? "").normalize(
+      "NFKC",
+    );
+    for (const [run] of text.matchAll(maskedRun)) {
+      if (!/[*●•]/u.test(run) || !new RegExp(`[0-9]{${maskedMinDigits}}$`, "u").test(run)) continue;
+      const same =
+        run.length === number.length &&
+        [...run].every((char, at) => !/[0-9]/u.test(char) || char === number[at]);
+      if (!same) return false;
+      fits = true;
+    }
+  }
+  return fits;
+}
+
 /**
  * The page signs of ADR 0029 that the page itself shows. `submitted` is what this
  * document showed at the effect step, when the step ran in it. `reshown` are the recipe's
@@ -436,11 +494,13 @@ export function pageSigns(
     reshown,
     keyed = new Set(),
     username,
+    masked,
   }: {
     submitted?: SubmittedPage;
     reshown?: readonly HTMLInputElement[];
     keyed?: ReadonlySet<HTMLInputElement>;
     username?: string;
+    masked?: boolean;
   } = {},
 ): PageSigns {
   // A sign-in input of the step newly marked invalid, or of the re-shown form marked so.
@@ -468,6 +528,12 @@ export function pageSigns(
     invalid,
     alert,
     ...(reshown !== undefined && !alert ? { alertMiss: alertMiss(document, reshown) } : {}),
-    ...(username === undefined ? {} : { username: showsUsername(document, username) }),
+    ...(username === undefined
+      ? {}
+      : {
+          username:
+            showsUsername(document, username) ||
+            (masked === true && showsMaskedNumber(document, username)),
+        }),
   };
 }
