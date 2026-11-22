@@ -636,3 +636,25 @@ test.each([
     expect(input("password").value).toBe(value);
   },
 );
+
+test.each([
+  ["its number with the same visible digits", "1234560287", { ok: true }, "Synthetic-only!"],
+  ["another number's visible digits", "1234569999", { ok: false, reason: "wrong-account" }, ""],
+] as const)(
+  "a fill for the account the page shows masked goes in only for %s (ADR 0035, amended 2026-11-22)",
+  async (_name, username, answer, value) => {
+    await install(
+      '<form><div>お客様番号： ******0287</div><label>Password<input id="password" type="password"></label></form>',
+    );
+    expect(
+      await fill("password", {
+        slot: "password",
+        secret: "password",
+        value: "Synthetic-only!",
+        attemptId: "confirm:shown",
+        account: { username },
+      }),
+    ).toMatchObject(answer);
+    expect(input("password").value).toBe(value);
+  },
+);

@@ -421,6 +421,46 @@ export function showsUsername(document: Document, username: string): boolean {
   });
 }
 
+/** How much of the page's rendered text is searched for a masked account number. */
+const maskedReadLimit = 20_000;
+/** The fewest digits a masked account number shows, as the last four of a card. */
+const maskedMinDigits = 4;
+
+/**
+ * Whether the page shows `username`, an all-digit account number of at least
+ * {@link memberNumberMinDigits} digits, masked, anywhere in its rendered text: a run of
+ * digits and mask characters (`*`, `●`, `•`) as long as the number, showing at least
+ * {@link maskedMinDigits} digits, each equal to the number's digit at its position, as
+ * ANA's 「お客様番号： ******0287」 (ADR 0035, amended 2026-11-22). Only the fill for the
+ * account a verification page shows reads it; its lookup keeps it only when no other
+ * matching account fits too.
+ */
+export function showsMaskedNumber(document: Document, username: string): boolean {
+  const number = username
+    .replace(/\p{Cf}+/gu, "")
+    .normalize("NFKC")
+    .trim();
+  if (!/^[0-9]+$/u.test(number) || number.length < memberNumberMinDigits) return false;
+  const body = document.body;
+  if (!body) return false;
+  const text = readBehindModal(document, () =>
+    (renderedText(body, maskedReadLimit, { everyElement: true }) ?? "").normalize("NFKC"),
+  );
+  const runs = /(?<![\p{Script=Latin}\p{N}_*●•])[0-9*●•]+(?![\p{Script=Latin}\p{N}_*●•])/gu;
+  for (const [run] of text.matchAll(runs)) {
+    if (run.length !== number.length || !/[*●•]/u.test(run)) continue;
+    let digits = 0;
+    let fits = true;
+    for (let at = 0; at < run.length && fits; at += 1) {
+      if (!/[0-9]/u.test(run[at]!)) continue;
+      digits += 1;
+      fits = run[at] === number[at];
+    }
+    if (fits && digits >= maskedMinDigits) return true;
+  }
+  return false;
+}
+
 /**
  * The page signs of ADR 0029 that the page itself shows. `submitted` is what this
  * document showed at the effect step, when the step ran in it. `reshown` are the recipe's
@@ -436,11 +476,13 @@ export function pageSigns(
     reshown,
     keyed = new Set(),
     username,
+    masked,
   }: {
     submitted?: SubmittedPage;
     reshown?: readonly HTMLInputElement[];
     keyed?: ReadonlySet<HTMLInputElement>;
     username?: string;
+    masked?: boolean;
   } = {},
 ): PageSigns {
   // A sign-in input of the step newly marked invalid, or of the re-shown form marked so.
@@ -468,6 +510,12 @@ export function pageSigns(
     invalid,
     alert,
     ...(reshown !== undefined && !alert ? { alertMiss: alertMiss(document, reshown) } : {}),
-    ...(username === undefined ? {} : { username: showsUsername(document, username) }),
+    ...(username === undefined
+      ? {}
+      : {
+          username:
+            showsUsername(document, username) ||
+            (masked === true && showsMaskedNumber(document, username)),
+        }),
   };
 }

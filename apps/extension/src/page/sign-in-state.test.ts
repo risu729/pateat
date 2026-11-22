@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { pageSigns, passedCaptcha, submittedPage } from "./sign-in-state";
+import { pageSigns, passedCaptcha, showsMaskedNumber, submittedPage } from "./sign-in-state";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -570,5 +570,36 @@ describe("pageSigns", () => {
       document.body.innerHTML = header(hider);
       expect(pageSigns(document, { username: "risu729" }).username).toBe(false);
     }
+  });
+});
+
+describe("showsMaskedNumber", () => {
+  it.each([
+    ["お客様番号： ******0287", "1234560287", true],
+    ["お客様番号：＊＊＊＊＊＊0287", "1234560287", true],
+    ["Member ●●●●●●0287 signed in", "1234560287", true],
+    ["13****0287", "1234560287", false],
+    ["12****0287", "1299990287", true],
+    ["******0287", "1234569999", false],
+    ["*******0287", "1234560287", false],
+    ["******287", "123456287", false],
+    ["**0287", "120287", false],
+    ["******0287", "1234560287x", false],
+    ["1234560287", "1234560287", false],
+    ["card ******0287a", "1234560287", false],
+  ])("reads %j for %s as %s", (text, username, shown) => {
+    document.body.innerHTML = `<form><p>${text}</p><input type="password"></form>`;
+    expect(showsMaskedNumber(document, username)).toBe(shown);
+  });
+
+  it("never counts hidden text", () => {
+    document.body.innerHTML = '<p style="display:none">******0287</p>';
+    expect(showsMaskedNumber(document, "1234560287")).toBe(false);
+  });
+
+  it("counts the number only when pageSigns is asked for it masked", () => {
+    document.body.innerHTML = "<main>お客様番号： ******0287</main>";
+    expect(pageSigns(document, { username: "1234560287" }).username).toBe(false);
+    expect(pageSigns(document, { username: "1234560287", masked: true }).username).toBe(true);
   });
 });

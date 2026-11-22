@@ -989,6 +989,14 @@ Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a
   on the site, when a vault is unavailable or an item's URIs could not all be checked,
   when a username cannot be read or the page does not answer, or when more than
   `MAX_HINT_USERNAMES` (8) accounts would be read.
+- An account number shown masked counts too (owner decision pending, ANA's
+  「お客様番号： ******0287」 inside its re-authentication form, 2026-11-22): for an
+  all-digit username of 8 digits or more, a run of digits and mask characters (`*`,
+  `●`, `•`) anywhere in the page's rendered text, as long as the number, showing at
+  least 4 digits, each equal to the number's digit at its position
+  (`showsMaskedNumber` in `apps/extension/src/page/sign-in-state.ts`). As every matching
+  account is compared, two accounts whose numbers share those digits leave the page to
+  the person. ADR 0029's E2 itself still reads only the header and navigation.
 - The account is read once per document, path and recipe, in the background after the
   page first announces there, so the page's own answer is not delayed; a later
   announcement of the same document on the same path, as its report of the step shown,
