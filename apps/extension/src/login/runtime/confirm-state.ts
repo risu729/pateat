@@ -301,13 +301,44 @@ export function confirmBusy(rt: Runtime, tabId?: number): boolean {
   return tabId === undefined ? rt.confirmFill.work.size > 0 : rt.confirmFill.work.has(tabId);
 }
 
+/** A fill in the tab other than one for the account the page shows, which yields. */
+export function confirmBusyBesideShown(rt: Runtime, tabId: number): boolean {
+  const work = rt.confirmFill.work.get(tabId);
+  return work !== undefined && !work.shown;
+}
+
 /**
  * The person's own **Fill**, **Log in now** or account switch in the tab stops a fill
  * Pateat started for the account the page shows (ADR 0035, amended 2026-11-22), rather
- * than being refused for it.
+ * than being refused for it. Called once the press is accepted, in the same step that
+ * registers it, so a press refused for another reason leaves that fill at work.
  */
 export function yieldShownFill(rt: Runtime, tabId: number): void {
   if (rt.confirmFill.work.get(tabId)?.shown) cancelConfirm(rt, tabId);
+}
+
+const presses = new WeakMap<Runtime, Map<number, number>>();
+
+/** Whether the person's **Fill**, **Log in now** or account switch is being checked. */
+export function pressPending(rt: Runtime, tabId: number): boolean {
+  return (presses.get(rt)?.get(tabId) ?? 0) > 0;
+}
+
+/**
+ * Runs the person's press in the tab, during which no fill for the account the page
+ * shows starts there, so the press is never refused for one that started meanwhile.
+ */
+export async function asPress<T>(rt: Runtime, tabId: number, run: () => Promise<T>): Promise<T> {
+  let counts = presses.get(rt);
+  if (!counts) presses.set(rt, (counts = new Map()));
+  counts.set(tabId, (counts.get(tabId) ?? 0) + 1);
+  try {
+    return await run();
+  } finally {
+    const left = (counts.get(tabId) ?? 1) - 1;
+    if (left > 0) counts.set(tabId, left);
+    else counts.delete(tabId);
+  }
 }
 
 export function cancelConfirm(rt: Runtime, tabId?: number): void {

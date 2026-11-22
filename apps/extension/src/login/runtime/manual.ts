@@ -1,4 +1,4 @@
-import { confirmBusy, yieldShownFill } from "./confirm-state";
+import { asPress, confirmBusyBesideShown, yieldShownFill } from "./confirm-state";
 import { sameLoginDocument, type LoginAttemptMetadata } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import type { ManualOfferResponse, ManualStartRequest, ManualStartResponse } from "../manual-wire";
@@ -72,8 +72,7 @@ export async function pageRefusal(rt: Runtime, live: LiveDocument): Promise<stri
 
 function attemptRefusal(rt: Runtime, live: LiveDocument): string | undefined {
   // A fill for the account the page shows gives way to the person's own start instead.
-  if (confirmBusy(rt, live.document.tabId) && !rt.confirmFill.work.get(live.document.tabId)?.shown)
-    return "login-running";
+  if (confirmBusyBesideShown(rt, live.document.tabId)) return "login-running";
   const running = rt.attempts.get(live.document.tabId);
   if (
     rt.options.passkeyActive?.(live.document.documentId) ||
@@ -199,10 +198,14 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
 }
 
 /** An explicit request grants one new attempt; it never changes the site's automatic policy. */
-export async function manualStart(
+export function manualStart(
   rt: Runtime,
   request: ManualStartRequest,
 ): Promise<ManualStartResponse> {
+  return asPress(rt, request.document.tabId, () => startManual(rt, request));
+}
+
+async function startManual(rt: Runtime, request: ManualStartRequest): Promise<ManualStartResponse> {
   await rt.vars.loaded;
   await rt.vars.sessionLoaded;
   const { tabId } = request.document;
@@ -210,7 +213,6 @@ export async function manualStart(
   const live = rt.documents.get(frameKey(request.document));
   if (!live || !sameLoginDocument(live.document, request.document))
     return { ok: false, reason: "page-changed" };
-  yieldShownFill(rt, tabId);
   const refuse = (reason: string): ManualStartResponse => ({ ok: false, reason: logCode(reason) });
   const refused = (await pageRefusal(rt, live)) ?? attemptRefusal(rt, live);
   if (refused) return refuse(refused);
@@ -257,6 +259,7 @@ export async function manualStart(
     status: { requestId: request.requestId, state: "evaluating" },
     pick,
   };
+  yieldShownFill(rt, tabId);
   rt.manualStarts.set(tabId, pending);
   pending.timer = setTimeout(() => {
     if (rt.manualStarts.get(tabId) === pending && pending.pick)

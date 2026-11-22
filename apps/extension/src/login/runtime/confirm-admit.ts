@@ -19,6 +19,7 @@ import {
   confirmBusy,
   hasConfirmAuthentication,
   pressGenerationKey,
+  pressPending,
   releaseConfirmClaim,
   releasePressHolds,
   sourceOf,
@@ -250,10 +251,15 @@ export async function admitConfirmShown(
     confirmPickFor(rt, ctx.live) !== undefined ||
     manualPending(rt, ctx.live) ||
     rt.switchesRunning.has(tabId) ||
+    pressPending(rt, tabId) ||
     endedBy !== undefined;
-  // Nothing on this path for a fill to do: no account is read for it.
-  if (held() || !confirmationSteps(recipe, path).length) return undefined;
   const key = JSON.stringify([tabId, documentId, path, recipe.id]);
+  // Nothing on this path for a fill to do: no account is read for it. An account found
+  // before is read again once the page is free, as the vault may have changed meanwhile.
+  if (held() || !confirmationSteps(recipe, path).length) {
+    if (typeof shownLooks.get(rt)?.get(key) === "object") rememberLook(rt, key, undefined);
+    return undefined;
+  }
   const look = shownLooks.get(rt)?.get(key);
   if (typeof look === "object") {
     rememberLook(rt, key, "none");
@@ -279,6 +285,9 @@ export async function admitConfirmShown(
     // A document that left the path is read again should it come back.
     if (!here()) return rememberLook(rt, key, undefined);
     if (!account) return rememberLook(rt, key, "none");
+    // A press or login that took the tab meanwhile is not disturbed by an announcement;
+    // the account is read again once the page is free.
+    if (held()) return rememberLook(rt, key, undefined);
     rememberLook(rt, key, { account });
     await browser.tabs
       .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId, documentId })

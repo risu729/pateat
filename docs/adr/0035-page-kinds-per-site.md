@@ -993,9 +993,11 @@ Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a
   page first announces there, so the page's own answer is not delayed; a later
   announcement of the same document on the same path, as its report of the step shown,
   does not stop it. Once one account is found, the document is asked to announce again,
-  and that announcement starts the fill. The background keeps what it found for the
-  latest 256 such pages. A page whose header shows the account only after that read is
-  left to the popup's **Fill**.
+  and that announcement starts the fill. An account found while the tab is held (a
+  paused site, a login, a press being checked) is dropped instead and read again at the
+  page's next free announcement, as the vault may have changed meanwhile. The background
+  keeps what it found for the latest 256 such pages. A page whose header shows the
+  account only after that read is left to the popup's **Fill**.
 - The fill is the delivery-3 confirmation fill with that account: one `prepare` fill of
   the recipe's step, keeping any value already in the page and pressing nothing. Its
   attempt ID is `confirm:shown`, and the content script writes it only while the page
@@ -1003,8 +1005,9 @@ Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a
   `wrong-account` and fills nothing. It never asks for the master password (it stops at
   `reprompt` instead). It stops when a login, SSO flow or login record of the origin
   appears in the tab, and gives way to the person's own **Fill**, **Log in now** or
-  account switch, which cancel it rather than being refused. Its log rows carry
-  `accountSource` `shown`, never the account.
+  account switch, which cancel it once accepted rather than being refused; none starts
+  while such a press is checked, and a refused press leaves it at work. Its log rows
+  carry `accountSource` `shown`, never the account.
 - A page where this fill ended is not filled again while the document stays on that
   path, and its later announcements keep its `confirm-filled` status and rows; the
   popup's **Fill** still works there.

@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { confirmBusy, yieldShownFill } from "./confirm-state";
+import { asPress, confirmBusyBesideShown, yieldShownFill } from "./confirm-state";
 import { isEntryObservation } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import {
@@ -32,7 +32,14 @@ import type { Runtime } from "./state";
  * excluded site, as the switch is the person's pick. The switch's pick is stored first; the logout
  * runs on behind the answer.
  */
-export async function switchFor(
+export function switchFor(
+  rt: Runtime,
+  request: v.InferOutput<typeof switchRequestSchema>,
+): Promise<SwitchResponse> {
+  return asPress(rt, request.tabId, () => switchStart(rt, request));
+}
+
+async function switchStart(
   rt: Runtime,
   request: v.InferOutput<typeof switchRequestSchema>,
 ): Promise<SwitchResponse> {
@@ -42,8 +49,7 @@ export async function switchFor(
   const site = live && siteOf(live.document.origin);
   if (!live || site === undefined) return { ok: false, reason: "no-page" };
   if (rt.pending.has(tabId)) return { ok: false, reason: "choice-waiting" };
-  yieldShownFill(rt, tabId);
-  if (rt.switchesRunning.has(tabId) || confirmBusy(rt, tabId))
+  if (rt.switchesRunning.has(tabId) || confirmBusyBesideShown(rt, tabId))
     return { ok: false, reason: "in-progress" };
   const running = tabAttempt(rt, tabId);
   if (running && !terminal(running) && !idle(running)) return { ok: false, reason: "tab-busy" };
@@ -68,10 +74,11 @@ export async function switchFor(
     return { ok: false, reason: "not-a-candidate" };
   // Checked again after the reads: the tab may have started a login or switch meanwhile,
   // and so may another tab of the site.
-  if (rt.switchesRunning.has(tabId) || confirmBusy(rt, tabId))
+  if (rt.switchesRunning.has(tabId) || confirmBusyBesideShown(rt, tabId))
     return { ok: false, reason: "in-progress" };
   if (siteHeldElsewhere(rt, tabId, site)) return { ok: false, reason: "site-held" };
   if (rt.documents.get(frameKey(live.document)) !== live) return { ok: false, reason: "no-page" };
+  yieldShownFill(rt, tabId);
   rt.switchesRunning.add(tabId);
   try {
     await rt.accountPicks.startSwitch({

@@ -10,7 +10,13 @@ import { frameKey, logCode, siteOf } from "./steps";
 import { siteCandidates } from "./choice-save";
 import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
-import { confirmBusy, hasConfirmClaim, pressGenerationKey, yieldShownFill } from "./confirm-state";
+import {
+  asPress,
+  confirmBusyBesideShown,
+  hasConfirmClaim,
+  pressGenerationKey,
+  yieldShownFill,
+} from "./confirm-state";
 import { confirmRecipeOn, offersGeneration } from "./generation-scope";
 import { saveConfirmField } from "./confirm-field";
 import { pagePermission } from "./page-permission";
@@ -52,7 +58,7 @@ function fillRefusal(rt: Runtime, live: LiveDocument): string | undefined {
   const { tabId } = live.document;
   const running = tabAttempt(rt, tabId);
   const flow = rt.sso.flows.get(tabId);
-  return confirmBusy(rt, tabId) ||
+  return confirmBusyBesideShown(rt, tabId) ||
     confirmPickPending(rt, tabId) ||
     rt.attempts.get(tabId)?.running ||
     (running && !terminal(running)) ||
@@ -70,10 +76,14 @@ function fillRefusal(rt: Runtime, live: LiveDocument): string | undefined {
  * they chose, once the document announces again. It overrides a pause and a private
  * window, as an account pick does; every check of a confirmation fill still runs.
  */
-export async function confirmPickStart(
+export function confirmPickStart(
   rt: Runtime,
   request: ConfirmFillRequest,
 ): Promise<ConfirmFillResponse> {
+  return asPress(rt, request.document.tabId, () => pickStart(rt, request));
+}
+
+async function pickStart(rt: Runtime, request: ConfirmFillRequest): Promise<ConfirmFillResponse> {
   await rt.vars.loaded;
   await rt.vars.sessionLoaded;
   await rt.confirmFill.loaded;
@@ -82,7 +92,6 @@ export async function confirmPickStart(
   if (confirmPickPending(rt, tabId)) return refuse("preparing");
   const live = rt.documents.get(frameKey(request.document));
   if (!live || !sameLoginDocument(live.document, request.document)) return refuse("page-changed");
-  yieldShownFill(rt, tabId);
   const check = async () =>
     (await pageRefusal(rt, live)) ??
     fillRefusal(rt, live) ??
@@ -134,6 +143,7 @@ export async function confirmPickStart(
     status: { requestId: request.requestId, state: "preparing" },
     active: true,
   };
+  yieldShownFill(rt, tabId);
   clearTimeout(rt.confirmFill.picks.get(tabId)?.timer);
   rt.confirmFill.picks.set(tabId, pick);
   pick.timer = setTimeout(() => endConfirmPick(pick, "blocked", "timed-out"), CONFIRM_PICK_MS);

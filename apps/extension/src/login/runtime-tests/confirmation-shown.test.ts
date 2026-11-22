@@ -19,6 +19,7 @@ const {
   start,
   offers,
   clicks,
+  both,
 } = pickFixture(fake);
 
 type H = ReturnType<typeof start>["h"];
@@ -175,6 +176,96 @@ describe("a verification page that shows one matching account's username", () =>
     await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
     expect(passwordReads(h)).toEqual([otherItemId]);
     expect(askMasterPassword).not.toHaveBeenCalled();
+  });
+
+  it("lets a Fill press go ahead when the account is found while it is checked", async () => {
+    let gate: Promise<void> | undefined;
+    const entered = vi.fn();
+    const uris: typeof both = async (connection, url) => {
+      if (gate) {
+        entered();
+        await gate;
+      }
+      return both(connection, url);
+    };
+    const { h } = page({ first: "first-user", other: "other-user", shown: "other-user" }, { uris });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const read = h.fields.getMockImplementation()!;
+    h.fields.mockImplementationOnce(async (...args) => {
+      await held;
+      return read(...args);
+    });
+    await announceShown(h);
+    await vi.waitFor(() => expect(h.fields).toHaveBeenCalled());
+    const offered = await offers(h);
+    if (!offered.ok) throw new Error("No page");
+    const [selected] = offered.targets;
+    let open!: () => void;
+    gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const pressed = h.login.handle(
+      {
+        version: 1,
+        type: "login.confirm.fill",
+        requestId: "fill-press",
+        document: selected!.document,
+        scope: selected!.scope,
+        connectionId,
+        itemId: otherItemId,
+      },
+      popup,
+    );
+    // The lookup finds the account while the press is checked, and leaves the page alone.
+    await vi.waitFor(() => expect(entered).toHaveBeenCalled());
+    release();
+    await looked(h, 2);
+    expect(fake.state.messages.filter((entry) => entry.type === "login.reconnect")).toEqual([]);
+    expect(confirmations()).toEqual([]);
+    gate = undefined;
+    open();
+    expect(await pressed).toMatchObject({ ok: true });
+    await vi.waitFor(() =>
+      expect(confirmations().map((entry) => entry.operation.attemptId)).toEqual([
+        expect.stringMatching(/^confirm:pick:/),
+      ]),
+    );
+  });
+
+  it("goes on when a Fill press is refused", async () => {
+    const { h } = page({ first: "first-user", other: "other-user", shown: "other-user" });
+    let ready!: (value: { ok: boolean }) => void;
+    fake.state.awaited = new Promise((resolve) => {
+      ready = resolve;
+    }) as never;
+    await announceShown(h);
+    await vi.waitFor(() =>
+      expect(fake.state.messages.some((entry) => entry.type === "login.await")).toBe(true),
+    );
+    fake.state.awaited = { ok: true };
+    const offered = await offers(h);
+    if (!offered.ok) throw new Error("No page");
+    const [selected] = offered.targets;
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.confirm.fill",
+          requestId: "stale-press",
+          document: selected!.document,
+          scope: "stale-scope",
+          connectionId,
+          itemId: otherItemId,
+        },
+        popup,
+      ),
+    ).toMatchObject({ ok: false, reason: "page-changed" });
+    ready({ ok: true });
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    expect(confirmations()[0]?.operation.attemptId).toBe("confirm:shown");
   });
 
   it("gives way to the person's own Fill press", async () => {
