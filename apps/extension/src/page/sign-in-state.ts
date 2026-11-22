@@ -4,7 +4,15 @@ import { findKeypad, keypadField } from "./keypad";
 import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
 import { elementProperty } from "./form-native";
-import { composedParent, containsAcross, controlsOf, formOf, queryAll, treeOf } from "./shadow";
+import {
+  closestAcross,
+  composedParent,
+  containsAcross,
+  controlsOf,
+  formOf,
+  queryAll,
+  treeOf,
+} from "./shadow";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
 // read here, including the username compared with the header, leaves the content script:
@@ -427,9 +435,12 @@ const maskedReadLimit = 4000;
 const maskedMinDigits = 4;
 /** Where a page names the account a form asks about: its forms, dialogs and landmarks. */
 const maskedSelector = `form, dialog, [role="dialog"], [role="alertdialog"], ${landmarkSelector}`;
-/** A masked number's run of digits and mask characters, never touching a Latin letter, a digit or `_.@-/`. */
+/**
+ * A masked number's run of digits and mask characters, never touching a Latin letter, a
+ * digit or `_@-/`, nor a `.` that goes on into a letter or digit (`******0287.5`).
+ */
 const maskedRun =
-  /(?<![\p{Script=Latin}\p{N}_.@\-/*●•])[0-9*●•]+(?![\p{Script=Latin}\p{N}_.@\-/*●•])/gu;
+  /(?<![\p{Script=Latin}\p{N}_@\-/*●•])[0-9*●•]+(?![\p{Script=Latin}\p{N}_@\-/*●•]|\.[\p{L}\p{N}])/gu;
 
 /**
  * Whether the page shows `username`, an all-digit account number of at least
@@ -451,7 +462,8 @@ export function showsMaskedNumber(document: Document, username: string): boolean
   let fits = false;
   for (const root of queryAll(document, maskedSelector)) {
     // A part inside another is read with it.
-    if (composedParent(root)?.closest(maskedSelector)) continue;
+    const parent = composedParent(root);
+    if (parent && closestAcross(parent, maskedSelector)) continue;
     const text = (renderedText(root, maskedReadLimit, { everyElement: true }) ?? "").normalize(
       "NFKC",
     );

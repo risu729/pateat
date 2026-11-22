@@ -991,15 +991,15 @@ Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a
   `MAX_HINT_USERNAMES` (8) accounts would be read.
 - An account number shown masked counts too (owner decision pending, ANA's
   「お客様番号： ******0287」 inside its re-authentication form, 2026-11-22): for an
-  all-digit username of 8 digits or more, a run of digits and mask characters (`*`,
-  `●`, `•`) in a form, dialog, header or navigation, as long as the number and ending in
-  at least 4 digits, each shown digit equal to the number's digit at its position, and
-  not touching a Latin letter, a digit or `_.@-/` (`showsMaskedNumber` in
-  `apps/extension/src/page/sign-in-state.ts`). Another masked run there that does not
-  fit the number, as on a page listing several members' numbers, refuses it. As every
-  matching account is compared, two accounts whose numbers share the shown digits leave
-  the page to the person. ADR 0029's E2 itself still reads only the header and
-  navigation.
+  all-digit username of 8 digits or more, a run of digits and mask characters (`*`, `●`,
+  `•`) in a form, dialog, header or navigation, as long as the number and ending in at
+  least 4 digits, each shown digit equal to the number's digit at its position, and not
+  touching a Latin letter, a digit, `_@-/` or a `.` followed by a letter or digit
+  (`showsMaskedNumber` in `apps/extension/src/page/sign-in-state.ts`). Another masked
+  run there that does not fit the number, as on a page listing several members' numbers,
+  refuses it. As every matching account is compared, two accounts whose numbers share
+  the shown digits leave the page to the person. ADR 0029's E2 itself still reads only
+  the header and navigation.
 - The account is read once per document, path and recipe, in the background after the
   page first announces there, so the page's own answer is not delayed; a later
   announcement of the same document on the same path, as its report of the step shown,
