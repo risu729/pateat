@@ -924,21 +924,37 @@ Decision (owner, 2026-11-22 15:07 UTC, the same 「名前一致+手動選択」 
   offered. An account with fewer than two such fields shows no choice
   (`confirmFieldChoices` in `apps/extension/src/login/runtime/confirm-field.ts`).
 - The choice shows the field the account's saved binding of that recipe names, or
-  「ページのレシピに任せる」 when none is saved. A press sends a field only when the
-  person changed it.
-- A press with a field saves it, before the fill, as the account's binding of the
-  page's recipe (cause `account-choice`), replacing only that slot's entry of a binding
-  already saved. The background checks the field against the live settings and vault
-  catalog in the settings queue and writes what it checked; a field not offered, as one
-  the item no longer holds, refuses the press with `field-unavailable` and fills
-  nothing. A choice equal to the saved one writes nothing. The fill then reads the
-  saved binding, which outranks the recipe's slots, with every check it makes as
-  before.
+  「ページのレシピに任せる」 when it names none that is offered. A press sends a field
+  only when the person changed it for the page and account shown; a choice made for
+  another page or account is dropped. A saved field no longer offered, as one renamed or
+  excluded since, would stop every fill, so a press with 「ページのレシピに任せる」
+  removes that entry instead, and the binding once it holds no other.
+- A press with a field saves it, before the fill, as the account's binding of the page's
+  recipe (cause `account-choice`), replacing only that slot's entry of a binding already
+  saved where it stands. The background checks the field against the live settings and
+  vault catalog in the settings queue and writes what it checked; a field not offered,
+  as one the item no longer holds, refuses the press with `field-unavailable` and fills
+  nothing. A choice equal to the saved one writes nothing. The fill then reads the saved
+  binding, which outranks the recipe's slots, with every check it makes as before.
 - The binding is an ordinary saved binding: it syncs with the settings, and later
-  presses and a login's automatic fill of the page use it.
+  presses and a login's automatic fill of the page use it. For a slot of the recipe's
+  own name, as ANA's stored recipes have, another account of the page with no binding of
+  its own takes the choice as a template before the generated slot map, as it takes any
+  sibling binding; a built-in slot never does, since a template always names the
+  built-in field there.
+- The save is the person's choice and stays when the press is refused after it, as
+  when the page changed meanwhile; the fill reads the binding as it is when it runs.
 
 This amends the 2026-11-17 rule that a press creates no binding: a press without a
 chosen field still creates none.
+
+Known limit: a binding is keyed by the recipe's ID, which stays the same when the page
+on its start path is generated again as another kind. Should a verification's path be
+generated again as a sign-in page, a login reads the same binding, so a custom field
+chosen for the verification's `password` slot is typed into the sign-in form; a sign-in
+binding may name a custom field there in its own right (as the service's generated
+bindings may), so a login cannot tell the two apart. The login then fails as with any
+wrong binding, and the person chooses again in the popup.
 
 Not chosen: a choice kept only on the device, which would ask again on every device and
 after every reinstall; revoking ANA's recipes, which puts a step on the owner's list and

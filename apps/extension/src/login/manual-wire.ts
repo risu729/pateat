@@ -39,9 +39,10 @@ export const confirmFillRequestSchema = v.strictObject({
   itemId: ref,
   /**
    * The vault field the person chose for the page's one slot, saved as the account's
-   * binding of the page's recipe before the fill (ADR 0035, amended 2026-11-22).
+   * binding of the page's recipe before the fill (ADR 0035, amended 2026-11-22); `null`
+   * clears a saved field no longer offered, so the recipe's own choice fills.
    */
-  field: v.optional(vaultFieldReferenceSchema),
+  field: v.optional(v.nullable(vaultFieldReferenceSchema)),
 });
 export const confirmFillStatusSchema = v.strictObject({
   requestId: ref,
@@ -96,6 +97,8 @@ export const manualOfferResponseSchema = v.variant("ok", [
                   ),
                 ),
                 chosen: v.optional(vaultFieldReferenceSchema),
+                /** The binding names a field for the slot, offered (`chosen`) or not. */
+                saved: v.optional(v.literal(true)),
               }),
             ),
             v.maxLength(100),

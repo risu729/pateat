@@ -173,6 +173,7 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
                   ? {
                       fields: offered.fields,
                       ...(offered.chosen ? { chosen: offered.chosen } : {}),
+                      ...(offered.saved ? { saved: true as const } : {}),
                     }
                   : {}),
               };

@@ -57,7 +57,9 @@ export function confirmFieldChoices(
   recipe: LoginRecipe,
   path: string,
   account: { connectionId: string; itemId: string },
-): { slot: string; fields: ConfirmFieldChoice[]; chosen?: VaultFieldReference } | undefined {
+):
+  | { slot: string; fields: ConfirmFieldChoice[]; chosen?: VaultFieldReference; saved?: true }
+  | undefined {
   const slot = confirmSlot(recipe, path);
   if (slot === undefined || slot === "totp" || slot === "username") return undefined;
   const connection = catalog.connections.find((entry) => entry.id === account.connectionId);
@@ -80,6 +82,7 @@ export function confirmFieldChoices(
     }
   }
   if (fields.length < 2) return undefined;
+  const offered = fields.slice(0, CONFIRM_FIELDS_MAX);
   const saved = findLoginBinding(settings.bindings, recipe, {
     provider: connection.provider,
     server: connection.server,
@@ -87,32 +90,46 @@ export function confirmFieldChoices(
     itemId: item.id,
   })?.slots.find((entry) => entry.slot === slot)?.field;
   const chosen =
-    saved && fields.some((entry) => sameReference(entry.field, saved)) ? saved : undefined;
-  return { slot, fields: fields.slice(0, CONFIRM_FIELDS_MAX), ...(chosen ? { chosen } : {}) };
+    saved && offered.some((entry) => sameReference(entry.field, saved)) ? saved : undefined;
+  // A saved field no longer offered, as one renamed or excluded since, is cleared when the
+  // person presses **Fill** with the recipe's own choice, since the fill would stop on it.
+  return {
+    slot,
+    fields: offered,
+    ...(chosen ? { chosen } : {}),
+    ...(saved ? { saved: true as const } : {}),
+  };
 }
 
 /**
  * Saves the field the person chose for a verification page's **Fill** as the account's
- * binding of the page's recipe, replacing the slot's entry of a binding already saved.
- * Returns why it could not, or undefined once the binding holds the choice. The fill that
- * follows reads the saved binding, with every check it makes.
+ * binding of the page's recipe, replacing the slot's entry of a binding already saved in
+ * place. `null` removes the slot's entry instead, and the binding once it holds no other,
+ * so the recipe's own choice fills. Returns why it could not, or undefined once the
+ * settings hold the choice. The fill that follows reads them, with every check it makes.
  */
 export async function saveConfirmField(
   rt: Runtime,
   live: LiveDocument,
   account: { connectionId: string; itemId: string },
-  field: VaultFieldReference,
+  field: VaultFieldReference | null,
 ): Promise<string | undefined> {
   if (!rt.settings.update) return "settings-unavailable";
   const recipe = await confirmRecipeOn(rt, live.document.origin, live.path);
   if (!recipe) return "field-unavailable";
-  // The choice, built from the settings and the vault catalog as they are then.
+  // The choice, built from the settings and the vault catalog as they are then: the
+  // binding to save, `null` for none left, or undefined when the choice is not offered.
   const choose = (
     settings: SettingsSnapshot["settings"],
     catalog: VaultCatalog,
-  ): SavedLoginBinding | undefined => {
+  ):
+    | { key: SavedLoginBinding; binding: SavedLoginBinding | null }
+    | { key: undefined; binding: null }
+    | undefined => {
     const offered = confirmFieldChoices(settings, catalog, recipe, live.path, account);
-    if (!offered?.fields.some((entry) => sameReference(entry.field, field))) return undefined;
+    if (!offered) return undefined;
+    if (field !== null && !offered.fields.some((entry) => sameReference(entry.field, field)))
+      return undefined;
     const connection = catalog.connections.find((entry) => entry.id === account.connectionId)!;
     const item = connection.items.find((entry) => entry.id === account.itemId)!;
     const owner = {
@@ -122,17 +139,25 @@ export async function saveConfirmField(
       itemId: item.id,
     };
     const saved = findLoginBinding(settings.bindings, recipe, owner);
+    const entries = saved?.slots ?? [];
+    // The slot's entry is replaced where it stands, so a choice already saved compares equal.
+    const slots =
+      field === null
+        ? entries.filter((entry) => entry.slot !== offered.slot)
+        : entries.some((entry) => entry.slot === offered.slot)
+          ? entries.map((entry) => (entry.slot === offered.slot ? { ...entry, field } : entry))
+          : [...entries, { slot: offered.slot, field }];
+    // No entry left: the saved binding goes, when there is one.
+    if (!slots.length)
+      return saved ? { key: saved, binding: null } : { key: undefined, binding: null };
     const binding = v.safeParse(savedLoginBindingSchema, {
       recipeId: recipe.id,
       origin: recipe.origin,
       ...owner,
       ...loginDisplayNames(item.id, item.label, connection.label),
-      slots: [
-        ...(saved?.slots.filter((entry) => entry.slot !== offered.slot) ?? []),
-        { slot: offered.slot, field },
-      ],
+      slots,
     });
-    return binding.success ? binding.output : undefined;
+    return binding.success ? { key: binding.output, binding: binding.output } : undefined;
   };
   const latest = await rt.settings
     .handle({ version: 1, type: "settings.get" })
@@ -140,24 +165,32 @@ export async function saveConfirmField(
   if (!latest?.ok) return "settings-unavailable";
   const wanted = choose(latest.snapshot.settings, latest.catalog);
   if (!wanted) return "field-unavailable";
-  const current = latest.snapshot.settings.bindings.find((entry) =>
-    sameLoginBinding(entry, wanted),
-  );
-  if (current && JSON.stringify(current.slots) === JSON.stringify(wanted.slots)) return undefined;
+  const { key } = wanted;
+  const current =
+    key && latest.snapshot.settings.bindings.find((entry) => sameLoginBinding(entry, key));
+  if (
+    wanted.binding === null
+      ? current === undefined
+      : JSON.stringify(current?.slots) === JSON.stringify(wanted.binding.slots)
+  )
+    return undefined;
   // Checked in the settings queue against the live catalog, and written as checked.
-  let checked: SavedLoginBinding | undefined;
+  let checked: ReturnType<typeof choose>;
   return rt.settings
     .update(
       undefined,
       "account-choice",
       (snapshot) => {
         if (!checked) throw new Error("field-unavailable");
-        const binding = checked;
-        const others = snapshot.settings.bindings.filter(
-          (entry) => !sameLoginBinding(entry, binding),
-        );
-        if (others.length >= MAX_BINDINGS) throw new Error("field-unavailable");
-        return { ...snapshot, settings: { ...snapshot.settings, bindings: [...others, binding] } };
+        const { key: written, binding } = checked;
+        const others = written
+          ? snapshot.settings.bindings.filter((entry) => !sameLoginBinding(entry, written))
+          : snapshot.settings.bindings;
+        if (binding && others.length >= MAX_BINDINGS) throw new Error("field-unavailable");
+        return {
+          ...snapshot,
+          settings: { ...snapshot.settings, bindings: binding ? [...others, binding] : others },
+        };
       },
       async (snapshot, catalog) => {
         checked = choose(snapshot.settings, await catalog());
