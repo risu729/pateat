@@ -283,9 +283,10 @@ export type LoginReport = (
       /**
        * For `confirm-fill` and how its fill ended (`confirm-filled`, `confirm-fill-kept`,
        * `confirm-fill-stopped`): whose account fills, the tab's
-       * confirmed login's or the person's **Fill** pick's (ADR 0035, amended 2026-11-17).
+       * confirmed login's, the person's **Fill** pick's (ADR 0035, amended 2026-11-17) or
+       * the one account the page shows (amended 2026-11-22).
        */
-      accountSource?: "login" | "pick";
+      accountSource?: "login" | "pick" | "shown";
       /** For `confirm-fill-stopped`: where the fill stopped (ADR 0035, #1761). */
       stoppedAt?: ConfirmStop;
       /**

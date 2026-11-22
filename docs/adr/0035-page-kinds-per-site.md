@@ -86,6 +86,11 @@ Amended again on 2026-11-22 by the owner (15:07 UTC,
 **Fill** lets the person choose the vault field it puts into the page, and saves the
 choice as that account's binding of the page's recipe.
 
+Amended a third time on 2026-11-22 by the owner (15:07 UTC,
+[below](#amendment-2026-11-22-a-verification-that-shows-one-accounts-username)): in a
+tab without Pateat's login, a verification page that shows the username of exactly one
+of its matching accounts is filled with that account automatically, pressing nothing.
+
 Date: 2026-10-12
 
 ## Context
@@ -959,3 +964,43 @@ wrong binding, and the person chooses again in the popup.
 Not chosen: a choice kept only on the device, which would ask again on every device and
 after every reinstall; revoking ANA's recipes, which puts a step on the owner's list and
 leaves the model to choose again.
+
+## Amendment 2026-11-22: a verification that shows one account's username
+
+Context: the owner asked whether Pateat should fill a verification page while the site
+is signed in also when Pateat did not log in to it in that tab (2026-11-22, on ANA's
+pages). Until now only the tab's own `authenticated` login lent its account (delivery
+3), and every other tab had only the popup's **Fill**.
+
+Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a decision card):
+
+- In a tab without a login record for the page's origin, a top page on whose path a
+  `confirm` or `unclear` recipe starts, which Pateat may fill there (page setting
+  `fill`), on a site not paused, is filled automatically when it shows the username of
+  exactly one of its matching accounts (`admitConfirmShown` in
+  `apps/extension/src/login/runtime/confirm-admit.ts`, `shownConfirmAccount` in
+  `confirm-shown.ts`).
+- Which account the page shows is read as ADR 0029's E2 reads it: each matching item's
+  username is read from the vault, compared with the page's header and navigation in
+  its content script, and dropped. Only items matching the page's own URL count; an
+  item that asks for the master password on the site, an item without a username or
+  whose username the policy excludes never does. Nothing fills when no account or more
+  than one matches (as two items with the same username), when a vault is unavailable
+  or an item's URIs could not all be checked, when a username cannot be read or the page
+  does not answer, or when more than `MAX_HINT_USERNAMES` (8) accounts would be read.
+- The account is read once per document, path and recipe, in the background after the
+  page first announces there, so the page's own answer is not delayed. A page whose
+  header shows the account only later is left to the popup's **Fill**.
+- The fill is the delivery-3 confirmation fill with that account: one `prepare` fill of
+  the recipe's step, keeping any value already in the page, pressing nothing, with the
+  content script's own comparison of the account the page shows. It never asks for the
+  master password (it stops at `reprompt` instead). It stops when a login, an account
+  switch, an SSO flow or the person's **Fill** press starts in the tab, or a login is
+  recorded for the origin. Its log rows carry `accountSource` `shown`, never the
+  account.
+- A page where this fill ended is not filled again while the document stays on that
+  path; the popup's **Fill** still works there.
+
+Not chosen: filling every verification of a signed-in site with the site default, which
+could put one account's secret into a page signed in as another; and filling only after
+the person's **Fill**, which is how it was.

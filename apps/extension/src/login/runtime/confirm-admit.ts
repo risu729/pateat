@@ -20,6 +20,7 @@ import {
   pressGenerationKey,
   releaseConfirmClaim,
   releasePressHolds,
+  sourceOf,
   type ConfirmWork,
 } from "./confirm-state";
 import { confirmAccount, confirmCurrent } from "./confirm-scope";
@@ -32,6 +33,7 @@ import {
   settleConfirmFill,
 } from "./not-started";
 import { manualPending } from "./manual-scope";
+import { shownConfirmAccount } from "./confirm-shown";
 import { confirmPickFor, endConfirmPick, type ConfirmPick } from "./confirm-pick-scope";
 import { explicitlyPicked } from "./page-permission";
 import { recordFor, tabAttempt } from "./hold";
@@ -178,6 +180,76 @@ export async function admitConfirm(rt: Runtime, ctx: AdmitContext): Promise<Read
   return answer(rt, ctx, recipe ? "confirm-fill" : "generating", visit);
 }
 
+/** The documents and paths whose shown account was read already, once each. */
+const shownLooked = new WeakMap<Runtime, Set<string>>();
+
+/**
+ * A verification page in a tab without Pateat's login (ADR 0035, amended 2026-11-22):
+ * when the page shows the username of exactly one of its matching accounts, that account
+ * fills the page's recipe once, as a login's confirmation fill does, pressing nothing and
+ * never asking for the master password. The account is read once per document and path,
+ * in the background once the page first announces there, so the page's announcement is
+ * answered as before meanwhile; a paused site, a running login or **Fill** press and a
+ * fill that already ended there leave the page to the popup's **Fill**. Undefined unless
+ * this document's fill is at work; the caller's answer follows.
+ */
+export async function admitConfirmShown(
+  rt: Runtime,
+  ctx: AdmitContext,
+  recipe: LoginRecipe,
+  visit: ConfirmVisit,
+): Promise<Readiness | undefined> {
+  const { tabId } = ctx.document;
+  await rt.confirmFill.loaded;
+  const work = rt.confirmFill.work.get(tabId);
+  // This document's own fill is still at work: its announcement is answered as such.
+  if (work?.shown && work.live === ctx.live) return answer(rt, ctx, "confirm-fill", visit);
+  const running = tabAttempt(rt, tabId);
+  if (
+    ctx.paused ||
+    ctx.manual ||
+    confirmBusy(rt, tabId) ||
+    (running && !terminal(running)) ||
+    recordFor(rt, tabId, ctx.document.origin) !== undefined ||
+    rt.manualStarts.get(tabId)?.pick !== undefined ||
+    confirmPickFor(rt, ctx.live) !== undefined ||
+    manualPending(rt, ctx.live) ||
+    confirmEnded(rt, ctx.live) !== undefined
+  )
+    return undefined;
+  const looked = shownLooked.get(rt) ?? new Set<string>();
+  shownLooked.set(rt, looked);
+  const key = JSON.stringify([tabId, ctx.document.documentId, ctx.live.path, recipe.id]);
+  if (looked.has(key)) return undefined;
+  looked.add(key);
+  void (async () => {
+    const account = await shownConfirmAccount(rt, ctx.live);
+    // Checked again after the reads above.
+    const latest = tabAttempt(rt, tabId);
+    if (
+      !account ||
+      rt.documents.get(ctx.key) !== ctx.live ||
+      confirmBusy(rt, tabId) ||
+      (latest && !terminal(latest)) ||
+      recordFor(rt, tabId, ctx.document.origin) !== undefined ||
+      rt.manualStarts.get(tabId)?.pick !== undefined ||
+      confirmPickFor(rt, ctx.live) !== undefined ||
+      manualPending(rt, ctx.live) ||
+      confirmEnded(rt, ctx.live) !== undefined
+    )
+      return;
+    noteConfirmFill(rt, ctx.live, ctx.shown, visit, "shown");
+    runConfirmWork(
+      rt,
+      ctx,
+      { live: ctx.live, id: "shown", account, shown: true },
+      recipe,
+      confirmationGenerationKey("shown", ctx.live),
+    );
+  })().catch(() => undefined);
+  return undefined;
+}
+
 /**
  * A page a **Fill** press sent for generation that did not come back as a verification
  * starts no login while its document stays on that path, also with a returned sign-in
@@ -303,7 +375,7 @@ type ConfirmEnd =
 function runConfirmWork(
   rt: Runtime,
   ctx: AdmitContext,
-  authority: Pick<ConfirmWork, "live" | "id" | "account" | "parent" | "pick">,
+  authority: Pick<ConfirmWork, "live" | "id" | "account" | "parent" | "pick" | "shown">,
   recipe: LoginRecipe | undefined,
   generationKey: string,
   done?: (end: ConfirmEnd) => void,
@@ -385,7 +457,7 @@ function runConfirmWork(
         newer !== undefined && newer.live.document.documentId === ctx.document.documentId;
       if (recipe && !superseded && page?.document.documentId === ctx.document.documentId) {
         if (end === "asked" || end === "claimed") {
-          noteConfirmWaiting(rt, page, ctx.live.path, end, work.pick ? "pick" : "login");
+          noteConfirmWaiting(rt, page, ctx.live.path, end, sourceOf(work));
           if (page === ctx.live) await publish(rt, ctx.live);
         } else
           await settleConfirmFill(
@@ -394,7 +466,7 @@ function runConfirmWork(
             ctx.live.path,
             OUTCOMES[end],
             false,
-            work.pick ? "pick" : "login",
+            sourceOf(work),
             end === "stopped" ? work.stoppedAt : undefined,
           );
       }

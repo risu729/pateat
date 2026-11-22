@@ -347,8 +347,8 @@ export const LOG_EVENTS = {
       pageKind: "code",
       permissionSource: "code",
       // For `confirm-fill` and how its fill ended (`confirm-filled`, `confirm-fill-kept`,
-      // `confirm-fill-stopped`): `login` or `pick`, whose account fills, never the account
-      // (ADR 0035, amended 2026-11-17).
+      // `confirm-fill-stopped`): `login`, `pick` or `shown`, whose account fills, never the
+      // account (ADR 0035, amended 2026-11-17 and 2026-11-22).
       accountSource: "code",
       // For `confirm-fill-stopped`: where the fill stopped; and for a fill's rows logged at
       // its end because the page never reported its first step shown, `unshown`, without

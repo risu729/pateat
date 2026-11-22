@@ -39,13 +39,21 @@ export const DECLINED_KEPT = 16;
 /** How a document's confirmation fill on a path ended, for the popup (ADR 0038). */
 export type ConfirmOutcome = "confirm-filled" | "confirm-fill-kept" | "confirm-fill-stopped";
 /** Whose account a confirmation fill uses, as its log entries name it, never the account. */
-export type ConfirmAccountSource = "login" | "pick";
+/**
+ * Whose account fills a verification page: the tab's confirmed login's, the person's
+ * **Fill** pick's, or the one account whose username the page shows (amended 2026-11-22).
+ */
+export type ConfirmAccountSource = "login" | "pick" | "shown";
 /**
  * A master password the confirmation's own window accepted for `attemptId connectionId`:
  * it fills the document once, on the path and with the recipe it was asked for, before it
  * expires (ADR 0035 delivery 3).
  */
 export type ConfirmGrant = { grant: string; path: string; recipeId: string; expires: number };
+/** Whose account a confirmation work fills, for its log rows. */
+export const sourceOf = (work: Pick<ConfirmWork, "pick" | "shown">): ConfirmAccountSource =>
+  work.pick ? "pick" : work.shown ? "shown" : "login";
+
 export type ConfirmWork = {
   live: LiveDocument;
   /** Whose fill this is: the tab's confirmed login's ID, or the person's popup press's. */
@@ -56,6 +64,11 @@ export type ConfirmWork = {
   parent?: LoginAttemptMetadata;
   /** The person's **Fill** press in the popup, in place of `parent` (amended 2026-11-17). */
   pick?: ConfirmPick;
+  /**
+   * In place of both, in a tab without Pateat's login: the page shows the username of
+   * this one matching account (ADR 0035, amended 2026-11-22).
+   */
+  shown?: true;
   topDocumentId: string | undefined;
   policyRevision?: number;
   snapshotId?: string;

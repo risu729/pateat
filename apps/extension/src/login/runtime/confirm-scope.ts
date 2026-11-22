@@ -51,6 +51,16 @@ function authorityCurrent(rt: Runtime, work: ConfirmWork): boolean {
     const flow = rt.sso.flows.get(live.document.tabId);
     return confirmPickFor(rt, live) === pick && (!flow || flow.ended === true);
   }
+  // The account the page shows holds until the person presses **Fill**, a login of the
+  // tab's origin is recorded or an SSO flow runs in the tab.
+  if (work.shown) {
+    const flow = rt.sso.flows.get(live.document.tabId);
+    return (
+      confirmPickFor(rt, live) === undefined &&
+      recordFor(rt, live.document.tabId, live.document.origin) === undefined &&
+      (!flow || flow.ended === true)
+    );
+  }
   const latest = recordFor(rt, live.document.tabId, live.document.origin);
   return (
     parent !== undefined &&
@@ -234,7 +244,8 @@ export async function confirmReprompt(
 ): Promise<boolean | "asked"> {
   if (!itemAsksForMasterPassword(found.snapshot.snapshot.settings, found.item, work.live.url))
     return true;
-  if (!rt.options.askMasterPassword || !confirmCurrent(rt, work)) return false;
+  // A fill for the account the page shows never asks for the master password.
+  if (work.shown || !rt.options.askMasterPassword || !confirmCurrent(rt, work)) return false;
   const { live, pick } = work;
   const { tabId, frameId, documentId } = live.document;
   const key = tabId + " " + documentId;

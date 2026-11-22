@@ -633,8 +633,12 @@ describe("production login document admission", () => {
           },
         ]),
       );
-      // Only the matching item's username is read, for E2; nothing is filled.
-      expect(h.fields.mock.calls.map(([source]) => source.fieldId)).toEqual(["login.username"]);
+      // Only the matching item's username is read, for E2 and for the account the page
+      // shows (amended 2026-11-22); the page shows none, so nothing is filled.
+      expect(h.fields.mock.calls.map(([source]) => source.fieldId)).toEqual([
+        "login.username",
+        "login.username",
+      ]);
       expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual([]);
       // The person submits the page's form; a message from another document counts for nothing.
       const submitted = {
