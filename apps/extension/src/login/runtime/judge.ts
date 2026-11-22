@@ -383,8 +383,14 @@ export async function learn(
   const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
   // A sign-in input counts even hidden, but only shown in a new document after the login's
   // own step, which may keep hidden copies of the form once signed in, as My Digital
-  // Connect's does (ADR 0029 amendment of 2026-11-21).
-  const field = afterOwnStep(rt, run) ? ("shown-input" as const) : ("input" as const);
+  // Connect's does (ADR 0029 amendment of 2026-11-21), and on a page that shows another
+  // sign-in step (`continuing`): a single-page site may hide its form in the same document
+  // to ask for an authenticator app's code, as Reddit's does, while a form that hides
+  // itself again after a failure shows no such step (amendment of 2026-11-22).
+  const field =
+    afterOwnStep(rt, run) || reading?.decision === "continuing"
+      ? ("shown-input" as const)
+      : ("input" as const);
   // A hidden marker proves nothing and does not keep the page from the judge.
   const remaining = await observe(
     rt,
@@ -413,10 +419,10 @@ export async function learn(
     remaining.targets
       .slice(0, fills.length)
       .some((state) => state !== "missing" && state !== "unusable");
-  // In a new document after the login's own step, a route's sign-in input only kept hidden
-  // lets the page go to the judge, but the login then completes only on the judge's own
-  // `signed-in`, never as an undecided or optional page, as a failure page may keep its
-  // form hidden too (ADR 0029 amendment of 2026-11-21). One that cannot be read counts.
+  // Where only a shown sign-in input counts, one only kept hidden lets the page go to the
+  // judge, but the login then completes only on the judge's own `signed-in`, never as an
+  // undecided or optional page, as a failure page may keep its form hidden too (ADR 0029
+  // amendment of 2026-11-21). One that cannot be read counts.
   let hiddenField = false;
   if (field === "shown-input" && !fieldShown && paths.includes(remaining.path) && fills.length) {
     // Every copy, as several hidden copies would otherwise read as none.
