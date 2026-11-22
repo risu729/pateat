@@ -110,6 +110,8 @@ export function manualReason(reason: string | undefined, t: TFunction, fill = fa
     case "not-a-verification-page":
     case "no-recipe-on-path":
       return t("This page was not recognized as a verification page, so nothing was filled.");
+    case "field-unavailable":
+      return t("The chosen field could not be used. Check the account, then try again.");
     case "confirm-fill-stopped":
       return t("Filling stopped. Check the page, vault and settings, then try again.");
     // A press whose page was not sent for generation (`generationSkip`).
@@ -262,6 +264,10 @@ export function ManualLogin({
   const { t } = useTranslation(undefined, { i18n });
   const [target, setTarget] = useState("");
   const [account, setAccount] = useState("");
+  // The field chosen for a verification page's one slot, as its JSON key, with the page
+  // and account it was chosen for; "" leaves it to the recipe, and none shows the
+  // account's saved choice (ADR 0035, amended 2026-11-22).
+  const [field, setField] = useState<{ key: string; page: string; account: string }>();
   const [submitted, setSubmitted] = useState<string>();
   const [failure, setFailure] = useState<string>();
   // This popup pressed **Log in now**, **Fill** or **Cancel this login**, or saw a request
@@ -312,6 +318,25 @@ export function ManualLogin({
     : options.length === 1
       ? options[0]
       : undefined;
+  // The fields the picked account offers for a verification page's one slot.
+  const offered = selected?.candidates.find(
+    (entry) => entry.connectionId === picked?.connectionId && entry.itemId === picked?.itemId,
+  );
+  const fieldChoices = selected?.fill === true ? offered?.fields : undefined;
+  // A choice counts only for the page and account it was made for, and only while offered.
+  const changedField =
+    field &&
+    selected &&
+    picked &&
+    field.page === targetKey(selected) &&
+    field.account === picked.value &&
+    (field.key === ""
+      ? !offered?.chosen
+      : fieldChoices?.some((entry) => JSON.stringify(entry.field) === field.key))
+      ? field.key
+      : undefined;
+  const fieldKey = changedField ?? (offered?.chosen ? JSON.stringify(offered.chosen) : "");
+  const chosenField = fieldChoices?.find((entry) => JSON.stringify(entry.field) === fieldKey);
   // A manual login, or a **Fill** press, that is still at work: nothing else starts. A
   // login that waits for the person's sign-in method choice below is still at work too.
   const manualPreparing =
@@ -364,7 +389,16 @@ export function ManualLogin({
     };
     try {
       if (selected.fill) {
-        const response = await client.fill(request);
+        // Only a field the person changed is sent: a saved one already holds. A saved field
+        // no longer offered is cleared, so the recipe's own choice fills.
+        const response = await client.fill({
+          ...request,
+          ...(changedField && chosenField
+            ? { field: chosenField.field }
+            : fieldChoices && fieldKey === "" && offered?.saved
+              ? { field: null }
+              : {}),
+        });
         if (response.ok && response.state === "filled") onStarted();
         else if (!response.ok) setFailure(response.reason);
         await offer.refetch();
@@ -431,6 +465,7 @@ export function ManualLogin({
             onChange={(event) => {
               setTarget(event.target.value);
               setAccount("");
+              setField(undefined);
               setFailure(undefined);
             }}
           >
@@ -462,6 +497,7 @@ export function ManualLogin({
             onChange={(event) => {
               if (!target) setTarget(targetKey(selected));
               setAccount(event.target.value);
+              setField(undefined);
               setFailure(undefined);
             }}
           >
@@ -474,6 +510,37 @@ export function ManualLogin({
               </option>
             ))}
           </select>
+        </label>
+      )}
+      {fieldChoices && (
+        <label className="popup-muted" htmlFor="popup-manual-field">
+          {t("Field to fill")}
+          <select
+            id="popup-manual-field"
+            value={fieldKey}
+            disabled={disabled || preparing}
+            aria-describedby="popup-manual-field-note"
+            onChange={(event) => {
+              if (!selected || !picked) return;
+              if (!target) setTarget(targetKey(selected));
+              setField({
+                key: event.target.value,
+                page: targetKey(selected),
+                account: picked.value,
+              });
+              setFailure(undefined);
+            }}
+          >
+            {!offered?.chosen && <option value="">{t("As the page's recipe decides")}</option>}
+            {fieldChoices.map((entry) => (
+              <option key={JSON.stringify(entry.field)} value={JSON.stringify(entry.field)}>
+                {entry.name ?? t("The account's password")}
+              </option>
+            ))}
+          </select>
+          <span id="popup-manual-field-note">
+            {t("The chosen field is saved for this account and used on this page from now on.")}
+          </span>
         </label>
       )}
       <output id="popup-manual-status" className="popup-muted" aria-live="polite">

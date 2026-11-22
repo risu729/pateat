@@ -39,6 +39,13 @@ export const manualEn = {
   "This page asks you to verify while signed in. Fill enters the chosen account's password once, or its secret answer when the page asks for one; Pateat presses no button.":
     "This page asks you to verify while signed in. Fill enters the chosen account's password once, or its secret answer when the page asks for one; Pateat presses no button.",
   "Account to fill": "Account to fill",
+  "Field to fill": "Field to fill",
+  "As the page's recipe decides": "As the page's recipe decides",
+  "The account's password": "The account's password",
+  "The chosen field is saved for this account and used on this page from now on.":
+    "The chosen field is saved for this account and used on this page from now on.",
+  "The chosen field could not be used. Check the account, then try again.":
+    "The chosen field could not be used. Check the account, then try again.",
   "Filling this page…": "Filling this page…",
   "Checking the page before filling it…": "Checking the page before filling it…",
   "Enter the master password in Pateat's window to fill this page.":

@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { loginDocumentSchema } from "@pateat/contracts";
+import { loginDocumentSchema, vaultFieldReferenceSchema } from "@pateat/contracts";
 
 const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
 const ref = v.pipe(v.string(), v.minLength(1), v.maxLength(512));
@@ -37,6 +37,12 @@ export const confirmFillRequestSchema = v.strictObject({
   scope: ref,
   connectionId: ref,
   itemId: ref,
+  /**
+   * The vault field the person chose for the page's one slot, saved as the account's
+   * binding of the page's recipe before the fill (ADR 0035, amended 2026-11-22); `null`
+   * clears a saved field no longer offered, so the recipe's own choice fills.
+   */
+  field: v.optional(v.nullable(vaultFieldReferenceSchema)),
 });
 export const confirmFillStatusSchema = v.strictObject({
   requestId: ref,
@@ -70,7 +76,31 @@ export const manualOfferResponseSchema = v.variant("ok", [
           /** A verification page: the popup offers **Fill** instead of **Log in now**. */
           fill: v.optional(v.literal(true)),
           candidates: v.pipe(
-            v.array(v.strictObject({ connectionId: ref, itemId: ref })),
+            v.array(
+              v.strictObject({
+                connectionId: ref,
+                itemId: ref,
+                /**
+                 * On a verification page whose recipe fills one slot: the account's fields
+                 * the person may choose for it, the built-in password without a name, and
+                 * the one its saved binding names (ADR 0035, amended 2026-11-22).
+                 */
+                fields: v.optional(
+                  v.pipe(
+                    v.array(
+                      v.strictObject({
+                        field: vaultFieldReferenceSchema,
+                        name: v.optional(v.pipe(v.string(), v.maxLength(1000))),
+                      }),
+                    ),
+                    v.maxLength(30),
+                  ),
+                ),
+                chosen: v.optional(vaultFieldReferenceSchema),
+                /** The binding names a field for the slot, offered (`chosen`) or not. */
+                saved: v.optional(v.literal(true)),
+              }),
+            ),
             v.maxLength(100),
           ),
         }),

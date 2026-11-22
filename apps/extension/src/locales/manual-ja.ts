@@ -39,6 +39,13 @@ export const manualJa = {
   "This page asks you to verify while signed in. Fill enters the chosen account's password once, or its secret answer when the page asks for one; Pateat presses no button.":
     "ログイン中の本人確認のページです。「入力」を押すと、選んだアカウントのパスワード（ページが秘密の質問の答えを求めるときはその答え）を 1 回だけ入力します。ボタンは押しません。",
   "Account to fill": "入力するアカウント",
+  "Field to fill": "入力する項目",
+  "As the page's recipe decides": "ページのレシピに任せる",
+  "The account's password": "アカウントのパスワード",
+  "The chosen field is saved for this account and used on this page from now on.":
+    "選んだ項目はこのアカウントに保存され、このページでは次からもこの項目を入力します。",
+  "The chosen field could not be used. Check the account, then try again.":
+    "選んだ項目は使えませんでした。アカウントを確認してから、もう一度試してください。",
   "Filling this page…": "このページに入力しています…",
   "Checking the page before filling it…": "入力する前にページを確認しています…",
   "Enter the master password in Pateat's window to fill this page.":

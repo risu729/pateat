@@ -81,6 +81,11 @@ Amended on 2026-11-22 by the owner (15:07 UTC,
 the input's own text names the field or the input is shaped for a PIN; elsewhere it
 fills the account's password when it can.
 
+Amended again on 2026-11-22 by the owner (15:07 UTC,
+[below](#amendment-2026-11-22-the-field-fill-uses-chosen-in-the-popup)): the popup's
+**Fill** lets the person choose the vault field it puts into the page, and saves the
+choice as that account's binding of the page's recipe.
+
 Date: 2026-10-12
 
 ## Context
@@ -687,11 +692,13 @@ agent's choices, not confirmed by the owner:
 - A `confirm` page without a recipe that shows only a password form is not offered
   **Fill**: **Log in now** sends it once through its own generation, and once that comes
   back `confirm`, the popup offers **Fill** on the page.
-- Each press fills at most once and creates no login record, default, binding or
-  session account; a later press fills again. The log rows `confirm-fill` and
-  `confirm-fill-stopped` carry `accountSource`, `pick` for a press and `login` for a
-  login's automatic fill, never the account or a value. It stays on the device: a
-  problem line leaves it out, as it does `permissionSource` (`LOCAL_ONLY_FIELDS`).
+- Each press fills at most once and creates no login record, default, binding or session
+  account (amended on 2026-11-22: a press with a chosen field saves that binding,
+  [below](#amendment-2026-11-22-the-field-fill-uses-chosen-in-the-popup)); a later press
+  fills again. The log rows `confirm-fill` and `confirm-fill-stopped` carry
+  `accountSource`, `pick` for a press and `login` for a login's automatic fill, never
+  the account or a value. It stays on the device: a problem line leaves it out, as it
+  does `permissionSource` (`LOCAL_ONLY_FIELDS`).
 - While a press waits, the tab's popup offers neither **Log in now** nor another
   **Fill**, and another login, account switch or confirmation fill in the tab refuses
   the press (`login-running`). The popup shows the press's progress and closes once it
@@ -901,5 +908,54 @@ Not chosen: telling the model which field the site's sign-in uses, which would s
 binding data to it (ADR 0010) and still leaves the choice to the model; sending a
 secret's length, which ADR 0010 refused.
 
-Recipes stored before this change keep their slots: ANA's two `confirm` recipes are
-revoked and generated again once this is deployed.
+Recipes stored before this change keep their slots. ANA's two `confirm` recipes are
+not revoked: the person chooses the password once in the popup, as the next amendment
+allows, and that choice outranks the recipe's slots.
+
+## Amendment 2026-11-22: the field Fill uses, chosen in the popup
+
+Decision (owner, 2026-11-22 15:07 UTC, the same 「名前一致+手動選択」 choice):
+
+- When a verification page's recipe fills exactly one slot there, other than `username`
+  and `totp`, the popup's **Fill** shows a 「入力する項目」 choice for the selected
+  account: the item's password when it holds one, then its named Text and Hidden custom
+  fields in the item's order, those the account's field policy allows, at most 30. A
+  field the catalog flags as a TOTP key, or whose name is an SSO method's, is never
+  offered. An account with fewer than two such fields shows no choice
+  (`confirmFieldChoices` in `apps/extension/src/login/runtime/confirm-field.ts`).
+- The choice shows the field the account's saved binding of that recipe names, or
+  「ページのレシピに任せる」 when it names none that is offered. A press sends a field
+  only when the person changed it for the page and account shown; a choice made for
+  another page or account is dropped. A saved field no longer offered, as one renamed or
+  excluded since, would stop every fill, so a press with 「ページのレシピに任せる」
+  removes that entry instead, and the binding once it holds no other.
+- A press with a field saves it, before the fill, as the account's binding of the page's
+  recipe (cause `account-choice`), replacing only that slot's entry of a binding already
+  saved where it stands. The background checks the field against the live settings and
+  vault catalog in the settings queue and writes what it checked; a field not offered,
+  as one the item no longer holds, refuses the press with `field-unavailable` and fills
+  nothing. A choice equal to the saved one writes nothing. The fill then reads the saved
+  binding, which outranks the recipe's slots, with every check it makes as before.
+- The binding is an ordinary saved binding: it syncs with the settings, and later
+  presses and a login's automatic fill of the page use it. For a slot of the recipe's
+  own name, as ANA's stored recipes have, another account of the page with no binding of
+  its own takes the choice as a template before the generated slot map, as it takes any
+  sibling binding; a built-in slot never does, since a template always names the
+  built-in field there.
+- The save is the person's choice and stays when the press is refused after it, as
+  when the page changed meanwhile; the fill reads the binding as it is when it runs.
+
+This amends the 2026-11-17 rule that a press creates no binding: a press without a
+chosen field still creates none.
+
+Known limit: a binding is keyed by the recipe's ID, which stays the same when the page
+on its start path is generated again as another kind. Should a verification's path be
+generated again as a sign-in page, a login reads the same binding, so a custom field
+chosen for the verification's `password` slot is typed into the sign-in form; a sign-in
+binding may name a custom field there in its own right (as the service's generated
+bindings may), so a login cannot tell the two apart. The login then fails as with any
+wrong binding, and the person chooses again in the popup.
+
+Not chosen: a choice kept only on the device, which would ask again on every device and
+after every reinstall; revoking ANA's recipes, which puts a step on the owner's list and
+leaves the model to choose again.
