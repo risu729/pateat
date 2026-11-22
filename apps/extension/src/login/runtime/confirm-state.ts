@@ -324,20 +324,44 @@ export function pressPending(rt: Runtime, tabId: number): boolean {
   return (presses.get(rt)?.get(tabId) ?? 0) > 0;
 }
 
+const refusedPress = new WeakMap<Runtime, Map<number, () => void>>();
+
+/**
+ * Runs `then` once the press being checked in the tab is refused, so a fill it held
+ * back may start after all; an accepted press drops it.
+ */
+export function afterRefusedPress(rt: Runtime, tabId: number, then: () => void): void {
+  let waiting = refusedPress.get(rt);
+  if (!waiting) refusedPress.set(rt, (waiting = new Map()));
+  waiting.set(tabId, then);
+}
+
 /**
  * Runs the person's press in the tab, during which no fill for the account the page
  * shows starts there, so the press is never refused for one that started meanwhile.
  */
-export async function asPress<T>(rt: Runtime, tabId: number, run: () => Promise<T>): Promise<T> {
+export async function asPress<T extends { ok: boolean }>(
+  rt: Runtime,
+  tabId: number,
+  run: () => Promise<T>,
+): Promise<T> {
   let counts = presses.get(rt);
   if (!counts) presses.set(rt, (counts = new Map()));
   counts.set(tabId, (counts.get(tabId) ?? 0) + 1);
+  let accepted = false;
   try {
-    return await run();
+    const result = await run();
+    accepted = result.ok;
+    return result;
   } finally {
     const left = (counts.get(tabId) ?? 1) - 1;
     if (left > 0) counts.set(tabId, left);
-    else counts.delete(tabId);
+    else {
+      counts.delete(tabId);
+      const then = refusedPress.get(rt)?.get(tabId);
+      refusedPress.get(rt)?.delete(tabId);
+      if (!accepted) then?.();
+    }
   }
 }
 

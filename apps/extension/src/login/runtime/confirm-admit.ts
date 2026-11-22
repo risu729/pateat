@@ -20,6 +20,7 @@ import {
   hasConfirmAuthentication,
   pressGenerationKey,
   pressPending,
+  afterRefusedPress,
   releaseConfirmClaim,
   releasePressHolds,
   sourceOf,
@@ -254,10 +255,29 @@ export async function admitConfirmShown(
     pressPending(rt, tabId) ||
     endedBy !== undefined;
   const key = JSON.stringify([tabId, documentId, path, recipe.id]);
-  // Nothing on this path for a fill to do: no account is read for it. An account found
-  // before is read again once the page is free, as the vault may have changed meanwhile.
+  // The document's latest announcement on this path, whichever object holds it.
+  const here = () => {
+    const page = rt.documents.get(ctx.key);
+    return page?.document.documentId === documentId && page.path === path ? page : undefined;
+  };
+  const reconnect = () =>
+    browser.tabs.sendMessage(
+      tabId,
+      { version: 1, type: "login.reconnect" },
+      { frameId, documentId },
+    );
+  // An account found while the tab is held is read again once the page is free, as the
+  // vault may have changed meanwhile; a press refused meanwhile has the page announce.
+  const drop = () => {
+    rememberLook(rt, key, undefined);
+    if (pressPending(rt, tabId))
+      afterRefusedPress(rt, tabId, () => {
+        if (here()) reconnect().catch(() => undefined);
+      });
+  };
+  // Nothing on this path for a fill to do: no account is read for it.
   if (held() || !confirmationSteps(recipe, path).length) {
-    if (typeof shownLooks.get(rt)?.get(key) === "object") rememberLook(rt, key, undefined);
+    if (typeof shownLooks.get(rt)?.get(key) === "object") drop();
     return undefined;
   }
   const look = shownLooks.get(rt)?.get(key);
@@ -275,11 +295,6 @@ export async function admitConfirmShown(
   }
   if (look !== undefined) return undefined;
   rememberLook(rt, key, "looking");
-  // The document's latest announcement on this path, whichever object holds it.
-  const here = () => {
-    const page = rt.documents.get(ctx.key);
-    return page?.document.documentId === documentId && page.path === path ? page : undefined;
-  };
   void (async () => {
     const account = await shownConfirmAccount(rt, ctx.live, here);
     // A document that left the path is read again should it come back.
@@ -287,11 +302,9 @@ export async function admitConfirmShown(
     if (!account) return rememberLook(rt, key, "none");
     // A press or login that took the tab meanwhile is not disturbed by an announcement;
     // the account is read again once the page is free.
-    if (held()) return rememberLook(rt, key, undefined);
+    if (held()) return drop();
     rememberLook(rt, key, { account });
-    await browser.tabs
-      .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId, documentId })
-      .catch(() => rememberLook(rt, key, undefined));
+    await reconnect().catch(() => rememberLook(rt, key, undefined));
     return undefined;
   })().catch(() => rememberLook(rt, key, undefined));
   return undefined;

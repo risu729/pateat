@@ -995,7 +995,8 @@ Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a
   does not stop it. Once one account is found, the document is asked to announce again,
   and that announcement starts the fill. An account found while the tab is held (a
   paused site, a login, a press being checked) is dropped instead and read again at the
-  page's next free announcement, as the vault may have changed meanwhile. The background
+  page's next free announcement, as the vault may have changed meanwhile; a press
+  refused meanwhile has the document announce again. The background
   keeps what it found for the latest 256 such pages. A page whose header shows the
   account only after that read is left to the popup's **Fill**.
 - The fill is the delivery-3 confirmation fill with that account: one `prepare` fill of
