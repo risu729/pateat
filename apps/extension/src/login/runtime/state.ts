@@ -151,7 +151,9 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
 
   /**
    * By tab: the attempt that pressed, or was about to press, a stay-signed-in question
-   * (ADR 0065 amendment of 2026-11-22), which presses at most one, in any document.
+   * (ADR 0065 amendment of 2026-11-22), which presses at most one, in any document. Kept in
+   * memory only: a worker restart forgets it, so an attempt that outlives one may press once
+   * more, at most once per restart.
    */
   const stayPresses = new Map<number, string>();
 
