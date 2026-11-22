@@ -54,6 +54,12 @@ type SignInReading = {
    * step never showed, the page a repair continues (ADR 0041 section 4).
    */
   asksPassword?: true;
+  /**
+   * The page shows an input for a one-time code (S3) and no CAPTCHA (S4): a sign-in form
+   * kept hidden beside it does not keep the page from the judge (ADR 0029 amendment of
+   * 2026-11-22).
+   */
+  asksCode?: true;
 };
 
 export /** Why the page after an entry press blocked its recipe revision (ADR 0031). */

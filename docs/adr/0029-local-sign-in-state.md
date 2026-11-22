@@ -1153,3 +1153,29 @@ card):
 Not chosen (the agent's): counting hidden fields as before, which leaves such a site
 `unknown-submit` at every login with no default saved; reading only the elements inside
 a hidden handler form as gone, which would be a rule for one site's layout (ADR 0033).
+
+## Amendment: a hidden sign-in form beside a code input (2026-11-22)
+
+Context: on Reddit (Real Chrome, 2026-11-22 09:20 UTC) Pateat pressed Log In and the
+site, a single-page app, stayed on `/login/` in the same document: it hid its sign-in
+form and asked for the authenticator app's six-digit code in its place. The sign-in
+state read `continuing` (S3, no S1), which should send the page to the judge to learn a
+`totp` handler, as the item has a TOTP. The judge gate counted the route's sign-in
+inputs even hidden in the step's own document (amendment of 2026-11-21), so the page
+was not sent (`recipe.judge` `not-sent` `sign-in-shown`), and every login ended
+`blocked` `unknown-submit` ten minutes later.
+
+Decision (agent's, a fix of the gate against this ADR's own decision for `continuing`):
+
+- When the reading is `continuing` with a shown input for a one-time code (S3) and no
+  CAPTCHA (S4), a route's sign-in input counts for the judge gate only when shown, in
+  the step's own document too (`asksCode`, read in `learn` in
+  `apps/extension/src/login/runtime/judge.ts`). This holds for watched logins too
+  (`watchedCode`), which the amendment of 2026-11-21 otherwise keeps on the earlier
+  rule.
+- Every other reading keeps the earlier rule in the step's own document, including a
+  page that hides its form and shows a CAPTCHA, which may answer a failure, and a
+  password page after an `advance`, which still goes to the later-step repair of
+  [ADR 0041](0041-repair-stale-recipes.md) section 4.
+- A `continuing` page never completes the login on an undecided or `optional` answer, so
+  such a page completes it only on the judge's own `signed-in`.
