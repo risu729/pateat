@@ -36,6 +36,7 @@ import { pageChange } from "../page/page-change";
 import { claimFill, fillEditsReady, noteFillWrite } from "../page/fill-edits";
 import {
   beyondSignInFill,
+  shownAccountGone,
   destinationWatch,
   passiveKeeps,
   passiveRecheck,
@@ -417,6 +418,7 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
       // decision, 2026-10-11). The comparison stays in this content script. A page that
       // showed no identifier yet is compared just before the next click instead
       // (`deferredAccount`, ADR 0049 amendment of 2026-11-03).
+      if (shownAccountGone(document, operation, command)) return fail("wrong-account");
       if (command.account) {
         if (deferLater) {
           const earlier = context.deferredAccount;

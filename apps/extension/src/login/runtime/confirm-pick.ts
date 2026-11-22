@@ -10,7 +10,7 @@ import { frameKey, logCode, siteOf } from "./steps";
 import { siteCandidates } from "./choice-save";
 import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
-import { confirmBusy, hasConfirmClaim, pressGenerationKey } from "./confirm-state";
+import { confirmBusy, hasConfirmClaim, pressGenerationKey, yieldShownFill } from "./confirm-state";
 import { confirmRecipeOn, offersGeneration } from "./generation-scope";
 import { saveConfirmField } from "./confirm-field";
 import { pagePermission } from "./page-permission";
@@ -82,6 +82,7 @@ export async function confirmPickStart(
   if (confirmPickPending(rt, tabId)) return refuse("preparing");
   const live = rt.documents.get(frameKey(request.document));
   if (!live || !sameLoginDocument(live.document, request.document)) return refuse("page-changed");
+  yieldShownFill(rt, tabId);
   const check = async () =>
     (await pageRefusal(rt, live)) ??
     fillRefusal(rt, live) ??

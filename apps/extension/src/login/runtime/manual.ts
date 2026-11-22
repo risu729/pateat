@@ -1,4 +1,4 @@
-import { confirmBusy } from "./confirm-state";
+import { confirmBusy, yieldShownFill } from "./confirm-state";
 import { sameLoginDocument, type LoginAttemptMetadata } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import type { ManualOfferResponse, ManualStartRequest, ManualStartResponse } from "../manual-wire";
@@ -71,7 +71,9 @@ export async function pageRefusal(rt: Runtime, live: LiveDocument): Promise<stri
 }
 
 function attemptRefusal(rt: Runtime, live: LiveDocument): string | undefined {
-  if (confirmBusy(rt, live.document.tabId)) return "login-running";
+  // A fill for the account the page shows gives way to the person's own start instead.
+  if (confirmBusy(rt, live.document.tabId) && !rt.confirmFill.work.get(live.document.tabId)?.shown)
+    return "login-running";
   const running = rt.attempts.get(live.document.tabId);
   if (
     rt.options.passkeyActive?.(live.document.documentId) ||
@@ -208,6 +210,7 @@ export async function manualStart(
   const live = rt.documents.get(frameKey(request.document));
   if (!live || !sameLoginDocument(live.document, request.document))
     return { ok: false, reason: "page-changed" };
+  yieldShownFill(rt, tabId);
   const refuse = (reason: string): ManualStartResponse => ({ ok: false, reason: logCode(reason) });
   const refused = (await pageRefusal(rt, live)) ?? attemptRefusal(rt, live);
   if (refused) return refuse(refused);

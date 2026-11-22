@@ -110,6 +110,7 @@ async function fill(
       value: string;
       secret?: string;
     }[],
+    account = undefined as { username: string } | undefined,
   } = {},
 ) {
   const token = sent.find((entry) => typeof entry["token"] === "string")?.["token"];
@@ -136,6 +137,7 @@ async function fill(
       },
     },
     values,
+    ...(account ? { account } : {}),
   };
   for (const listener of listeners)
     listener(message, { id: "synthetic-extension" }, (reply) => {
@@ -611,3 +613,26 @@ test("the person's Fill on a cancellation page fills its password beside the sho
   expect(input("login-id").value).toBe(shownEmail);
   expect(effects).toEqual({ click: 0, enter: 0, submit: 0 });
 });
+
+test.each([
+  ["shows the account's username", "shown-user", { ok: true }, "Synthetic-only!"],
+  ["shows another username", "other-user", { ok: false, reason: "wrong-account" }, ""],
+  ["is given no account to compare", undefined, { ok: false, reason: "wrong-account" }, ""],
+] as const)(
+  "a fill for the account the page shows goes in only while the page %s (ADR 0035, amended 2026-11-22)",
+  async (_name, username, answer, value) => {
+    await install(
+      '<header><nav>Signed in as shown-user</nav></header><label>Password<input id="password" type="password"></label>',
+    );
+    expect(
+      await fill("password", {
+        slot: "password",
+        secret: "password",
+        value: "Synthetic-only!",
+        attemptId: "confirm:shown",
+        ...(username ? { account: { username } } : {}),
+      }),
+    ).toMatchObject(answer);
+    expect(input("password").value).toBe(value);
+  },
+);

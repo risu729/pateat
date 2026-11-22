@@ -8,6 +8,8 @@ vi.stubEnv("MODE", "production");
 const { pickFixture } = await import("./confirmation-pick-fixture");
 const {
   otherItemId,
+  connectionId,
+  popup,
   confirmations,
   cached,
   configure,
@@ -21,6 +23,13 @@ const {
 
 type H = ReturnType<typeof start>["h"];
 type Live = Parameters<typeof start>[1];
+const listed = { repromptSites: [{ hostname: "login.example", includeSubdomains: false }] };
+
+/** The page announces its form, then reports its first step shown, as the content script does. */
+async function announceShown(h: H) {
+  await announce(h);
+  await shownHello(h, { documentId: "confirmation-document" });
+}
 
 /** Each item's username, and the one the page shows in its header, if any. */
 function page(
@@ -51,6 +60,8 @@ function page(
   h.recipes.recipe.mockResolvedValue(undefined);
   // The page shows the site's signed-in marker, so its log signs are read at once.
   fake.state.present = new Set(["password", "login", "authenticated"]);
+  // The document announces again when asked, as the content script does.
+  fake.state.onReconnect = () => announceShown(h);
   return { h, reports };
 }
 
@@ -58,21 +69,17 @@ const passwordReads = (h: H) =>
   h.fields.mock.calls
     .filter(([read]) => read.fieldId === "login.password")
     .map(([read]) => read.account.itemId);
+/** How many usernames were sent to the page for its comparison, E2's and the lookup's. */
+const compared = () =>
+  fake.state.messages.filter(
+    (entry) => entry.type === "login.state" && (entry as { account?: unknown }).account,
+  ).length;
 
-/** The page announces its form, then reports its first step shown, as the content script does. */
-async function announceShown(h: H) {
-  await announce(h);
-  await shownHello(h, { documentId: "confirmation-document" });
-}
-
-/** Waits until the page's own rows are logged, so a fill that would start has started. */
-async function looked(h: H, reports: { type: string; detail?: string }[]) {
-  await vi.waitFor(() =>
-    expect(reports).toContainEqual(
-      expect.objectContaining({ type: "refused", detail: "confirm-unsupported" }),
-    ),
-  );
+/** Waits until the page compared `count` usernames and the lookup acted on its last answer. */
+async function looked(h: H, count: number) {
+  await vi.waitFor(() => expect(compared()).toBeGreaterThanOrEqual(count));
   await settled(h);
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("a verification page that shows one matching account's username", () => {
@@ -92,23 +99,45 @@ describe("a verification page that shows one matching account's username", () =>
     expect(clicks()).toEqual([]);
     await vi.waitFor(() =>
       expect(reports).toContainEqual(
-        expect.objectContaining({ detail: "confirm-fill", accountSource: "shown" }),
+        expect.objectContaining({ detail: "confirm-filled", accountSource: "shown" }),
       ),
     );
     expect(JSON.stringify(reports)).not.toContain(otherItemId);
-    // Another announcement of the same page fills nothing again.
+    // Another announcement of the same page fills nothing again, and is no unsupported page.
     await announceShown(h);
     await settled(h);
     expect(confirmations()).toHaveLength(1);
+    expect(reports).not.toContainEqual(expect.objectContaining({ detail: "confirm-unsupported" }));
+  });
+
+  it("still fills when the page reports its step shown while the vault is read", async () => {
+    const { h } = page({ first: "first-user", other: "other-user", shown: "other-user" });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const read = h.fields.getMockImplementation()!;
+    h.fields.mockImplementationOnce(async (...args) => {
+      await held;
+      return read(...args);
+    });
+    await announce(h);
+    await vi.waitFor(() => expect(h.fields).toHaveBeenCalled());
+    // The page's own report arrives as a new announcement of the same document.
+    await shownHello(h, { documentId: "confirmation-document" });
+    release();
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    expect(passwordReads(h)).toEqual([otherItemId]);
   });
 
   it.each([
-    ["shows no username", { first: "first-user", other: "other-user" }],
-    ["shows a username both accounts hold", { first: "same", other: "same", shown: "same" }],
-  ] as const)("fills nothing when the page %s", async (_name, usernames) => {
-    const { h, reports } = page(usernames);
+    ["shows no username", { first: "first-user", other: "other-user" }, 4],
+    ["shows a username both accounts hold", { first: "same", other: "same", shown: "same" }, 3],
+  ] as const)("fills nothing when the page %s", async (_name, usernames, count) => {
+    const { h } = page(usernames);
     await announceShown(h);
-    await looked(h, reports);
+    await looked(h, count);
+    expect(fake.state.messages.filter((entry) => entry.type === "login.reconnect")).toEqual([]);
     expect(confirmations()).toEqual([]);
     expect(passwordReads(h)).toEqual([]);
     // The popup still offers **Fill**.
@@ -118,17 +147,70 @@ describe("a verification page that shows one matching account's username", () =>
     });
   });
 
-  it("never fills an item that asks for the master password, nor asks for it", async () => {
+  it.each([
+    ["its username", { first: "first-user", other: "other-user", shown: "first-user" }, 3],
+    ["a username another item holds too", { first: "same", other: "same", shown: "same" }, 3],
+  ] as const)(
+    "never fills when an item asking for the master password shows %s",
+    async (_name, usernames, count) => {
+      const askMasterPassword = vi.fn();
+      const { h } = page(usernames, { reprompt: true, askMasterPassword }, listed);
+      await announceShown(h);
+      await looked(h, count);
+      expect(fake.state.messages.filter((entry) => entry.type === "login.reconnect")).toEqual([]);
+      expect(confirmations()).toEqual([]);
+      expect(passwordReads(h)).toEqual([]);
+      expect(askMasterPassword).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fills an item without the re-prompt beside one that has it", async () => {
     const askMasterPassword = vi.fn();
-    const { h, reports } = page(
-      { first: "first-user", other: "other-user", shown: "first-user" },
+    const { h } = page(
+      { first: "first-user", other: "other-user", shown: "other-user" },
       { reprompt: true, askMasterPassword },
-      { repromptSites: [{ hostname: "login.example", includeSubdomains: false }] },
+      listed,
     );
     await announceShown(h);
-    await looked(h, reports);
-    expect(confirmations()).toEqual([]);
-    expect(passwordReads(h)).toEqual([]);
+    await vi.waitFor(() => expect(confirmations()).toHaveLength(1));
+    expect(passwordReads(h)).toEqual([otherItemId]);
     expect(askMasterPassword).not.toHaveBeenCalled();
+  });
+
+  it("gives way to the person's own Fill press", async () => {
+    const { h } = page({ first: "first-user", other: "other-user", shown: "other-user" });
+    // The page's step is not ready yet, so the automatic fill waits for it.
+    let ready!: (value: { ok: boolean }) => void;
+    fake.state.awaited = new Promise((resolve) => {
+      ready = resolve;
+    }) as never;
+    await announceShown(h);
+    await vi.waitFor(() =>
+      expect(fake.state.messages.some((entry) => entry.type === "login.await")).toBe(true),
+    );
+    fake.state.awaited = { ok: true };
+    const offered = await offers(h);
+    if (!offered.ok) throw new Error("No page");
+    const [selected] = offered.targets;
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.confirm.fill",
+          requestId: "fill-press",
+          document: selected!.document,
+          scope: selected!.scope,
+          connectionId,
+          itemId: otherItemId,
+        },
+        popup,
+      ),
+    ).toMatchObject({ ok: true });
+    ready({ ok: true });
+    await vi.waitFor(() =>
+      expect(confirmations().map((entry) => entry.operation.attemptId)).toEqual([
+        expect.stringMatching(/^confirm:pick:/),
+      ]),
+    );
   });
 });

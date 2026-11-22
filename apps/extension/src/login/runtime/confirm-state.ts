@@ -301,6 +301,15 @@ export function confirmBusy(rt: Runtime, tabId?: number): boolean {
   return tabId === undefined ? rt.confirmFill.work.size > 0 : rt.confirmFill.work.has(tabId);
 }
 
+/**
+ * The person's own **Fill**, **Log in now** or account switch in the tab stops a fill
+ * Pateat started for the account the page shows (ADR 0035, amended 2026-11-22), rather
+ * than being refused for it.
+ */
+export function yieldShownFill(rt: Runtime, tabId: number): void {
+  if (rt.confirmFill.work.get(tabId)?.shown) cancelConfirm(rt, tabId);
+}
+
 export function cancelConfirm(rt: Runtime, tabId?: number): void {
   for (const [id, work] of rt.confirmFill.work) {
     if (tabId !== undefined && id !== tabId) continue;

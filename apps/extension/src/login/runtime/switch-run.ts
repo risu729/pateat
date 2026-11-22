@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { confirmBusy } from "./confirm-state";
+import { confirmBusy, yieldShownFill } from "./confirm-state";
 import { isEntryObservation } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import {
@@ -42,6 +42,7 @@ export async function switchFor(
   const site = live && siteOf(live.document.origin);
   if (!live || site === undefined) return { ok: false, reason: "no-page" };
   if (rt.pending.has(tabId)) return { ok: false, reason: "choice-waiting" };
+  yieldShownFill(rt, tabId);
   if (rt.switchesRunning.has(tabId) || confirmBusy(rt, tabId))
     return { ok: false, reason: "in-progress" };
   const running = tabAttempt(rt, tabId);

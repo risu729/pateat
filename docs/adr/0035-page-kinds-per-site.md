@@ -975,31 +975,39 @@ pages). Until now only the tab's own `authenticated` login lent its account (del
 Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a decision card):
 
 - In a tab without a login record for the page's origin, a top page on whose path a
-  `confirm` or `unclear` recipe starts, which Pateat may fill there (page setting
-  `fill`), on a site not paused, is filled automatically when it shows the username of
-  exactly one of its matching accounts (`admitConfirmShown` in
+  `confirm` or `unclear` recipe starts with a fill, which Pateat may fill there (page
+  setting `fill`), on a site not paused, is filled automatically when it shows the
+  username of exactly one of its matching accounts (`admitConfirmShown` in
   `apps/extension/src/login/runtime/confirm-admit.ts`, `shownConfirmAccount` in
   `confirm-shown.ts`).
 - Which account the page shows is read as ADR 0029's E2 reads it: each matching item's
   username is read from the vault, compared with the page's header and navigation in
-  its content script, and dropped. Only items matching the page's own URL count; an
-  item that asks for the master password on the site, an item without a username or
-  whose username the policy excludes never does. Nothing fills when no account or more
-  than one matches (as two items with the same username), when a vault is unavailable
-  or an item's URIs could not all be checked, when a username cannot be read or the page
-  does not answer, or when more than `MAX_HINT_USERNAMES` (8) accounts would be read.
+  its content script, and dropped. Only items matching the page's own URL count, every
+  one of them is compared, and an item without a username or whose username the policy
+  excludes never shows. Nothing fills when no account or more than one matches (as two
+  items with the same username), when the one that matches asks for the master password
+  on the site, when a vault is unavailable or an item's URIs could not all be checked,
+  when a username cannot be read or the page does not answer, or when more than
+  `MAX_HINT_USERNAMES` (8) accounts would be read.
 - The account is read once per document, path and recipe, in the background after the
-  page first announces there, so the page's own answer is not delayed. A page whose
-  header shows the account only later is left to the popup's **Fill**.
+  page first announces there, so the page's own answer is not delayed; a later
+  announcement of the same document on the same path, as its report of the step shown,
+  does not stop it. Once one account is found, the document is asked to announce again,
+  and that announcement starts the fill. The background keeps what it found for the
+  latest 256 such pages. A page whose header shows the account only after that read is
+  left to the popup's **Fill**.
 - The fill is the delivery-3 confirmation fill with that account: one `prepare` fill of
-  the recipe's step, keeping any value already in the page, pressing nothing, with the
-  content script's own comparison of the account the page shows. It never asks for the
-  master password (it stops at `reprompt` instead). It stops when a login, an account
-  switch, an SSO flow or the person's **Fill** press starts in the tab, or a login is
-  recorded for the origin. Its log rows carry `accountSource` `shown`, never the
-  account.
+  the recipe's step, keeping any value already in the page and pressing nothing. Its
+  attempt ID is `confirm:shown`, and the content script writes it only while the page
+  still shows that account's username, just before it writes; otherwise it answers
+  `wrong-account` and fills nothing. It never asks for the master password (it stops at
+  `reprompt` instead). It stops when a login, SSO flow or login record of the origin
+  appears in the tab, and gives way to the person's own **Fill**, **Log in now** or
+  account switch, which cancel it rather than being refused. Its log rows carry
+  `accountSource` `shown`, never the account.
 - A page where this fill ended is not filled again while the document stays on that
-  path; the popup's **Fill** still works there.
+  path, and its later announcements keep its `confirm-filled` status and rows; the
+  popup's **Fill** still works there.
 
 Not chosen: filling every verification of a signed-in site with the site default, which
 could put one account's secret into a page signed in as another; and filling only after

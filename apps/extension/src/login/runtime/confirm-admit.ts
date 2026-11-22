@@ -1,3 +1,4 @@
+import { browser } from "wxt/browser";
 import { frameKey } from "./steps";
 import { publish } from "./attempt";
 import {
@@ -24,9 +25,10 @@ import {
   type ConfirmWork,
 } from "./confirm-state";
 import { confirmAccount, confirmCurrent } from "./confirm-scope";
-import { fillConfirmation, type ConfirmFillEnd } from "./confirm-fill";
+import { confirmationSteps, fillConfirmation, type ConfirmFillEnd } from "./confirm-fill";
 import {
   confirmEnded,
+  confirmEndedBy,
   noteConfirmFill,
   noteConfirmSkipped,
   noteConfirmWaiting,
@@ -180,18 +182,39 @@ export async function admitConfirm(rt: Runtime, ctx: AdmitContext): Promise<Read
   return answer(rt, ctx, recipe ? "confirm-fill" : "generating", visit);
 }
 
-/** The documents and paths whose shown account was read already, once each. */
-const shownLooked = new WeakMap<Runtime, Set<string>>();
+/**
+ * What was found of the account a document shows on a path, once per document, path and
+ * recipe: being read, nothing, or the one account, kept until the document's next
+ * announcement takes it. The latest `SHOWN_LOOKS_MAX` are kept.
+ */
+type ShownLook =
+  | "looking"
+  | "none"
+  | { account: { origin: string; connectionId: string; itemId: string } };
+const SHOWN_LOOKS_MAX = 256;
+const shownLooks = new WeakMap<Runtime, Map<string, ShownLook>>();
+function rememberLook(rt: Runtime, key: string, look: ShownLook | undefined): void {
+  const looks = shownLooks.get(rt) ?? new Map<string, ShownLook>();
+  shownLooks.set(rt, looks);
+  looks.delete(key);
+  if (look === undefined) return;
+  looks.set(key, look);
+  for (const oldest of looks.keys()) {
+    if (looks.size <= SHOWN_LOOKS_MAX) break;
+    looks.delete(oldest);
+  }
+}
 
 /**
  * A verification page in a tab without Pateat's login (ADR 0035, amended 2026-11-22):
  * when the page shows the username of exactly one of its matching accounts, that account
  * fills the page's recipe once, as a login's confirmation fill does, pressing nothing and
- * never asking for the master password. The account is read once per document and path,
- * in the background once the page first announces there, so the page's announcement is
- * answered as before meanwhile; a paused site, a running login or **Fill** press and a
- * fill that already ended there leave the page to the popup's **Fill**. Undefined unless
- * this document's fill is at work; the caller's answer follows.
+ * never asking for the master password. The account is read once per document, path and
+ * recipe, in the background after the page first announces there, so its answer is not
+ * delayed; once found, the document is asked to announce again, and that announcement
+ * starts the fill. A paused site, a running login, account switch or **Fill** press, and
+ * a fill that ended there leave the page to the popup's **Fill**. Undefined when it does
+ * not fill; the caller's answer follows.
  */
 export async function admitConfirmShown(
   rt: Runtime,
@@ -199,54 +222,69 @@ export async function admitConfirmShown(
   recipe: LoginRecipe,
   visit: ConfirmVisit,
 ): Promise<Readiness | undefined> {
-  const { tabId } = ctx.document;
+  const { tabId, frameId, documentId } = ctx.document;
+  const { path } = ctx.live;
   await rt.confirmFill.loaded;
   const work = rt.confirmFill.work.get(tabId);
   // This document's own fill is still at work: its announcement is answered as such.
-  if (work?.shown && work.live === ctx.live) return answer(rt, ctx, "confirm-fill", visit);
+  if (work?.shown && work.live.document.documentId === documentId && work.live.path === path)
+    return answer(rt, ctx, "confirm-fill", visit);
+  // Its fill ended on this path: the page's rows and status say so, as for a login's.
+  const endedBy = confirmEndedBy(rt, ctx.live);
+  const ended = confirmEnded(rt, ctx.live);
+  if (endedBy === "shown" && ended) {
+    noteConfirmFill(rt, ctx.live, ctx.shown, visit, "shown");
+    ctx.live.state = "watching";
+    ctx.live.reason = ended;
+    await publish(rt, ctx.live);
+    return answer(rt, ctx, "confirm-fill", visit);
+  }
   const running = tabAttempt(rt, tabId);
-  if (
+  const held = () =>
     ctx.paused ||
     ctx.manual ||
     confirmBusy(rt, tabId) ||
-    (running && !terminal(running)) ||
+    (running !== undefined && !terminal(running)) ||
     recordFor(rt, tabId, ctx.document.origin) !== undefined ||
     rt.manualStarts.get(tabId)?.pick !== undefined ||
     confirmPickFor(rt, ctx.live) !== undefined ||
     manualPending(rt, ctx.live) ||
-    confirmEnded(rt, ctx.live) !== undefined
-  )
-    return undefined;
-  const looked = shownLooked.get(rt) ?? new Set<string>();
-  shownLooked.set(rt, looked);
-  const key = JSON.stringify([tabId, ctx.document.documentId, ctx.live.path, recipe.id]);
-  if (looked.has(key)) return undefined;
-  looked.add(key);
-  void (async () => {
-    const account = await shownConfirmAccount(rt, ctx.live);
-    // Checked again after the reads above.
-    const latest = tabAttempt(rt, tabId);
-    if (
-      !account ||
-      rt.documents.get(ctx.key) !== ctx.live ||
-      confirmBusy(rt, tabId) ||
-      (latest && !terminal(latest)) ||
-      recordFor(rt, tabId, ctx.document.origin) !== undefined ||
-      rt.manualStarts.get(tabId)?.pick !== undefined ||
-      confirmPickFor(rt, ctx.live) !== undefined ||
-      manualPending(rt, ctx.live) ||
-      confirmEnded(rt, ctx.live) !== undefined
-    )
-      return;
+    rt.switchesRunning.has(tabId) ||
+    endedBy !== undefined;
+  // Nothing on this path for a fill to do: no account is read for it.
+  if (held() || !confirmationSteps(recipe, path).length) return undefined;
+  const key = JSON.stringify([tabId, documentId, path, recipe.id]);
+  const look = shownLooks.get(rt)?.get(key);
+  if (typeof look === "object") {
+    rememberLook(rt, key, "none");
     noteConfirmFill(rt, ctx.live, ctx.shown, visit, "shown");
     runConfirmWork(
       rt,
       ctx,
-      { live: ctx.live, id: "shown", account, shown: true },
+      { live: ctx.live, id: "shown", account: look.account, shown: true },
       recipe,
       confirmationGenerationKey("shown", ctx.live),
     );
-  })().catch(() => undefined);
+    return answer(rt, ctx, "confirm-fill", visit);
+  }
+  if (look !== undefined) return undefined;
+  rememberLook(rt, key, "looking");
+  // The document's latest announcement on this path, whichever object holds it.
+  const here = () => {
+    const page = rt.documents.get(ctx.key);
+    return page?.document.documentId === documentId && page.path === path ? page : undefined;
+  };
+  void (async () => {
+    const account = await shownConfirmAccount(rt, ctx.live, here);
+    // A document that left the path is read again should it come back.
+    if (!here()) return rememberLook(rt, key, undefined);
+    if (!account) return rememberLook(rt, key, "none");
+    rememberLook(rt, key, { account });
+    await browser.tabs
+      .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId, documentId })
+      .catch(() => rememberLook(rt, key, undefined));
+    return undefined;
+  })().catch(() => rememberLook(rt, key, undefined));
   return undefined;
 }
 

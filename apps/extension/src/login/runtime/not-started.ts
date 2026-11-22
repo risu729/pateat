@@ -136,6 +136,12 @@ export function confirmEnded(rt: Runtime, live: LiveDocument): ConfirmOutcome | 
   return outcome.reason !== "confirm-fill-stopped" || outcome.declined ? outcome.reason : undefined;
 }
 
+/** Whose account filled the document on its path, when that fill ended for good. */
+export function confirmEndedBy(rt: Runtime, live: LiveDocument): ConfirmAccountSource | undefined {
+  if (!confirmEnded(rt, live)) return undefined;
+  return rt.confirmFill.outcomes.get(documentOf(live))?.accountSource ?? "login";
+}
+
 /**
  * Records how the document's confirmation fill on `path` ended, `declined` when the person
  * closed its master password window. While `page`, the document's latest announcement, is

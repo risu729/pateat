@@ -7,36 +7,34 @@ import { stateResultSchema } from "../wire";
 import { send } from "./attempt";
 import { generationSlotsFor, usernameReads } from "./generation-scope";
 import { MAX_HINT_USERNAMES } from "./constants";
-import { frameKey } from "./steps";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
 
 /**
- * The one matching account whose username `live` shows in its header or navigation, read
- * once, as ADR 0029's E2 reads it: each account's username is read from the vault, sent
- * to the page's content script for its comparison and dropped. Items that ask for the
- * master password on the page, items without a username and items matching only a
- * frame's URL never count. None when no account or more than one matches, when a vault
- * is unavailable or an item's URIs could not all be checked, when more than
- * `MAX_HINT_USERNAMES` accounts would be read, or when the page changed meanwhile.
+ * The one matching account whose username the page shows in its header or navigation,
+ * read once, as ADR 0029's E2 reads it: each account's username is read from the vault,
+ * sent to the page's content script for its comparison and dropped. Only items matching
+ * the page's own URL count, and every one of them is compared, so two items with the
+ * same username leave the page to the person. None when no account or more than one
+ * matches, when the one that does asks for the master password on the page, when a vault
+ * is unavailable or an item's URIs could not all be checked, when a username cannot be
+ * read or the page does not answer, when more than `MAX_HINT_USERNAMES` accounts would be
+ * read, or once `here` no longer finds the document on its path.
  */
 export async function shownConfirmAccount(
   rt: Runtime,
   live: LiveDocument,
+  here: () => LiveDocument | undefined,
 ): Promise<{ origin: string; connectionId: string; itemId: string } | undefined> {
   const scope = await generationSlotsFor(rt, live).catch(() => undefined);
   if (!scope?.complete) return undefined;
-  const items = scope.items.filter(
-    ({ item }) => !itemAsksForMasterPassword(scope.settings, item, live.url),
-  );
-  const reads = usernameReads(rt, { ...scope, items, frameOnly: [] });
+  const reads = usernameReads(rt, { ...scope, frameOnly: [] });
   if (!reads.length || reads.length > MAX_HINT_USERNAMES) return undefined;
-  const current = () => rt.documents.get(frameKey(live.document)) === live;
   const shown: { connectionId: string; itemId: string }[] = [];
   // Serial reads through the shared vault host and of one page, as for E2.
   /* eslint-disable no-await-in-loop */
   for (const { connection, itemId, fieldId } of reads) {
-    if (!current()) return undefined;
+    if (!here()) return undefined;
     let username = await rt
       .fields({
         account: { origin: live.document.origin, connectionId: connection.id, itemId },
@@ -49,13 +47,20 @@ export async function shownConfirmAccount(
     if (!username) continue;
     const account = { username };
     username = "";
-    const answer = await send(rt, live, { type: "login.state", account }).catch(() => undefined);
+    const page = here();
+    const answer =
+      page && (await send(rt, page, { type: "login.state", account }).catch(() => undefined));
     account.username = "";
     const parsed = v.safeParse(stateResultSchema, answer);
     if (!parsed.success || !parsed.output.ok) return undefined;
     if (parsed.output.signs.username === true) shown.push({ connectionId: connection.id, itemId });
   }
   /* eslint-enable no-await-in-loop */
-  if (shown.length !== 1 || !current()) return undefined;
-  return { origin: live.document.origin, ...shown[0]! };
+  const [one] = shown;
+  if (shown.length !== 1 || !one || !here()) return undefined;
+  const item = scope.items.find(
+    (entry) => entry.connection.id === one.connectionId && entry.item.id === one.itemId,
+  )?.item;
+  if (!item || itemAsksForMasterPassword(scope.settings, item, live.url)) return undefined;
+  return { origin: live.document.origin, ...one };
 }
