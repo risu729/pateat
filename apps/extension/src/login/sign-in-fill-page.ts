@@ -4,6 +4,7 @@ import type * as v from "valibot";
 import { fillOnlyStep } from "@pateat/contracts";
 import { pageChange } from "../page/page-change";
 import { fillUntouched, fillWrote } from "../page/fill-edits";
+import { showsUsername } from "../page/sign-in-state";
 import type { commandSchema } from "./wire/commands";
 import type { LoginReadiness } from "./wire/readiness";
 import type { FormDestination } from "../page/form-destination";
@@ -19,6 +20,26 @@ export const CONFIRM_ATTEMPT_PREFIX = "confirm:";
  * the popup (ADR 0035, amended 2026-11-17): it is also a confirmation fill.
  */
 export const CONFIRM_PICK_ATTEMPT_PREFIX = `${CONFIRM_ATTEMPT_PREFIX}pick:`;
+/**
+ * The attempt ID of a confirmation page's fill for the one account whose username the page
+ * shows, in a tab without Pateat's login (ADR 0035, amended 2026-11-22).
+ */
+export const CONFIRM_SHOWN_ATTEMPT_ID = `${CONFIRM_ATTEMPT_PREFIX}shown`;
+/**
+ * Whether a fill chosen by the account the page shows must not go in: the page no longer
+ * shows that account's username in its header or navigation, or the command carries no
+ * account to compare. The username is dropped then.
+ */
+export function shownAccountGone(
+  document: Document,
+  operation: { attemptId: string },
+  command: { account?: { username: string } | undefined },
+): boolean {
+  if (operation.attemptId !== CONFIRM_SHOWN_ATTEMPT_ID) return false;
+  if (command.account && showsUsername(document, command.account.username)) return false;
+  if (command.account) command.account.username = "";
+  return true;
+}
 /** Whether a fill operation fills a confirmation page, for a login or the person's press. */
 export const confirmOperation = (operation: { attemptId: string }): boolean =>
   operation.attemptId.startsWith(CONFIRM_ATTEMPT_PREFIX);

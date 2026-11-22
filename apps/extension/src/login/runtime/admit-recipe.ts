@@ -57,6 +57,7 @@ import type { Runtime } from "./state";
 import { admitStart } from "./admit-start";
 import type { AdmitContext, AdmitStartContext } from "./admit-context";
 import { passiveSignIn, pageOff } from "./sign-in-fill";
+import { admitConfirmShown } from "./confirm-admit";
 import { pagePermission } from "./page-permission";
 
 export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readiness> {
@@ -439,6 +440,9 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       if (permission.permission !== "fill")
         return pageOff(rt, ctx.live, confirm, permission.source, ctx.shown?.amount);
       const visit = confirmPage(rt, ctx.live, confirm);
+      // The page shows the username of one matching account (ADR 0035, amended 2026-11-22).
+      const shown = await admitConfirmShown(rt, ctx, confirm, visit);
+      if (shown) return shown;
       ctx.notStarted("confirm-unsupported", visit);
       ctx.live.state = "watching";
       delete ctx.live.reason;

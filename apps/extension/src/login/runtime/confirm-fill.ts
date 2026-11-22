@@ -30,7 +30,11 @@ import {
   sameAuthority,
 } from "./confirm-scope";
 import { accountDestinationRefusal } from "./plan";
-import { CONFIRM_ATTEMPT_PREFIX, CONFIRM_PICK_ATTEMPT_PREFIX } from "../sign-in-fill-page";
+import {
+  CONFIRM_ATTEMPT_PREFIX,
+  CONFIRM_PICK_ATTEMPT_PREFIX,
+  CONFIRM_SHOWN_ATTEMPT_ID,
+} from "../sign-in-fill-page";
 import type { Runtime } from "./state";
 import type { Sender } from "./types";
 
@@ -169,7 +173,9 @@ export async function fillConfirmation(
     const operation: LoginOperation = {
       version: 1,
       // The person's press may replace a value Pateat put in the page; a login's may not.
-      attemptId: (work.pick ? CONFIRM_PICK_ATTEMPT_PREFIX : CONFIRM_ATTEMPT_PREFIX) + work.id,
+      attemptId: work.shown
+        ? CONFIRM_SHOWN_ATTEMPT_ID
+        : (work.pick ? CONFIRM_PICK_ATTEMPT_PREFIX : CONFIRM_ATTEMPT_PREFIX) + work.id,
       operationId: newId(),
       document: work.live.document,
       policyRevision: work.policyRevision,

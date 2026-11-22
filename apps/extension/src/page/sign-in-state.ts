@@ -383,7 +383,7 @@ export function showsCaptcha(document: Document): boolean {
  * touch a letter of another script, such as kana or kanji, there (`taro_yさん`). An all-digit one may touch kana or kanji only
  * with {@link memberNumberMinDigits} digits or more, and no other letter.
  */
-function showsUsername(document: Document, username: string): boolean {
+export function showsUsername(document: Document, username: string): boolean {
   // Page text is read without format characters, so the username is compared without them.
   const name = username
     .replace(/\p{Cf}+/gu, "")

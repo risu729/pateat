@@ -39,13 +39,21 @@ export const DECLINED_KEPT = 16;
 /** How a document's confirmation fill on a path ended, for the popup (ADR 0038). */
 export type ConfirmOutcome = "confirm-filled" | "confirm-fill-kept" | "confirm-fill-stopped";
 /** Whose account a confirmation fill uses, as its log entries name it, never the account. */
-export type ConfirmAccountSource = "login" | "pick";
+/**
+ * Whose account fills a verification page: the tab's confirmed login's, the person's
+ * **Fill** pick's, or the one account whose username the page shows (amended 2026-11-22).
+ */
+export type ConfirmAccountSource = "login" | "pick" | "shown";
 /**
  * A master password the confirmation's own window accepted for `attemptId connectionId`:
  * it fills the document once, on the path and with the recipe it was asked for, before it
  * expires (ADR 0035 delivery 3).
  */
 export type ConfirmGrant = { grant: string; path: string; recipeId: string; expires: number };
+/** Whose account a confirmation work fills, for its log rows. */
+export const sourceOf = (work: Pick<ConfirmWork, "pick" | "shown">): ConfirmAccountSource =>
+  work.pick ? "pick" : work.shown ? "shown" : "login";
+
 export type ConfirmWork = {
   live: LiveDocument;
   /** Whose fill this is: the tab's confirmed login's ID, or the person's popup press's. */
@@ -56,6 +64,11 @@ export type ConfirmWork = {
   parent?: LoginAttemptMetadata;
   /** The person's **Fill** press in the popup, in place of `parent` (amended 2026-11-17). */
   pick?: ConfirmPick;
+  /**
+   * In place of both, in a tab without Pateat's login: the page shows the username of
+   * this one matching account (ADR 0035, amended 2026-11-22).
+   */
+  shown?: true;
   topDocumentId: string | undefined;
   policyRevision?: number;
   snapshotId?: string;
@@ -286,6 +299,70 @@ export async function claimConfirm(rt: Runtime, work: ConfirmWork, key: string):
 
 export function confirmBusy(rt: Runtime, tabId?: number): boolean {
   return tabId === undefined ? rt.confirmFill.work.size > 0 : rt.confirmFill.work.has(tabId);
+}
+
+/** A fill in the tab other than one for the account the page shows, which yields. */
+export function confirmBusyBesideShown(rt: Runtime, tabId: number): boolean {
+  const work = rt.confirmFill.work.get(tabId);
+  return work !== undefined && !work.shown;
+}
+
+/**
+ * The person's own **Fill**, **Log in now** or account switch in the tab stops a fill
+ * Pateat started for the account the page shows (ADR 0035, amended 2026-11-22), rather
+ * than being refused for it. Called once the press is accepted, in the same step that
+ * registers it, so a press refused for another reason leaves that fill at work.
+ */
+export function yieldShownFill(rt: Runtime, tabId: number): void {
+  if (rt.confirmFill.work.get(tabId)?.shown) cancelConfirm(rt, tabId);
+}
+
+const presses = new WeakMap<Runtime, Map<number, number>>();
+
+/** Whether the person's **Fill**, **Log in now** or account switch is being checked. */
+export function pressPending(rt: Runtime, tabId: number): boolean {
+  return (presses.get(rt)?.get(tabId) ?? 0) > 0;
+}
+
+const refusedPress = new WeakMap<Runtime, Map<number, () => void>>();
+
+/**
+ * Runs `then` once the press being checked in the tab is refused, so a fill it held
+ * back may start after all; an accepted press drops it.
+ */
+export function afterRefusedPress(rt: Runtime, tabId: number, then: () => void): void {
+  let waiting = refusedPress.get(rt);
+  if (!waiting) refusedPress.set(rt, (waiting = new Map()));
+  waiting.set(tabId, then);
+}
+
+/**
+ * Runs the person's press in the tab, during which no fill for the account the page
+ * shows starts there, so the press is never refused for one that started meanwhile.
+ */
+export async function asPress<T extends { ok: boolean }>(
+  rt: Runtime,
+  tabId: number,
+  run: () => Promise<T>,
+): Promise<T> {
+  let counts = presses.get(rt);
+  if (!counts) presses.set(rt, (counts = new Map()));
+  counts.set(tabId, (counts.get(tabId) ?? 0) + 1);
+  let accepted = false;
+  try {
+    const result = await run();
+    accepted = result.ok;
+    return result;
+  } finally {
+    const left = (counts.get(tabId) ?? 1) - 1;
+    if (left > 0) counts.set(tabId, left);
+    else {
+      counts.delete(tabId);
+      const then = refusedPress.get(rt)?.get(tabId);
+      refusedPress.get(rt)?.delete(tabId);
+      if (!accepted) then?.();
+    }
+  }
 }
 
 export function cancelConfirm(rt: Runtime, tabId?: number): void {

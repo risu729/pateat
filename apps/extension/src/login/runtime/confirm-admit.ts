@@ -1,3 +1,4 @@
+import { browser } from "wxt/browser";
 import { frameKey } from "./steps";
 import { publish } from "./attempt";
 import {
@@ -18,20 +19,25 @@ import {
   confirmBusy,
   hasConfirmAuthentication,
   pressGenerationKey,
+  pressPending,
+  afterRefusedPress,
   releaseConfirmClaim,
   releasePressHolds,
+  sourceOf,
   type ConfirmWork,
 } from "./confirm-state";
 import { confirmAccount, confirmCurrent } from "./confirm-scope";
-import { fillConfirmation, type ConfirmFillEnd } from "./confirm-fill";
+import { confirmationSteps, fillConfirmation, type ConfirmFillEnd } from "./confirm-fill";
 import {
   confirmEnded,
+  confirmEndedBy,
   noteConfirmFill,
   noteConfirmSkipped,
   noteConfirmWaiting,
   settleConfirmFill,
 } from "./not-started";
 import { manualPending } from "./manual-scope";
+import { shownConfirmAccount } from "./confirm-shown";
 import { confirmPickFor, endConfirmPick, type ConfirmPick } from "./confirm-pick-scope";
 import { explicitlyPicked } from "./page-permission";
 import { recordFor, tabAttempt } from "./hold";
@@ -179,6 +185,132 @@ export async function admitConfirm(rt: Runtime, ctx: AdmitContext): Promise<Read
 }
 
 /**
+ * What was found of the account a document shows on a path, once per document, path and
+ * recipe: being read, nothing, or the one account, kept until the document's next
+ * announcement takes it. The latest `SHOWN_LOOKS_MAX` are kept.
+ */
+type ShownLook =
+  | "looking"
+  | "none"
+  | { account: { origin: string; connectionId: string; itemId: string } };
+const SHOWN_LOOKS_MAX = 256;
+const shownLooks = new WeakMap<Runtime, Map<string, ShownLook>>();
+function rememberLook(rt: Runtime, key: string, look: ShownLook | undefined): void {
+  const looks = shownLooks.get(rt) ?? new Map<string, ShownLook>();
+  shownLooks.set(rt, looks);
+  looks.delete(key);
+  if (look === undefined) return;
+  looks.set(key, look);
+  for (const oldest of looks.keys()) {
+    if (looks.size <= SHOWN_LOOKS_MAX) break;
+    looks.delete(oldest);
+  }
+}
+
+/**
+ * A verification page in a tab without Pateat's login (ADR 0035, amended 2026-11-22):
+ * when the page shows the username of exactly one of its matching accounts, that account
+ * fills the page's recipe once, as a login's confirmation fill does, pressing nothing and
+ * never asking for the master password. The account is read once per document, path and
+ * recipe, in the background after the page first announces there, so its answer is not
+ * delayed; once found, the document is asked to announce again, and that announcement
+ * starts the fill. A paused site, a running login, account switch or **Fill** press, and
+ * a fill that ended there leave the page to the popup's **Fill**. Undefined when it does
+ * not fill; the caller's answer follows.
+ */
+export async function admitConfirmShown(
+  rt: Runtime,
+  ctx: AdmitContext,
+  recipe: LoginRecipe,
+  visit: ConfirmVisit,
+): Promise<Readiness | undefined> {
+  const { tabId, frameId, documentId } = ctx.document;
+  const { path } = ctx.live;
+  await rt.confirmFill.loaded;
+  const work = rt.confirmFill.work.get(tabId);
+  // This document's own fill is still at work: its announcement is answered as such.
+  if (work?.shown && work.live.document.documentId === documentId && work.live.path === path)
+    return answer(rt, ctx, "confirm-fill", visit);
+  // Its fill ended on this path: the page's rows and status say so, as for a login's.
+  const endedBy = confirmEndedBy(rt, ctx.live);
+  const ended = confirmEnded(rt, ctx.live);
+  if (endedBy === "shown" && ended) {
+    noteConfirmFill(rt, ctx.live, ctx.shown, visit, "shown");
+    ctx.live.state = "watching";
+    ctx.live.reason = ended;
+    await publish(rt, ctx.live);
+    return answer(rt, ctx, "confirm-fill", visit);
+  }
+  const running = tabAttempt(rt, tabId);
+  const held = () =>
+    ctx.paused ||
+    ctx.manual ||
+    confirmBusy(rt, tabId) ||
+    (running !== undefined && !terminal(running)) ||
+    recordFor(rt, tabId, ctx.document.origin) !== undefined ||
+    rt.manualStarts.get(tabId)?.pick !== undefined ||
+    confirmPickFor(rt, ctx.live) !== undefined ||
+    manualPending(rt, ctx.live) ||
+    rt.switchesRunning.has(tabId) ||
+    pressPending(rt, tabId) ||
+    endedBy !== undefined;
+  const key = JSON.stringify([tabId, documentId, path, recipe.id]);
+  // The document's latest announcement on this path, whichever object holds it.
+  const here = () => {
+    const page = rt.documents.get(ctx.key);
+    return page?.document.documentId === documentId && page.path === path ? page : undefined;
+  };
+  const reconnect = () =>
+    browser.tabs.sendMessage(
+      tabId,
+      { version: 1, type: "login.reconnect" },
+      { frameId, documentId },
+    );
+  // An account found while the tab is held is read again once the page is free, as the
+  // vault may have changed meanwhile; a press refused meanwhile has the page announce.
+  const drop = () => {
+    rememberLook(rt, key, undefined);
+    if (pressPending(rt, tabId))
+      afterRefusedPress(rt, tabId, () => {
+        if (here()) reconnect().catch(() => undefined);
+      });
+  };
+  // Nothing on this path for a fill to do: no account is read for it.
+  if (held() || !confirmationSteps(recipe, path).length) {
+    if (typeof shownLooks.get(rt)?.get(key) === "object") drop();
+    return undefined;
+  }
+  const look = shownLooks.get(rt)?.get(key);
+  if (typeof look === "object") {
+    rememberLook(rt, key, "none");
+    noteConfirmFill(rt, ctx.live, ctx.shown, visit, "shown");
+    runConfirmWork(
+      rt,
+      ctx,
+      { live: ctx.live, id: "shown", account: look.account, shown: true },
+      recipe,
+      confirmationGenerationKey("shown", ctx.live),
+    );
+    return answer(rt, ctx, "confirm-fill", visit);
+  }
+  if (look !== undefined) return undefined;
+  rememberLook(rt, key, "looking");
+  void (async () => {
+    const account = await shownConfirmAccount(rt, ctx.live, here);
+    // A document that left the path is read again should it come back.
+    if (!here()) return rememberLook(rt, key, undefined);
+    if (!account) return rememberLook(rt, key, "none");
+    // A press or login that took the tab meanwhile is not disturbed by an announcement;
+    // the account is read again once the page is free.
+    if (held()) return drop();
+    rememberLook(rt, key, { account });
+    await reconnect().catch(() => rememberLook(rt, key, undefined));
+    return undefined;
+  })().catch(() => rememberLook(rt, key, undefined));
+  return undefined;
+}
+
+/**
  * A page a **Fill** press sent for generation that did not come back as a verification
  * starts no login while its document stays on that path, also with a returned sign-in
  * recipe and across a worker restart (the press's generation claim holds it), so a press
@@ -303,7 +435,7 @@ type ConfirmEnd =
 function runConfirmWork(
   rt: Runtime,
   ctx: AdmitContext,
-  authority: Pick<ConfirmWork, "live" | "id" | "account" | "parent" | "pick">,
+  authority: Pick<ConfirmWork, "live" | "id" | "account" | "parent" | "pick" | "shown">,
   recipe: LoginRecipe | undefined,
   generationKey: string,
   done?: (end: ConfirmEnd) => void,
@@ -385,7 +517,7 @@ function runConfirmWork(
         newer !== undefined && newer.live.document.documentId === ctx.document.documentId;
       if (recipe && !superseded && page?.document.documentId === ctx.document.documentId) {
         if (end === "asked" || end === "claimed") {
-          noteConfirmWaiting(rt, page, ctx.live.path, end, work.pick ? "pick" : "login");
+          noteConfirmWaiting(rt, page, ctx.live.path, end, sourceOf(work));
           if (page === ctx.live) await publish(rt, ctx.live);
         } else
           await settleConfirmFill(
@@ -394,7 +526,7 @@ function runConfirmWork(
             ctx.live.path,
             OUTCOMES[end],
             false,
-            work.pick ? "pick" : "login",
+            sourceOf(work),
             end === "stopped" ? work.stoppedAt : undefined,
           );
       }

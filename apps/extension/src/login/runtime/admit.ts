@@ -56,6 +56,7 @@ import {
   enterConfirmPath,
   hasConfirmAuthentication,
   leaveConfirmDocuments,
+  sourceOf,
 } from "./confirm-state";
 import { startsFor } from "./generation-scope";
 import { confirmPickFor, confirmPickWaits } from "./confirm-pick-scope";
@@ -185,7 +186,7 @@ export async function admit(
         visit !== undefined &&
         sameLoginDocument(visit.document, document) &&
         visit.path === confirming.live.path;
-      if (here) noteConfirmFill(rt, confirming.live, shown, visit);
+      if (here) noteConfirmFill(rt, confirming.live, shown, visit, sourceOf(confirming));
       // The page keeps watching the origin's first steps, as for `logged-in` (ADR 0062).
       const starts = await startsFor(rt, document.origin);
       if (rt.hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
