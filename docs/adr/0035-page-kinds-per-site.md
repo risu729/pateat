@@ -989,7 +989,8 @@ Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a
   on the site, when a vault is unavailable or an item's URIs could not all be checked,
   when a username cannot be read or the page does not answer, or when more than
   `MAX_HINT_USERNAMES` (8) accounts would be read.
-- An account number shown masked counts too (owner decision pending, ANA's
+- An account number shown masked counts too (owner, 2026-11-22 17:16 UTC,
+  「見えている桁で決まれば入力」 on a decision card, for ANA's
   「お客様番号： ******0287」 inside its re-authentication form, 2026-11-22): for an
   all-digit username of 8 digits or more, a run of digits and mask characters (`*`, `●`,
   `•`) in a form, dialog, header or navigation, as long as the number and ending in at
