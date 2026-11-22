@@ -168,11 +168,22 @@ const compact = (value: string) =>
 type SlotSet = { fields: { slot: string; candidate: string }[] };
 
 /**
+ * An input shaped for a PIN rather than an account password: one that takes digits
+ * (`inputMode` `numeric`) or at most {@link PIN_MAX_LENGTH} characters, as a bank's
+ * four-digit transaction PIN. Its custom field is the model's choice, as before.
+ */
+const PIN_MAX_LENGTH = 6;
+const pinShaped = (candidate: ObservedCandidate) =>
+  candidate.inputMode === "numeric" ||
+  (candidate.maxLength !== undefined && candidate.maxLength <= PIN_MAX_LENGTH);
+
+/**
  * The slots a `confirm` or `unclear` plan fills, with a custom vault field kept in a
  * password input only where the input names it (owner, 2026-11-22, ADR 0035): a slot that
  * offers a custom field fills a `password` input only when the field's name shows in one
- * of that input's own texts (`textsOf`: its label, `id`, `name` or test ID, placeholder),
- * as Bitwarden fills a custom field only into an input its name matches. Otherwise the set
+ * of that input's own texts (`textsOf`: its label, `id`, `name` or test ID, placeholder,
+ * and its description), or the input is shaped for a PIN ({@link pinShaped}), as
+ * Bitwarden fills a custom field only into an input its name matches. Otherwise the set
  * fills the account's password there, when the request offers that slot and the set
  * fills it nowhere else and no other such input; any other set is kept as it is. Headings
  * and the page's other text never count: ANA's page asked for 「ANAマイレージクラブの
@@ -197,7 +208,10 @@ export function verificationSecretSlots<
     return (
       name !== undefined &&
       candidate?.role === "password" &&
-      !textsOf(candidate).some((text) => compact(text).includes(compact(name)))
+      !pinShaped(candidate) &&
+      ![...textsOf(candidate), candidate.description]
+        .filter((text): text is string => text !== undefined)
+        .some((text) => compact(text).includes(compact(name)))
     );
   };
   const fixed = <Fields extends SlotSet>(set: Fields): Fields => {

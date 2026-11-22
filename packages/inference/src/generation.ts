@@ -432,8 +432,9 @@ export function createRecipeGenerator(config: StructuredRoleConfig) {
         // A verification fills a custom vault field into a password input only where the
         // input names it, and the account's password otherwise (owner, 2026-11-22, ADR
         // 0035).
+        // A continuation page keeps the slots its first page left to it.
         const planned =
-          draft.pageKind === "sign-in"
+          draft.pageKind === "sign-in" || request.startPage === false
             ? draft
             : verificationSecretSlots(observation.output, slots.output, draft);
         // An invalid alternative refuses the whole plan (fail closed).

@@ -78,7 +78,8 @@ a branch, synthetic tests only.
 Amended on 2026-11-22 by the owner (15:07 UTC,
 [below](#amendment-2026-11-22-a-custom-field-in-a-verifications-password-input)): a
 `confirm` or `unclear` plan fills a custom vault field into a password input only where
-the input's own text names the field, and the account's password otherwise.
+the input's own text names the field or the input is shaped for a PIN; elsewhere it
+fills the account's password when it can.
 
 Date: 2026-10-12
 
@@ -877,15 +878,22 @@ secrets apart, and a secret's length is never sent (ADR 0010). The recipe of
 
 Decision (owner, 2026-11-22 15:07 UTC, 「名前一致+手動選択」 on a decision card):
 
-- On a `confirm` or `unclear` plan, a slot that offers a custom vault field fills a
-  `password` input only when the field's name shows in one of that input's own texts:
-  its label, `id`, `name` or test ID, or placeholder, compared in NFKC, lower case, with
-  letters and digits only. Headings and the page's other text never count, as
-  Bitwarden fills a custom field only into an input its name matches. Otherwise that
-  set fills the account's password there, when the request offers that slot, the set
-  fills it nowhere else and no other of its password inputs takes a custom field so
-  (`verificationSecretSlots` in `packages/inference/src/password-change.ts`, applied
-  before `validateGeneratedPage`). A `sign-in` plan is unchanged.
+- On a `confirm` or `unclear` plan for a page that starts its layout, a slot that offers
+  a custom vault field fills a `password` input only when the field's name shows in one
+  of that input's own texts (its label, `id`, `name` or test ID, placeholder or
+  description, compared in NFKC, lower case, with letters and digits only) or the input
+  is shaped for a PIN (`inputMode` `numeric`, or `maxLength` 6 or less). Headings and
+  the page's other text never count. Otherwise that set fills the account's password
+  there, when the request offers that slot, the set fills it nowhere else and no other
+  of its password inputs takes a custom field so (`verificationSecretSlots` in
+  `packages/inference/src/password-change.ts`, applied before `validateGeneratedPage`).
+  This follows Bitwarden, which fills a custom field only into an input its name
+  matches, but loosely: the name only has to show inside one of those texts. A
+  `sign-in` plan and a continuation page are unchanged.
+- The PIN shape and the description are the agent's additions after review: a bank's
+  four-digit PIN input labelled 「暗証番号」 beside a field named 「取引暗証番号」 would
+  otherwise get the account password, cut to four characters, and count toward the
+  bank's lockout.
 - The person can choose which vault field **Fill** uses in the popup, saved for the
   account; that part is delivered separately.
 
