@@ -486,6 +486,14 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
     }
     const held = await reconcile(rt, run, settle);
     if (!current(rt, run) || !observing()) return;
+    // The page after a pressed stay-signed-in question gets the usual budget for its
+    // answer, so one the press changed in place is read and judged as any login's page
+    // (ADR 0065 amendment of 2026-11-22); one that went away resumes in the next document.
+    if (held === "pressed") {
+      until = Date.now() + budget();
+      await sleep(interval);
+      continue;
+    }
     if (captcha?.wait && !held) {
       await sleep(500);
       continue;

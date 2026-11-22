@@ -283,6 +283,11 @@ export type Execution = {
    */
   heldClick?: number;
   /**
+   * The stay-signed-in press sent to the document, and how far the document's
+   * authorization of its phases went: `spent` once its click was authorized.
+   */
+  stayOperation?: { operationId: string; handle: string; stage: "intent" | "pointer" | "spent" };
+  /**
    * The document an SSO hop's step found the tab gone from (ADR 0026, amendment of
    * 2026-11-20): its reads there stop, and the tab's next page, or this document announcing
    * its new URL, resumes the login.

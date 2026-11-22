@@ -103,7 +103,9 @@ The owner chose, on 2026-10-11:
     been checked in Chrome;
   - a page that only asks whether to stay signed in or to continue as that account,
     such as Microsoft's "Stay signed in?" or LINE's "次のアカウントでログイン", which is
-    pressed through.
+    pressed through. Since 2026-11-22 a login of a site's own account presses a
+    stay-signed-in question after its credential under the same local reading
+    ([ADR 0065 amendment](0065-optional-pages-after-a-sign-in.md#amendment-2026-11-22-a-native-login-presses-yes-on-a-stay-signed-in-question)).
 - **Everything else stops**: any permission page, including one forced by
   `prompt=consent`; Apple's "Share My Email / Hide My Email"; account creation pages on
   either side; chains where the IdP itself signs in through another IdP.

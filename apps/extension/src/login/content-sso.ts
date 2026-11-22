@@ -273,7 +273,15 @@ function idpCurrent(document: Document, target: LoginTarget, expected: SsoIdpExp
     current.kind === expected.kind && "target" in current && sameLoginTarget(current.target, target)
   );
 }
-/** A prepared DOM object is single-use. The background must authorize after intent is durable. */
+/**
+ * A prepared DOM object is single-use. The background must authorize after intent is durable.
+ * The same reading and press answer a native login's stay-signed-in question after it sent
+ * its credential (ADR 0065 amendment of 2026-11-22): `login.stay.prepare` reads the page
+ * with `readSsoIdp` and prepares only its `stay-signed-in` target, and `login.stay.commit`
+ * presses it under the same checks, with the worker's `authorizeStay` before the pointer
+ * events and the click, at most once in this document and never for a native attempt the
+ * SSO coordinator cancelled here (`attemptCancelled`).
+ */
 export function createSsoContent(
   document: Document,
   options: {
@@ -284,28 +292,99 @@ export function createSsoContent(
       handle: string;
       phase: "pointer" | "click";
     }) => Promise<boolean>;
+    /** The worker's authorization of a stay-signed-in press's phase; none refuses it. */
+    authorizeStay?: (input: {
+      attemptId: string;
+      operationId: string;
+      handle: string;
+      phase: "pointer" | "click";
+    }) => Promise<boolean>;
+    /** Whether the SSO coordinator cancelled this native attempt in the document. */
+    attemptCancelled?: (attemptId: string) => boolean;
   },
 ) {
-  const prepared = new Map<
-    string,
-    {
-      flowId: string;
-      operationId: string;
-      target: LoginTarget;
-      element: HTMLElement;
-      url: string;
-      destinations: string[];
-      idp?: SsoIdpExpectation;
-      expiresAt: number;
-      timer: ReturnType<typeof setTimeout>;
-    }
-  >();
+  type Held = {
+    flowId: string;
+    operationId: string;
+    target: LoginTarget;
+    element: HTMLElement;
+    url: string;
+    destinations: string[];
+    idp?: SsoIdpExpectation;
+    /** A native login's stay-signed-in press, whose `flowId` is its attempt's ID. */
+    stay?: true;
+    expiresAt: number;
+    timer: ReturnType<typeof setTimeout>;
+  };
+  const prepared = new Map<string, Held>();
+  // A stay-signed-in question is pressed once in a document, whatever the worker asks.
+  let stayPressed = false;
   const clearPrepared = () => {
     for (const held of prepared.values()) {
       clearTimeout(held.timer);
       if (held.idp) held.idp.username = "";
     }
     prepared.clear();
+  };
+  /**
+   * Holds `found` for one commit within 30 seconds, under a new handle. A stay-signed-in
+   * preparation and an SSO one in the same document clear each other's handle here.
+   */
+  const hold = (
+    found: { element: HTMLElement; destinations: string[] },
+    entry: Omit<Held, "element" | "destinations" | "url" | "expiresAt" | "timer">,
+  ) => {
+    clearPrepared();
+    const handle = newId();
+    const { idp } = entry;
+    prepared.set(handle, {
+      ...found,
+      ...entry,
+      url: document.URL,
+      expiresAt: Date.now() + 30_000,
+      timer: setTimeout(() => {
+        if (idp) idp.username = "";
+        prepared.delete(handle);
+      }, 30_000),
+    });
+    return { ok: true as const, url: document.URL, destinations: found.destinations, handle };
+  };
+  /**
+   * Presses a prepared target: each check runs again before the pointer events, after
+   * them and before the click, and `authorize` is asked before each phase.
+   */
+  const press = async (
+    held: Held,
+    authorize: (phase: "pointer" | "click") => Promise<boolean>,
+  ): Promise<{ ok: boolean; reason?: string }> => {
+    try {
+      if (!(await authorize("pointer"))) return { ok: false, reason: "not-authorized" };
+      const current = () => {
+        if (
+          options.cancelled() ||
+          (held.stay && options.attemptCancelled?.(held.flowId)) ||
+          document.URL !== held.url ||
+          Date.now() >= held.expiresAt ||
+          (held.idp && !idpCurrent(document, held.target, held.idp))
+        )
+          return false;
+        const latest = inspected(document, held.target);
+        return (
+          !("reason" in latest) &&
+          latest.element === held.element &&
+          JSON.stringify(latest.destinations) === JSON.stringify(held.destinations)
+        );
+      };
+      if (!current()) return { ok: false, reason: "target-changed" };
+      const pressed = await pressPointer(held.element, current);
+      if (pressed !== "pressed" || !current()) return { ok: false, reason: "target-changed" };
+      if (!(await authorize("click")) || !current()) return { ok: false, reason: "not-authorized" };
+      HTMLElement.prototype.click.call(held.element);
+      return { ok: true };
+    } finally {
+      clearTimeout(held.timer);
+      if (held.idp) held.idp.username = "";
+    }
   };
   return async (
     command: SsoContentCommand,
@@ -318,40 +397,59 @@ export function createSsoContent(
     }
     if (command.type === "login.sso.return") return readSsoReturn(document, command.username);
     if (command.type === "login.sso.idp") return readSsoIdp(document, command.username);
-    if (command.type === "login.sso.commit") {
+    if (command.type === "login.stay.prepare") {
+      const idp = { username: command.username, kind: "stay-signed-in" as const };
+      command.username = "";
+      if (stayPressed || options.attemptCancelled?.(command.attemptId)) {
+        idp.username = "";
+        return { ok: false, reason: stayPressed ? "already-pressed" : "cancelled" };
+      }
+      const reading = readSsoIdp(document, idp.username);
+      const found =
+        reading.kind === "stay-signed-in" ? inspected(document, reading.target) : undefined;
+      if (reading.kind !== "stay-signed-in" || !found || "reason" in found) {
+        idp.username = "";
+        return {
+          ok: false,
+          reason: found && "reason" in found ? found.reason : `idp-${reading.kind}`,
+        };
+      }
+      return hold(found, {
+        flowId: command.attemptId,
+        operationId: command.operationId,
+        target: reading.target,
+        idp,
+        stay: true,
+      });
+    }
+    if (command.type === "login.sso.commit" || command.type === "login.stay.commit") {
+      const stay = command.type === "login.stay.commit";
+      const flowId = command.type === "login.stay.commit" ? command.attemptId : command.flowId;
       const held = prepared.get(command.handle);
       prepared.delete(command.handle);
-      if (!held || held.flowId !== command.flowId || held.operationId !== command.operationId)
+      if (
+        !held ||
+        held.flowId !== flowId ||
+        held.operationId !== command.operationId ||
+        (held.stay === true) !== stay ||
+        (stay && stayPressed)
+      )
         return { ok: false, reason: "operation-gone" };
-      try {
-        if (!(await options.authorize({ ...command, phase: "pointer" })))
-          return { ok: false, reason: "not-authorized" };
-        const current = () => {
-          if (
-            options.cancelled() ||
-            document.URL !== held.url ||
-            Date.now() >= held.expiresAt ||
-            (held.idp && !idpCurrent(document, held.target, held.idp))
-          )
-            return false;
-          const latest = inspected(document, held.target);
-          return (
-            !("reason" in latest) &&
-            latest.element === held.element &&
-            JSON.stringify(latest.destinations) === JSON.stringify(held.destinations)
-          );
-        };
-        if (!current()) return { ok: false, reason: "target-changed" };
-        const pressed = await pressPointer(held.element, current);
-        if (pressed !== "pressed" || !current()) return { ok: false, reason: "target-changed" };
-        if (!(await options.authorize({ ...command, phase: "click" })) || !current())
-          return { ok: false, reason: "not-authorized" };
-        HTMLElement.prototype.click.call(held.element);
-        return { ok: true };
-      } finally {
-        clearTimeout(held.timer);
-        if (held.idp) held.idp.username = "";
-      }
+      if (command.type === "login.sso.commit")
+        return press(held, (phase) => options.authorize({ ...command, phase }));
+      // Spent before the press, so a press the page stopped is never tried again here.
+      stayPressed = true;
+      const { authorizeStay } = options;
+      return press(held, async (phase) =>
+        authorizeStay
+          ? authorizeStay({
+              attemptId: command.attemptId,
+              operationId: command.operationId,
+              handle: command.handle,
+              phase,
+            })
+          : false,
+      );
     }
     const found = inspected(document, command.target);
     if ("reason" in found) return { ok: false, reason: found.reason };
@@ -359,22 +457,11 @@ export function createSsoContent(
       return { ok: true, url: document.URL, destinations: found.destinations };
     if (command.idp && !idpCurrent(document, command.target, command.idp))
       return { ok: false, reason: "idp-identity-changed" };
-    clearPrepared();
-    const handle = newId();
-    const idp = command.idp ? { ...command.idp } : undefined;
-    prepared.set(handle, {
-      ...found,
+    return hold(found, {
       flowId: command.flowId,
       operationId: command.operationId,
       target: command.target,
-      url: document.URL,
-      ...(idp ? { idp } : {}),
-      expiresAt: Date.now() + 30_000,
-      timer: setTimeout(() => {
-        if (idp) idp.username = "";
-        prepared.delete(handle);
-      }, 30_000),
+      ...(command.idp ? { idp: { ...command.idp } } : {}),
     });
-    return { ok: true, url: document.URL, destinations: found.destinations, handle };
   };
 }
