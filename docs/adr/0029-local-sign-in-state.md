@@ -1154,7 +1154,7 @@ Not chosen (the agent's): counting hidden fields as before, which leaves such a 
 `unknown-submit` at every login with no default saved; reading only the elements inside
 a hidden handler form as gone, which would be a rule for one site's layout (ADR 0033).
 
-## Amendment: a hidden sign-in form beside another sign-in step (2026-11-22)
+## Amendment: a hidden sign-in form beside a code input (2026-11-22)
 
 Context: on Reddit (Real Chrome, 2026-11-22 09:20 UTC) Pateat pressed Log In and the
 site, a single-page app, stayed on `/login/` in the same document: it hid its sign-in
@@ -1167,11 +1167,15 @@ was not sent (`recipe.judge` `not-sent` `sign-in-shown`), and every login ended
 
 Decision (agent's, a fix of the gate against this ADR's own decision for `continuing`):
 
-- When the reading is `continuing`, a route's sign-in input counts for the judge gate
-  only when shown, in the step's own document too (`learn` in
-  `apps/extension/src/login/runtime/judge.ts`). A form that hides itself again after
-  a failure shows no other sign-in step, so the rule of the earlier amendment still
-  holds for every other reading.
-- Such a page, sent only because its sign-in input is hidden, completes the login only
-  on the judge's own `signed-in`, as in the amendment of 2026-11-21 (`notCompleted`
-  `hidden-field`).
+- When the reading is `continuing` with a shown input for a one-time code (S3) and no
+  CAPTCHA (S4), a route's sign-in input counts for the judge gate only when shown, in
+  the step's own document too (`asksCode`, read in `learn` in
+  `apps/extension/src/login/runtime/judge.ts`). This holds for watched logins too
+  (`watchedCode`), which the amendment of 2026-11-21 otherwise keeps on the earlier
+  rule.
+- Every other reading keeps the earlier rule in the step's own document, including a
+  page that hides its form and shows a CAPTCHA, which may answer a failure, and a
+  password page after an `advance`, which still goes to the later-step repair of
+  [ADR 0041](0041-repair-stale-recipes.md) section 4.
+- A `continuing` page never completes the login on an undecided or `optional` answer, so
+  such a page completes it only on the judge's own `signed-in`.

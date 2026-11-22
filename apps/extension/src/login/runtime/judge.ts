@@ -383,12 +383,12 @@ export async function learn(
   const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
   // A sign-in input counts even hidden, but only shown in a new document after the login's
   // own step, which may keep hidden copies of the form once signed in, as My Digital
-  // Connect's does (ADR 0029 amendment of 2026-11-21), and on a page that shows another
-  // sign-in step (`continuing`): a single-page site may hide its form in the same document
-  // to ask for an authenticator app's code, as Reddit's does, while a form that hides
-  // itself again after a failure shows no such step (amendment of 2026-11-22).
+  // Connect's does (ADR 0029 amendment of 2026-11-21), and on a page that asks for a
+  // one-time code with no CAPTCHA (`asksCode`): a single-page site may hide its form in the
+  // same document to ask for an authenticator app's code, as Reddit's does (amendment of
+  // 2026-11-22).
   const field =
-    afterOwnStep(rt, run) || reading?.decision === "continuing"
+    afterOwnStep(rt, run) || (reading?.decision === "continuing" && reading.asksCode)
       ? ("shown-input" as const)
       : ("input" as const);
   // A hidden marker proves nothing and does not keep the page from the judge.

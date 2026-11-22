@@ -68,6 +68,7 @@ export async function signInState(
     ...(reading.signs.reshown ? { reshown: true as const } : {}),
     ...(formAgain(reading.signs) ? { formAgain: true as const } : {}),
     ...(reading.signs.s2 && !reading.signs.s4 ? { asksPassword: true as const } : {}),
+    ...(reading.signs.s3 && !reading.signs.s4 ? { asksCode: true as const } : {}),
   };
 }
 

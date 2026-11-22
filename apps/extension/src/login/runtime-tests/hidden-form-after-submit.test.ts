@@ -218,47 +218,56 @@ describe("a sign-in form kept hidden after the submit (ADR 0029)", () => {
     expect(status()).toMatchObject([{ state: "watching" }]);
   }, 20_000);
 
-  it("sends a page whose own document hides the form to ask for a code to the judge", async () => {
-    // Reddit (2026-11-22): the submit's document hides its sign-in form and asks for the
-    // authenticator app's code in its place (ADR 0029 amendment of 2026-11-22).
-    fake.state.signs = {
-      password: false,
-      code: true,
-      captcha: false,
-      invalid: false,
-      alert: false,
-    };
-    const { h, judge, report } = start(withoutMarker, { verdict: "challenge" });
-    fake.state.onExecute = async (message) => {
-      const step = (message["operation"] as { step: { kind: string } }).step;
-      if (step.kind !== "click") return;
-      fake.state.present = new Set(["password", "code"]);
-      fake.state.hiddenInputs = new Set(["password"]);
-      fake.state.extracted = {
-        "signed-in": {
-          ...signedInPage,
-          observation: {
-            ...signedInPage.observation,
-            candidates: [
-              { id: "c1", role: "text", target: target("code"), label: "Verification code" },
-            ],
-          },
-        },
+  it.each([
+    ["sends it to the judge when it asks for a code", false],
+    ["keeps it from the judge when it shows a CAPTCHA", true],
+  ])(
+    "a page whose own document hides the form: %s",
+    async (_label, captcha) => {
+      // Reddit (2026-11-22): the submit's document hides its sign-in form and asks for the
+      // authenticator app's code in its place; a CAPTCHA beside the code input may answer a
+      // failure instead (ADR 0029 amendment of 2026-11-22).
+      fake.state.signs = {
+        password: false,
+        code: true,
+        captcha,
+        invalid: false,
+        alert: false,
       };
-    };
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(
-      () =>
-        expect(report).toHaveBeenCalledWith(
-          expect.objectContaining({ type: "judge", verdict: "challenge" }),
-        ),
-      { timeout: 15_000 },
-    );
-    expect(judge).toHaveBeenCalledTimes(1);
-    expect(report).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "sign-in-shown" }),
-    );
-  }, 20_000);
+      const { h, judge, report } = start(withoutMarker, { verdict: "challenge" });
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: { kind: string } }).step;
+        if (step.kind !== "click") return;
+        fake.state.present = new Set(["password", "code"]);
+        fake.state.hiddenInputs = new Set(["password"]);
+        fake.state.extracted = {
+          "signed-in": {
+            ...signedInPage,
+            observation: {
+              ...signedInPage.observation,
+              candidates: [
+                { id: "c1", role: "text", target: target("code"), label: "Verification code" },
+              ],
+            },
+          },
+        };
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () =>
+          expect(report).toHaveBeenCalledWith(
+            expect.objectContaining(
+              captcha
+                ? { type: "judge", verdict: "not-sent", reason: "sign-in-shown" }
+                : { type: "judge", verdict: "challenge" },
+            ),
+          ),
+        { timeout: 15_000 },
+      );
+      expect(judge).toHaveBeenCalledTimes(captcha ? 0 : 1);
+    },
+    20_000,
+  );
 
   it.each([
     ["", false],
