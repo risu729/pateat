@@ -12,6 +12,8 @@ const ssoTypes = new Set<string>([
   "login.sso.prepare",
   "login.sso.commit",
   "login.sso.idp",
+  "login.stay.prepare",
+  "login.stay.commit",
 ]);
 type BridgedCommand = Extract<Command, { type: SsoContentCommand["type"] | "login.native.cancel" }>;
 const isSso = (command: BridgedCommand): command is BridgedCommand & SsoContentCommand =>
@@ -24,8 +26,9 @@ const MAX_CANCELLED_NATIVE = 256;
 
 /**
  * The login content script's side of the SSO coordinator (ADR 0085): the SSO click protocol,
- * the native attempts the coordinator cancelled in this document, and whether the SSO parent
- * still carries this IdP document after its native child finished.
+ * which also presses a native login's stay-signed-in question (ADR 0065 amendment of
+ * 2026-11-22), the native attempts the coordinator cancelled in this document, and whether
+ * the SSO parent still carries this IdP document after its native child finished.
  */
 export function createSsoBridge(
   document: Document,
@@ -50,6 +53,19 @@ export function createSsoBridge(
       });
       return answer !== null && typeof answer === "object" && "ok" in answer && answer.ok === true;
     },
+    authorizeStay: async ({ attemptId, operationId, handle, phase }) => {
+      const answer: unknown = await sendMessage("login", {
+        version: 1,
+        type: "login.stay.authorize",
+        phase,
+        token,
+        attemptId,
+        operationId,
+        handle,
+      });
+      return answer !== null && typeof answer === "object" && "ok" in answer && answer.ok === true;
+    },
+    attemptCancelled: (attemptId) => cancelledNative.has(attemptId),
   });
   return {
     /** Whether a URL change of this document is reported for the SSO parent. */

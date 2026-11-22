@@ -167,6 +167,11 @@ export function createBrowserFake() {
      * an alternative contained in it, after the same normalization. None when unset.
      */
     question: undefined as string | undefined,
+    /**
+     * The document's answers to a native login's stay-signed-in press (ADR 0065 amendment
+     * of 2026-11-22), by command; `{ ok: true }`, which prepares nothing, when unset.
+     */
+    stay: undefined as undefined | ((message: Record<string, unknown>) => unknown),
   };
   const browser = {
     runtime: {
@@ -373,6 +378,8 @@ export function createBrowserFake() {
           return state.codeDigest === undefined
             ? { ok: false }
             : { ok: true, digest: state.codeDigest };
+        if (state.stay && String(message["type"]).startsWith("login.stay."))
+          return state.stay(message);
         if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.detail.fill") return state.detailFillReply ?? { ok: true };
         if (message["type"] === "login.choose") return state.chosen;

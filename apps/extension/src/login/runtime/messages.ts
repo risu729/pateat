@@ -1,6 +1,7 @@
 import { ssoDescribed, ssoMoved } from "./sso/moved";
 import { authorizeSso } from "./sso-effects";
-import { ssoAuthorizeSchema } from "../sso-operation-wire";
+import { ssoAuthorizeSchema, stayAuthorizeSchema } from "../sso-operation-wire";
+import { authorizeStay } from "./stay-signed-in";
 import { cancelSso, ssoVaultChanged } from "./sso/flow";
 import { dropSsoMappings } from "./sso-scope";
 import * as v from "valibot";
@@ -158,6 +159,7 @@ export const fromPopup = (_rt: Runtime, sender: Sender) =>
 
 export async function handle(rt: Runtime, message: unknown, sender: Sender): Promise<unknown> {
   if (v.safeParse(ssoAuthorizeSchema, message).success) return authorizeSso(rt, message, sender);
+  if (v.safeParse(stayAuthorizeSchema, message).success) return authorizeStay(rt, message, sender);
   // Probe controls are compiled into every build but answer only in the probe build.
   if (probeMode && trusted(rt, sender)) {
     const control = v.safeParse(probeControlSchema, message);
@@ -720,6 +722,7 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   rt.effects.delete(tabId);
   rt.passkeyPages.delete(tabId);
   rt.signInUrls.delete(tabId);
+  rt.stayPresses.delete(tabId);
   rt.choicePasskeys.delete(tabId);
   rt.popupAnswers.delete(tabId);
   clearTimeout(rt.entryTimers.get(tabId));

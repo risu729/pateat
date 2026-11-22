@@ -36,6 +36,7 @@ import { enterHandler } from "./handlers";
 import { advanceMiss, afterOwnStep, signInState, signedInAtOnce } from "./sign-in";
 import { repairLaterStep } from "./repair-run";
 import { addAskFill } from "./relogin";
+import { pressStaySignedIn } from "./stay-signed-in";
 import { quietly, forget } from "./session-store";
 import type { Runtime } from "./state";
 
@@ -130,12 +131,14 @@ export const unproven = (
  * past the plan's last step takes the login to that stop at once when it asks for a
  * passkey (`asksPasskey`); otherwise it is continued as any login's page, or judged once
  * the step's wait ran out, and the login goes on to its stop when neither moved it on.
+ * Returns `pressed` once it answered the page's stay-signed-in question instead of judging
+ * it (ADR 0065 amendment of 2026-11-22).
  */
 export async function reconcile(
   rt: Runtime,
   run: Execution,
   settleUnknown = false,
-): Promise<"held" | undefined> {
+): Promise<"held" | "pressed" | undefined> {
   const nextIndex =
     run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance"
       ? run.metadata.stepIndex + 1
@@ -460,8 +463,11 @@ export async function reconcile(
     return undefined;
   }
   // A sign-in page after the final advance is never judged: the judge cannot learn
-  // anything from it (ADR 0018).
+  // anything from it (ADR 0018). A stay-signed-in question after the credential went is
+  // answered Yes instead, as an IdP's is, and the page after it is read as this one was
+  // (ADR 0065 amendment of 2026-11-22).
   if (continued === "qualified") notJudged(rt, run, "continuation");
+  else if (await pressStaySignedIn(rt, run)) return current(rt, run) ? "pressed" : undefined;
   else if (await learn(rt, run, state)) return undefined;
   // A login before a stop just past its plan's last step goes on to it (ADR 0036).
   if (await toStop(rt, run)) return undefined;

@@ -14,6 +14,10 @@ replaced before merging. The proposal, in Japanese, is
 Amended on 2026-11-08 (owner, 02:58 UTC): a passkey answer counts as the sent credential
 on any route; see
 [the amendment below](#amendment-2026-11-08-a-passkey-answer-counts-as-the-sent-credential).
+Amended on 2026-11-22 (owner, 20:32 UTC): a native login presses Yes on a stay-signed-in
+question under the IdP step's local reading of
+[ADR 0026](0026-sign-in-through-identity-providers.md); see
+[the amendment below](#amendment-2026-11-22-a-native-login-presses-yes-on-a-stay-signed-in-question).
 
 Date: 2026-10-23
 
@@ -163,3 +167,69 @@ request of the attempt's step counts as its sent credential, as a submitted pass
 TOTP code does, on any route, so an `optional` page after that answer completes the
 login under the same conditions; before it, the page is still not known to be signed
 in. A move judged `optional` (ADR 0022) counts the answer the same way.
+
+## Amendment 2026-11-22: a native login presses Yes on a stay-signed-in question
+
+Owner, 2026-11-22 at 20:32 UTC, choosing 「SSO と同じ条件 (見出し、ユーザー名の表示、Yes
+ボタン 1 つ) で押します。条件が合わなければ今と同じく本人待ちです。」 Implemented, with
+local runtime tests and Chromium component tests on a synthetic page; not checked on a
+real site.
+
+Evidence, 2026-11-21 on the production build
+([issue #1772](https://github.com/risu729/pateat/issues/1772)): UNSW Connect signs in on
+its own Microsoft Entra External ID page (`https://unswconnect.ciamlogin.com`). Pateat
+filled the email and password and submitted; the next page, titled "Sign in to your
+account", was Microsoft's "Stay signed in?" question: that heading, the account's email
+in an identity banner, "Do this to reduce the number of times you are asked to sign
+in.", a "Don't show this again" checkbox and the buttons No and Yes. The judge answered
+`challenge`, as Decision 1 and the judge corpus's `en-stay-signed-in` case expect, so
+the login waited the 600 seconds for the person, on both attempts. The SSO flow already
+presses such a question on an IdP's page (ADR 0026); a site's own sign-in did not.
+
+1. **The page is read locally before the judge.** In a login of the site's own account,
+   the page after a step that sent the account's credential (Decision 2's first
+   condition, or a passkey answer since the amendment of 2026-11-08) is first read in
+   its document with the reading ADR 0026's IdP step uses, before it would go to the
+   judge. It is a stay-signed-in question only when the page's own title or a visible
+   heading asks it (such as "Stay signed in?" or サインインの状態を維持しますか),
+   nothing on the page shares the account or grants access and no permission or
+   account-creation page shows, it shows no other or masked account and shows the
+   login's own exactly, and it has exactly one button labelled Yes or はい. The reading
+   needs the login's username, read from the vault as a move's E2 check reads it; it is
+   used in the document only and never sent to the service or logged.
+2. **Pateat presses Yes, once, under the IdP step's checks.** The button is prepared
+   first; its form's destinations off the page's origin must pass the login item's
+   destination rule ([ADR 0051](0051-form-destinations-by-item-uri-match.md)); and the
+   document reads the page again with the same checks, finds the same element and
+   destinations, and asks the worker to authorize, before the pointer events and again
+   before the click. The worker authorizes each phase once, only for the login's current
+   document while its policy holds; the document refuses the press for a native attempt
+   the SSO coordinator cancelled there. A preparation lasts at most 30 seconds, and the
+   press waits on the page's own events, never a set time
+   ([ADR 0082](0082-waits-on-signals.md)). A login presses at most one such question, in
+   any document and also when the press failed, so a question shown again, as by a
+   sign-in that loops, goes to the judge; a document allows one press too. Only the
+   tab's page on the recipe's own origin is read, for a login that is not watched (a
+   watched login only reads its pages, ADR 0027), has no stop
+   ([ADR 0036](0036-passkey-after-the-identifier.md)), does not only fill, and is not an
+   SSO flow's IdP login, whose flow presses the question itself. The rule names no
+   provider, page or URL ([ADR 0033](0033-no-site-specific-features.md)).
+3. **Nothing is judged or learned for that page, and the login goes on.** The page is
+   not sent to the judge; the log says so as a `recipe.judge` `not-sent` line with
+   reason `stay-signed-in`. The login is not settled on it: the page after the press, in
+   a new document or the same one, gets the step's usual budget and is then completed by
+   its own evidence or judged as any page after the credential. A press whose answer is
+   lost because the document went away, as a form that posts to the same URL takes it,
+   counts as made only once the worker authorized its click; the tab's next page then
+   resumes the login.
+4. **Any other page waits for the person as before.** A page that does not read as such
+   a question, such as one with two Yes buttons, one that asks with a "Keep me signed
+   in" checkbox and a Continue button, or one that shows no account, and a press that
+   fails go to the judge as before, whose `challenge` answer for a stay-signed-in page
+   stays; the judge's prompt and corpus are unchanged.
+
+Not confirmed by the owner, chosen by an agent as the narrowest reading of the choice:
+the press is spent per login even when it failed, a fill-only login never presses,
+and the log uses the existing judge line rather than a new event. Pressing Yes asks the
+site to keep its session on this browser longer, as the SSO flow's press already does;
+"Don't show this again" is left as it is.
