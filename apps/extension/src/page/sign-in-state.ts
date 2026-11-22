@@ -421,18 +421,25 @@ export function showsUsername(document: Document, username: string): boolean {
   });
 }
 
-/** How much of the page's rendered text is searched for a masked account number. */
-const maskedReadLimit = 20_000;
-/** The fewest digits a masked account number shows, as the last four of a card. */
+/** How much of each part's rendered text is searched for a masked account number. */
+const maskedReadLimit = 4000;
+/** The digits a masked account number shows at its end at least, as the last four of a card. */
 const maskedMinDigits = 4;
+/** Where a page names the account a form asks about: its forms, dialogs and landmarks. */
+const maskedSelector = `form, dialog, [role="dialog"], [role="alertdialog"], ${landmarkSelector}`;
+/** A masked number's run of digits and mask characters, never touching a Latin letter, a digit or `_.@-/`. */
+const maskedRun =
+  /(?<![\p{Script=Latin}\p{N}_.@\-/*●•])[0-9*●•]+(?![\p{Script=Latin}\p{N}_.@\-/*●•])/gu;
 
 /**
  * Whether the page shows `username`, an all-digit account number of at least
- * {@link memberNumberMinDigits} digits, masked, anywhere in its rendered text: a run of
- * digits and mask characters (`*`, `●`, `•`) as long as the number, showing at least
- * {@link maskedMinDigits} digits, each equal to the number's digit at its position, as
- * ANA's 「お客様番号： ******0287」 (ADR 0035, amended 2026-11-22). Only the fill for the
- * account a verification page shows reads it; its lookup keeps it only when no other
+ * {@link memberNumberMinDigits} digits, masked in a form, dialog, header or navigation:
+ * a run of digits and mask characters (`*`, `●`, `•`) as long as the number that ends in
+ * at least {@link maskedMinDigits} digits, each shown digit equal to the number's digit at
+ * its position, as ANA's 「お客様番号： ******0287」 (ADR 0035, amended 2026-11-22). Not
+ * when another masked run there, one that also ends in {@link maskedMinDigits} digits,
+ * does not fit the number, as a page listing several members' numbers. Only the fill for
+ * the account a verification page shows reads it; its lookup keeps it only when no other
  * matching account fits too.
  */
 export function showsMaskedNumber(document: Document, username: string): boolean {
@@ -441,24 +448,23 @@ export function showsMaskedNumber(document: Document, username: string): boolean
     .normalize("NFKC")
     .trim();
   if (!/^[0-9]+$/u.test(number) || number.length < memberNumberMinDigits) return false;
-  const body = document.body;
-  if (!body) return false;
-  const text = readBehindModal(document, () =>
-    (renderedText(body, maskedReadLimit, { everyElement: true }) ?? "").normalize("NFKC"),
-  );
-  const runs = /(?<![\p{Script=Latin}\p{N}_*●•])[0-9*●•]+(?![\p{Script=Latin}\p{N}_*●•])/gu;
-  for (const [run] of text.matchAll(runs)) {
-    if (run.length !== number.length || !/[*●•]/u.test(run)) continue;
-    let digits = 0;
-    let fits = true;
-    for (let at = 0; at < run.length && fits; at += 1) {
-      if (!/[0-9]/u.test(run[at]!)) continue;
-      digits += 1;
-      fits = run[at] === number[at];
+  let fits = false;
+  for (const root of queryAll(document, maskedSelector)) {
+    // A part inside another is read with it.
+    if (composedParent(root)?.closest(maskedSelector)) continue;
+    const text = (renderedText(root, maskedReadLimit, { everyElement: true }) ?? "").normalize(
+      "NFKC",
+    );
+    for (const [run] of text.matchAll(maskedRun)) {
+      if (!/[*●•]/u.test(run) || !new RegExp(`[0-9]{${maskedMinDigits}}$`, "u").test(run)) continue;
+      const same =
+        run.length === number.length &&
+        [...run].every((char, at) => !/[0-9]/u.test(char) || char === number[at]);
+      if (!same) return false;
+      fits = true;
     }
-    if (fits && digits >= maskedMinDigits) return true;
   }
-  return false;
+  return fits;
 }
 
 /**

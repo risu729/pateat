@@ -587,6 +587,15 @@ describe("showsMaskedNumber", () => {
     ["******0287", "1234560287x", false],
     ["1234560287", "1234560287", false],
     ["card ******0287a", "1234560287", false],
+    ["お客様番号： ******０２８７", "1234560287", true],
+    ["お客様番号： ******0287", "１２３４５６０２８７", true],
+    ["Member ••••••0287", "1234560287", true],
+    ["******0287@example.com", "1234560287", false],
+    ["AB-******0287", "1234560287", false],
+    ["user.******0287", "1234560287", false],
+    ["2026/******0287", "1234560287", false],
+    ["123456****", "1234560287", false],
+    ["******0287 and ******5512", "1234560287", false],
   ])("reads %j for %s as %s", (text, username, shown) => {
     document.body.innerHTML = `<form><p>${text}</p><input type="password"></form>`;
     expect(showsMaskedNumber(document, username)).toBe(shown);
@@ -597,8 +606,17 @@ describe("showsMaskedNumber", () => {
     expect(showsMaskedNumber(document, "1234560287")).toBe(false);
   });
 
+  it("reads forms, dialogs and landmarks only", () => {
+    document.body.innerHTML = "<main><p>******0287</p></main>";
+    expect(showsMaskedNumber(document, "1234560287")).toBe(false);
+    document.body.innerHTML = '<div role="dialog"><p>******0287</p></div>';
+    expect(showsMaskedNumber(document, "1234560287")).toBe(true);
+    document.body.innerHTML = "<header>******0287</header><form>******5512</form>";
+    expect(showsMaskedNumber(document, "1234560287")).toBe(false);
+  });
+
   it("counts the number only when pageSigns is asked for it masked", () => {
-    document.body.innerHTML = "<main>お客様番号： ******0287</main>";
+    document.body.innerHTML = "<form>お客様番号： ******0287</form>";
     expect(pageSigns(document, { username: "1234560287" }).username).toBe(false);
     expect(pageSigns(document, { username: "1234560287", masked: true }).username).toBe(true);
   });

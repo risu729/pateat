@@ -992,11 +992,14 @@ Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a
 - An account number shown masked counts too (owner decision pending, ANA's
   「お客様番号： ******0287」 inside its re-authentication form, 2026-11-22): for an
   all-digit username of 8 digits or more, a run of digits and mask characters (`*`,
-  `●`, `•`) anywhere in the page's rendered text, as long as the number, showing at
-  least 4 digits, each equal to the number's digit at its position
-  (`showsMaskedNumber` in `apps/extension/src/page/sign-in-state.ts`). As every matching
-  account is compared, two accounts whose numbers share those digits leave the page to
-  the person. ADR 0029's E2 itself still reads only the header and navigation.
+  `●`, `•`) in a form, dialog, header or navigation, as long as the number and ending in
+  at least 4 digits, each shown digit equal to the number's digit at its position, and
+  not touching a Latin letter, a digit or `_.@-/` (`showsMaskedNumber` in
+  `apps/extension/src/page/sign-in-state.ts`). Another masked run there that does not
+  fit the number, as on a page listing several members' numbers, refuses it. As every
+  matching account is compared, two accounts whose numbers share the shown digits leave
+  the page to the person. ADR 0029's E2 itself still reads only the header and
+  navigation.
 - The account is read once per document, path and recipe, in the background after the
   page first announces there, so the page's own answer is not delayed; a later
   announcement of the same document on the same path, as its report of the step shown,
