@@ -423,3 +423,72 @@ describe("generated plans on such a form", () => {
     expect(signInPlanRejection(both, plan.plan)).toBe(undefined);
   });
 });
+
+describe("a custom field in a verification's password input (ADR 0035, 2026-11-22)", () => {
+  // A synthetic verification whose heading names a club and whose only input says
+  // "Password:", with a hidden custom field named after the club beside the password.
+  const pin = {
+    id: "custom-1",
+    kind: "hidden",
+    description: "concealed value of the user's vault field named in fieldName, such as a PIN",
+    fieldName: "Club password",
+  } as const;
+  const requested = [builtInLoginSlots.username, builtInLoginSlots.password, pin];
+  const verification = (label: string, extra: ObservedCandidate[] = []) => ({
+    ...page([field("secret", "password", label), ...extra, field("go", "button", "Continue")]),
+    headings: ["Enter your Example Club password"],
+  });
+  const generate = (pageKind: string, observation: LoginObservation, fields: [string, string][]) =>
+    createRecipeGenerator({
+      model: textModel(async () =>
+        textResult(
+          JSON.stringify({
+            result: { decision: "plan", pageKind, irreversible: "no", ...set(fields, "go") },
+          }),
+        ),
+      ),
+      limits: { timeoutMs: 1_000, maxInputBytes: 16_384 },
+      maxOutputTokens: 512,
+    })({ observation, slots: requested });
+  const filled = async (outcome: ReturnType<typeof generate>) => {
+    const result = await outcome;
+    if (result.status !== "ok" || !("fields" in result.value)) throw new Error(result.status);
+    return result.value.fields.map((entry) => [entry.slot, entry.candidate]);
+  };
+
+  it("fills the account's password where the input does not name the field", async () => {
+    const kinds = ["confirm", "unclear"];
+    const plans = await Promise.all(
+      kinds.map((pageKind) =>
+        filled(generate(pageKind, verification("Password:"), [["custom-1", "secret"]])),
+      ),
+    );
+    expect(plans).toEqual(kinds.map(() => [["password", "secret"]]));
+  });
+
+  it("keeps the field where the input's own text names it", async () => {
+    expect(
+      await filled(
+        generate("confirm", verification("Club password (4 digits)"), [["custom-1", "secret"]]),
+      ),
+    ).toEqual([["custom-1", "secret"]]);
+  });
+
+  it("keeps a sign-in plan and a set that already fills the password", async () => {
+    expect(
+      await filled(generate("sign-in", verification("Password:"), [["custom-1", "secret"]])),
+    ).toEqual([["custom-1", "secret"]]);
+    const both = verification("Password:", [field("code", "password", "Code")]);
+    expect(
+      await filled(
+        generate("confirm", both, [
+          ["password", "secret"],
+          ["custom-1", "code"],
+        ]),
+      ),
+    ).toEqual([
+      ["password", "secret"],
+      ["custom-1", "code"],
+    ]);
+  });
+});

@@ -21,7 +21,11 @@ import {
   type ValidatedEntry,
   type ValidatedGeneratedPage,
 } from "./plan";
-import { signInPlanRejection, verificationPlanRejection } from "./password-change";
+import {
+  signInPlanRejection,
+  verificationPlanRejection,
+  verificationSecretSlots,
+} from "./password-change";
 import { described, type Interpreted } from "./structured";
 import { createStructuredRole, type StructuredRoleConfig } from "./structured-role";
 
@@ -425,11 +429,18 @@ export function createRecipeGenerator(config: StructuredRoleConfig) {
             detail: "unexpected-plan",
             output: { result: redactedPlan(observation.output, slots.output, draft) },
           };
+        // A verification fills a custom vault field into a password input only where the
+        // input names it, and the account's password otherwise (owner, 2026-11-22, ADR
+        // 0035).
+        const planned =
+          draft.pageKind === "sign-in"
+            ? draft
+            : verificationSecretSlots(observation.output, slots.output, draft);
         // An invalid alternative refuses the whole plan (fail closed).
         const validated = validateGeneratedPage(
           observation.output,
           slots.output,
-          draft,
+          planned,
           request.startPage ?? true,
           request.carriedNames,
         );
