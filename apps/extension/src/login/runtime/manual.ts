@@ -12,6 +12,8 @@ import { MANUAL_START_MS, endManual, manualTimedOut, type ManualStart } from "./
 import { cancelSso, ssoWaiting } from "./sso/flow";
 import { endConfirmPick } from "./confirm-pick-scope";
 import { confirmFillPage } from "./confirm-pick";
+import { confirmFieldChoices } from "./confirm-field";
+import { confirmRecipeOn } from "./generation-scope";
 import { announceUnknownPage } from "./confirm-announce";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
@@ -143,15 +145,38 @@ export async function manualOffer(rt: Runtime, tabId: number): Promise<ManualOff
         const scope = await fingerprint(rt, live);
         // A verification page offers **Fill** in place of **Log in now** (ADR 0035).
         const fill = await confirmFillPage(rt, live, snapshot).catch(() => false);
+        // Its recipe, whose one slot the person may choose a field for.
+        const recipe = fill
+          ? await confirmRecipeOn(rt, live.document.origin, live.path).catch(() => undefined)
+          : undefined;
         if (rt.documents.get(frameKey(live.document)) !== live) return { reason: "page-changed" };
         return {
           target: {
             document: live.document,
             scope,
             ...(fill ? { fill: true as const } : {}),
-            candidates: found.candidates
-              .slice(0, 100)
-              .map(({ connectionId, itemId }) => ({ connectionId, itemId })),
+            candidates: found.candidates.slice(0, 100).map(({ connectionId, itemId }) => {
+              const offered =
+                fill && recipe
+                  ? confirmFieldChoices(
+                      snapshot.snapshot.settings,
+                      snapshot.catalog,
+                      recipe,
+                      live.path,
+                      { connectionId, itemId },
+                    )
+                  : undefined;
+              return {
+                connectionId,
+                itemId,
+                ...(offered
+                  ? {
+                      fields: offered.fields,
+                      ...(offered.chosen ? { chosen: offered.chosen } : {}),
+                    }
+                  : {}),
+              };
+            }),
           },
         };
       }),

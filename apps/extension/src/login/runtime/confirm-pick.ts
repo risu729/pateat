@@ -12,6 +12,7 @@ import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
 import { confirmBusy, hasConfirmClaim, pressGenerationKey } from "./confirm-state";
 import { confirmRecipeOn, offersGeneration } from "./generation-scope";
+import { saveConfirmField } from "./confirm-field";
 import { pagePermission } from "./page-permission";
 import { fingerprint, pageRefusal } from "./manual";
 import {
@@ -102,6 +103,17 @@ export async function confirmPickStart(
     )
   )
     return refuse("not-a-candidate");
+  // The field the person chose is saved as the account's binding of the page's recipe
+  // first, so the fill reads it with every check it makes (ADR 0035, amended 2026-11-22).
+  if (request.field !== undefined) {
+    const unsaved = await saveConfirmField(
+      rt,
+      live,
+      { connectionId: request.connectionId, itemId: request.itemId },
+      request.field,
+    );
+    if (unsaved) return refuse(unsaved);
+  }
   // The page, the tab and a competing press are checked again after every wait above.
   const changed = await check();
   if (changed) return refuse(changed);
