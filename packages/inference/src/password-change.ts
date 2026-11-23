@@ -179,7 +179,7 @@ const pinShaped = (candidate: ObservedCandidate) =>
 
 /** Words that name an account's password, not a PIN or another secret, in one text. */
 const passwordWording =
-  /pass(?:word|wort)|mot de passe|contrase[nñ]a|senha|パスワード|비밀번호|密[码碼]/iu;
+  /pass(?:word|wort)|mot de passe|contraseña|contrasena|senha|パスワード|비밀번호|密[码碼]/iu;
 
 /**
  * Words that make a password another secret than the account's: a transaction or transfer
