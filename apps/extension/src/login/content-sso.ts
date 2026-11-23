@@ -6,6 +6,7 @@ import { clickable } from "../page/target-state";
 import { findTargets } from "../page/targets";
 import { closestAcross, queryAll } from "../page/shadow";
 import { pressPointer } from "../page/pointer-press";
+import { personClick } from "../page/script-url-click";
 import {
   extractSignedInObservation,
   extractEntryObservation,
@@ -379,7 +380,7 @@ export function createSsoContent(
       const pressed = await pressPointer(held.element, current);
       if (pressed !== "pressed" || !current()) return { ok: false, reason: "target-changed" };
       if (!(await authorize("click")) || !current()) return { ok: false, reason: "not-authorized" };
-      HTMLElement.prototype.click.call(held.element);
+      personClick(held.element);
       return { ok: true };
     } finally {
       clearTimeout(held.timer);

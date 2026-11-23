@@ -3,14 +3,16 @@ import {
   MAIN_WORLD_CLICK,
   MAIN_WORLD_SUBMIT,
   installMainWorldClicks,
+  personClick,
   pressElement,
   runsScriptUrl,
   submitForm,
 } from "./script-url-click";
 
-// One Chromium page plays both worlds here: `installMainWorldClicks` keeps the click it
-// found at install, so a spy installed afterwards on `HTMLElement.prototype.click` counts
-// only the isolated world's clicks, and a click listener counts every click.
+// One Chromium page plays both worlds here: `installMainWorldClicks` keeps the
+// `dispatchEvent` it found at install, so a spy installed afterwards on
+// `EventTarget.prototype.dispatchEvent` counts only the isolated world's clicks, and a click
+// listener counts every click.
 const removals: (() => void)[] = [];
 afterEach(() => {
   for (const remove of removals.splice(0)) remove();
@@ -23,7 +25,7 @@ async function press(html: string | (() => Element), { listener = true } = {}) {
   if (listener) removals.push(installMainWorldClicks());
   if (typeof html === "string") document.body.innerHTML = html;
   const target = typeof html === "string" ? document.getElementById("t")! : html();
-  const isolated = vi.spyOn(HTMLElement.prototype, "click");
+  const isolated = vi.spyOn(EventTarget.prototype, "dispatchEvent");
   let clicks = 0;
   const events: Event[] = [];
   const count = () => {
@@ -38,7 +40,7 @@ async function press(html: string | (() => Element), { listener = true } = {}) {
     removeEventListener(MAIN_WORLD_CLICK, record, true);
     target.removeEventListener("click", count);
   }
-  const calls = isolated.mock.calls.length;
+  const calls = isolated.mock.calls.filter(([event]) => event.type === "click").length;
   isolated.mockRestore();
   return { clicks, isolated: calls, events };
 }
@@ -180,6 +182,61 @@ describe("pressElement", () => {
     expect(result).toMatchObject({ clicks: 1, isolated: 1 });
     expect(result.events).toHaveLength(1);
     expect(result.events[0]!.defaultPrevented).toBe(false);
+  });
+});
+
+describe("personClick", () => {
+  it("clicks with a person's click count from either world, and runs the activation", async () => {
+    document.body.innerHTML = `<form id="f"><button id="b">Go</button></form>
+      <input id="c" type="checkbox"><a id="t" href="javascript:void 0">Log in</a>`;
+    removals.push(installMainWorldClicks());
+    const details: number[] = [];
+    const record = (event: Event) => details.push((event as MouseEvent).detail);
+    document.addEventListener("click", record, true);
+    const form = document.getElementById("f") as HTMLFormElement;
+    let submitted = 0;
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitted += 1;
+    });
+    try {
+      // A link whose own handler acts only on a click a mouse made, as ANA's sign-in does.
+      for (const id of ["t", "b", "c"])
+        // oxlint-disable-next-line no-await-in-loop -- One press at a time, as a person's.
+        await pressElement(document.getElementById(id) as HTMLElement);
+    } finally {
+      document.removeEventListener("click", record, true);
+    }
+    expect(details).toEqual([1, 1, 1]);
+    expect(submitted).toBe(1);
+    expect((document.getElementById("c") as HTMLInputElement).checked).toBe(true);
+    const pointerTypes: string[] = [];
+    const recordType = (event: Event) => pointerTypes.push((event as PointerEvent).pointerType);
+    document.addEventListener("click", recordType, true);
+    personClick(document.getElementById("c") as HTMLElement);
+    document.removeEventListener("click", recordType, true);
+    expect(pointerTypes).toEqual(["mouse"]);
+  });
+
+  it("passes a press on a label to its control while the page has text selected", async () => {
+    // A selection, such as the one a page's `select()` leaves in an ID field, makes Chrome's
+    // label skip a single click; a mouse's press ends it first.
+    document.body.innerHTML = `<p id="p">Some text</p><input id="c" type="checkbox"><label id="t" for="c">Remember me</label>`;
+    getSelection()!.selectAllChildren(document.getElementById("p")!);
+    await pressElement(document.getElementById("t") as HTMLElement);
+    expect((document.getElementById("c") as HTMLInputElement).checked).toBe(true);
+    expect(getSelection()!.type).not.toBe("Range");
+  });
+
+  it("does nothing on a disabled control, as `click()` does", () => {
+    document.body.innerHTML = `<button id="b" disabled>Go</button>`;
+    const button = document.getElementById("b")!;
+    let clicks = 0;
+    button.addEventListener("click", () => {
+      clicks += 1;
+    });
+    personClick(button);
+    expect(clicks).toBe(0);
   });
 });
 

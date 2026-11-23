@@ -189,7 +189,7 @@ describe("Enter submission of a form whose action is a `javascript:` URL", () =>
     const removeMainWorld = installMainWorldClicks();
     const { form, submitted } = await formWith([], { action: " JavaScript:void(0);" });
     if (button) form.insertAdjacentHTML("beforeend", '<button type="submit">Sign in</button>');
-    const click = vi.spyOn(HTMLElement.prototype, "click");
+    const click = vi.spyOn(EventTarget.prototype, "dispatchEvent");
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit");
     const events: Event[] = [];
     const record = (event: Event) => events.push(event);
@@ -197,7 +197,10 @@ describe("Enter submission of a form whose action is a `javascript:` URL", () =>
     let isolated: number[] = [];
     try {
       expect(await execute("click")).toMatchObject({ ok: true, mutation: "possible" });
-      isolated = [click.mock.calls.length, requestSubmit.mock.calls.length];
+      isolated = [
+        click.mock.calls.filter(([event]) => event.type === "click").length,
+        requestSubmit.mock.calls.length,
+      ];
     } finally {
       removeEventListener(type, record, true);
       removeMainWorld();

@@ -95,19 +95,58 @@ export function runsScriptUrl(element: unknown): element is HTMLElement {
   );
 }
 
+/**
+ * Clicks `element` as a person's mouse does after `mouseup`: a `click` with `detail` 1
+ * (the click count), the main button and the centre of its first box, where
+ * `HTMLElement.click()` sends `detail` 0, as a keyboard's activation does. ANA's header
+ * sign-in runs only on a click whose `detail` is above 0 (2026-11-23). The dispatched
+ * click runs the element's activation as `click()` does: a link is followed, a submit
+ * button submits its form, a checkbox or a label's control toggles. Like `click()`, it
+ * does nothing on a disabled form control. Unlike `click()`, and like a mouse, it sets no
+ * click-in-progress flag, so a handler that forwards the click with `click()` runs it
+ * again. It is a `PointerEvent` from the mouse, as Chrome's is. `Pointer` and `dispatch`
+ * are the main world's own at document start when it clicks
+ * ({@link installMainWorldClicks}).
+ */
+export function personClick(
+  element: HTMLElement,
+  Pointer: typeof PointerEvent = PointerEvent,
+  dispatch: EventTarget["dispatchEvent"] = EventTarget.prototype.dispatchEvent,
+): void {
+  if (Element.prototype.matches.call(element, ":disabled")) return;
+  const box = element.getClientRects()[0] ?? element.getBoundingClientRect();
+  dispatch.call(
+    element,
+    new Pointer("click", {
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      detail: 1,
+      button: 0,
+      buttons: 0,
+      clientX: box.left + box.width / 2,
+      clientY: box.top + box.height / 2,
+    }),
+  );
+}
+
 /** Whether the main world answered `type` on `target` by cancelling it. */
 const mainWorldDid = (target: Element, type: string) =>
   // Synchronous: a cancelled event means the main world has already acted.
   !target.dispatchEvent(new CustomEvent(type, { cancelable: true, composed: true }));
 
 /**
- * Clicks `element`: from the main world when the click runs a script URL
- * ({@link runsScriptUrl}) and its listener answers, and otherwise here. Only one world
- * clicks, so `onclick` handlers run once.
+ * Clicks `element` ({@link personClick}): from the main world when the click runs a
+ * script URL ({@link runsScriptUrl}) and its listener answers, and otherwise here. Only
+ * one world clicks, so `onclick` handlers run once.
  */
 export function clickElement(element: HTMLElement): void {
   if (runsScriptUrl(element) && mainWorldDid(element, MAIN_WORLD_CLICK)) return;
-  HTMLElement.prototype.click.call(element);
+  personClick(element);
 }
 
 /**
@@ -145,7 +184,8 @@ export function installMainWorldClicks(): () => void {
   // Taken at document start, before page scripts can replace them. The other calls below
   // are looked up when the event comes, so a page can patch them, but only to break its
   // own login.
-  const click = HTMLElement.prototype.click;
+  const Pointer = PointerEvent;
+  const dispatch = EventTarget.prototype.dispatchEvent;
   const requestSubmit = HTMLFormElement.prototype.requestSubmit;
   const clicks = (event: Event) => {
     // The element itself, also inside an open shadow root.
@@ -153,7 +193,7 @@ export function installMainWorldClicks(): () => void {
     if (!runsScriptUrl(target)) return;
     // Cancelled before the click, so a throwing handler never leads to a second click.
     event.preventDefault();
-    click.call(target);
+    personClick(target, Pointer, dispatch);
   };
   const submits = (event: Event) => {
     const [target] = event.composedPath();
