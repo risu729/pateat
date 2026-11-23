@@ -1039,16 +1039,28 @@ since the page shows no signed-in marker there. Its plan again filled the hidden
 field 「AMCパスワード」, four characters, into the input labelled 「パスワード：」, and
 the login submitted it at 01:46 UTC: the site rejected it (`credential-rejected`), one
 failed password attempt on the owner's account. The rule of 2026-11-22 above covered
-only `confirm` and `unclear` plans.
+only `confirm` and `unclear` plans, and a sign-in form is answered by Clef first
+([ADR 0083](0083-clef-first-for-sign-in-forms.md)), whose plan no such rule checked.
 
 Decision (agent, 2026-11-23, following the owner's 「名前一致+手動選択」 of 2026-11-22
-and Bitwarden, which fills a custom field only into an input its name matches): the
-same rule applies to a `sign-in` plan for a page that starts its layout. A custom field
-fills a `password` input only where one of the input's own texts names it or the input
-is shaped for a PIN; otherwise the set fills the account's password there
-(`namedSecretSlots` in `packages/inference/src/password-change.ts`). A continuation
-page keeps the slots its first page left to it. A person's saved binding still
-outranks the recipe's slots.
+and Bitwarden, which fills a custom field only into an input its name matches):
+
+- A `sign-in` plan, generated or Clef's, follows the rule above for an input that reads
+  as the account's plain password: marked `current-password`, or one of its own texts
+  names a password (`password`, `passwort`, `mot de passe`, `contraseña`, `senha`,
+  `パスワード`, `비밀번호`, `密码`). There a custom field goes in only where the input's
+  own texts name it or the input is shaped for a PIN, and the account's password
+  otherwise (`namedSecretSlots` in `packages/inference/src/password-change.ts`, called
+  by generation and by `createFieldMappingDecider` in `decision.ts`). Any other input
+  keeps the model's field, so a 「暗証番号」 input that a bank checks only by script
+  never gets the account password counted toward its lockout. A `confirm` or `unclear`
+  plan keeps the rule above unchanged.
+- A continuation page keeps the slots its first page left to it, unless no earlier page
+  of its route fills the account's password (`passwordFilled` in the request, from the
+  base recipe's fill steps; a chooser branch's first page has none): then it follows the
+  same rule, as an identifier page followed by a password page would otherwise submit
+  an unnamed custom field.
+- A person's saved binding still outranks the recipe's slots.
 
 Recipes stored before this change keep their slots; ANA's `sign-in` revision 3 is
 revoked once this is deployed.

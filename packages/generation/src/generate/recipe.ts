@@ -332,6 +332,13 @@ export async function generateRecipe(
   // the `passkey` route of a recipe's first page only. A chooser branch's pages all follow
   // the click on the list, so none of them is a start page.
   const startPage = baseRecipe === undefined && chooser === undefined;
+  // Whether an earlier page of the route fills the account's password: a continuation page
+  // where none does gets the start page's custom-field rule (ADR 0035, amended 2026-11-23).
+  const passwordFilled = startPage
+    ? undefined
+    : (baseRecipe?.steps ?? []).some(
+        (step) => step.kind === "fill" && step.fields.some((field) => field.slot === "password"),
+      );
   // A custom field the owner's saved bindings of this recipe already name keeps that name,
   // on any page (ADR 0027, amended 2026-10-19), so a recipe generated again after its
   // revocation still fits its bindings. Only names and field references are read, and the
@@ -387,6 +394,7 @@ export async function generateRecipe(
         slots,
         startPage,
         carriedNames,
+        ...(passwordFilled === undefined ? {} : { passwordFilled }),
         ...(passkeyOnly ? { passkeyOnly } : {}),
         ...(signedIn === undefined ? {} : { signedIn }),
       }),
@@ -402,7 +410,13 @@ export async function generateRecipe(
                 model,
                 limits: CLEF_LIMITS,
                 minProbability: CLEF_MIN_PROBABILITY,
-              })({ observation, slots, startPage, carriedNames }),
+              })({
+                observation,
+                slots,
+                startPage,
+                carriedNames,
+                ...(passwordFilled === undefined ? {} : { passwordFilled }),
+              }),
           },
         }),
     logValue: (value) => {

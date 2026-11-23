@@ -1498,9 +1498,11 @@ and
 so no recipe the service plans places them in a search box; such a plain text input
 takes a code only where the judge names it. A Hidden custom field goes only into a
 password or short numeric input, and a Linked custom field follows the field it reads.
-On a page that starts its layout, a generated plan fills a custom field into a password
-input only where one of the input's own texts names it or the input is shaped for a PIN,
-and the account's password there otherwise (`namedSecretSlots`,
+On a page that starts its layout, or a later page when no earlier page of its route
+fills the password, a plan, generated or Clef's, fills a custom field into a password
+input (for a sign-in, one that reads as the account's plain password) only where one of
+the input's own texts names it or the input is shaped for a PIN, and the account's
+password there otherwise (`namedSecretSlots`,
 [ADR 0035, amended 2026-11-23](adr/0035-page-kinds-per-site.md#amendment-2026-11-23-a-custom-field-in-a-sign-ins-password-input)).
 A username or password never goes into an input marked `autocomplete="one-time-code"`:
 a fill step's wait never counts such a field's target on one as ready, and its fill

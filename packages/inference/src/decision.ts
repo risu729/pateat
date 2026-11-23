@@ -23,7 +23,7 @@ import {
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
-import { passwordChangeForm } from "./password-change";
+import { namedSecretSlots, passwordChangeForm } from "./password-change";
 import {
   actionPurpose,
   isActionRole,
@@ -285,6 +285,8 @@ export type FieldDecisionRequest = {
   startPage?: boolean;
   /** As for generation: the names carried from the owner's saved bindings (ADR 0027). */
   carriedNames?: ReadonlyMap<string, string>;
+  /** As for generation: whether an earlier page of the route fills the password. */
+  passwordFilled?: boolean;
   /**
    * The device's hint that the page shows the user signed in (ADR 0035). A page with it
    * is left to generation, which weighs it for a confirmation's page kind.
@@ -432,7 +434,7 @@ function interpret(
   slots: readonly SemanticSlot[],
   answers: Record<string, Answer>,
   minProbability: number,
-  request: Pick<FieldDecisionRequest, "startPage" | "carriedNames">,
+  request: Pick<FieldDecisionRequest, "startPage" | "carriedNames" | "passwordFilled">,
 ): Interpreted {
   const choices = new Map<string, { choice: string; probability: number | undefined }>();
   const yes = new Map<string, number>();
@@ -513,10 +515,16 @@ function interpret(
     ...(accountSwitch === undefined ? {} : { accountSwitch }),
     ...(passkeyButton === undefined ? {} : { passkeyButton }),
   };
+  // A custom field fills a plain password input only where the input names it, as on a
+  // generated sign-in (ADR 0035, amended 2026-11-23).
+  const named =
+    request.startPage === false && request.passwordFilled !== false
+      ? draft
+      : namedSecretSlots(observation, slots, draft, { plainOnly: true });
   const validated = validateGeneratedPage(
     observation,
     slots,
-    draft,
+    named,
     request.startPage ?? true,
     request.carriedNames,
   );

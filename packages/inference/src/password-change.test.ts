@@ -443,6 +443,7 @@ describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 20
     observation: LoginObservation,
     fields: [string, string][],
     startPage = true,
+    passwordFilled?: boolean,
   ) =>
     createRecipeGenerator({
       model: textModel(async () =>
@@ -454,7 +455,12 @@ describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 20
       ),
       limits: { timeoutMs: 1_000, maxInputBytes: 16_384 },
       maxOutputTokens: 512,
-    })({ observation, slots: requested, startPage });
+    })({
+      observation,
+      slots: requested,
+      startPage,
+      ...(passwordFilled === undefined ? {} : { passwordFilled }),
+    });
   const filled = async (outcome: ReturnType<typeof generate>) => {
     const result = await outcome;
     if (result.status !== "ok" || !("fields" in result.value)) throw new Error(result.status);
@@ -523,10 +529,40 @@ describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 20
     expect(plans).toEqual(plans.map(() => [["custom-1", "secret"]]));
   });
 
-  it("keeps a continuation page's slots", async () => {
+  it("keeps a continuation page's slots after a page that fills the password", async () => {
+    for (const passwordFilled of [undefined, true])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- Each case is generated on its own.
+        await filled(
+          generate(
+            "sign-in",
+            verification("Password:"),
+            [["custom-1", "secret"]],
+            false,
+            passwordFilled,
+          ),
+        ),
+      ).toEqual([["custom-1", "secret"]]);
+  });
+
+  it("fills the password on a continuation page when no earlier page does", async () => {
     expect(
-      await filled(generate("confirm", verification("Password:"), [["custom-1", "secret"]], false)),
-    ).toEqual([["custom-1", "secret"]]);
+      await filled(
+        generate("sign-in", verification("Password:"), [["custom-1", "secret"]], false, false),
+      ),
+    ).toEqual([["password", "secret"]]);
+  });
+
+  it("keeps the field in a sign-in input that does not read as a password", async () => {
+    // A PIN input the page checks only by script, as 「暗証番号」 beside a field named
+    // 「キャッシュカード暗証番号」; a verification still fills the password there.
+    const pinInput = { ...verification("暗証番号"), headings: [] };
+    expect(await filled(generate("sign-in", pinInput, [["custom-1", "secret"]]))).toEqual([
+      ["custom-1", "secret"],
+    ]);
+    expect(await filled(generate("confirm", pinInput, [["custom-1", "secret"]]))).toEqual([
+      ["password", "secret"],
+    ]);
   });
 
   it("keeps the field where the input's own text names it", async () => {

@@ -177,6 +177,22 @@ const pinShaped = (candidate: ObservedCandidate) =>
   candidate.inputMode === "numeric" ||
   (candidate.maxLength !== undefined && candidate.maxLength <= PIN_MAX_LENGTH);
 
+/** Words that name an account's password, not a PIN or another secret, in one text. */
+const passwordWording =
+  /pass(?:word|wort)|mot de passe|contrase[nñ]a|senha|パスワード|비밀번호|密[码碼]/iu;
+
+/**
+ * An input that reads as the account's plain password: marked `current-password`, or one
+ * of its own texts names a password ({@link passwordWording}). A sign-in fills the
+ * account's password in place of an unnamed custom field only there, so a PIN input the
+ * page checks only by script, such as 「暗証番号」, keeps the model's field.
+ */
+const plainPassword = (candidate: ObservedCandidate) =>
+  candidate.autocomplete === "current-password" ||
+  [...textsOf(candidate), candidate.description]
+    .filter((text): text is string => text !== undefined)
+    .some((text) => passwordWording.test(text.normalize("NFKC")));
+
 /**
  * The slots a plan for a page that starts its layout fills, `sign-in`, `confirm` or
  * `unclear`, with a custom vault field kept in a password input only where the input
@@ -186,7 +202,9 @@ const pinShaped = (candidate: ObservedCandidate) =>
  * and its description), or the input is shaped for a PIN ({@link pinShaped}), as
  * Bitwarden fills a custom field only into an input its name matches. Otherwise the set
  * fills the account's password there, when the request offers that slot and the set
- * fills it nowhere else and no other such input; any other set is kept as it is. Headings
+ * fills it nowhere else and no other such input; any other set is kept as it is. With
+ * `plainOnly`, as for a `sign-in`, only an input that reads as a plain password
+ * ({@link plainPassword}) is changed so. Headings
  * and the page's other text never count: ANA's page asked for 「ANAマイレージクラブの
  * パスワード」 in an input labelled 「パスワード：」, and the model took the field
  * 「AMCパスワード」, a four-digit PIN, for it, on a `confirm` plan and then on a
@@ -196,6 +214,7 @@ export function namedSecretSlots<Plan extends SlotSet & { alternatives?: SlotSet
   observation: Pick<LoginObservation, "candidates">,
   slots: readonly SemanticSlot[],
   plan: Plan,
+  { plainOnly = false }: { plainOnly?: boolean } = {},
 ): Plan {
   if (!slots.some((slot) => slot.id === "password")) return plan;
   const candidates = new Map(observation.candidates.map((candidate) => [candidate.id, candidate]));
@@ -209,6 +228,7 @@ export function namedSecretSlots<Plan extends SlotSet & { alternatives?: SlotSet
       name !== undefined &&
       candidate?.role === "password" &&
       !pinShaped(candidate) &&
+      (!plainOnly || plainPassword(candidate)) &&
       ![...textsOf(candidate), candidate.description]
         .filter((text): text is string => text !== undefined)
         .some((text) => compact(text).includes(compact(name)))
