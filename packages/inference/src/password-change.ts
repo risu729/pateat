@@ -178,8 +178,9 @@ const pinShaped = (candidate: ObservedCandidate) =>
   (candidate.maxLength !== undefined && candidate.maxLength <= PIN_MAX_LENGTH);
 
 /**
- * The slots a `confirm` or `unclear` plan fills, with a custom vault field kept in a
- * password input only where the input names it (owner, 2026-11-22, ADR 0035): a slot that
+ * The slots a plan for a page that starts its layout fills, `sign-in`, `confirm` or
+ * `unclear`, with a custom vault field kept in a password input only where the input
+ * names it (owner, 2026-11-22, ADR 0035; a sign-in since 2026-11-23): a slot that
  * offers a custom field fills a `password` input only when the field's name shows in one
  * of that input's own texts (`textsOf`: its label, `id`, `name` or test ID, placeholder,
  * and its description), or the input is shaped for a PIN ({@link pinShaped}), as
@@ -188,11 +189,10 @@ const pinShaped = (candidate: ObservedCandidate) =>
  * fills it nowhere else and no other such input; any other set is kept as it is. Headings
  * and the page's other text never count: ANA's page asked for 「ANAマイレージクラブの
  * パスワード」 in an input labelled 「パスワード：」, and the model took the field
- * 「AMCパスワード」, a four-digit PIN, for it.
+ * 「AMCパスワード」, a four-digit PIN, for it, on a `confirm` plan and then on a
+ * `sign-in` plan of the same page, which submitted it.
  */
-export function verificationSecretSlots<
-  Plan extends SlotSet & { alternatives?: SlotSet[] | undefined },
->(
+export function namedSecretSlots<Plan extends SlotSet & { alternatives?: SlotSet[] | undefined }>(
   observation: Pick<LoginObservation, "candidates">,
   slots: readonly SemanticSlot[],
   plan: Plan,
