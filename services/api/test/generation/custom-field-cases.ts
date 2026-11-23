@@ -192,9 +192,7 @@ export function registerCustomFieldCases({
       state.replies.push({
         text: named([{ slot: "custom-2", candidate: "secret" }], "sign-in", "submit"),
       });
-      const second = await generateCustom(device, secretPage, { recipeId, revision: 1 });
-      if (second.status !== "recipe") throw new Error(second.status);
-      return second.change.recipe.slots;
+      return generateCustom(device, secretPage, { recipeId, revision: 1 });
     };
 
     // The first page fills only the address, so the input takes the account's password.
@@ -202,7 +200,10 @@ export function registerCustomFieldCases({
     state.replies.push({ text: plan([["email", "email"]], "next", "advance") });
     const start = await generateCustom(generated, firstPage);
     if (start.status !== "recipe") throw new Error(start.status);
-    expect(await continued(generated, start.change.recipeId)).toEqual(["email", "password"]);
+    expect(await continued(generated, start.change.recipeId)).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { slots: ["email", "password"] } },
+    });
 
     // A stored first page that already fills the password keeps the field the answer named.
     const saved = await owner();
@@ -240,7 +241,10 @@ export function registerCustomFieldCases({
       "PUT",
     );
     expect(put.status).toBe(200);
-    expect(await continued(saved, recipeId)).toEqual(["email", "password", "Secret"]);
+    expect(await continued(saved, recipeId)).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { slots: ["email", "password", "Secret"] } },
+    });
   });
 
   it("answers no mapping for a recipe without custom slots", async () => {
