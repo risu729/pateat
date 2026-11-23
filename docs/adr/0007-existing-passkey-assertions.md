@@ -518,7 +518,10 @@ re-authentication before that page, which Pateat answered, and Google's
 above therefore refused every registration there, with the person's own "Create a
 passkey" or "Use another device" click, and Google showed "Something went wrong" before
 the operating system's security key prompt appeared. With Pateat disabled the key was
-registered.
+registered. The owner's diagnostics file shows a `passkey.request` `assertion` for
+`google.com` at 16:53:57 UTC, then four `passkey.create` entries from 16:54:38 to
+16:55:21 UTC, each `declined`, `listed`, with 4 `excludeCredentials`, `sinceSignIn` 41
+to 84 and no `mediation`, so Google's registrations were modal.
 
 The owner chose on 2026-11-23 at OWNER_TIME UTC that Pateat refuses only a registration
 with `mediation: "conditional"`, Chrome's automatic passkey upgrade, which shows no
