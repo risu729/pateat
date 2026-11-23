@@ -530,7 +530,15 @@ describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 20
   });
 
   it("keeps a continuation page's slots after a page that fills the password", async () => {
-    for (const passwordFilled of [undefined, true])
+    expect(
+      await filled(
+        generate("sign-in", verification("Password:"), [["custom-1", "secret"]], false, true),
+      ),
+    ).toEqual([["custom-1", "secret"]]);
+  });
+
+  it("fills the password on a continuation page when no earlier page does, or none is known", async () => {
+    for (const passwordFilled of [false, undefined])
       expect(
         // oxlint-disable-next-line no-await-in-loop -- Each case is generated on its own.
         await filled(
@@ -542,15 +550,7 @@ describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 20
             passwordFilled,
           ),
         ),
-      ).toEqual([["custom-1", "secret"]]);
-  });
-
-  it("fills the password on a continuation page when no earlier page does", async () => {
-    expect(
-      await filled(
-        generate("sign-in", verification("Password:"), [["custom-1", "secret"]], false, false),
-      ),
-    ).toEqual([["password", "secret"]]);
+      ).toEqual([["password", "secret"]]);
   });
 
   it("keeps the field in a sign-in input that does not read as a password", async () => {
@@ -560,6 +560,23 @@ describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 20
     expect(await filled(generate("sign-in", pinInput, [["custom-1", "secret"]]))).toEqual([
       ["custom-1", "secret"],
     ]);
+    // A password the input qualifies as another secret, even marked as the current one.
+    for (const label of ["取引パスワード", "第2パスワード", "Transaction password"])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- Each label is generated on its own.
+        await filled(
+          generate(
+            "sign-in",
+            {
+              ...page([
+                field("secret", "password", label, { autocomplete: "current-password" }),
+                field("go", "button", "Continue"),
+              ]),
+            },
+            [["custom-1", "secret"]],
+          ),
+        ),
+      ).toEqual([["custom-1", "secret"]]);
     expect(await filled(generate("confirm", pinInput, [["custom-1", "secret"]]))).toEqual([
       ["password", "secret"],
     ]);
@@ -571,6 +588,61 @@ describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 20
         generate("confirm", verification("Club password (4 digits)"), [["custom-1", "secret"]]),
       ),
     ).toEqual([["custom-1", "secret"]]);
+  });
+
+  it("drops a set the rule turns into another set's slots and keeps the rest", async () => {
+    // A synthetic page with a personal and a business form, each with a username and an
+    // input labelled only "Password"; the model filled the business one with the field.
+    const forms = page([
+      field("user", "text", "Username"),
+      field("pass", "password", "Password"),
+      field("go", "button", "Sign in"),
+      field("user2", "text", "Business ID", { group: "f2" }),
+      field("pass2", "password", "Password", { group: "f2" }),
+      field("go2", "button", "Sign in", { group: "f2" }),
+    ]);
+    const personal = set(
+      [
+        ["username", "user"],
+        ["password", "pass"],
+      ],
+      "go",
+    );
+    const business = set(
+      [
+        ["username", "user2"],
+        ["custom-1", "pass2"],
+      ],
+      "go2",
+    );
+    const answer = (sets: (typeof personal)[]) =>
+      createRecipeGenerator({
+        model: textModel(async () =>
+          textResult(
+            JSON.stringify({
+              result: {
+                decision: "plan",
+                pageKind: "sign-in",
+                irreversible: "no",
+                ...sets[0],
+                alternatives: sets.slice(1),
+              },
+            }),
+          ),
+        ),
+        limits: { timeoutMs: 1_000, maxInputBytes: 16_384 },
+        maxOutputTokens: 512,
+      })({ observation: forms, slots: requested });
+    for (const sets of [
+      [personal, business],
+      [business, personal],
+    ]) {
+      // oxlint-disable-next-line no-await-in-loop -- Each order is generated on its own.
+      const outcome = await answer(sets);
+      expect(outcome).toMatchObject({ status: "ok", value: personal });
+      if (outcome.status === "ok" && "alternatives" in outcome.value)
+        expect(outcome.value.alternatives ?? []).toEqual([]);
+    }
   });
 
   it("keeps a set that already fills the password", async () => {

@@ -518,7 +518,7 @@ function interpret(
   // A custom field fills a plain password input only where the input names it, as on a
   // generated sign-in (ADR 0035, amended 2026-11-23).
   const named =
-    request.startPage === false && request.passwordFilled !== false
+    request.startPage === false && request.passwordFilled === true
       ? draft
       : namedSecretSlots(observation, slots, draft, { plainOnly: true });
   const validated = validateGeneratedPage(

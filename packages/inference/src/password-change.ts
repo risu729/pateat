@@ -182,16 +182,29 @@ const passwordWording =
   /pass(?:word|wort)|mot de passe|contrase[nñ]a|senha|パスワード|비밀번호|密[码碼]/iu;
 
 /**
- * An input that reads as the account's plain password: marked `current-password`, or one
- * of its own texts names a password ({@link passwordWording}). A sign-in fills the
- * account's password in place of an unnamed custom field only there, so a PIN input the
- * page checks only by script, such as 「暗証番号」, keeps the model's field.
+ * Words that make a password another secret than the account's: a transaction or transfer
+ * password, a second one, or a PIN, as 「取引パスワード」 or 「第2パスワード」.
  */
-const plainPassword = (candidate: ObservedCandidate) =>
-  candidate.autocomplete === "current-password" ||
-  [...textsOf(candidate), candidate.description]
+const otherSecretWording =
+  /取引|振込|送金|暗証|第\s*[2-9二三]|transaction|transfer|second(?:ary)?|2nd|\bpin\b/iu;
+
+/**
+ * An input that reads as the account's plain password: marked `current-password`, or one
+ * of its own texts names a password ({@link passwordWording}), and none names another
+ * secret ({@link otherSecretWording}). A sign-in fills the account's password in place of
+ * an unnamed custom field only there, so a PIN input the page checks only by script, such
+ * as 「暗証番号」, or a 「取引パスワード」 input keeps the model's field.
+ */
+const plainPassword = (candidate: ObservedCandidate) => {
+  const texts = [...textsOf(candidate), candidate.description]
     .filter((text): text is string => text !== undefined)
-    .some((text) => passwordWording.test(text.normalize("NFKC")));
+    .map((text) => text.normalize("NFKC"));
+  return (
+    !texts.some((text) => otherSecretWording.test(text)) &&
+    (candidate.autocomplete === "current-password" ||
+      texts.some((text) => passwordWording.test(text)))
+  );
+};
 
 /**
  * The slots a plan for a page that starts its layout fills, `sign-in`, `confirm` or
@@ -244,10 +257,35 @@ export function namedSecretSlots<Plan extends SlotSet & { alternatives?: SlotSet
       ),
     };
   };
+  const sets = [plan, ...(plan.alternatives ?? [])];
+  const answered = sets.map(fixed);
+  const slotsOf = (set: SlotSet) => set.fields.map((field) => field.slot);
+  const within = (set: SlotSet, other: SlotSet) =>
+    slotsOf(set).every((slot) => slotsOf(other).includes(slot));
+  // A set the rule changed that now fills the same slots as another set, or a subset or
+  // superset of them, is dropped, so the rest of the plan still passes the
+  // `duplicate-variant` check of `validateGeneratedSets`.
+  const kept: SlotSet[] = [];
+  for (const [index, set] of answered.entries()) {
+    const changed = set !== sets[index];
+    const clashes = (other: SlotSet) => within(set, other) || within(other, set);
+    if (
+      !changed ||
+      !(
+        answered.some(
+          (other, otherIndex) => other === sets[otherIndex] && other !== set && clashes(other),
+        ) || kept.some(clashes)
+      )
+    )
+      kept.push(set);
+  }
+  const [first, ...alternatives] = kept;
+  if (first === undefined) return plan;
   return {
-    ...fixed(plan),
-    ...(plan.alternatives ? { alternatives: plan.alternatives.map(fixed) } : {}),
-  };
+    ...plan,
+    ...first,
+    ...(plan.alternatives ? { alternatives } : {}),
+  } as Plan;
 }
 
 /**

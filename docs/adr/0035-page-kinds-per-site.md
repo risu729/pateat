@@ -1053,13 +1053,19 @@ and Bitwarden, which fills a custom field only into an input its name matches):
   otherwise (`namedSecretSlots` in `packages/inference/src/password-change.ts`, called
   by generation and by `createFieldMappingDecider` in `decision.ts`). Any other input
   keeps the model's field, so a 「暗証番号」 input that a bank checks only by script
-  never gets the account password counted toward its lockout. A `confirm` or `unclear`
+  never gets the account password counted toward its lockout. So does an input whose
+  texts name another secret, as 「取引パスワード」, 「第2パスワード」 or "Transaction
+  password", even when it is marked `current-password`. A `confirm` or `unclear`
   plan keeps the rule above unchanged.
 - A continuation page keeps the slots its first page left to it, unless no earlier page
   of its route fills the account's password (`passwordFilled` in the request, from the
-  base recipe's fill steps; a chooser branch's first page has none): then it follows the
-  same rule, as an identifier page followed by a password page would otherwise submit
-  an unnamed custom field.
+  base recipe's fill steps; a chooser branch's first page has none; a request without
+  it, as a replayed log row, counts as none): then it follows the same rule, as an
+  identifier page followed by a password page would otherwise submit an unnamed custom
+  field.
+- When the rule turns one of a page's sets into the slots of another set, or a subset or
+  superset of them, that set is dropped and the others are kept, so two forms of one
+  page no longer refuse the whole plan as `duplicate-variant`.
 - A person's saved binding still outranks the recipe's slots.
 
 Recipes stored before this change keep their slots; ANA's `sign-in` revision 3 is

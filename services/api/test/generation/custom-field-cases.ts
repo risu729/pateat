@@ -177,6 +177,72 @@ export function registerCustomFieldCases({
     expect(second.change.recipe).not.toHaveProperty("alternatives");
   });
 
+  it("fills the password in a continuation's unnamed password input only when no earlier page does", async () => {
+    // A synthetic two-page sign-in whose second page asks for a secret in a plain password
+    // input, which the answer fills with the PIN field (ADR 0035, amended 2026-11-23).
+    const secretPage = observation("/password", [
+      { ...element("secret", "password", "Secret"), autocomplete: "current-password" },
+      element("sign-in", "button", "Sign in"),
+    ]);
+    const firstPage = observation("/login", [
+      element("email", "email", "Email"),
+      element("next", "button", "Next"),
+    ]);
+    const continued = async (device: Device, recipeId: string) => {
+      state.replies.push({
+        text: named([{ slot: "custom-2", candidate: "secret" }], "sign-in", "submit"),
+      });
+      const second = await generateCustom(device, secretPage, { recipeId, revision: 1 });
+      if (second.status !== "recipe") throw new Error(second.status);
+      return second.change.recipe.slots;
+    };
+
+    // The first page fills only the address, so the input takes the account's password.
+    const generated = await owner();
+    state.replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const start = await generateCustom(generated, firstPage);
+    if (start.status !== "recipe") throw new Error(start.status);
+    expect(await continued(generated, start.change.recipeId)).toEqual(["email", "password"]);
+
+    // A stored first page that already fills the password keeps the field the answer named.
+    const saved = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    const withPassword = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      pageKind: "sign-in",
+      slots: ["email", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/login",
+          effect: "prepare",
+          fields: [
+            { slot: "email", target: { by: "id", value: "email" } },
+            { slot: "password", target: { by: "id", value: "password" } },
+          ],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
+      ],
+      maxSubmissions: 1,
+    };
+    const put = await post(
+      saved,
+      `/v1/recipes/${recipeId}`,
+      {
+        version: 1,
+        expectedRevision: 0,
+        state: "active",
+        recipe: documentOf(withPassword as LoginRecipe),
+      },
+      "PUT",
+    );
+    expect(put.status).toBe(200);
+    expect(await continued(saved, recipeId)).toEqual(["email", "password", "Secret"]);
+  });
+
   it("answers no mapping for a recipe without custom slots", async () => {
     const device = await owner();
     state.replies.push({ text: plan([["email", "email"]], "next", "advance") });

@@ -306,8 +306,9 @@ export type GenerationRequest = {
   carriedNames?: ReadonlyMap<string, string>;
   /**
    * For a page after the start page: whether an earlier page of its route fills the
-   * account's password. When false, a custom field fills a password input there only
-   * where the input names it (`namedSecretSlots`, ADR 0035 amended 2026-11-23).
+   * account's password. Unless true, a custom field fills a password input there only
+   * where the input names it (`namedSecretSlots`, ADR 0035 amended 2026-11-23), so a
+   * replay without it applies the rule too.
    */
   passwordFilled?: boolean;
   abortSignal?: AbortSignal;
@@ -442,7 +443,7 @@ export function createRecipeGenerator(config: StructuredRoleConfig) {
         // page of its route fills the password. A sign-in changes a plain password input
         // only.
         const planned =
-          request.startPage === false && request.passwordFilled !== false
+          request.startPage === false && request.passwordFilled === true
             ? draft
             : namedSecretSlots(observation.output, slots.output, draft, {
                 plainOnly: draft.pageKind === "sign-in",
