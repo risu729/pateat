@@ -897,11 +897,12 @@ Decision (owner, 2026-11-22 15:07 UTC, 「名前一致+手動選択」 on a deci
   is shaped for a PIN (`inputMode` `numeric`, or `maxLength` 6 or less). Headings and
   the page's other text never count. Otherwise that set fills the account's password
   there, when the request offers that slot, the set fills it nowhere else and no other
-  of its password inputs takes a custom field so (`verificationSecretSlots` in
+  of its password inputs takes a custom field so (`namedSecretSlots` in
   `packages/inference/src/password-change.ts`, applied before `validateGeneratedPage`).
   This follows Bitwarden, which fills a custom field only into an input its name
   matches, but loosely: the name only has to show inside one of those texts. A
-  `sign-in` plan and a continuation page are unchanged.
+  continuation page is unchanged; a `sign-in` plan was too until the amendment of
+  2026-11-23 below.
 - The PIN shape and the description are the agent's additions after review: a bank's
   four-digit PIN input labelled 「暗証番号」 beside a field named 「取引暗証番号」 would
   otherwise get the account password, cut to four characters, and count toward the
@@ -1028,3 +1029,46 @@ Decision (owner, 2026-11-22 15:07 UTC, 「ユーザー名で決まる時」 on a
 Not chosen: filling every verification of a signed-in site with the site default, which
 could put one account's secret into a page signed in as another; and filling only after
 the person's **Fill**, which is how it was.
+
+## Amendment 2026-11-23: a custom field in a sign-in's password input
+
+Context: after the owner revoked ANA's `confirm` recipe of
+`/amcmember/amcprofile/AMCProfileInfo` (2026-11-23 01:43 UTC), the page was generated
+again in a tab without Pateat's login, as a `sign-in` (`gen-33fc01f1…` revision 3),
+since the page shows no signed-in marker there. Its plan again filled the hidden custom
+field 「AMCパスワード」, four characters, into the input labelled 「パスワード：」, and
+the login submitted it at 01:46 UTC: the site rejected it (`credential-rejected`), one
+failed password attempt on the owner's account. The rule of 2026-11-22 above covered
+only `confirm` and `unclear` plans, and a sign-in form is answered by Clef first
+([ADR 0083](0083-clef-first-for-sign-in-forms.md)), whose plan no such rule checked.
+
+Decision (agent, 2026-11-23, following the owner's 「名前一致+手動選択」 of 2026-11-22
+and Bitwarden, which fills a custom field only into an input its name matches):
+
+- A `sign-in` plan, generated or Clef's, follows the rule above for an input that reads
+  as the account's plain password: marked `current-password`, or one of its own texts
+  names a password (`password`, `passwort`, `mot de passe`, `contraseña`, `senha`,
+  `パスワード`, `비밀번호`, `密码`). There a custom field goes in only where the input's
+  own texts name it or the input is shaped for a PIN, and the account's password
+  otherwise (`namedSecretSlots` in `packages/inference/src/password-change.ts`, called
+  by generation and by `createFieldMappingDecider` in `decision.ts`). Any other input
+  keeps the model's field, so a 「暗証番号」 input that a bank checks only by script
+  never gets the account password counted toward its lockout. So does an input whose
+  label, placeholder, `name`, `id` or test ID names another secret, as
+  「取引パスワード」, 「第2パスワード」 or "Transaction password", even when it is
+  marked `current-password`; a hint under the input that warns about another secret, as
+  「キャッシュカードの暗証番号とは異なります」, does not count. A `confirm` or `unclear`
+  plan keeps the rule above unchanged.
+- A continuation page keeps the slots its first page left to it, unless no earlier page
+  of its route fills the account's password (`passwordFilled` in the request, from the
+  base recipe's fill steps; a chooser branch's first page has none; a request without
+  it, as a replayed log row, counts as none): then it follows the same rule, as an
+  identifier page followed by a password page would otherwise submit an unnamed custom
+  field.
+- When the rule turns one of a page's sets into the slots of another set, or a subset or
+  superset of them, that set is dropped and the others are kept, so two forms of one
+  page no longer refuse the whole plan as `duplicate-variant`.
+- A person's saved binding still outranks the recipe's slots.
+
+Recipes stored before this change keep their slots; ANA's `sign-in` revision 3 is
+revoked once this is deployed.

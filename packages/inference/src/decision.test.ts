@@ -225,6 +225,39 @@ describe("finite-choice decision role", () => {
     ]);
   });
 
+  it("fills the account's password where a sign-in's password input does not name the custom field (ADR 0035, 2026-11-23)", async () => {
+    const pin = {
+      id: "custom-1",
+      kind: "hidden",
+      description: "concealed value of the user's vault field named in fieldName, such as a PIN",
+      fieldName: "Club password",
+    } as const;
+    const withPin = [...page.slots, pin];
+    const choices = {
+      "el:email": "s:email",
+      "el:password": "s:custom-1",
+      "slot:email": "c:email",
+      "slot:custom-1": "c:password",
+      action: "c:sign-in",
+    };
+    const outcome = await decider(answering(choices))({ ...request, slots: withPin });
+    expect(outcome).toMatchObject({ status: "ok", value: { pageKind: "sign-in" } });
+    if (outcome.status !== "ok" || !("fields" in outcome.value)) throw new Error("no plan");
+    expect(outcome.value.fields.map((field) => [field.slot, field.candidate])).toEqual([
+      ["email", "email"],
+      ["password", "password"],
+    ]);
+    // A continuation page after a page that fills the password keeps the field.
+    const kept = await decider(answering(choices))({
+      ...request,
+      slots: withPin,
+      startPage: false,
+      passwordFilled: true,
+    });
+    if (kept.status !== "ok" || !("fields" in kept.value)) throw new Error("no plan");
+    expect(kept.value.fields.map((field) => field.slot)).toContain("custom-1");
+  });
+
   it("submits by pressing Enter in the last field when no listed button does", async () => {
     // Only a field inside a form submits it (ADR 0064).
     const grouped = page.observation.candidates.map((candidate) => ({ ...candidate, group: "f1" }));

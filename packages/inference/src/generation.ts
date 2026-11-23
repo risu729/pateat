@@ -24,7 +24,7 @@ import {
 import {
   signInPlanRejection,
   verificationPlanRejection,
-  verificationSecretSlots,
+  namedSecretSlots,
 } from "./password-change";
 import { described, type Interpreted } from "./structured";
 import { createStructuredRole, type StructuredRoleConfig } from "./structured-role";
@@ -304,6 +304,13 @@ export type GenerationRequest = {
    * Used only to name the validated plan's slots; never part of the prompt.
    */
   carriedNames?: ReadonlyMap<string, string>;
+  /**
+   * For a page after the start page: whether an earlier page of its route fills the
+   * account's password. Unless true, a custom field fills a password input there only
+   * where the input names it (`namedSecretSlots`, ADR 0035 amended 2026-11-23), so a
+   * replay without it applies the rule too.
+   */
+  passwordFilled?: boolean;
   abortSignal?: AbortSignal;
 };
 
@@ -429,14 +436,18 @@ export function createRecipeGenerator(config: StructuredRoleConfig) {
             detail: "unexpected-plan",
             output: { result: redactedPlan(observation.output, slots.output, draft) },
           };
-        // A verification fills a custom vault field into a password input only where the
-        // input names it, and the account's password otherwise (owner, 2026-11-22, ADR
-        // 0035).
-        // A continuation page keeps the slots its first page left to it.
+        // A page fills a custom vault field into a password input only where the input
+        // names it, and the account's password otherwise (owner, 2026-11-22, ADR 0035; a
+        // sign-in too since 2026-11-23, after ANA's sign-in recipe sent a four-digit PIN).
+        // A continuation page keeps the slots its first page left to it, unless no earlier
+        // page of its route fills the password. A sign-in changes a plain password input
+        // only.
         const planned =
-          draft.pageKind === "sign-in" || request.startPage === false
+          request.startPage === false && request.passwordFilled === true
             ? draft
-            : verificationSecretSlots(observation.output, slots.output, draft);
+            : namedSecretSlots(observation.output, slots.output, draft, {
+                plainOnly: draft.pageKind === "sign-in",
+              });
         // An invalid alternative refuses the whole plan (fail closed).
         const validated = validateGeneratedPage(
           observation.output,

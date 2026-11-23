@@ -177,25 +177,60 @@ const pinShaped = (candidate: ObservedCandidate) =>
   candidate.inputMode === "numeric" ||
   (candidate.maxLength !== undefined && candidate.maxLength <= PIN_MAX_LENGTH);
 
+/** Words that name an account's password, not a PIN or another secret, in one text. */
+const passwordWording =
+  /pass(?:word|wort)|mot de passe|contraseña|contrasena|senha|パスワード|비밀번호|密[码碼]/iu;
+
 /**
- * The slots a `confirm` or `unclear` plan fills, with a custom vault field kept in a
- * password input only where the input names it (owner, 2026-11-22, ADR 0035): a slot that
+ * Words that make a password another secret than the account's: a transaction or transfer
+ * password, a second one, or a PIN, as 「取引パスワード」 or 「第2パスワード」.
+ */
+const otherSecretWording =
+  /取引|振込|送金|暗証|第\s*[2-9二三]|transaction|transfer|\bsecond(?:ary)?\b|2nd|\bpin\b/iu;
+
+/**
+ * An input that reads as the account's plain password: marked `current-password`, or one
+ * of its own texts names a password ({@link passwordWording}), and none of its label,
+ * placeholder, `name`, `id` or test ID names another secret ({@link otherSecretWording}). A sign-in fills the account's password in place of
+ * an unnamed custom field only there, so a PIN input the page checks only by script, such
+ * as 「暗証番号」, or a 「取引パスワード」 input keeps the model's field.
+ */
+const plainPassword = (candidate: ObservedCandidate) => {
+  const own = textsOf(candidate).map((text) => text.normalize("NFKC"));
+  const texts = [...own, candidate.description?.normalize("NFKC")].filter(
+    (text): text is string => text !== undefined,
+  );
+  // Only the input's own name counts against it: a hint such as 「キャッシュカードの
+  // 暗証番号とは異なります」 under a login password names the other secret to warn.
+  return (
+    !own.some((text) => otherSecretWording.test(text)) &&
+    (candidate.autocomplete === "current-password" ||
+      texts.some((text) => passwordWording.test(text)))
+  );
+};
+
+/**
+ * The slots a plan for a page that starts its layout fills, `sign-in`, `confirm` or
+ * `unclear`, with a custom vault field kept in a password input only where the input
+ * names it (owner, 2026-11-22, ADR 0035; a sign-in since 2026-11-23): a slot that
  * offers a custom field fills a `password` input only when the field's name shows in one
  * of that input's own texts (`textsOf`: its label, `id`, `name` or test ID, placeholder,
  * and its description), or the input is shaped for a PIN ({@link pinShaped}), as
  * Bitwarden fills a custom field only into an input its name matches. Otherwise the set
  * fills the account's password there, when the request offers that slot and the set
- * fills it nowhere else and no other such input; any other set is kept as it is. Headings
+ * fills it nowhere else and no other such input; any other set is kept as it is. With
+ * `plainOnly`, as for a `sign-in`, only an input that reads as a plain password
+ * ({@link plainPassword}) is changed so. Headings
  * and the page's other text never count: ANA's page asked for 「ANAマイレージクラブの
  * パスワード」 in an input labelled 「パスワード：」, and the model took the field
- * 「AMCパスワード」, a four-digit PIN, for it.
+ * 「AMCパスワード」, a four-digit PIN, for it, on a `confirm` plan and then on a
+ * `sign-in` plan of the same page, which submitted it.
  */
-export function verificationSecretSlots<
-  Plan extends SlotSet & { alternatives?: SlotSet[] | undefined },
->(
+export function namedSecretSlots<Plan extends SlotSet & { alternatives?: SlotSet[] | undefined }>(
   observation: Pick<LoginObservation, "candidates">,
   slots: readonly SemanticSlot[],
   plan: Plan,
+  { plainOnly = false }: { plainOnly?: boolean } = {},
 ): Plan {
   if (!slots.some((slot) => slot.id === "password")) return plan;
   const candidates = new Map(observation.candidates.map((candidate) => [candidate.id, candidate]));
@@ -209,6 +244,7 @@ export function verificationSecretSlots<
       name !== undefined &&
       candidate?.role === "password" &&
       !pinShaped(candidate) &&
+      (!plainOnly || plainPassword(candidate)) &&
       ![...textsOf(candidate), candidate.description]
         .filter((text): text is string => text !== undefined)
         .some((text) => compact(text).includes(compact(name)))
@@ -224,10 +260,35 @@ export function verificationSecretSlots<
       ),
     };
   };
+  const sets = [plan, ...(plan.alternatives ?? [])];
+  const answered = sets.map(fixed);
+  const slotsOf = (set: SlotSet) => set.fields.map((field) => field.slot);
+  const within = (set: SlotSet, other: SlotSet) =>
+    slotsOf(set).every((slot) => slotsOf(other).includes(slot));
+  // A set the rule changed that now fills the same slots as another set, or a subset or
+  // superset of them, is dropped, so the rest of the plan still passes the
+  // `duplicate-variant` check of `validateGeneratedSets`.
+  const kept: SlotSet[] = [];
+  for (const [index, set] of answered.entries()) {
+    const changed = set !== sets[index];
+    const clashes = (other: SlotSet) => within(set, other) || within(other, set);
+    if (
+      !changed ||
+      !(
+        answered.some(
+          (other, otherIndex) => other === sets[otherIndex] && other !== set && clashes(other),
+        ) || kept.some(clashes)
+      )
+    )
+      kept.push(set);
+  }
+  const [first, ...alternatives] = kept;
+  if (first === undefined) return plan;
   return {
-    ...fixed(plan),
-    ...(plan.alternatives ? { alternatives: plan.alternatives.map(fixed) } : {}),
-  };
+    ...plan,
+    ...first,
+    ...(plan.alternatives ? { alternatives } : {}),
+  } as Plan;
 }
 
 /**

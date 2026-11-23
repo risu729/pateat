@@ -424,7 +424,7 @@ describe("generated plans on such a form", () => {
   });
 });
 
-describe("a custom field in a verification's password input (ADR 0035, 2026-11-22)", () => {
+describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 2026-11-23)", () => {
   // A synthetic verification whose heading names a club and whose only input says
   // "Password:", with a hidden custom field named after the club beside the password.
   const pin = {
@@ -443,6 +443,7 @@ describe("a custom field in a verification's password input (ADR 0035, 2026-11-2
     observation: LoginObservation,
     fields: [string, string][],
     startPage = true,
+    passwordFilled?: boolean,
   ) =>
     createRecipeGenerator({
       model: textModel(async () =>
@@ -454,7 +455,12 @@ describe("a custom field in a verification's password input (ADR 0035, 2026-11-2
       ),
       limits: { timeoutMs: 1_000, maxInputBytes: 16_384 },
       maxOutputTokens: 512,
-    })({ observation, slots: requested, startPage });
+    })({
+      observation,
+      slots: requested,
+      startPage,
+      ...(passwordFilled === undefined ? {} : { passwordFilled }),
+    });
   const filled = async (outcome: ReturnType<typeof generate>) => {
     const result = await outcome;
     if (result.status !== "ok" || !("fields" in result.value)) throw new Error(result.status);
@@ -462,7 +468,7 @@ describe("a custom field in a verification's password input (ADR 0035, 2026-11-2
   };
 
   it("fills the account's password where the input does not name the field", async () => {
-    const kinds = ["confirm", "unclear"];
+    const kinds = ["sign-in", "confirm", "unclear"];
     const plans = await Promise.all(
       kinds.map((pageKind) =>
         filled(generate(pageKind, verification("Password:"), [["custom-1", "secret"]])),
@@ -471,36 +477,39 @@ describe("a custom field in a verification's password input (ADR 0035, 2026-11-2
     expect(plans).toEqual(kinds.map(() => [["password", "secret"]]));
   });
 
-  it("reads Japanese labels as Bitwarden would, never the heading", async () => {
-    // A synthetic page shaped as ANA's of 2026-11-22: the heading names the club's
-    // password, the input says only パスワード, and the custom field is named after the club.
-    const club = {
-      ...page([field("pass", "password", "パスワード：", { maxLength: 20 })]),
-      headings: ["クラブのパスワードを入力してください。"],
-    };
-    const named = { ...pin, fieldName: "クラブパスワード" };
-    const outcome = await createRecipeGenerator({
-      model: textModel(async () =>
-        textResult(
-          JSON.stringify({
-            result: {
-              decision: "plan",
-              pageKind: "confirm",
-              irreversible: "no",
-              fields: [{ slot: "custom-1", candidate: "pass" }],
-              action: { candidate: "pass", purpose: "submit" },
-            },
-          }),
+  it.each(["sign-in", "confirm"])(
+    "reads Japanese labels as Bitwarden would on a %s page, never the heading",
+    async (pageKind) => {
+      // A synthetic page shaped as ANA's of 2026-11-22: the heading names the club's
+      // password, the input says only パスワード, and the custom field is named after the club.
+      const club = {
+        ...page([field("pass", "password", "パスワード：", { maxLength: 20 })]),
+        headings: ["クラブのパスワードを入力してください。"],
+      };
+      const named = { ...pin, fieldName: "クラブパスワード" };
+      const outcome = await createRecipeGenerator({
+        model: textModel(async () =>
+          textResult(
+            JSON.stringify({
+              result: {
+                decision: "plan",
+                pageKind,
+                irreversible: "no",
+                fields: [{ slot: "custom-1", candidate: "pass" }],
+                action: { candidate: "pass", purpose: "submit" },
+              },
+            }),
+          ),
         ),
-      ),
-      limits: { timeoutMs: 1_000, maxInputBytes: 16_384 },
-      maxOutputTokens: 512,
-    })({ observation: club, slots: [builtInLoginSlots.password, named] });
-    expect(outcome).toMatchObject({
-      status: "ok",
-      value: { fields: [{ slot: "password", candidate: "pass" }] },
-    });
-  });
+        limits: { timeoutMs: 1_000, maxInputBytes: 16_384 },
+        maxOutputTokens: 512,
+      })({ observation: club, slots: [builtInLoginSlots.password, named] });
+      expect(outcome).toMatchObject({
+        status: "ok",
+        value: { fields: [{ slot: "password", candidate: "pass" }] },
+      });
+    },
+  );
 
   it("keeps the field in an input shaped for a PIN or described by its name", async () => {
     const shaped = (extra: Partial<ObservedCandidate>) => ({
@@ -520,10 +529,76 @@ describe("a custom field in a verification's password input (ADR 0035, 2026-11-2
     expect(plans).toEqual(plans.map(() => [["custom-1", "secret"]]));
   });
 
-  it("keeps a continuation page's slots", async () => {
+  it("keeps a continuation page's slots after a page that fills the password", async () => {
     expect(
-      await filled(generate("confirm", verification("Password:"), [["custom-1", "secret"]], false)),
+      await filled(
+        generate("sign-in", verification("Password:"), [["custom-1", "secret"]], false, true),
+      ),
     ).toEqual([["custom-1", "secret"]]);
+  });
+
+  it("fills the password on a continuation page when no earlier page does, or none is known", async () => {
+    for (const passwordFilled of [false, undefined])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- Each case is generated on its own.
+        await filled(
+          generate(
+            "sign-in",
+            verification("Password:"),
+            [["custom-1", "secret"]],
+            false,
+            passwordFilled,
+          ),
+        ),
+      ).toEqual([["password", "secret"]]);
+  });
+
+  it("keeps the field in a sign-in input that does not read as a password", async () => {
+    // A PIN input the page checks only by script, as 「暗証番号」 beside a field named
+    // 「キャッシュカード暗証番号」; a verification still fills the password there.
+    const pinInput = { ...verification("暗証番号"), headings: [] };
+    expect(await filled(generate("sign-in", pinInput, [["custom-1", "secret"]]))).toEqual([
+      ["custom-1", "secret"],
+    ]);
+    // A password the input qualifies as another secret, even marked as the current one.
+    for (const label of ["取引パスワード", "第2パスワード", "Transaction password"])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- Each label is generated on its own.
+        await filled(
+          generate(
+            "sign-in",
+            {
+              ...page([
+                field("secret", "password", label, { autocomplete: "current-password" }),
+                field("go", "button", "Continue"),
+              ]),
+            },
+            [["custom-1", "secret"]],
+          ),
+        ),
+      ).toEqual([["custom-1", "secret"]]);
+    // A hint that warns about another secret, or a delay in seconds, does not count.
+    for (const description of [
+      "キャッシュカードの暗証番号とは異なります",
+      "Do not enter your card PIN",
+      "Locked for 30 seconds after 5 attempts",
+    ])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- Each hint is generated on its own.
+        await filled(
+          generate(
+            "sign-in",
+            page([
+              field("secret", "password", "ログインパスワード", { description }),
+              field("go", "button", "Continue"),
+            ]),
+            [["custom-1", "secret"]],
+          ),
+        ),
+      ).toEqual([["password", "secret"]]);
+    expect(await filled(generate("confirm", pinInput, [["custom-1", "secret"]]))).toEqual([
+      ["password", "secret"],
+    ]);
   });
 
   it("keeps the field where the input's own text names it", async () => {
@@ -534,10 +609,62 @@ describe("a custom field in a verification's password input (ADR 0035, 2026-11-2
     ).toEqual([["custom-1", "secret"]]);
   });
 
-  it("keeps a sign-in plan and a set that already fills the password", async () => {
-    expect(
-      await filled(generate("sign-in", verification("Password:"), [["custom-1", "secret"]])),
-    ).toEqual([["custom-1", "secret"]]);
+  it("drops a set the rule turns into another set's slots and keeps the rest", async () => {
+    // A synthetic page with a personal and a business form, each with a username and an
+    // input labelled only "Password"; the model filled the business one with the field.
+    const forms = page([
+      field("user", "text", "Username"),
+      field("pass", "password", "Password"),
+      field("go", "button", "Sign in"),
+      field("user2", "text", "Business ID", { group: "f2" }),
+      field("pass2", "password", "Password", { group: "f2" }),
+      field("go2", "button", "Sign in", { group: "f2" }),
+    ]);
+    const personal = set(
+      [
+        ["username", "user"],
+        ["password", "pass"],
+      ],
+      "go",
+    );
+    const business = set(
+      [
+        ["username", "user2"],
+        ["custom-1", "pass2"],
+      ],
+      "go2",
+    );
+    const answer = (sets: (typeof personal)[]) =>
+      createRecipeGenerator({
+        model: textModel(async () =>
+          textResult(
+            JSON.stringify({
+              result: {
+                decision: "plan",
+                pageKind: "sign-in",
+                irreversible: "no",
+                ...sets[0],
+                alternatives: sets.slice(1),
+              },
+            }),
+          ),
+        ),
+        limits: { timeoutMs: 1_000, maxInputBytes: 16_384 },
+        maxOutputTokens: 512,
+      })({ observation: forms, slots: requested });
+    for (const sets of [
+      [personal, business],
+      [business, personal],
+    ]) {
+      // oxlint-disable-next-line no-await-in-loop -- Each order is generated on its own.
+      const outcome = await answer(sets);
+      expect(outcome).toMatchObject({ status: "ok", value: personal });
+      if (outcome.status === "ok" && "alternatives" in outcome.value)
+        expect(outcome.value.alternatives ?? []).toEqual([]);
+    }
+  });
+
+  it("keeps a set that already fills the password", async () => {
     const both = verification("Password:", [field("code", "password", "Code")]);
     expect(
       await filled(

@@ -14,8 +14,10 @@ own Cloudflare token (`callModel` in `apps/extension/src/service/device-generati
 and so does a paired device with its own key, through the device-model protocol
 (`deviceClefRelay` in `calls.ts`; the owner, 09:32 UTC:
 「clefも同じようにしたらいいのでは？ペアリング有無関わらず」). Amends
-[ADR 0003](0003-service-and-ai.md) and
-[ADR 0014](0014-claude-generation-provider.md).
+[ADR 0003](0003-service-and-ai.md) and [ADR 0014](0014-claude-generation-provider.md).
+Amended on 2026-11-23 by
+[ADR 0035](0035-page-kinds-per-site.md#amendment-2026-11-23-a-custom-field-in-a-sign-ins-password-input):
+Clef's plan follows the same custom-field rule as a generated sign-in.
 
 Date: 2026-11-04
 
