@@ -210,6 +210,22 @@ describe("personClick", () => {
     expect(details).toEqual([1, 1, 1]);
     expect(submitted).toBe(1);
     expect((document.getElementById("c") as HTMLInputElement).checked).toBe(true);
+    const pointerTypes: string[] = [];
+    const recordType = (event: Event) => pointerTypes.push((event as PointerEvent).pointerType);
+    document.addEventListener("click", recordType, true);
+    personClick(document.getElementById("c") as HTMLElement);
+    document.removeEventListener("click", recordType, true);
+    expect(pointerTypes).toEqual(["mouse"]);
+  });
+
+  it("passes a press on a label to its control while the page has text selected", async () => {
+    // A selection, such as the one a page's `select()` leaves in an ID field, makes Chrome's
+    // label skip a single click; a mouse's press ends it first.
+    document.body.innerHTML = `<p id="p">Some text</p><input id="c" type="checkbox"><label id="t" for="c">Remember me</label>`;
+    getSelection()!.selectAllChildren(document.getElementById("p")!);
+    await pressElement(document.getElementById("t") as HTMLElement);
+    expect((document.getElementById("c") as HTMLInputElement).checked).toBe(true);
+    expect(getSelection()!.type).not.toBe("Range");
   });
 
   it("does nothing on a disabled control, as `click()` does", () => {

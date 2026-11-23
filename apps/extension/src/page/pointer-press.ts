@@ -58,7 +58,8 @@ function focusOnPress(element: Element): void {
  *   `element`, `pointerover`, `pointerenter` on `element` and its ancestors that do not
  *   hold that element (outermost first), then the same as `mouseout`, `mouseleave`,
  *   `mouseover` and `mouseenter`; then `pointermove` and `mousemove`.
- * - One task later: `pointerdown`, `mousedown` and focus (see {@link focusOnPress}).
+ * - One task later: `pointerdown`, `mousedown`, focus (see {@link focusOnPress}) and the
+ *   end of any text selection.
  * - One task later: `pointerup` and `mouseup`.
  *
  * Each event is followed by the page's microtasks, as Chrome runs them between the events
@@ -127,8 +128,13 @@ export async function pressPointer(
     element,
     new PointerEvent("pointerdown", { ...down, ...mouse, pressure: 0.5 }),
   );
-  if (compatible && (await send(element, new MouseEvent("mousedown", { ...down, detail: 1 }))))
+  if (compatible && (await send(element, new MouseEvent("mousedown", { ...down, detail: 1 })))) {
     focusOnPress(element);
+    // A mouse's press ends a text selection, as Chrome's own `mousedown` does; with one
+    // left, Chrome's label does not pass a single click (`detail` 1) on to its control.
+    const selection = getSelection();
+    if (selection?.type === "Range") selection.removeAllRanges();
+  }
   await nextTask();
   if (!pressing()) return "stopped";
   const up = { ...boundary, button: 0, buttons: 0 };

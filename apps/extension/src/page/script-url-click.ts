@@ -102,19 +102,25 @@ export function runsScriptUrl(element: unknown): element is HTMLElement {
  * sign-in runs only on a click whose `detail` is above 0 (2026-11-23). The dispatched
  * click runs the element's activation as `click()` does: a link is followed, a submit
  * button submits its form, a checkbox or a label's control toggles. Like `click()`, it
- * does nothing on a disabled form control. `Mouse` and `dispatch` are the main world's own
- * at document start when it clicks ({@link installMainWorldClicks}).
+ * does nothing on a disabled form control. Unlike `click()`, and like a mouse, it sets no
+ * click-in-progress flag, so a handler that forwards the click with `click()` runs it
+ * again. It is a `PointerEvent` from the mouse, as Chrome's is. `Pointer` and `dispatch`
+ * are the main world's own at document start when it clicks
+ * ({@link installMainWorldClicks}).
  */
 export function personClick(
   element: HTMLElement,
-  Mouse: typeof MouseEvent = MouseEvent,
+  Pointer: typeof PointerEvent = PointerEvent,
   dispatch: EventTarget["dispatchEvent"] = EventTarget.prototype.dispatchEvent,
 ): void {
   if (Element.prototype.matches.call(element, ":disabled")) return;
   const box = element.getClientRects()[0] ?? element.getBoundingClientRect();
   dispatch.call(
     element,
-    new Mouse("click", {
+    new Pointer("click", {
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
       bubbles: true,
       cancelable: true,
       composed: true,
@@ -178,7 +184,7 @@ export function installMainWorldClicks(): () => void {
   // Taken at document start, before page scripts can replace them. The other calls below
   // are looked up when the event comes, so a page can patch them, but only to break its
   // own login.
-  const Mouse = MouseEvent;
+  const Pointer = PointerEvent;
   const dispatch = EventTarget.prototype.dispatchEvent;
   const requestSubmit = HTMLFormElement.prototype.requestSubmit;
   const clicks = (event: Event) => {
@@ -187,7 +193,7 @@ export function installMainWorldClicks(): () => void {
     if (!runsScriptUrl(target)) return;
     // Cancelled before the click, so a throwing handler never leads to a second click.
     event.preventDefault();
-    personClick(target, Mouse, dispatch);
+    personClick(target, Pointer, dispatch);
   };
   const submits = (event: Event) => {
     const [target] = event.composedPath();

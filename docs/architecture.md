@@ -1645,35 +1645,36 @@ box: moving onto it, when this document's last press left the mouse elsewhere,
 `pointerover` and `pointerenter` (on each ancestor entered, outermost first, neither
 bubbling nor composed), then the same as `mouseout`, `mouseleave`, `mouseover` and
 `mouseenter`, then `pointermove` and `mousemove`; one task later `pointerdown`,
-`mousedown` and focus (the nearest ancestor a click can focus, without scrolling, or a
-blur of the focused field when there is none); one task later `pointerup` and `mouseup`,
-then the `click` itself (`personClick` in `src/page/script-url-click.ts`), dispatched
-with `detail` 1, the main button and the same point, as a mouse's click is, and with the
-element's activation (a link is followed, a submit button submits, a checkbox toggles),
-from whichever world clicks; a disabled control gets none, as with `click()`. Until
-2026-11-23 the click was `click()`, whose `detail` is 0, as a keyboard's activation is,
-and ANA's header sign-in, which acts only on a click with `detail` above 0, never signed
-in. The page's microtasks run after each event, as they do between the events of one
-input, so a framework that renders in a microtask, such as one that disables a button
-once its `mousedown` submitted, renders before the next event. Until that day `click()`
-alone sent the page only `click`, so a control that acts on `pointerdown` or `mousedown`
-never reacted. As in a browser, a page that cancels `pointerdown` gets no `mousedown` or
-`mouseup`, and one that cancels `mousedown` keeps focus where it was. Before each task's
-events the press is checked again, as a fill is between its characters: when the page's
-handlers removed the element from the document, the page moved to another path (for an
-entry press, another URL), or the document's login was cancelled or its operation
-expired, the press stops there without the click. After `pointerdown` it is answered as
-made, since the page may have acted on it, and before it as not made, so a step ends
-`structural-mismatch` (`target-missing`), or `cancelled` after a cancel, a path change
-or the operation's expiry, an account switch is withdrawn and an entry press does not
-count. The isolated world sends the events, also before a `javascript:` link's
-main-world click. Known limits: like a fill's events they are not trusted and carry no
-user activation; `screenX` and `screenY` are 0, and the `click` itself has no
-coordinates; they go to the element even where another element covers its centre; an
-element in a shadow root's slot gets the events its light-DOM ancestors get rather than
-the slot's; Pateat does not know where the person's own mouse is; and a `mousedown`
-handler that rewrites an entry link's `href` sends the press where it now points, as a
-person's click would.
+`mousedown`, focus (the nearest ancestor a click can focus, without scrolling, or a blur
+of the focused field when there is none) and the end of any text selection, as Chrome's
+own `mousedown` ends it, since a label does not pass a single click to its control while
+text is selected; one task later `pointerup` and `mouseup`, then the `click` itself
+(`personClick` in `src/page/script-url-click.ts`), dispatched as the mouse's
+`PointerEvent` with `detail` 1, the main button and the same point, as a mouse's click
+is, and with the element's activation (a link is followed, a submit button submits, a
+checkbox toggles), from whichever world clicks; a disabled control gets none, as with
+`click()`. Until 2026-11-23 the click was `click()`, whose `detail` is 0, as a
+keyboard's activation is, and ANA's header sign-in, which acts only on a click with
+`detail` above 0, never signed in. The page's microtasks run after each event, as they
+do between the events of one input, so a framework that renders in a microtask, such as
+one that disables a button once its `mousedown` submitted, renders before the next
+event. Until that day `click()` alone sent the page only `click`, so a control that acts
+on `pointerdown` or `mousedown` never reacted. As in a browser, a page that cancels
+`pointerdown` gets no `mousedown` or `mouseup`, and one that cancels `mousedown` keeps
+focus where it was. Before each task's events the press is checked again, as a fill is
+between its characters: when the page's handlers removed the element from the document,
+the page moved to another path (for an entry press, another URL), or the document's
+login was cancelled or its operation expired, the press stops there without the click.
+After `pointerdown` it is answered as made, since the page may have acted on it, and
+before it as not made, so a step ends `structural-mismatch` (`target-missing`), or
+`cancelled` after a cancel, a path change or the operation's expiry, an account switch
+is withdrawn and an entry press does not count. The isolated world sends the events,
+also before a `javascript:` link's main-world click. Known limits: like a fill's events
+they are not trusted and carry no user activation; `screenX` and `screenY` are 0; they
+go to the element even where another element covers its centre; an element in a shadow
+root's slot gets the events its light-DOM ancestors get rather than the slot's; Pateat
+does not know where the person's own mouse is; and a `mousedown` handler that rewrites
+an entry link's `href` sends the press where it now points, as a person's click would.
 
 A new login reads its item's facts once and records them in its attempt
 ([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
