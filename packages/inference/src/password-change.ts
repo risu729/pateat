@@ -186,21 +186,24 @@ const passwordWording =
  * password, a second one, or a PIN, as 「取引パスワード」 or 「第2パスワード」.
  */
 const otherSecretWording =
-  /取引|振込|送金|暗証|第\s*[2-9二三]|transaction|transfer|second(?:ary)?|2nd|\bpin\b/iu;
+  /取引|振込|送金|暗証|第\s*[2-9二三]|transaction|transfer|\bsecond(?:ary)?\b|2nd|\bpin\b/iu;
 
 /**
  * An input that reads as the account's plain password: marked `current-password`, or one
- * of its own texts names a password ({@link passwordWording}), and none names another
- * secret ({@link otherSecretWording}). A sign-in fills the account's password in place of
+ * of its own texts names a password ({@link passwordWording}), and none of its label,
+ * placeholder, `name`, `id` or test ID names another secret ({@link otherSecretWording}). A sign-in fills the account's password in place of
  * an unnamed custom field only there, so a PIN input the page checks only by script, such
  * as 「暗証番号」, or a 「取引パスワード」 input keeps the model's field.
  */
 const plainPassword = (candidate: ObservedCandidate) => {
-  const texts = [...textsOf(candidate), candidate.description]
-    .filter((text): text is string => text !== undefined)
-    .map((text) => text.normalize("NFKC"));
+  const own = textsOf(candidate).map((text) => text.normalize("NFKC"));
+  const texts = [...own, candidate.description?.normalize("NFKC")].filter(
+    (text): text is string => text !== undefined,
+  );
+  // Only the input's own name counts against it: a hint such as 「キャッシュカードの
+  // 暗証番号とは異なります」 under a login password names the other secret to warn.
   return (
-    !texts.some((text) => otherSecretWording.test(text)) &&
+    !own.some((text) => otherSecretWording.test(text)) &&
     (candidate.autocomplete === "current-password" ||
       texts.some((text) => passwordWording.test(text)))
   );

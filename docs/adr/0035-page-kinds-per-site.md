@@ -1054,8 +1054,10 @@ and Bitwarden, which fills a custom field only into an input its name matches):
   by generation and by `createFieldMappingDecider` in `decision.ts`). Any other input
   keeps the model's field, so a 「暗証番号」 input that a bank checks only by script
   never gets the account password counted toward its lockout. So does an input whose
-  texts name another secret, as 「取引パスワード」, 「第2パスワード」 or "Transaction
-  password", even when it is marked `current-password`. A `confirm` or `unclear`
+  label, placeholder, `name`, `id` or test ID names another secret, as
+  「取引パスワード」, 「第2パスワード」 or "Transaction password", even when it is
+  marked `current-password`; a hint under the input that warns about another secret, as
+  「キャッシュカードの暗証番号とは異なります」, does not count. A `confirm` or `unclear`
   plan keeps the rule above unchanged.
 - A continuation page keeps the slots its first page left to it, unless no earlier page
   of its route fills the account's password (`passwordFilled` in the request, from the

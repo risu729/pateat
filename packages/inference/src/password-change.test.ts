@@ -577,6 +577,25 @@ describe("a custom field in a page's password input (ADR 0035, 2026-11-22 and 20
           ),
         ),
       ).toEqual([["custom-1", "secret"]]);
+    // A hint that warns about another secret, or a delay in seconds, does not count.
+    for (const description of [
+      "キャッシュカードの暗証番号とは異なります",
+      "Do not enter your card PIN",
+      "Locked for 30 seconds after 5 attempts",
+    ])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- Each hint is generated on its own.
+        await filled(
+          generate(
+            "sign-in",
+            page([
+              field("secret", "password", "ログインパスワード", { description }),
+              field("go", "button", "Continue"),
+            ]),
+            [["custom-1", "secret"]],
+          ),
+        ),
+      ).toEqual([["password", "secret"]]);
     expect(await filled(generate("confirm", pinInput, [["custom-1", "secret"]]))).toEqual([
       ["password", "secret"],
     ]);
