@@ -56,7 +56,7 @@ type CreateDetail = {
 
 /**
  * Background check of bridged `create` requests (ADR 0007). Pateat refuses a registration only
- * when, within `CREATE_AFTER_SIGN_IN_MS` of its own sign-in to that RP ID in the same tab, the
+ * when it is `conditional`, Chrome's automatic passkey upgrade, and, within `CREATE_AFTER_SIGN_IN_MS` of its own sign-in to that RP ID in the same tab, the
  * request's `excludeCredentials` lists a passkey Pateat could sign with there: the site already
  * holds it, and the page gets the NotAllowedError a dismissed browser prompt gives. Every other
  * request, any request of a hostname whose passkey requests go to the browser, and any failure,
@@ -141,6 +141,9 @@ export function createPasskeyCreateHandler<TCandidate extends PasskeyCandidate>(
     if (!resolved.ok) return delegate(resolved.reason);
     const { rpId } = resolved;
     detail.rpId = rpId;
+    // Only the browser's automatic upgrade is refused; a registration the page starts in a
+    // modal prompt, such as a security key added from account settings, goes to the browser.
+    if (mediation !== "conditional") return delegate("modal");
     // A sign-in to this RP ID: a passkey made for it, or a login of an origin it covers.
     const signIns = (await options.signIns.list(tabId)).filter(
       (record) => record.rpId === rpId || resolveRpId(record.origin, rpId).ok,

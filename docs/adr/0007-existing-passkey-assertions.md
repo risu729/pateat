@@ -108,6 +108,12 @@ the person can undo that later on the settings page; Pateat then answers no pass
 request on that hostname (see the dated amendment below; implemented, unit and synthetic
 component tests only).
 
+Amended on 2026-11-23 by the owner's choice at OWNER_TIME UTC, after
+[#1799](https://github.com/risu729/pateat/issues/1799): only a `conditional`
+registration, Chrome's automatic passkey upgrade, can be refused after a sign-in; a
+modal one goes to the browser (see the dated amendment below; implemented, unit tests
+only).
+
 Date: 2026-10-10
 
 ## Context
@@ -499,3 +505,29 @@ settings page only needs to remove it, not add it.
 Differences from Bitwarden are listed in
 [Differences from Bitwarden](../bitwarden-differences.md#passkeys). The earlier
 accepted text above remains as history.
+
+## Amendment: only automatic registrations are refused (2026-11-23)
+
+In the owner's Chrome on 2026-11-23 around 16:55 UTC,
+[Google's passkey page](https://myaccount.google.com/signinoptions/passkeys) could not
+add a hardware security key while Pateat was enabled
+([#1799](https://github.com/risu729/pateat/issues/1799)). Google asks for a passkey
+re-authentication before that page, which Pateat answered, and Google's
+`navigator.credentials.create` lists every credential of the account in
+`excludeCredentials`, including the vault's passkey. "Registration after a sign-in"
+above therefore refused every registration there, with the person's own "Create a
+passkey" or "Use another device" click, and Google showed "Something went wrong" before
+the operating system's security key prompt appeared. With Pateat disabled the key was
+registered.
+
+The owner chose on 2026-11-23 at OWNER_TIME UTC that Pateat refuses only a registration
+with `mediation: "conditional"`, Chrome's automatic passkey upgrade, which shows no
+prompt and is the only kind seen from Wise (2026-10-13, above). Every other
+registration, absent, `optional` or `required` mediation, is handed on to the browser
+and other providers with the delegate reason `modal`, after the RP ID check and before
+the sign-in records or the vault are read. The other conditions for a refusal are
+unchanged. A page that starts a modal registration right after Pateat's sign-in and
+lists the vault's passkey, as Wise's calls of 2026-10-12 may have been (their mediation
+was not recorded), again reaches the browser and other providers, as it would with
+Pateat disabled; the official Bitwarden extension may then show "A passkey already
+exists for this application.". The earlier accepted text above remains as history.
