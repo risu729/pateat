@@ -38,12 +38,17 @@ const create = (request: unknown, operationId: string = crypto.randomUUID()) => 
   request,
 });
 /** Chrome's automatic passkey upgrade, the only registration Pateat may refuse. */
-const request = (overrides: Record<string, unknown> = {}) => ({
-  rpId: "example.com",
-  excludeCredentials: [listedPasskey],
-  mediation: "conditional",
-  ...overrides,
-});
+const request = (overrides: Record<string, unknown> = {}) => {
+  const built: Record<string, unknown> = {
+    rpId: "example.com",
+    excludeCredentials: [listedPasskey],
+    mediation: "conditional",
+    ...overrides,
+  };
+  // The bridge leaves an absent mediation out rather than sending `undefined`.
+  if (built["mediation"] === undefined) delete built["mediation"];
+  return built;
+};
 
 function source(candidates: readonly PasskeyCandidate[] = [candidate]): PasskeySource {
   return {

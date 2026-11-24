@@ -56,9 +56,9 @@ type CreateDetail = {
 
 /**
  * Background check of bridged `create` requests (ADR 0007). Pateat refuses a registration only
- * when it is `conditional`, Chrome's automatic passkey upgrade, and, within `CREATE_AFTER_SIGN_IN_MS` of its own sign-in to that RP ID in the same tab, the
- * request's `excludeCredentials` lists a passkey Pateat could sign with there: the site already
- * holds it, and the page gets the NotAllowedError a dismissed browser prompt gives. Every other
+ * when it is `conditional`, Chrome's automatic passkey upgrade, and, within
+ * `CREATE_AFTER_SIGN_IN_MS` of its own sign-in to that RP ID in the same tab, the request's
+ * `excludeCredentials` lists a passkey Pateat could sign with there: the site already holds it, and the page gets the NotAllowedError a dismissed browser prompt gives. Every other
  * request, any request of a hostname whose passkey requests go to the browser, and any failure,
  * hands it on to the browser and later providers. Nothing is written.
  */

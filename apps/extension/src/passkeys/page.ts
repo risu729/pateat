@@ -313,8 +313,9 @@ function wrapMethod(
  * Every `get` request this bridge does not answer with an assertion goes, with the caller's
  * original arguments, to the implementation it wraps, except a `conditional` request withheld
  * after a Pateat login of the page signed in, which stays pending until the page aborts it
- * (ADR 0034). Every `create` request goes there too, except one the background declines
- * because it lists a passkey of the vault right after Pateat signed the tab in (ADR 0007).
+ * (ADR 0034). Every `create` request goes there too, except a `conditional` one the background
+ * declines because it lists a passkey of the vault right after Pateat signed the tab in
+ * (ADR 0007).
  *
  * Pateat stays outside wrappers that later scripts install by assigning `get` or `create`:
  * such an assignment, including another provider's restore of a saved function, becomes the
@@ -462,7 +463,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
   });
 
   // Only a public-key registration that excludes credentials is checked; the background
-  // declines one that lists a passkey of the vault right after a Pateat sign-in (ADR 0007).
+  // declines a conditional one that lists a vault passkey right after a sign-in (ADR 0007).
   // A provider's non-configurable `create` stays as it is; `get` is wrapped already.
   if (typeof container.create === "function")
     try {

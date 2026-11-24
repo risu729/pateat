@@ -103,8 +103,8 @@ export const pageResultSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("not-allowed") }),
   v.strictObject({ kind: v.literal("withheld") }),
   /**
-   * A `create` request Pateat refuses: it lists a passkey of the vault right after a Pateat
-   * sign-in in the tab. The page sees Chrome's NotAllowedError (ADR 0007).
+   * A `create` request Pateat refuses: a `conditional` one that lists a passkey of the vault
+   * right after a Pateat sign-in in the tab. The page sees Chrome's NotAllowedError (ADR 0007).
    */
   v.strictObject({ kind: v.literal("decline") }),
 ]);
