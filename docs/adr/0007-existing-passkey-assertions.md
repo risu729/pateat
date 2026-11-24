@@ -108,7 +108,7 @@ the person can undo that later on the settings page; Pateat then answers no pass
 request on that hostname (see the dated amendment below; implemented, unit and synthetic
 component tests only).
 
-Amended on 2026-11-23 by the owner's choice at OWNER_TIME UTC, after
+Amended on 2026-11-24 by the owner's choice at 01:32 UTC, after
 [#1799](https://github.com/risu729/pateat/issues/1799): only a `conditional`
 registration, Chrome's automatic passkey upgrade, can be refused after a sign-in; a
 modal one goes to the browser (see the dated amendment below; implemented, unit tests
@@ -506,7 +506,7 @@ Differences from Bitwarden are listed in
 [Differences from Bitwarden](../bitwarden-differences.md#passkeys). The earlier
 accepted text above remains as history.
 
-## Amendment: only automatic registrations are refused (2026-11-23)
+## Amendment: only automatic registrations are refused (2026-11-24)
 
 In the owner's Chrome on 2026-11-23 around 16:55 UTC,
 [Google's passkey page](https://myaccount.google.com/signinoptions/passkeys) could not
@@ -523,7 +523,7 @@ registered. The owner's diagnostics file shows a `passkey.request` `assertion` f
 16:55:21 UTC, each `declined`, `listed`, with 4 `excludeCredentials`, `sinceSignIn` 41
 to 84 and no `mediation`, so Google's registrations were modal.
 
-The owner chose on 2026-11-23 at OWNER_TIME UTC that Pateat refuses only a registration
+The owner chose on 2026-11-24 at 01:32 UTC that Pateat refuses only a registration
 with `mediation: "conditional"`, Chrome's automatic passkey upgrade, which shows no
 prompt and is the only kind seen from Wise (2026-10-13, above). Every other
 registration, absent, `optional` or `required` mediation, is handed on to the browser
