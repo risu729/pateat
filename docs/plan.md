@@ -270,7 +270,10 @@ than in this repository.
   ([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in);
   confirmed in the owner's Chrome on build `fdf57ef`, 2026-10-13 02:25 UTC: Wise's
   `conditional` registration two seconds after the passkey sign-in was declined, the
-  login reached signed in, and no Bitwarden window was reported).
+  login reached signed in, and no Bitwarden window was reported). Amended 2026-11-24
+  after [#1799](https://github.com/risu729/pateat/issues/1799), where Google's security
+  key registration failed after Pateat's re-authentication: only a `conditional`
+  registration is refused; any other goes to the browser as `modal`.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): each matching
   item's username of three or more characters is hidden as `[account]` wherever it shows

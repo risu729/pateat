@@ -37,11 +37,18 @@ const create = (request: unknown, operationId: string = crypto.randomUUID()) => 
   operationId,
   request,
 });
-const request = (overrides: Record<string, unknown> = {}) => ({
-  rpId: "example.com",
-  excludeCredentials: [listedPasskey],
-  ...overrides,
-});
+/** Chrome's automatic passkey upgrade, the only registration Pateat may refuse. */
+const request = (overrides: Record<string, unknown> = {}) => {
+  const built: Record<string, unknown> = {
+    rpId: "example.com",
+    excludeCredentials: [listedPasskey],
+    mediation: "conditional",
+    ...overrides,
+  };
+  // The bridge leaves an absent mediation out rather than sending `undefined`.
+  if (built["mediation"] === undefined) delete built["mediation"];
+  return built;
+};
 
 function source(candidates: readonly PasskeyCandidate[] = [candidate]): PasskeySource {
   return {
@@ -99,11 +106,36 @@ describe("passkey create check (ADR 0007)", () => {
       origin,
       outcome: "declined",
       rpId: "example.com",
+      mediation: "conditional",
       excludeCredentials: 1,
       listed: true,
       sinceSignIn: 60,
     });
   });
+
+  it.each([undefined, "optional", "required"])(
+    "hands a modal registration (mediation %s) on right after a sign-in, without reading the vault",
+    async (mediation) => {
+      // A security key or passkey the person adds from account settings, as on Google (#1799).
+      const signIns = signedIn({});
+      const check = handler(source(), signIns);
+      expect(await check.handle(create(request({ mediation })), sender())).toEqual(
+        delegate("modal"),
+      );
+      expect(signIns.list).not.toHaveBeenCalled();
+      expect(check.backing.candidates).not.toHaveBeenCalled();
+      expect(check.hold).not.toHaveBeenCalled();
+      expect(check.report.mock.calls[0]![0]).toEqual({
+        tabId: 7,
+        origin,
+        outcome: "delegate",
+        reason: "modal",
+        rpId: "example.com",
+        excludeCredentials: 1,
+        ...(mediation === undefined ? {} : { mediation: "other" }),
+      });
+    },
+  );
 
   it("hands every registration of a site whose passkey requests go to the browser on unchecked", async () => {
     const signIns = signedIn({});
@@ -112,7 +144,7 @@ describe("passkey create check (ADR 0007)", () => {
     for (const mediation of [undefined, "conditional"])
       expect(
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
-        await check.handle(create(request(mediation ? { mediation } : {})), sender()),
+        await check.handle(create(request({ mediation })), sender()),
       ).toEqual(delegate("browser-site"));
     expect(browserSite).toHaveBeenCalledWith(origin);
     expect(signIns.list).not.toHaveBeenCalled();
@@ -199,6 +231,7 @@ describe("passkey create check (ADR 0007)", () => {
         outcome: "delegate",
         reason: "not-signed-in",
         rpId,
+        mediation: "conditional",
         excludeCredentials: 1,
       });
     });
@@ -525,7 +558,7 @@ describe("passkey create check (ADR 0007)", () => {
       [undefined, undefined],
     ])("names mediation %s only as conditional or other", async (mediation, expected) => {
       const check = handler();
-      await check.handle(create(request(mediation === undefined ? {} : { mediation })), sender());
+      await check.handle(create(request({ mediation })), sender());
       const report = check.report.mock.calls[0]![0];
       if (expected === undefined) expect(report).not.toHaveProperty("mediation");
       else expect(report.mediation).toBe(expected);
@@ -536,6 +569,7 @@ describe("passkey create check (ADR 0007)", () => {
         source([{ ...candidate, display: { item: "Synthetic item", userName: "owner" } }]),
       );
       const outcomes = [
+        request(),
         request({ mediation: "Owner's own text" }),
         request({ excludeCredentials: [{ type: "public-key", id: "BAUG" }] }),
         request({ excludeCredentials: [{ type: "Owner's type", id: "CQoL" }] }),
@@ -544,7 +578,12 @@ describe("passkey create check (ADR 0007)", () => {
         // oxlint-disable-next-line no-await-in-loop -- reports are compared in order
         await check.handle(create(entry), sender());
       const reports = check.report.mock.calls.map(([entry]) => entry);
-      expect(reports.map((entry) => entry.outcome)).toEqual(["declined", "delegate", "delegate"]);
+      expect(reports.map((entry) => entry.outcome)).toEqual([
+        "declined",
+        "delegate",
+        "delegate",
+        "delegate",
+      ]);
       const allowed = new Set([
         "tabId",
         "origin",

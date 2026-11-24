@@ -4104,8 +4104,11 @@ checked by the background; every other one goes to the browser at once. The back
 keeps, per tab in session storage, Pateat's latest sign-ins: each assertion it returned
 (origin and RP ID) and each login that reached signed in on any route (origin), at most
 four per tab for the latest 64 tabs, forgotten when the tab closes and moved to the
-new tab ID when Chrome discards the tab (ADR 0021 D). Within five minutes
-of such a sign-in to the request's RP ID in that tab, a request whose
+new tab ID when Chrome discards the tab (ADR 0021 D). Only a `conditional` request,
+Chrome's automatic passkey upgrade, can be refused; any other one, such as a security
+key the person adds from account settings, goes to the browser as `modal` (amended
+2026-11-24, [#1799](https://github.com/risu729/pateat/issues/1799)). Within five minutes
+of such a sign-in to the request's RP ID in that tab, a conditional request whose
 `excludeCredentials` lists a passkey Pateat could sign with there, found by the same
 lookup a sign-in uses, is refused with `NotAllowedError`, as Chrome answers when its own
 prompt is dismissed. Anything else, including a locked vault or a failed lookup, hands
