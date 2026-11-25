@@ -14,7 +14,7 @@
     "@tanstack/react-form": "1.33.5",
     "@tanstack/react-query": "5.108.4",
     "@webext-core/messaging": "4.0.2",
-    "i18next": "27.2.6",
+    "i18next": "27.2.7",
     "idb": "8.0.4",
     "lucide-react": "1.79.0",
     "react": "19.3.1",
