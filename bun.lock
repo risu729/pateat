@@ -5,7 +5,7 @@
     "": {
       "name": "pateat",
       "devDependencies": {
-        "@axe-core/playwright": "4.14.0",
+        "@axe-core/playwright": "4.14.1",
         "@cloudflare/vite-plugin": "2.0.0-rc.4",
         "@cloudflare/vitest-plugin": "1.9.1",
         "@playwright/test": "1.65.1",
@@ -158,7 +158,7 @@
 
     "@aklinker1/zero-zip": ["@aklinker1/zero-zip@1.0.1", "", {}, "sha512-07a596Bd1QO0bi3tIyt2xruq6vKk7hCUt9enHBwggvipB0iiycoJ9/CqzN6UFawaKbOi6NBfMlUxUXzIOZ7Dsg=="],
 
-    "@axe-core/playwright": ["@axe-core/playwright@4.14.0", "", { "dependencies": { "axe-core": "~4.14.0" }, "peerDependencies": { "playwright-core": ">= 1.0.0" } }, "sha512-SGUhG5PIHd2eMdpgBF2PyQLOhX+qyDR2PT4cmoS4Qk2ak+jX/rrSvst9l0PGv5WTHolKpUMvVmoHpr4cZgf1RQ=="],
+    "@axe-core/playwright": ["@axe-core/playwright@4.14.1", "", { "dependencies": { "axe-core": "~4.14.1" }, "peerDependencies": { "playwright-core": ">= 1.0.0" } }, "sha512-cSN1ijrWLnlOof22sPN4RtWGSoPpt7GzOVyOKomyhnPsy1fPNoRdBiJAUziuCRs8KoK50kKufiMUFt7itAuwOg=="],
 
     "@babel/helper-string-parser": ["@babel/helper-string-parser@7.29.15", "", {}, "sha512-C2FuapQ2Kh1OnVHAoLi5rD3GBJ8COb9Q609T6HEpLqaBAo560PDP5OxBE5dCI/h951MBO/+bCUYU5SZ+8ZlV+w=="],
 
