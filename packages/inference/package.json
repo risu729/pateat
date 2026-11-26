@@ -10,7 +10,7 @@
     "./clef-models": "./src/providers/clef-models.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.107",
+    "@ai-sdk/anthropic": "4.0.108",
     "@ai-sdk/valibot": "3.0.83",
     "@pateat/contracts": "workspace:*",
     "@valibot/to-json-schema": "1.8.0",
