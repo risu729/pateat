@@ -23,7 +23,7 @@
     "@vitest/coverage-v8": "5.1.2",
     "@vitest/istanbul-lib-coverage": "2.1.1",
     "@vitest/ui": "5.1.2",
-    "cf": "1.0.0-rc.5",
+    "cf": "1.0.0-rc.6",
     "fast-check": "4.11.0",
     "miniflare": "5.20261123.1-beta",
     "react": "19.3.1",
