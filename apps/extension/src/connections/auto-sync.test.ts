@@ -421,7 +421,7 @@ describe("why a sync waits (#1819)", () => {
     );
     release?.();
   });
-  it("keeps the deferral clock through a skipped check", async () => {
+  it("keeps the deferral clock through a brief skip", async () => {
     const h = harness();
     // A skip with no deferral running has no change waiting.
     h.run.mockResolvedValueOnce({ outcome: "skipped", reason: "busy" });
@@ -444,7 +444,7 @@ describe("why a sync waits (#1819)", () => {
       deferredSince: since,
     });
     h.advance(VAULT_DEFERRED_RETRY_MS);
-    h.run.mockResolvedValueOnce({ outcome: "skipped", reason: "locked" });
+    h.run.mockResolvedValueOnce({ outcome: "skipped", reason: "refresh-claimed" });
     h.auto.refreshIfStale();
     await h.settle();
     expect(h.stored()?.connections["a"]).toMatchObject({
@@ -454,20 +454,20 @@ describe("why a sync waits (#1819)", () => {
     expect(h.report).toHaveBeenLastCalledWith({
       connectionId: "a",
       outcome: "skipped",
-      reason: "locked",
+      reason: "refresh-claimed",
       pending: true,
       changed: true,
       previous: "deferred",
     });
     // The same reason again is no change.
     h.advance(VAULT_CHECK_INTERVAL_MS);
-    h.run.mockResolvedValueOnce({ outcome: "skipped", reason: "locked" });
+    h.run.mockResolvedValueOnce({ outcome: "skipped", reason: "refresh-claimed" });
     h.auto.refreshIfStale();
     await h.settle();
     expect(h.report).toHaveBeenLastCalledWith({
       connectionId: "a",
       outcome: "skipped",
-      reason: "locked",
+      reason: "refresh-claimed",
       pending: true,
       previous: "skipped",
     });
@@ -479,6 +479,101 @@ describe("why a sync waits (#1819)", () => {
     expect(h.run).toHaveBeenCalledTimes(5);
     expect(h.stored()?.connections["a"]?.["outcome"]).toBe("synced");
     expect(h.stored()?.connections["a"]?.["deferredSince"]).toBeUndefined();
+  });
+  it.each([
+    ["a locked vault", { outcome: "skipped", reason: "locked" }],
+    ["a failure", { outcome: "failed", cause: "network" }],
+  ] as const)("starts the deferral clock again after %s", async (_name, ended) => {
+    const h = harness();
+    h.setLogin(true);
+    h.run.mockImplementation(applied);
+    h.auto.refreshIfStale();
+    await h.settle();
+    h.advance(VAULT_DEFERRED_RETRY_MS);
+    h.run.mockResolvedValueOnce(ended);
+    h.auto.refreshIfStale();
+    await h.settle();
+    // A change still waits, but a locked vault or a failure may last hours.
+    expect(h.report).toHaveBeenLastCalledWith(
+      ended.outcome === "skipped"
+        ? { connectionId: "a", ...ended, pending: true, changed: true, previous: "deferred" }
+        : { connectionId: "a", ...ended, previous: "deferred" },
+    );
+    expect(h.stored()?.connections["a"]?.["deferredSince"]).toBeUndefined();
+    // Past the limit counted from the first deferral, the login still holds a new run.
+    h.advance(VAULT_DEFER_LIMIT_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        outcome: "deferred",
+        blockedBy: "login",
+        deferredMs: 0,
+        overLimit: false,
+        changed: true,
+        previous: ended.outcome,
+      }),
+    );
+    expect(h.stored()?.connections["a"]?.["deferredSince"]).toBe(h.now());
+  });
+  it("reports whether the hold found the run past the limit when it refused", async () => {
+    const h = harness();
+    let release: (() => void) | undefined;
+    h.run.mockImplementationOnce(async (_id, hold) => {
+      release = await hold.take();
+      return "synced";
+    });
+    h.auto.refreshIfStale();
+    await h.settle();
+    h.run.mockImplementation(applied);
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    // Refused just before the limit; the check ends just after it.
+    h.advance(VAULT_DEFER_LIMIT_MS - 1);
+    h.run.mockImplementationOnce(async (id, hold) => {
+      const result = await applied(id, hold);
+      h.advance(2);
+      return result;
+    });
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        blockedBy: "replacing",
+        deferredMs: VAULT_DEFER_LIMIT_MS + 1,
+        overLimit: false,
+      }),
+    );
+    h.advance(VAULT_DEFERRED_RETRY_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ blockedBy: "replacing", overLimit: true, changed: true }),
+    );
+    release?.();
+  });
+  it("marks nothing changed when the same deferral and skip alternate", async () => {
+    const h = harness();
+    h.setLogin(true);
+    const changes = () =>
+      h.report.mock.calls.map(([event]) => [event.outcome, event.reason, event.changed]);
+    // Within the limit: a skip is due a minute later, a deferred check ten seconds later.
+    for (const step of ["deferred", "busy", "deferred", "busy"] as const) {
+      h.run.mockImplementationOnce(
+        step === "deferred" ? applied : async () => ({ outcome: "skipped", reason: step }),
+      );
+      h.auto.refreshIfStale();
+      // oxlint-disable-next-line no-await-in-loop -- one check after another
+      await h.settle();
+      h.advance(step === "deferred" ? VAULT_DEFERRED_RETRY_MS : VAULT_CHECK_INTERVAL_MS);
+    }
+    expect(changes()).toEqual([
+      ["deferred", undefined, true],
+      ["skipped", "busy", true],
+      ["deferred", undefined, undefined],
+      ["skipped", "busy", undefined],
+    ]);
   });
   it("marks a deferral changed when its blocker or the limit changes, not on a repeat", async () => {
     vi.useFakeTimers();

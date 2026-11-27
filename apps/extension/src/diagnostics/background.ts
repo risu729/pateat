@@ -238,8 +238,9 @@ export function createDiagnosticsLog(options: {
     },
     /**
      * An automatic vault check (ADR 0025): debug when nothing changed, info when a sync was
-     * applied or waits, else warn. A wait is info when it starts or its blocker changes,
-     * and a skip while a found change waits when it starts or its reason changes (#1819).
+     * applied or waits, else warn. A wait is info when the report is changed (a run's
+     * first deferral, a new blocker or the limit passed), and a skip while a found change
+     * waits when its reason changed (#1819).
      */
     vaultCheck(event: VaultSyncReport) {
       // A check repeats every few minutes, also from a newly woken worker; the same stored
@@ -255,11 +256,11 @@ export function createDiagnosticsLog(options: {
             event.previousFailure.item === event.item));
       const level: LogLevel =
         event.outcome === "deferred"
-          ? !repeated || event.changed
+          ? event.changed
             ? "info"
             : "debug"
           : event.outcome === "skipped"
-            ? event.pending && (event.changed || !repeated)
+            ? event.pending && event.changed
               ? "info"
               : "debug"
             : event.outcome === "unchanged" || (repeated && event.outcome !== "synced")

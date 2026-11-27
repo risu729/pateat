@@ -118,6 +118,8 @@ export function registerPageReportCases({
               blockedBy: "login",
               deferredMs: 0,
               overLimit: false,
+              // A run's first deferral is reported changed.
+              ...(outcomes[index - 1] === "deferred" ? {} : { changed: true as const }),
               previous: outcomes[index - 1],
             }
           : { connectionId, outcome, previous: outcomes[index - 1] },
@@ -239,8 +241,17 @@ export function registerPageReportCases({
     await log.logger.enableDebug();
     const connectionId = "50000000-0000-4000-8000-000000000001";
     const deferred = { connectionId, outcome: "deferred" as const, blockedBy: "login" as const };
-    // A new run of deferrals; the same blocker again; a new blocker past the limit.
-    log.vaultCheck({ ...deferred, deferredMs: 0, overLimit: false, previous: "unchanged" });
+    const skipped = { connectionId, outcome: "skipped" as const };
+    // Only a changed report is info: a run's first deferral, a new blocker past the limit,
+    // and a pending skip with a new reason; an identical repeat is debug, also when a
+    // deferral and a skip alternate.
+    log.vaultCheck({
+      ...deferred,
+      deferredMs: 0,
+      overLimit: false,
+      changed: true,
+      previous: "unchanged",
+    });
     log.vaultCheck({ ...deferred, deferredMs: 10_000, overLimit: false, previous: "deferred" });
     log.vaultCheck({
       ...deferred,
@@ -250,11 +261,27 @@ export function registerPageReportCases({
       changed: true,
       previous: "deferred",
     });
-    const skipped = { connectionId, outcome: "skipped" as const };
-    // No change waits; one waits after a deferral; the same reason again; a new reason.
     log.vaultCheck({ ...skipped, reason: "busy", previous: "deferred" });
-    log.vaultCheck({ ...skipped, reason: "locked", pending: true, previous: "deferred" });
-    log.vaultCheck({ ...skipped, reason: "locked", pending: true, previous: "skipped" });
+    log.vaultCheck({
+      ...skipped,
+      reason: "refresh-claimed",
+      pending: true,
+      changed: true,
+      previous: "deferred",
+    });
+    log.vaultCheck({
+      ...deferred,
+      blockedBy: "pages",
+      deferredMs: 190_000,
+      overLimit: true,
+      previous: "skipped",
+    });
+    log.vaultCheck({
+      ...skipped,
+      reason: "refresh-claimed",
+      pending: true,
+      previous: "deferred",
+    });
     log.vaultCheck({
       ...skipped,
       reason: "busy",
@@ -263,7 +290,7 @@ export function registerPageReportCases({
       previous: "skipped",
     });
     log.vaultCheck({ ...skipped, reason: "busy", previous: "unchanged" });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(10));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.level, entry.fields["outcome"]])).toEqual([
       ["info", "deferred"],
@@ -271,6 +298,7 @@ export function registerPageReportCases({
       ["info", "deferred"],
       ["debug", "skipped"],
       ["info", "skipped"],
+      ["debug", "deferred"],
       ["debug", "skipped"],
       ["info", "skipped"],
       ["debug", "skipped"],
@@ -285,7 +313,7 @@ export function registerPageReportCases({
     expect(entries[4]?.fields).toEqual({
       connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u),
       outcome: "skipped",
-      reason: "locked",
+      reason: "refresh-claimed",
       pending: true,
     });
     // Info lines of a check stay on the device.

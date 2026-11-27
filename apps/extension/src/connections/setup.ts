@@ -151,7 +151,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     if (!userKey) return skip("locked");
     const session = await deps.sessions.status(configuration.profile);
     if (session === "reauthentication-required") return "reauthentication-required";
-    if (session === "none" || session === "unavailable") return skip(`session-${session}`);
+    if (session !== "active" && session !== "refresh-required")
+      return skip(session === "none" ? "session-none" : "session-unavailable");
     if (
       (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch ||
       disabling.has(connectionId) ||

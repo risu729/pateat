@@ -140,6 +140,28 @@ export function registerSessionRevisionCases({
       cause: "network",
     });
   });
+  it("an automatic check skips a connection without a stored vault, sending nothing", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.setDurable(null);
+    const calls = h.revisionDate.mock.calls.length + h.fetch.mock.calls.length;
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual({
+      outcome: "skipped",
+      reason: "no-vault",
+    });
+    expect(h.revisionDate.mock.calls.length + h.fetch.mock.calls.length).toBe(calls);
+  });
+  it("an automatic check skips a provider whose permission was removed", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.permission(false);
+    const calls = h.revisionDate.mock.calls.length + h.fetch.mock.calls.length;
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual({
+      outcome: "skipped",
+      reason: "not-permitted",
+    });
+    expect(h.revisionDate.mock.calls.length + h.fetch.mock.calls.length).toBe(calls);
+  });
   it.each([429, 503])("a refresh HTTP %i retains its outcome and status", async (status) => {
     const h = harness({ existing: true });
     await connected(h);
