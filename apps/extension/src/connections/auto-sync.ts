@@ -44,7 +44,81 @@ export type VaultSyncFailure = {
   item?: string;
   revised?: number;
 };
-export type VaultSyncResult = Exclude<VaultSyncOutcome, "failed"> | VaultSyncFailure;
+/**
+ * Why a replacement hold last answered no (#1819): another replacement is applying, a page
+ * or passkey request still held the vault after {@link VAULT_IDLE_WAIT_MS}, or a login is
+ * active within {@link VAULT_DEFER_LIMIT_MS}.
+ */
+export type VaultDeferral = "replacing" | "pages" | "login";
+/** A hold's last refusal: why, and whether the run was then past the deferral limit. */
+type VaultRefusal = { blockedBy: VaultDeferral; overLimit: boolean };
+/**
+ * Why a check sent nothing or stopped without an answer, as a fixed code: `busy` (disabling,
+ * setup, manual work or another automatic run), `no-configuration`, `no-vault`, `locked`
+ * (no user key), `session-none` and `session-unavailable` (no usable provider session),
+ * `changed` (the connection's epoch changed, or disabling, setup or manual work started
+ * during the check's reads), `not-permitted`, `refresh-claimed` (another refresh holds the
+ * session), `stale` (the check was stopped after the refresh), `cancelled` (stopped during
+ * the sync), `timeout-unclosed` and `timeout-check-failed` (the vault timeout's check, ADR
+ * 0075).
+ */
+export type VaultSkipReason =
+  | "busy"
+  | "no-configuration"
+  | "no-vault"
+  | "locked"
+  | "session-none"
+  | "session-unavailable"
+  | "changed"
+  | "not-permitted"
+  | "refresh-claimed"
+  | "stale"
+  | "cancelled"
+  | "timeout-unclosed"
+  | "timeout-check-failed";
+export type VaultSyncSkip = { outcome: "skipped"; reason: VaultSkipReason };
+/**
+ * Skips that end soon by themselves: other work of the connection held the check for a
+ * moment. Only these keep a run of deferrals and its limit (#1819); a locked vault, a
+ * closed session or a lost permission may last hours, so the next deferral starts a new run.
+ */
+const BRIEF_SKIPS: ReadonlySet<VaultSkipReason> = new Set([
+  "busy",
+  "changed",
+  "refresh-claimed",
+  "stale",
+  "cancelled",
+]);
+export type VaultSyncResult =
+  | Exclude<VaultSyncOutcome, "failed" | "skipped">
+  | VaultSyncFailure
+  | VaultSyncSkip;
+/** A check's own outcome as reported, with what held a deferral or why it skipped. */
+export type VaultSyncDetail =
+  | { outcome: Exclude<VaultSyncOutcome, "failed" | "skipped" | "deferred"> }
+  | VaultSyncFailure
+  | {
+      outcome: "deferred";
+      /** What refused the hold; absent only when the run returned without asking it. */
+      blockedBy?: VaultDeferral;
+      /** How long this run of deferrals has lasted; 0 for its first. */
+      deferredMs: number;
+      /**
+       * Whether the hold, when it refused, found the run past {@link VAULT_DEFER_LIMIT_MS},
+       * after which no login holds it; false when it was not asked.
+       */
+      overLimit: boolean;
+      /** `blockedBy` or `overLimit` differs from this connection's last reported deferral. */
+      changed?: true;
+    }
+  | {
+      outcome: "skipped";
+      reason: VaultSkipReason;
+      /** A found change still waits: the record held a run of deferrals. */
+      pending?: true;
+      /** The reason differs from this connection's last pending skip. */
+      changed?: true;
+    };
 export type VaultSyncReport = {
   connectionId: string;
   previous?: VaultSyncOutcome | undefined;
@@ -57,7 +131,7 @@ export type VaultSyncReport = {
         item?: string | undefined;
       }
     | undefined;
-} & ({ outcome: Exclude<VaultSyncOutcome, "failed"> } | VaultSyncFailure);
+} & VaultSyncDetail;
 
 const time = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER));
 const entrySchema = v.strictObject({
@@ -196,6 +270,17 @@ export function createVaultAutoSync(deps: {
   const missWaiters = new Map<(synced: boolean) => void, number>();
   /** Replacements begun; only one begun after a miss is one the page cannot have seen. */
   let applies = 0;
+  /**
+   * Per connection, what the last reported deferral named and the last pending skip's
+   * reason, so a new blocker is logged at info (#1819). Both outlive deferrals and skips
+   * that alternate, and are forgotten when the run of deferrals ends. Kept in memory only:
+   * a new worker reports its first one as changed.
+   */
+  const lastDeferral = new Map<
+    string,
+    { blockedBy: VaultDeferral | undefined; overLimit: boolean }
+  >();
+  const lastSkip = new Map<string, VaultSkipReason>();
   /** Resolves true once no page or passkey request is being handled, false after a while. */
   function settled(): Promise<boolean> {
     if (starting === 0) return Promise.resolve(true);
@@ -229,22 +314,52 @@ export function createVaultAutoSync(deps: {
         : VAULT_CHECK_INTERVAL_MS;
     return at - entry.checkedAt >= wait;
   }
-  function holdFor(deferredSince: number | undefined): VaultApplyHold {
+  function holdFor(
+    deferredSince: number | undefined,
+  ): VaultApplyHold & { refusal(): VaultRefusal | undefined } {
     const forced = () =>
       deferredSince !== undefined && now() - deferredSince >= VAULT_DEFER_LIMIT_MS;
-    /** Answers whether no page, passkey request or login stands in the way. */
-    async function waitAdmissible(): Promise<() => boolean> {
-      if (applying || !(await settled())) return () => false;
+    /** Why the last `ready` or `take` answered no; undefined after a yes. */
+    let blocked: VaultDeferral | undefined;
+    /** Whether the run was past the limit when that answer was given. */
+    let overLimit = false;
+    type Answer = { reason: VaultDeferral | undefined; over: boolean };
+    const answer = ({ reason, over }: Answer) => {
+      blocked = reason;
+      overLimit = reason !== undefined && over;
+    };
+    /**
+     * Answers what stands in the way (a replacement, a page or passkey request, a login)
+     * and whether the run was past the limit, read once so the two agree.
+     */
+    async function waitAdmissible(): Promise<() => Answer> {
+      if (applying) return () => ({ reason: "replacing", over: forced() });
+      if (!(await settled())) return () => ({ reason: "pages", over: forced() });
       const login = await deps.loginActive().catch(() => true);
-      return () => starting === 0 && !applying && (!login || forced());
+      return () => {
+        const over = forced();
+        const reason = applying
+          ? "replacing"
+          : starting > 0
+            ? "pages"
+            : login && !over
+              ? "login"
+              : undefined;
+        return { reason, over };
+      };
     }
     return {
-      ready: async () => (await waitAdmissible())(),
+      refusal: () => (blocked === undefined ? undefined : { blockedBy: blocked, overLimit }),
+      async ready() {
+        answer((await waitAdmissible())());
+        return blocked === undefined;
+      },
       async take() {
         const admissible = await waitAdmissible();
         // The last check and the hold run with no await between them, so no page can
         // start in between.
-        if (!admissible()) return undefined;
+        answer(admissible());
+        if (blocked) return undefined;
         const { promise: current, resolve: release } = Promise.withResolvers<void>();
         applying = current;
         applies += 1;
@@ -253,6 +368,53 @@ export function createVaultAutoSync(deps: {
           if (applying === current) applying = undefined;
         };
       },
+    };
+  }
+  /**
+   * A check's outcome as reported: a deferral with what held it and for how long, a skip
+   * with its reason and whether a found change still waits, each marked `changed` when it
+   * differs from the last one reported for the connection.
+   */
+  function detail(
+    connectionId: string,
+    result: VaultSyncResult,
+    deferredSince: number | undefined,
+    finished: number,
+    refusal: VaultRefusal | undefined,
+  ): VaultSyncDetail {
+    if (result === "deferred") {
+      const blockedBy = refusal?.blockedBy;
+      const overLimit = refusal?.overLimit ?? false;
+      const last = lastDeferral.get(connectionId);
+      lastDeferral.set(connectionId, { blockedBy, overLimit });
+      return {
+        outcome: "deferred",
+        ...(blockedBy === undefined ? {} : { blockedBy }),
+        deferredMs: deferredSince === undefined ? 0 : Math.max(0, finished - deferredSince),
+        overLimit,
+        // A run's first deferral is always news, whatever this worker remembers.
+        ...(deferredSince !== undefined &&
+        last !== undefined &&
+        last.blockedBy === blockedBy &&
+        last.overLimit === overLimit
+          ? {}
+          : { changed: true as const }),
+      };
+    }
+    const skipped = typeof result !== "string" && result.outcome === "skipped";
+    const pending = skipped && deferredSince !== undefined;
+    const changed = pending && lastSkip.get(connectionId) !== result.reason;
+    if (pending && BRIEF_SKIPS.has(result.reason)) lastSkip.set(connectionId, result.reason);
+    else {
+      // The run of deferrals ended: the next one reports afresh.
+      lastDeferral.delete(connectionId);
+      lastSkip.delete(connectionId);
+    }
+    if (!skipped) return typeof result === "string" ? { outcome: result } : result;
+    return {
+      ...result,
+      ...(pending ? { pending: true as const } : {}),
+      ...(changed ? { changed: true as const } : {}),
     };
   }
   /** A miss check uses the shorter limit for every connection it checks. */
@@ -269,9 +431,10 @@ export function createVaultAutoSync(deps: {
       // oxlint-disable-next-line no-await-in-loop -- one connection at a time
       await deps.records.update(connectionId, (current) => ({ ...current, checkedAt: at }));
       let result: VaultSyncResult;
+      const hold = holdFor(entry?.deferredSince);
       try {
         // oxlint-disable-next-line no-await-in-loop -- one connection at a time
-        result = await deps.run(connectionId, holdFor(entry?.deferredSince));
+        result = await deps.run(connectionId, hold);
       } catch {
         result = { outcome: "failed", cause: "exception" };
       }
@@ -282,6 +445,8 @@ export function createVaultAutoSync(deps: {
       // oxlint-disable-next-line no-await-in-loop -- one connection at a time
       const listed = await deps.connections().catch(() => undefined);
       if (listed && !listed.includes(connectionId)) {
+        lastDeferral.delete(connectionId);
+        lastSkip.delete(connectionId);
         // oxlint-disable-next-line no-await-in-loop -- one connection at a time
         await deps.records.clear(connectionId);
         continue;
@@ -292,7 +457,7 @@ export function createVaultAutoSync(deps: {
         return {
           ...rest,
           outcome,
-          ...(typeof result === "string"
+          ...(typeof result === "string" || result.outcome !== "failed"
             ? {}
             : {
                 failure: {
@@ -307,6 +472,15 @@ export function createVaultAutoSync(deps: {
           // has no check time and gets none.
           ...(outcome === "unchanged" && current.checkedAt === at ? { unchangedAt: at } : {}),
           ...(outcome === "deferred" ? { deferredSince: deferredSince ?? finished } : {}),
+          // A brief skip learned nothing, so a change found earlier still waits since then
+          // and the deferral limit keeps counting (#1819). A failure or a longer skip, such
+          // as a locked vault, ends the run, so a login after it is not stopped at once.
+          ...(typeof result !== "string" &&
+          result.outcome === "skipped" &&
+          BRIEF_SKIPS.has(result.reason) &&
+          deferredSince !== undefined
+            ? { deferredSince }
+            : {}),
           ...(outcome === "rate-limited" ? { retryAt: finished + VAULT_RATE_LIMIT_MS } : {}),
         };
       });
@@ -322,7 +496,7 @@ export function createVaultAutoSync(deps: {
       try {
         deps.report?.({
           connectionId,
-          ...(typeof result === "string" ? { outcome: result } : result),
+          ...detail(connectionId, result, entry?.deferredSince, finished, hold.refusal()),
           previous: entry?.outcome,
           ...(entry?.outcome === "failed" && entry.failure
             ? { previousFailure: withoutTime(entry.failure) }

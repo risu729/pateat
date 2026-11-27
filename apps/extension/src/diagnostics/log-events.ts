@@ -123,6 +123,13 @@ export const LOG_EVENTS = {
       check: "code",
       item: "item",
       revised: "time",
+      // What held a deferred replacement, for how long and whether past the two-minute
+      // limit, and why a check was skipped while a found change waits (#1819).
+      blockedBy: "code",
+      deferredMs: "count",
+      overLimit: "flag",
+      reason: "code",
+      pending: "flag",
     },
   },
   // The vault timeout locked or logged out the vaults (ADR 0075).

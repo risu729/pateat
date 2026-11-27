@@ -561,7 +561,10 @@ export function registerLockUnlockCases({
     const fetches = h.fetch.mock.calls.length;
     const checks = h.revisionDate.mock.calls.length;
     const hold: VaultApplyHold = { ready: async () => true, take: async () => () => undefined };
-    expect(await h.restart().service.autoSync(connectionId, hold)).toBe("skipped");
+    expect(await h.restart().service.autoSync(connectionId, hold)).toEqual({
+      outcome: "skipped",
+      reason: "locked",
+    });
     expect(h.fetch).toHaveBeenCalledTimes(fetches);
     expect(h.revisionDate).toHaveBeenCalledTimes(checks);
   });

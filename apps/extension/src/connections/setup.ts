@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import { normalizeBitwardenProfile } from "@pateat/bitwarden";
 import type { LocalVaultHandle } from "../vault/manager-types";
-import type { VaultApplyHold, VaultSyncResult } from "./auto-sync";
+import type { VaultApplyHold, VaultSkipReason, VaultSyncResult } from "./auto-sync";
 import { setupBeginSchema, setupContinuationSchema } from "./wire";
 import { error, replyOf } from "./setup-reply";
 import { createSetupSync, type Flow } from "./setup-sync";
@@ -12,6 +12,9 @@ import type {
   SetupReply,
 } from "./types";
 import { newId } from "@pateat/contracts/ids";
+
+/** A check that sent nothing or stopped, with why (#1819). */
+const skip = (reason: VaultSkipReason): VaultSyncResult => ({ outcome: "skipped", reason });
 
 /** Carry codes, HTTP status and a decryption failure's detail only, never provider values or
  * error messages. */
@@ -119,7 +122,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       manualWork.has(connectionId) ||
       autoRuns.has(connectionId)
     )
-      return Promise.resolve("skipped");
+      return Promise.resolve(skip("busy"));
     // Registered before the first await, so manual work that starts now waits for it, and
     // removed before the outcome is answered, so the next check is not skipped.
     let settled!: Promise<void>;
@@ -138,24 +141,25 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
   async function autoCheck(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncResult> {
     const capturedEpoch = connectionEpoch.get(connectionId) ?? 0;
     const configuration = await deps.registry.get(connectionId);
-    if (!configuration) return "skipped";
+    if (!configuration) return skip("no-configuration");
     const vault = deps.vaultFor(configuration.profile);
     const prior = await vault.store.read();
-    if (!prior.ok || !prior.data) return "skipped";
+    if (!prior.ok || !prior.data) return skip("no-vault");
     const entry = prior.data;
     // A locked vault has no key to open the next snapshot with; it syncs once unlocked.
     const userKey = await vault.manager.keyFor(entry);
-    if (!userKey) return "skipped";
+    if (!userKey) return skip("locked");
     const session = await deps.sessions.status(configuration.profile);
     if (session === "reauthentication-required") return "reauthentication-required";
-    if (session !== "active" && session !== "refresh-required") return "skipped";
+    if (session !== "active" && session !== "refresh-required")
+      return skip(session === "none" ? "session-none" : "session-unavailable");
     if (
       (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch ||
       disabling.has(connectionId) ||
       active.has(connectionId) ||
       manualWork.has(connectionId)
     )
-      return "skipped";
+      return skip("changed");
     const current: Flow = {
       id: random(),
       configuration,
@@ -169,7 +173,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     };
     autoFlows.set(connectionId, current);
     return (async (): Promise<VaultSyncResult> => {
-      if (!(await permitted(current))) return "skipped";
+      if (!(await permitted(current))) return skip("not-permitted");
       const transport = deps.transportFor(configuration.profile);
       if (!transport.ok) return syncFailure(transport.error);
       const authorization = await deps.sessions.acquire(configuration.profile, {
@@ -182,13 +186,13 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         const failure = authorization.error as { code: string; status?: number };
         if (failure.code === "setup-reauthentication-required") return "reauthentication-required";
         // Another refresh of this connection is running in this worker.
-        if (failure.code === "cancelled") return "skipped";
+        if (failure.code === "cancelled") return skip("refresh-claimed");
         return failure.code === "http-error" && failure.status === 429
           ? "rate-limited"
           : syncFailure(failure);
       }
       if (!alive(current) || (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch)
-        return "skipped";
+        return skip("stale");
       const reply = await acceptSync(
         current,
         authorization.data.authenticated,
@@ -201,7 +205,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       const failure = reply.error as Parameters<typeof syncFailure>[0];
       if (failure.code === "account-deleted") return "account-deleted";
       // Stopped by a sign-in, forget, removal or permission loss.
-      if (failure.code === "cancelled") return "skipped";
+      if (failure.code === "cancelled") return skip("cancelled");
       if (failure.code === "setup-reauthentication-required") return "reauthentication-required";
       return failure.code === "http-error" && failure.status === 429
         ? "rate-limited"
