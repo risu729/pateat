@@ -323,17 +323,30 @@ export function createVaultAutoSync(deps: {
     let blocked: VaultDeferral | undefined;
     /** Whether the run was past the limit when that answer was given. */
     let overLimit = false;
-    const answer = (reason: VaultDeferral | undefined) => {
+    type Answer = { reason: VaultDeferral | undefined; over: boolean };
+    const answer = ({ reason, over }: Answer) => {
       blocked = reason;
-      overLimit = reason !== undefined && forced();
+      overLimit = reason !== undefined && over;
     };
-    /** Answers what stands in the way: a replacement, a page or passkey request, a login. */
-    async function waitAdmissible(): Promise<() => VaultDeferral | undefined> {
-      if (applying) return () => "replacing";
-      if (!(await settled())) return () => "pages";
+    /**
+     * Answers what stands in the way (a replacement, a page or passkey request, a login)
+     * and whether the run was past the limit, read once so the two agree.
+     */
+    async function waitAdmissible(): Promise<() => Answer> {
+      if (applying) return () => ({ reason: "replacing", over: forced() });
+      if (!(await settled())) return () => ({ reason: "pages", over: forced() });
       const login = await deps.loginActive().catch(() => true);
-      return () =>
-        applying ? "replacing" : starting > 0 ? "pages" : login && !forced() ? "login" : undefined;
+      return () => {
+        const over = forced();
+        const reason = applying
+          ? "replacing"
+          : starting > 0
+            ? "pages"
+            : login && !over
+              ? "login"
+              : undefined;
+        return { reason, over };
+      };
     }
     return {
       refusal: () => (blocked === undefined ? undefined : { blockedBy: blocked, overLimit }),

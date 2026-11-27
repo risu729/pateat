@@ -345,6 +345,13 @@ problem lines of [ADR 0066](0066-problem-lines-sent-to-the-service.md) leave the
 The next long deferral names its blocker at info, so the 14-day log shows whether a
 page, a replacement or a login held it, and whether it passed the limit.
 
+A `busy` or `changed` skip can last minutes when it comes from a sign-in on the settings
+page that waits for the person, or from disabling the connection; such a skip still
+keeps the clock, so the first check after it may apply at once over a login that runs
+then. A sign-in that completes syncs and ends the run itself. A `session-unavailable` or
+`no-vault` skip caused by one failed storage read ends the run, as every skip did before;
+it is logged at info while a change waits, so it shows in the log.
+
 ## Sources
 
 - [Official revision-date check](https://github.com/bitwarden/clients/blob/df9641824436b65207f393d35b8d07225129797b/libs/common/src/platform/sync/default-sync.service.ts)
