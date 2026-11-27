@@ -349,8 +349,8 @@ A `busy` or `changed` skip can last minutes when it comes from a sign-in on the 
 page that waits for the person, or from disabling the connection; such a skip still
 keeps the clock, so the first check after it may apply at once over a login that runs
 then. A sign-in that completes syncs and ends the run itself. A `session-unavailable` or
-`no-vault` skip caused by one failed storage read ends the run, as every skip did before;
-it is logged at info while a change waits, so it shows in the log.
+`no-vault` skip caused by one failed storage read ends the run, as every skip did
+before; it is logged at info while a change waits, so it shows in the log.
 
 ## Sources
 
