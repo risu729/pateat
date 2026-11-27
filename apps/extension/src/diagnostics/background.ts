@@ -238,7 +238,8 @@ export function createDiagnosticsLog(options: {
     },
     /**
      * An automatic vault check (ADR 0025): debug when nothing changed, info when a sync was
-     * applied or waits for a login, else warn.
+     * applied or waits, else warn. A wait is info when it starts or its blocker changes,
+     * and a skip while a found change waits when it starts or its reason changes (#1819).
      */
     vaultCheck(event: VaultSyncReport) {
       // A check repeats every few minutes, also from a newly woken worker; the same stored
@@ -252,6 +253,20 @@ export function createDiagnosticsLog(options: {
             event.previousFailure.status === event.status &&
             event.previousFailure.check === event.check &&
             event.previousFailure.item === event.item));
+      const level: LogLevel =
+        event.outcome === "deferred"
+          ? !repeated || event.changed
+            ? "info"
+            : "debug"
+          : event.outcome === "skipped"
+            ? event.pending && (event.changed || !repeated)
+              ? "info"
+              : "debug"
+            : event.outcome === "unchanged" || (repeated && event.outcome !== "synced")
+              ? "debug"
+              : event.outcome === "synced"
+                ? "info"
+                : "warn";
       void logger.log(
         "vault.check",
         {
@@ -265,18 +280,17 @@ export function createDiagnosticsLog(options: {
                 item: event.item,
                 revised: event.revised,
               }
-            : {}),
+            : event.outcome === "deferred"
+              ? {
+                  blockedBy: event.blockedBy,
+                  deferredMs: event.deferredMs,
+                  overLimit: event.overLimit,
+                }
+              : event.outcome === "skipped"
+                ? { reason: event.reason, pending: event.pending }
+                : {}),
         },
-        {
-          level:
-            event.outcome === "unchanged" ||
-            event.outcome === "skipped" ||
-            (repeated && event.outcome !== "synced")
-              ? "debug"
-              : event.outcome === "synced" || event.outcome === "deferred"
-                ? "info"
-                : "warn",
-        },
+        { level },
       );
     },
     /** The vault timeout acted (ADR 0075): info when every vault closed, else warn. */

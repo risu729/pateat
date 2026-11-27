@@ -351,9 +351,27 @@ export function registerSessionLifecycleCases({
     const before = h.fetch.mock.calls.length;
     const auto = fresh.service.autoSync(accountProfile.connectionId, hold());
     const manual = fresh.caller.sync(accountProfile.connectionId);
-    expect(await auto).toBe("skipped");
+    expect(await auto).toEqual({ outcome: "skipped", reason: "changed" });
     expect((await manual).ok).toBe(true);
     expect(h.fetch).toHaveBeenCalledTimes(before + 1);
+  });
+  it("an automatic check while another of the connection runs is skipped as busy", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const fresh = h.restart();
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    let answer!: (ready: boolean) => void;
+    const first = fresh.service.autoSync(accountProfile.connectionId, {
+      ready: () => new Promise<boolean>((resolve) => (answer = resolve)),
+      take: async () => undefined,
+    });
+    expect(await fresh.service.autoSync(accountProfile.connectionId, hold())).toEqual({
+      outcome: "skipped",
+      reason: "busy",
+    });
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    answer(false);
+    expect(await first).toBe("deferred");
   });
   it("a password sign-in stops an automatic check and waits for it", async () => {
     const h = harness({ existing: true });
@@ -378,7 +396,7 @@ export function registerSessionLifecycleCases({
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(finished).toBe(false);
     answer(true);
-    expect(await auto).toBe("skipped");
+    expect(await auto).toEqual({ outcome: "skipped", reason: "cancelled" });
     expect((await signIn).ok).toBe(true);
   });
   it("a sync failure after a committed rotation keeps the rotated token", async () => {
@@ -458,7 +476,10 @@ export function registerSessionLifecycleCases({
     expect(h.fetch).toHaveBeenCalledTimes(calls);
     expect(h.sessionMemory.raw()).toBeUndefined();
     expect(await h.revisions.revision(accountProfile.connectionId)).toBeUndefined();
-    expect(await h.service.autoSync(accountProfile.connectionId, hold())).toBe("skipped");
+    expect(await h.service.autoSync(accountProfile.connectionId, hold())).toEqual({
+      outcome: "skipped",
+      reason: "session-none",
+    });
     expect(h.durable()?.state).toBe("active");
     expect(await h.caller.status()).toMatchObject({
       connections: [{ providerSession: "none", autoUnlock: "enabled" }],

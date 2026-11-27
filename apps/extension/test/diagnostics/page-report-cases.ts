@@ -110,7 +110,18 @@ export function registerPageReportCases({
       "reauthentication-required",
     ] as const;
     outcomes.forEach((outcome, index) =>
-      log.vaultCheck({ connectionId, outcome, previous: outcomes[index - 1] }),
+      log.vaultCheck(
+        outcome === "deferred"
+          ? {
+              connectionId,
+              outcome,
+              blockedBy: "login",
+              deferredMs: 0,
+              overLimit: false,
+              previous: outcomes[index - 1],
+            }
+          : { connectionId, outcome, previous: outcomes[index - 1] },
+      ),
     );
     log.vaultCheck({ connectionId, outcome: "failed", cause: "network" });
     // The same failure again is only detail; a new cause or status warns again.
@@ -209,6 +220,76 @@ export function registerPageReportCases({
       { outcome: "failed", cause: "crypto-failed", check: "attachment" },
       { outcome: "failed", cause: "crypto-failed", check: "sdk-decrypt" },
     ]);
+    vi.restoreAllMocks();
+  });
+
+  it("logs at info what holds a waiting sync when it starts or changes (#1819)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const connectionId = "50000000-0000-4000-8000-000000000001";
+    const deferred = { connectionId, outcome: "deferred" as const, blockedBy: "login" as const };
+    // A new run of deferrals; the same blocker again; a new blocker past the limit.
+    log.vaultCheck({ ...deferred, deferredMs: 0, overLimit: false, previous: "unchanged" });
+    log.vaultCheck({ ...deferred, deferredMs: 10_000, overLimit: false, previous: "deferred" });
+    log.vaultCheck({
+      ...deferred,
+      blockedBy: "pages",
+      deferredMs: 130_000,
+      overLimit: true,
+      changed: true,
+      previous: "deferred",
+    });
+    const skipped = { connectionId, outcome: "skipped" as const };
+    // No change waits; one waits after a deferral; the same reason again; a new reason.
+    log.vaultCheck({ ...skipped, reason: "busy", previous: "deferred" });
+    log.vaultCheck({ ...skipped, reason: "locked", pending: true, previous: "deferred" });
+    log.vaultCheck({ ...skipped, reason: "locked", pending: true, previous: "skipped" });
+    log.vaultCheck({
+      ...skipped,
+      reason: "busy",
+      pending: true,
+      changed: true,
+      previous: "skipped",
+    });
+    log.vaultCheck({ ...skipped, reason: "busy", previous: "unchanged" });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(entries.map((entry) => [entry.level, entry.fields["outcome"]])).toEqual([
+      ["info", "deferred"],
+      ["debug", "deferred"],
+      ["info", "deferred"],
+      ["debug", "skipped"],
+      ["info", "skipped"],
+      ["debug", "skipped"],
+      ["info", "skipped"],
+      ["debug", "skipped"],
+    ]);
+    expect(entries[2]?.fields).toEqual({
+      connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u),
+      outcome: "deferred",
+      blockedBy: "pages",
+      deferredMs: 130_000,
+      overLimit: true,
+    });
+    expect(entries[4]?.fields).toEqual({
+      connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u),
+      outcome: "skipped",
+      reason: "locked",
+      pending: true,
+    });
+    // Info lines of a check stay on the device.
+    expect(entries.map(problemLine).filter(Boolean)).toEqual([]);
     vi.restoreAllMocks();
   });
 

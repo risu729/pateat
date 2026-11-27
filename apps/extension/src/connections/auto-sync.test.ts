@@ -275,6 +275,15 @@ describe("vault replacement hold", () => {
     });
     h.auto.refreshIfStale();
     await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith({
+      connectionId: "a",
+      outcome: "deferred",
+      blockedBy: "login",
+      deferredMs: 0,
+      overLimit: false,
+      changed: true,
+      previous: undefined,
+    });
     expect(await hold.ready()).toBe(false);
     expect(h.stored()?.connections["a"]?.["outcome"]).toBe("deferred");
     h.advance(VAULT_DEFER_LIMIT_MS);
@@ -382,6 +391,146 @@ describe("vault replacement hold", () => {
   });
 });
 
+describe("why a sync waits (#1819)", () => {
+  it("names a page that still holds the vault after the idle wait", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const leave = await h.auto.enter(false);
+    h.run.mockImplementation(applied);
+    h.auto.refreshIfStale();
+    await vi.waitFor(() => expect(h.run).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(VAULT_IDLE_WAIT_MS);
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ outcome: "deferred", blockedBy: "pages", overLimit: false }),
+    );
+    leave();
+  });
+  it("names another replacement that is still applying", async () => {
+    const h = harness({ ids: ["a", "b"] });
+    let release: (() => void) | undefined;
+    h.run.mockImplementationOnce(async (_id, hold) => {
+      release = await hold.take();
+      return "synced";
+    });
+    h.run.mockImplementationOnce(applied);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ connectionId: "b", outcome: "deferred", blockedBy: "replacing" }),
+    );
+    release?.();
+  });
+  it("keeps the deferral clock through a skipped check", async () => {
+    const h = harness();
+    // A skip with no deferral running has no change waiting.
+    h.run.mockResolvedValueOnce({ outcome: "skipped", reason: "busy" });
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith({
+      connectionId: "a",
+      outcome: "skipped",
+      reason: "busy",
+      previous: undefined,
+    });
+    h.setLogin(true);
+    h.run.mockImplementation(applied);
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    const since = h.now();
+    expect(h.stored()?.connections["a"]).toMatchObject({
+      outcome: "deferred",
+      deferredSince: since,
+    });
+    h.advance(VAULT_DEFERRED_RETRY_MS);
+    h.run.mockResolvedValueOnce({ outcome: "skipped", reason: "locked" });
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.stored()?.connections["a"]).toMatchObject({
+      outcome: "skipped",
+      deferredSince: since,
+    });
+    expect(h.report).toHaveBeenLastCalledWith({
+      connectionId: "a",
+      outcome: "skipped",
+      reason: "locked",
+      pending: true,
+      changed: true,
+      previous: "deferred",
+    });
+    // The same reason again is no change.
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.run.mockResolvedValueOnce({ outcome: "skipped", reason: "locked" });
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith({
+      connectionId: "a",
+      outcome: "skipped",
+      reason: "locked",
+      pending: true,
+      previous: "skipped",
+    });
+    // The limit counts from the first deferral, so the login no longer holds the sync.
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    expect(h.now() - since).toBeGreaterThanOrEqual(VAULT_DEFER_LIMIT_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.run).toHaveBeenCalledTimes(5);
+    expect(h.stored()?.connections["a"]?.["outcome"]).toBe("synced");
+    expect(h.stored()?.connections["a"]?.["deferredSince"]).toBeUndefined();
+  });
+  it("marks a deferral changed when its blocker or the limit changes, not on a repeat", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.setLogin(true);
+    h.run.mockImplementation(applied);
+    const deferrals = () =>
+      h.report.mock.calls.map(([event]) => [
+        event.blockedBy,
+        event.deferredMs,
+        event.overLimit,
+        event.changed,
+      ]);
+    h.auto.refreshIfStale();
+    await h.settle();
+    h.advance(VAULT_DEFERRED_RETRY_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    const leave = await h.auto.enter(false);
+    for (const wait of [VAULT_DEFERRED_RETRY_MS, VAULT_DEFER_LIMIT_MS, VAULT_DEFERRED_RETRY_MS]) {
+      h.advance(wait);
+      const calls = h.run.mock.calls.length;
+      h.auto.refreshIfStale();
+      // oxlint-disable-next-line no-await-in-loop -- one check after another
+      await vi.waitFor(() => expect(h.run).toHaveBeenCalledTimes(calls + 1));
+      // oxlint-disable-next-line no-await-in-loop -- one check after another
+      await vi.advanceTimersByTimeAsync(VAULT_IDLE_WAIT_MS);
+      // oxlint-disable-next-line no-await-in-loop -- one check after another
+      await h.settle();
+    }
+    leave();
+    const limit = VAULT_DEFER_LIMIT_MS + 2 * VAULT_DEFERRED_RETRY_MS;
+    expect(deferrals()).toEqual([
+      ["login", 0, false, true],
+      ["login", VAULT_DEFERRED_RETRY_MS, false, undefined],
+      ["pages", 2 * VAULT_DEFERRED_RETRY_MS, false, true],
+      ["pages", limit, true, true],
+      ["pages", limit + VAULT_DEFERRED_RETRY_MS, true, undefined],
+    ]);
+    // A check that ends otherwise forgets the last deferral.
+    h.advance(VAULT_DEFERRED_RETRY_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report.mock.calls.at(-1)?.[0].outcome).toBe("synced");
+    h.setLogin(true);
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(deferrals().at(-1)).toEqual(["login", 0, false, true]);
+  });
+});
+
 describe("vault check after a page finds no matching item", () => {
   /** Settles every pass, including one that a miss asked for during another. */
   async function settleAll(h: ReturnType<typeof harness>) {
@@ -443,7 +592,7 @@ describe("vault check after a page finds no matching item", () => {
       "unchanged",
       "deferred",
       { outcome: "failed", cause: "network" },
-      "skipped",
+      { outcome: "skipped", reason: "busy" },
       "reauthentication-required",
     ] as const) {
       h.advance(VAULT_MISS_RETRY_MS);

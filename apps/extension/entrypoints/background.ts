@@ -112,6 +112,7 @@ import {
   VAULT_SYNC_ALARM_MINUTES,
   createVaultAutoSync,
   createVaultSyncRecords,
+  type VaultSyncResult,
 } from "../src/connections/auto-sync";
 
 export default defineBackground(() => {
@@ -489,11 +490,11 @@ export default defineBackground(() => {
         .then(() => vaultTimeout.unclosed(connectionId))
         .then(
           // A vault the timeout could not close stays refused.
-          (unclosed) =>
+          (unclosed): Promise<VaultSyncResult> | VaultSyncResult =>
             unclosed
-              ? ("skipped" as const)
+              ? { outcome: "skipped", reason: "timeout-unclosed" }
               : keepAlive(connections.service.autoSync(connectionId, hold)),
-          () => "skipped" as const,
+          (): VaultSyncResult => ({ outcome: "skipped", reason: "timeout-check-failed" }),
         ),
     loginActive: () => login.active(),
     report: diagnosticsLog.vaultCheck,

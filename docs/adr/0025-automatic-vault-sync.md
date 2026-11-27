@@ -18,7 +18,11 @@ found the custom fields equal. Amended on 2026-10-12 by
 [ADR 0034](0034-answer-page-passkey-requests.md): a conditional passkey request waiting
 for a login is not a request being handled; the hold covers it only while it reads the
 vault and signs. Amended on 2026-10-23 by
-[ADR 0075](0075-vault-lock-and-timeout.md): a locked vault is not synced.
+[ADR 0075](0075-vault-lock-and-timeout.md): a locked vault is not synced. Amended on
+2026-11-27 by an agent while investigating
+[issue 1819](https://github.com/risu729/pateat/issues/1819), not yet decided by the
+owner: a skipped check keeps the deferral clock, and why a sync waits is logged
+([amendment](#amendment-2026-11-27-a-skip-keeps-the-deferral-clock-why-a-sync-waits-is-logged)).
 
 Date: 2026-10-11
 
@@ -287,6 +291,48 @@ the official extension.
 
 Notifications over SignalR (option C) would match the official extension's speed but
 need a new library and keep the worker awake; they stay later work.
+
+## Amendment 2026-11-27: a skip keeps the deferral clock; why a sync waits is logged
+
+Status: an agent's choice while investigating
+[issue 1819](https://github.com/risu729/pateat/issues/1819), not yet decided by the
+owner.
+
+On the owner's Chrome on 2026-11-25, an automatic check found a changed vault at
+02:10:44 UTC and logged `vault.check` `deferred` because a login was running, but no
+sync applied until 05:13:33 UTC, although
+[Not interrupting a login](#not-interrupting-a-login) applies the replacement after two
+minutes of deferrals. A login meanwhile filled stale data. The same day showed other
+gaps of 2 hours and 8 hours between `deferred` and `synced`. A repeated `deferred` and
+every `skipped` check were logged at debug, and debug lines expire after 24 hours, so
+nothing left showed what held the replacement.
+
+The replacement hold now records why it last answered no: `replacing` (another
+replacement is applying), `pages` (page announcements or passkey requests still held the
+vault after the two-second wait, or a page started at the last check) or `login` (a
+login is active within the two-minute limit). Each skipped check returns a fixed reason
+code instead of a bare `skipped`, such as `busy`, `locked`, `session-none`, `changed`,
+`refresh-claimed`, `cancelled` or `timeout-unclosed`; the schedule still stores the
+outcome `skipped`.
+
+A skipped check learned nothing about the vault, so it no longer ends a run of
+deferrals: the stored start of the run stays, and the two-minute limit keeps counting
+from the first deferral. Before, a skip between two deferrals (such as one while a
+manual Sync or another refresh of the connection ran) dropped it, and the next deferral
+started the limit again. Every other outcome still ends the run.
+
+Each `deferred` report carries what held it (`blockedBy`), how long the run has lasted
+(`deferredMs`) and whether it has passed the limit (`overLimit`); a skip during a run
+carries its `reason` and `pending`. The background remembers per connection, in memory,
+the last reported deferral and the last pending skip's reason, and marks a report
+changed when they differ, so a new worker reports its first one as changed. A
+`deferred` line is info when the run starts or the report changed, otherwise debug; a
+`skipped` line is info when a found change waits and it is the first skip or its reason
+changed, otherwise debug. The fields stay on the device; the problem lines of
+[ADR 0066](0066-problem-lines-sent-to-the-service.md) leave them out.
+
+The next long deferral names its blocker at info, so the 14-day log shows whether a
+page, a replacement or a login held it, and whether it passed the limit.
 
 ## Sources
 
