@@ -68,7 +68,14 @@ export type SsoChoiceInput = {
 export type SsoResolvedChoice =
   | { kind: "native"; route: "passkey" | "password" }
   | { kind: "sso"; source: SsoSourceRef; selected: SsoIdpChoice; label?: string; entryId?: string };
-export type SsoChoiceOutcome = { ok: true; choiceId: string } | { ok: false; reason: string };
+/**
+ * How a method offer ended. An offer that waited for the person and ended unanswered
+ * names, in `waited`, why the automatic order left it to them (`entry-required`,
+ * `mapping-required`, `method-unavailable`), so its log line says why nothing was pressed.
+ */
+export type SsoChoiceOutcome =
+  | { ok: true; choiceId: string }
+  | { ok: false; reason: string; waited?: string };
 export type Candidate = {
   id: string;
   selected: SsoIdpChoice;

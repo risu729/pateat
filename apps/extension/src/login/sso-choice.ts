@@ -130,7 +130,11 @@ export function createSsoChoiceController(options: {
     offers.delete(tabId);
     if (offer) {
       offer.releaseAbort();
-      finish(offer, { ok: false, reason });
+      finish(offer, {
+        ok: false,
+        reason,
+        ...(!offer.settled && offer.reason ? { waited: offer.reason } : {}),
+      });
     }
     for (const [id, receipt] of receipts)
       if (receipt.offer.input.document.tabId === tabId) receipts.delete(id);
