@@ -597,7 +597,11 @@ origin (`automaticUrl` in `sso-choice.ts`), so it found none, recorded `entry-re
 and waited the offer's ten minutes for the popup's entry choice. A waiting offer writes
 no log line until it ends, which matches the fresh tab's log: no `login.start`,
 `recipe.generate` or `sso.*` line, and in another tab only `replaced` when
-**Log in now** replaced the waiting offer.
+**Log in now** replaced the waiting offer. Since 2026-11-27 the `login.refused` line of
+an offer that ends unanswered carries why it waited as its `detail` (`entry-required`,
+`mapping-required` or `method-unavailable`), after HCP Terraform's tabs of that day
+logged only `page-changed` on `app.terraform.io` and `flow.idp.hashicorp.com`
+([#1847](https://github.com/risu729/pateat/issues/1847)).
 
 The rest of this section is the agent's choice, not confirmed by the owner:
 

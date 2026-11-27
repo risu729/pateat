@@ -96,6 +96,19 @@ describe("a first visit's entry named by the mapped IdP", () => {
     expect(await h.offer()).toMatchObject({ reason: "entry-required" });
   });
 
+  it("ends unanswered naming why it waited, so its log line says why nothing was pressed", async () => {
+    const h = await mapped();
+    const input = firstVisit({ entryLabeled: vi.fn(async () => false) });
+    const pending = await h.request(input);
+    expect(pending.waiting).toBe(true);
+    h.controller.documentChanged({ tabId: 7, frameId: 0 }, "page-changed");
+    expect(await pending.result).toEqual({
+      ok: false,
+      reason: "page-changed",
+      waited: "entry-required",
+    });
+  });
+
   it("comes after an entry whose own destination is the mapped origin", async () => {
     const h = await mapped();
     const input = firstVisit({

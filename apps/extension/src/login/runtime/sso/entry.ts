@@ -292,8 +292,12 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   if (!ctx.manual && !result.ok && result.reason === "cancelled") rememberCancel(rt, cancelKey);
   if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
     return ctx.refuse("manual-request-ended");
+  // An unanswered offer's line names why it waited (`waited`), as `entry-required`.
   if (!result.ok || rt.documents.get(ctx.key) !== ctx.live)
-    return ctx.refuse(result.ok ? "stale-document" : result.reason);
+    return ctx.refuse(
+      result.ok ? "stale-document" : result.reason,
+      result.ok ? undefined : result.waited,
+    );
   if (ctx.manual) manualChoosing(rt, ctx.live, ctx.manual, false);
   const receipt = await rt.ssoChoices.consume(result.choiceId);
   if (
