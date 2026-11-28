@@ -33,7 +33,7 @@ import { readUsernames, usernameShape, hideUsernames } from "./markers";
 import { branchOf, pairedQuestions } from "./steps";
 import { type LoginReport } from "./report";
 import { pauseOf } from "./pause";
-import { effectful, terminal } from "./attempt-state";
+import { effectful, settledHere, terminal } from "./attempt-state";
 import { failureRejects, observe, passkeyStepAnswered, toStop } from "./reconcile";
 import { afterOwnStep, inOwnStepDocument, passkeyButton, readSignInState } from "./sign-in";
 import { onLoginStart, routeOf, takeOver } from "./continuation";
@@ -213,14 +213,10 @@ async function emptyPageCompleted(
   { layersOnly, path }: { layersOnly: boolean; path: string },
 ): Promise<true | string> {
   const { watch } = run.metadata;
-  // The login's result settled as unknown on this document's empty page (ADR 0027).
-  const settledHere =
-    run.metadata.state === "reconciling" &&
-    run.metadata.settled === true &&
-    watch?.documentId === run.live.document.documentId;
   const policy = {
     reading,
-    watched: watch !== undefined && !settledHere,
+    // Unless its result settled as unknown on this document's empty page (ADR 0027).
+    watched: watch !== undefined && !settledHere(run),
     stopAt: run.metadata.stopAt,
     sent: credentialSent(rt, run) || passkeyStepAnswered(rt, run),
     ownDocument: run.live.document.frameId === 0 && inOwnStepDocument(rt, run),
@@ -259,6 +255,7 @@ async function emptyPageCompleted(
     verdict: "not-sent",
     reason: "no-candidates",
     completed: true,
+    ...(watch ? { watched: true as const } : {}),
   });
   delete run.choice;
   await change(rt, run, {
@@ -277,8 +274,15 @@ async function emptyPageCompleted(
  * read eight seconds after the click (2026-11-04 11:26 UTC), is then read again as the
  * tab's next page, instead of never, since a settled login's own document is not read
  * again. The document checks at each change of the page (ADR 0082), never on a timer.
+ * With `layers`, for a page that missed completing the login only for showing no click
+ * layers, it says so also once it shows only click layers (ADR 0029 amendment of
+ * 2026-11-28).
  */
-export function watchDescribed(rt: Runtime, run: Execution): void {
+export function watchDescribed(
+  rt: Runtime,
+  run: Execution,
+  { layers = false }: { layers?: boolean } = {},
+): void {
   const { document } = run.live;
   if (document.frameId !== 0) return;
   const since = run.metadata.watch?.since;
@@ -293,6 +297,7 @@ export function watchDescribed(rt: Runtime, run: Execution): void {
   void send(rt, run.live, {
     type: "login.extract.watch",
     timeoutMs: Math.min(Math.ceil(left), DESCRIBED_WATCH_MAX_MS),
+    ...(layers ? { layers: true as const } : {}),
   }).catch(() => undefined);
 }
 
@@ -575,7 +580,7 @@ export async function learn(
         empty,
       );
       if (miss === true) return true;
-      watchDescribed(rt, run);
+      watchDescribed(rt, run, { layers: miss === "layers" });
       return notJudged(rt, run, described.unsent, { emptyMiss: miss });
     }
     return notSent(besideCandidate ? "sign-in-shown" : described.unsent);

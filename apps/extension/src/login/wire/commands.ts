@@ -341,14 +341,17 @@ export const commandSchema = v.variant("type", [
    * After a judged page whose description had nothing to send (`no-candidates`), as a page
    * still loading shows (ADR 0027 amendment of 2026-11-04): the document reports once, with
    * `login.document.described`, when a page after the sign-in (`signed-in`) would describe
-   * something, checking at each change of the page (ADR 0082) for up to `timeoutMs`. A
-   * later watch replaces it; it answers at once and never mutates.
+   * something, checking at each change of the page (ADR 0082) for up to `timeoutMs`, or,
+   * with `layers`, when it shows only click layers too (ADR 0029 amendment of 2026-11-28).
+   * A later watch replaces it; it answers at once and never mutates.
    */
   v.strictObject({
     version: v.literal(1),
     type: v.literal("login.extract.watch"),
     token: id,
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(DESCRIBED_WATCH_MAX_MS)),
+    /** The page did not complete the login only because it showed no click layers. */
+    layers: v.optional(v.literal(true)),
     /**
      * Reports once the page no longer shows nothing (the `signIn` reading's `blank`):
      * visible text, also in shadow trees, or something to describe (ADR 0026, amendment

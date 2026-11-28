@@ -1217,8 +1217,11 @@ login ends as a success without confirmation):
     ([ADR 0036](0036-passkey-after-the-identifier.md)), and it is not watched, except
     when its result settled as unknown in this same document (state `reconciling`,
     `settled`, the watch begun in this document): such a page is read again once the
-    document says it shows something, and that report now also comes when it shows only
-    click layers (`describesNothingYet` in `apps/extension/src/login/content-dom.ts`).
+    document says it shows something. When the page missed completing only for showing
+    no click layers (`emptyMiss` `layers`), the document is asked (`layers` on
+    `login.extract.watch`) to report also once it shows only click layers
+    (`describesNothingYet` in `apps/extension/src/login/content-dom.ts`); a page that
+    missed for another reason is not, so it is not read again for nothing.
     Any other watched login, as one at `challenge` or on a later page, is not completed
     this way.
   - The page leaves out no field, no radio button, select or text area, and nothing that

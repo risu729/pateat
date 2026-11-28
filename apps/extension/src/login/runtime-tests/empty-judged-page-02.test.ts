@@ -168,7 +168,8 @@ describe("a judged page with nothing to describe after the sign-in form is gone"
         emptyMiss: "layers",
       }),
     ]);
-    expect(watches()).toHaveLength(1);
+    // The document is asked to say so once it shows only click layers too.
+    expect(watches()).toEqual([expect.objectContaining({ layers: true })]);
     // The document draws its chooser in place and says so.
     fake.state.extracted = { "signed-in": layered };
     await h.login.handle(
@@ -185,6 +186,24 @@ describe("a judged page with nothing to describe after the sign-in form is gone"
       reason: "no-candidates",
       completed: true,
     });
+  }, 20_000);
+
+  it("does not complete a settled page that drew its layers on another path", async () => {
+    const { judge, judged, h } = await submitted(() => {
+      fake.state.extracted = {};
+    });
+    await settledUnknown(judge);
+    fake.state.extracted = { "signed-in": layered };
+    fake.state.observedPath = "/elsewhere";
+    await h.login.handle(
+      { version: 1, type: "login.document.described", token: "synthetic-token" },
+      sender({}),
+    );
+    await vi.waitFor(() => expect(judged()).toHaveLength(2), { timeout: 8_000 });
+    expect(judged().at(-1)).toMatchObject({ reason: "no-candidates", emptyMiss: "path" });
+    expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]);
+    // Asked again, but not for click layers only.
+    expect(watches().at(-1)).not.toHaveProperty("layers");
   }, 20_000);
 
   it("keeps the earlier rule on another path, as Oracle's Verify page still loading", async () => {
