@@ -11,6 +11,7 @@ import {
   routeSignInTargets,
   showsBesideForm,
   type LoginAttemptMetadata,
+  type LoginMarkerTarget,
   type LoginObservation,
   type SemanticSlot,
   type ValueShape,
@@ -19,7 +20,12 @@ import {
 import type { ServiceTiming } from "../../service/transport";
 import { DESCRIBED_WATCH_MAX_MS, extractResultSchema } from "../wire";
 import { observedPath } from "../../observation/path";
-import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "../completion-policy";
+import {
+  emptyPageCompletes,
+  judgedCompletionResult,
+  settleCompletion,
+  undecidedCandidate,
+} from "../completion-policy";
 import { type Execution, type SignInReading } from "./types";
 import { report, send, current, change, spinning, spend } from "./attempt";
 import { generationSlotsFor, usernameReads, judgeSlots } from "./generation-scope";
@@ -29,7 +35,7 @@ import { type LoginReport } from "./report";
 import { pauseOf } from "./pause";
 import { effectful, terminal } from "./attempt-state";
 import { failureRejects, observe, passkeyStepAnswered, toStop } from "./reconcile";
-import { afterOwnStep, passkeyButton, readSignInState } from "./sign-in";
+import { afterOwnStep, inOwnStepDocument, passkeyButton, readSignInState } from "./sign-in";
 import { onLoginStart, routeOf, takeOver } from "./continuation";
 import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
@@ -111,8 +117,9 @@ export async function judgedUsernames(
 
 /**
  * The page's description for the judge, on `path`, with the usernames of the items that
- * match it and the login's own hidden; or why it is not sent (`unsent`), or nothing when
- * the run was superseded meanwhile.
+ * match it and the login's own hidden; or why it is not sent (`unsent`), with whether a
+ * page with nothing to describe shows only click layers (`layersOnly`, ADR 0029 amendment
+ * of 2026-11-28), or nothing when the run was superseded meanwhile.
  */
 export async function describeForJudge(
   rt: Runtime,
@@ -125,11 +132,12 @@ export async function describeForJudge(
       inputLeftOut: boolean;
       usernameShape?: ValueShape;
     }
-  | { unsent: string }
+  | { unsent: string; layersOnly?: true }
   | undefined
 > {
   let observation: LoginObservation | undefined;
   let unsent = "unreachable";
+  let layersOnly = false;
   let disabledLeftOut = false;
   let inputLeftOut = false;
   try {
@@ -141,9 +149,11 @@ export async function describeForJudge(
       extracted.success && extracted.output.ok
         ? v.safeParse(loginObservationSchema, extracted.output.observation)
         : undefined;
-    if (!extracted.success || !parsed?.success)
+    if (!extracted.success || !parsed?.success) {
       unsent = extracted.success && !extracted.output.ok ? extracted.output.reason : "invalid-page";
-    else if (!parsed.output.complete)
+      layersOnly =
+        extracted.success && !extracted.output.ok && extracted.output.layersOnly === true;
+    } else if (!parsed.output.complete)
       unsent = (extracted.output.ok && extracted.output.gap) || "incomplete";
     else if (
       parsed.output.origin !== run.live.document.origin ||
@@ -160,7 +170,7 @@ export async function describeForJudge(
     // The page could not be asked: `unreachable`.
   }
   if (!current(rt, run)) return undefined;
-  if (!observation) return { unsent };
+  if (!observation) return { unsent, ...(layersOnly ? { layersOnly: true as const } : {}) };
   // A judged page can show the identifier just entered: the usernames of the items that
   // match it, and the login's own, are hidden first.
   const usernames = await judgedUsernames(rt, run).catch(() => undefined);
@@ -173,6 +183,71 @@ export async function describeForJudge(
     inputLeftOut,
     ...(usernames?.shape ? { usernameShape: usernames.shape } : {}),
   };
+}
+
+/**
+ * Completes the login unconfirmed on a page with nothing to describe for the judge that
+ * shows only click layers (`layersOnly`), in the top document its own step ran in, on a
+ * sign-in path of its route (`signInPath`), once none of the route's sign-in inputs
+ * (`fills`) is found there even hidden and a fresh reading on the same path still shows
+ * no sign of a sign-in going on (ADR 0029 amendment of 2026-11-28). Returns whether it
+ * settled or the run was superseded.
+ */
+async function emptyPageCompleted(
+  rt: Runtime,
+  run: Execution,
+  reading: SignInReading | undefined,
+  signInPath: boolean,
+  fills: LoginMarkerTarget[],
+  { layersOnly, path }: { layersOnly: boolean; path: string },
+): Promise<boolean> {
+  const policy = {
+    reading,
+    watched: run.metadata.watch !== undefined,
+    stopAt: run.metadata.stopAt,
+    sent: credentialSent(rt, run) || passkeyStepAnswered(rt, run),
+    ownDocument: run.live.document.frameId === 0 && inOwnStepDocument(rt, run),
+    signInPath,
+    layersOnly,
+  };
+  if (!emptyPageCompletes({ ...policy, fieldsGone: true })) return false;
+  // Every copy, hidden or not, as several hidden copies would otherwise read as none.
+  const kept = fills.length
+    ? await observe(
+        rt,
+        run,
+        fills,
+        fills.map(() => "input" as const),
+        { hidden: fills.map(() => true) },
+      )
+    : { targets: [] };
+  if (!current(rt, run)) return true;
+  const fieldsGone =
+    kept !== undefined &&
+    kept.targets.every((state) => state === "missing" || state === "unusable");
+  if (!emptyPageCompletes({ ...policy, fieldsGone })) return false;
+  const again = await readSignInState(rt, run);
+  if (!current(rt, run)) return true;
+  if (!settleCompletion({ completes: true, stopHeld: false, again, path }).completes) return false;
+  report(rt, run.live.document, {
+    type: "judge",
+    tabId: run.live.document.tabId,
+    origin: run.live.document.origin,
+    recipeId: run.recipe.id,
+    recipeRevision: run.recipe.revision,
+    route: run.metadata.route,
+    verdict: "not-sent",
+    reason: "no-candidates",
+    completed: true,
+  });
+  delete run.choice;
+  await change(rt, run, {
+    type: "OBSERVED",
+    result: "authenticated",
+    document: run.live.document,
+    unconfirmed: true,
+  });
+  return true;
 }
 
 /**
@@ -466,9 +541,15 @@ export async function learn(
   const described = await describeForJudge(rt, run, remaining.path);
   if (!described) return true;
   // A page that cannot be described completely is not sent and does not count. One that
-  // describes nothing, as a page still loading, is read again once it shows something.
+  // describes nothing, as a page still loading, is read again once it shows something,
+  // unless it completes the login unconfirmed (ADR 0029 amendment of 2026-11-28).
   if ("unsent" in described) {
-    if (!besideCandidate && described.unsent === "no-candidates") watchDescribed(rt, run);
+    if (!besideCandidate && described.unsent === "no-candidates") {
+      const empty = { layersOnly: described.layersOnly === true, path: remaining.path };
+      if (await emptyPageCompleted(rt, run, reading, paths.includes(remaining.path), fills, empty))
+        return true;
+      watchDescribed(rt, run);
+    }
     return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
   }
   // A page described here is read as it is now: a report of it showing something is moot.

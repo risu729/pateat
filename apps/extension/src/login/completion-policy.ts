@@ -69,6 +69,50 @@ export function undecidedCandidate({
 }
 
 /**
+ * Whether a page with nothing to describe for the judge (`no-candidates`) completes the
+ * login unconfirmed, pending a fresh reading (ADR 0029 amendment of 2026-11-28): a
+ * confirmed reading with no sign and no evidence, on a page that shows only click layers
+ * and leaves out no field or choice (`layersOnly`), in the top document the login's own
+ * step ran in (`ownDocument`), still on a path of the route's sign-in steps (`signInPath`),
+ * from which the route's sign-in inputs are gone even hidden (`fieldsGone`), once this
+ * attempt's credential went back (`sent`), while the login is not watched and has no stop
+ * before a missing password. UNSW Endeavour's student record chooser, drawn only in layers
+ * with no link or button on its sign-in path, is such a page; Oracle's "Verify your
+ * identity" page, still loading on its own path (ADR 0027 amendment of 2026-11-04), is not.
+ */
+export function emptyPageCompletes({
+  reading,
+  watched,
+  stopAt,
+  sent,
+  ownDocument,
+  signInPath,
+  layersOnly,
+  fieldsGone,
+}: {
+  reading?: Reading | undefined;
+  watched: boolean;
+  stopAt?: number | undefined;
+  sent: boolean;
+  ownDocument: boolean;
+  signInPath: boolean;
+  layersOnly: boolean;
+  fieldsGone: boolean;
+}): boolean {
+  return (
+    reading?.confirmed === true &&
+    reading.decision === "judge" &&
+    !watched &&
+    stopAt === undefined &&
+    sent &&
+    ownDocument &&
+    signInPath &&
+    layersOnly &&
+    fieldsGone
+  );
+}
+
+/**
  * The judge may take a while: the fresh page must be loaded without a sign-in step.
  * A disabled field left out of its description prevents undecided completion (ADR 0029).
  */

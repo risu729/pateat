@@ -125,6 +125,12 @@ This replaces one of the agent's choices of the 2026-11-03 amendment and narrows
 passkey re-verification of
 [ADR 0035](0035-page-kinds-per-site.md#passkey-re-verification).
 
+Amended on 2026-11-28 (owner, 06:14 UTC, 「条件付きで成功とみなす」 on a decision card):
+a page with nothing to describe for the judge, after the credential went back, in the
+step's own document and on its sign-in path with the route's sign-in inputs gone from
+it, completes the login unconfirmed; see
+[the amendment below](#amendment-a-page-with-nothing-to-describe-completes-unconfirmed-2026-11-28).
+
 Date: 2026-10-12
 
 ## Context
@@ -1179,3 +1185,76 @@ Decision (agent's, a fix of the gate against this ADR's own decision for `contin
   [ADR 0041](0041-repair-stale-recipes.md) section 4.
 - A `continuing` page never completes the login on an undecided or `optional` answer, so
   such a page completes it only on the judge's own `signed-in`.
+
+## Amendment: a page with nothing to describe completes unconfirmed (2026-11-28)
+
+Context: UNSW Endeavour (`https://unsw.openacademies.com/Apps/Endeavour/`) is a
+single-page app drawn in absolutely placed `<div>`s. With the click layer of
+[ADR 0090](0090-click-layers-named-by-overlaid-text.md), its login (Real Chrome on build
+3770253, 2026-11-28 01:54 UTC) pressed "log on" and the site showed its "Student record
+chooser" on the same path. That page has no link, no button and no `role` element, only
+click layers named "exit", "×" and one row per student record (name and term), so the
+judge gate found nothing to describe (`recipe.judge` `not-sent` `no-candidates`, at
+01:54:23, 01:55:23 and 01:56:11 UTC). The login settled as unknown and was watched; a
+reload showed the first step again, so the watch was abandoned (`watch-abandoned`,
+01:56:42 UTC) and the tab stayed fill-only (`stopped-login`) until the person picked an
+account again. A marker cannot help: the only layers whose text stays the same, "exit"
+and "×", show on the sign-in page too.
+
+Decision (owner, 2026-11-28 06:14 UTC, 「条件付きで成功とみなす」 on a decision card:
+when the sign-in fields are gone after the submit and the page has no candidate, the
+login ends as a success without confirmation):
+
+- A page whose description for the judge has nothing in it (`no-candidates`) completes
+  the login `authenticated` with `unconfirmed: true`, as an undecided page does
+  (amendment of 2026-10-14), when all of these hold (`emptyPageCompletes` in
+  `apps/extension/src/login/completion-policy.ts`, read in `learn` in
+  `apps/extension/src/login/runtime/judge.ts`):
+  - The sign-in state reads, confirmed, no sign (S1 to S5) and no evidence.
+  - The attempt's credential went back, as for an undecided page (amendment of
+    2026-11-08).
+  - The login is not watched and has no stop before a missing password
+    ([ADR 0036](0036-passkey-after-the-identifier.md)).
+  - The page leaves out no field, no radio button, select or text area, and nothing that
+    makes its description incomplete (no `gap`, no `disabledLeftOut`, no
+    `inputLeftOut`), shows no checkbox, and shows at least one click layer named by its
+    overlaid text ([ADR 0090](0090-click-layers-named-by-overlaid-text.md), without the
+    hit test). The signed-in extractor then marks its refusal `layersOnly`
+    (`apps/extension/src/observation/extract-signed-in.ts`). This is positive evidence
+    that the page has drawn its content: a bare loader or spinner shows no such layer,
+    and a page that asks for a code with a disabled input, or for a choice by radio
+    buttons, has a field or choice left out (agent's choice, from the code review).
+  - The page is the top document the login's own effect step ran in
+    (`inOwnStepDocument` in `apps/extension/src/login/runtime/sign-in.ts`), it is still
+    on a path of the route's sign-in steps, and none of the route's sign-in inputs is
+    found in it, read with every hidden copy counted, as the amendment of 2026-11-21
+    reads them (agent's choice, from the design and code reviews). Oracle's "Verify your
+    identity" page described nothing while it was still loading, in the same document
+    but on its own path, when the amendment of 2026-11-04 to
+    [ADR 0027](0027-per-account-login-routes.md) added the re-read of such a page; it
+    keeps that rule. A new document that describes nothing may also still be loading,
+    and the correction below does not cover a login in a frame. A single-page app that
+    removed its sign-in form and stayed on its path, as Endeavour, has moved past it. A
+    hidden input whose recipe locator only sees shown elements, as one located by its
+    label, cannot be counted.
+  - A fresh reading of the sign-in state, taken at once, has loaded on the same path and
+    still shows no sign of a sign-in going on.
+- The log has `recipe.judge` `not-sent` `no-candidates` with `completed: true`. The
+  unconfirmed completion keeps the amendment of 2026-10-14's consequences: no account
+  choice is saved, the badge shows the unsettled state and no marker is learned.
+- Any other page that describes nothing keeps the earlier rule: it is not sent, the
+  document is asked to say once it shows something (ADR 0027 amendment of 2026-11-04),
+  and the login settles as unknown.
+
+Consequences: on Endeavour a reload after such a completion reads as a logout and logs
+in again, within the limit of [ADR 0062](0062-log-in-again-after-a-logout.md). A
+single-page app that removes its sign-in form and, while it answers, shows only click
+layers on the same path is completed before its answer. Its answer may be a failure, or
+a second factor the judge then never reads, so no `totp` handler is learned or typed
+there. The correction of the amendment of 2026-11-03 catches the recipe's first step
+shown again in that document within 30 seconds; a failure that shows only a later step,
+as the password step of an identifier-first recipe, is not corrected.
+
+Not chosen: reading the click layers of ADR 0090 as markers on the signed-in page
+(the stable ones show on the sign-in page too), and leaving the result unknown (every
+Endeavour login then ends unknown and the next one in the tab is fill-only).

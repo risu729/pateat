@@ -591,7 +591,9 @@ export type LoginReport = (
       watched?: true;
       /**
        * The judge could not decide a page with no sign and no evidence, or found it an
-       * optional page after the sign-in, so the login completed on it (ADR 0029, ADR 0065).
+       * optional page after the sign-in, so the login completed on it (ADR 0029, ADR 0065);
+       * with `not-sent` `no-candidates`, a page of click layers only completed it
+       * unconfirmed without a request (ADR 0029 amendment of 2026-11-28).
        */
       completed?: true;
       /**

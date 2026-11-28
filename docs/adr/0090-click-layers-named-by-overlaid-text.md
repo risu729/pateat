@@ -116,3 +116,7 @@ across loads at 1920×1080 and 1100×800. They look like a counter in document o
   it show no other button, so the change reaches only pages that had no action before.
 - The labels "username" and "password" on Endeavour are still not read. The inputs'
   `autocomplete` tokens are enough.
+- A signed-in page with nothing else to describe that shows such a layer may complete
+  the login unconfirmed
+  ([ADR 0029 amendment of 2026-11-28](0029-local-sign-in-state.md#amendment-a-page-with-nothing-to-describe-completes-unconfirmed-2026-11-28)).
+  The layer is not described there and never becomes a signed-in marker.
