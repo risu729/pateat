@@ -323,6 +323,8 @@ export function continuable(rt: Runtime, run: Execution): boolean {
     metadata.route !== "password" ||
     metadata.variant !== 0 ||
     (metadata.stopAt !== undefined && !stopsPastPlan(metadata)) ||
+    // A hand-off never learns the site's page after its identifier (#1847).
+    metadata.ssoHandoff === true ||
     // A login after the passkey button answers its page's request instead (ADR 0060
     // amendment of 2026-11-18).
     metadata.passkeyButton === true ||
@@ -621,6 +623,8 @@ export async function continueWith(
     refused?.(reason);
     return false;
   };
+  // A hand-off never runs more than its identifier's steps (#1847).
+  if (run.metadata.ssoHandoff) return refuse("sso-identifier");
   const route = attemptRouteChoice(run.metadata);
   const answered = onLoginStart(run, next);
   const converted = routeOf(rt, run, answered);

@@ -115,7 +115,9 @@ function createLoginAttemptMachine() {
         (context.operationKind === "fill" || context.operationKind === "click") &&
         sameLoginDocument(context.document, event.document),
       valueRejected: ({ context, event }) => valueRejected(context, event),
+      // A hand-off is never watched (ADR 0036, #1847): it ends where it stopped.
       valueRejectedWatched: ({ context, event }) =>
+        context.ssoHandoff !== true &&
         event.type === "VALUE_REJECTED" &&
         event.challenge === true &&
         valueRejected(context, event),
@@ -155,6 +157,7 @@ function createLoginAttemptMachine() {
       // A login of an item without a password that ends at its stop, with nothing in
       // flight, is watched as one stopped at a step left to the person (ADR 0036).
       observedStop: ({ context, event }) =>
+        context.ssoHandoff !== true &&
         event.type === "OBSERVED" &&
         event.result === "challenge" &&
         context.route === "password" &&
@@ -166,6 +169,7 @@ function createLoginAttemptMachine() {
       // A login that stops at a step left to the person is watched, on any route (owner,
       // 2026-11-08) and in a frame too (ADR 0086).
       observedWatched: ({ context, event }) =>
+        context.ssoHandoff !== true &&
         event.type === "OBSERVED" &&
         event.result === "challenge" &&
         (!event.document || sameScope(context.document, event.document)),

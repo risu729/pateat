@@ -126,6 +126,12 @@ export type SsoNativeChoice = {
   passkeyRefused?: true;
   /** The login this choice started: only its own refused passkey goes back to the chooser. */
   attemptId?: string;
+  /**
+   * A hand-off on the `password` route (ADR 0036 amendment of 2026-11-28, #1847): the SSO
+   * item's login types its account identifier on the site's page and presses Continue,
+   * stopping at the step after that advance (`ssoHandoff`).
+   */
+  handoff?: true;
 };
 /** Authority is memory-only. Persisted intents become interrupted holds after restart. */
 export function createSsoState() {

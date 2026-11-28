@@ -53,6 +53,8 @@ export async function enterHandler(
   path: string,
   stop?: { end: () => Promise<void> },
 ): Promise<boolean | "held"> {
+  // A hand-off types its identifier alone, so it enters no handler (#1847).
+  if (run.metadata.ssoHandoff) return false;
   // A fresh handler's elements must be usable: its code field a shown writable input, on
   // a page that does not say its code was sent, and its button shown, enabled or not, as
   // a Verify button disabled until the code is typed is; so a hidden code input rendered

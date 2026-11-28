@@ -698,6 +698,8 @@ export async function switchToPasskey(rt: Runtime, run: Execution): Promise<bool
       // Back on the password route, a login never takes the passkey route again.
       metadata.passkeyLeft ||
       metadata.fillOnly ||
+      // A hand-off stays on its identifier's route (#1847).
+      metadata.ssoHandoff ||
       !metadata.facts.discoverablePasskey ||
       metadata.submissions > 0 ||
       metadata.handlers.length > 0 ||

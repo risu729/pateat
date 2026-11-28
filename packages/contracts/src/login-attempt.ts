@@ -18,6 +18,15 @@ import { sameScope, replaceable, maySubmit } from "./login-attempt/policy";
 import { loginAttemptMachine } from "./login-attempt/machine";
 import { followPage, awaitPerson, personAnswered } from "./login-attempt/timing";
 
+const HANDOFF_REFUSES = new Set<string>([
+  "HANDLER",
+  "ROUTE",
+  "CONTINUING",
+  "CONTINUED",
+  "STOP_JUDGING",
+  "STOP_ANSWERED",
+]);
+
 export function createAttemptMetadata(input: {
   id: string;
   recipe: LoginRecipe;
@@ -44,6 +53,8 @@ export function createAttemptMetadata(input: {
   stopAt?: number;
   /** The steps before `stopAt` type only the account identifier (`identifierOnlyBefore`). */
   identifierStop?: boolean;
+  /** The login is a hand-off, stopping after its identifier (ADR 0036, #1847). */
+  ssoHandoff?: boolean;
   /**
    * The later step of the chosen `password` variant the login starts at, when its page
    * shows that step and none of the recipe's first steps (ADR 0049).
@@ -115,6 +126,7 @@ export function createAttemptMetadata(input: {
     ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
     ...(input.stopAt === undefined ? {} : { stopAt: input.stopAt }),
     ...(input.stopAt !== undefined && input.identifierStop ? { identifierStop: true } : {}),
+    ...(input.ssoHandoff ? { ssoHandoff: true } : {}),
     ...(input.startAt === undefined ? {} : { startStep: input.startAt }),
     ...(input.startAt !== undefined && input.startPartial ? { startPartial: true } : {}),
     timing: input.timing,
@@ -153,6 +165,9 @@ export function transitionLoginAttempt(
     event.type === "FILL_UNCONTINUED"
   )
     return metadata;
+  // A hand-off types its identifier alone (ADR 0036, #1847): it never enters a handler,
+  // takes another route, continues its recipe, or judges or answers at its stop.
+  if (metadata.ssoHandoff && HANDOFF_REFUSES.has(event.type)) return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
   // A login still at its first step that has submitted nothing, and has nothing in flight
   // that may have, has no result to settle as unknown: the page goes on, at the same step, as

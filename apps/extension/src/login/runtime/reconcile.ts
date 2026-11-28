@@ -435,6 +435,9 @@ export async function reconcile(
     });
     return undefined;
   }
+  // A hand-off sent nothing but its identifier: its page is neither read for a sign-in nor
+  // judged, and the login goes on to its stop (#1847).
+  if (run.metadata.ssoHandoff && (await toStop(rt, run))) return undefined;
   // Such a page is not judged until the request's hold ends, nor while it shows nothing to
   // describe, as a loader does, until the held click's wait ends.
   if (

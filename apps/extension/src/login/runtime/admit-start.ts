@@ -739,6 +739,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         ...("identifierStop" in plan && plan.identifierStop === true
           ? { identifierStop: true }
           : {}),
+        // A hand-off stops after its identifier (ADR 0036 amendment of 2026-11-28).
+        ...("handoff" in plan && plan.handoff === true ? { ssoHandoff: true } : {}),
         ...(startAt === undefined ? {} : { startAt }),
         ...(startAt !== undefined && ctx.later?.partial.has(`${startVariant}:${startAt}`)
           ? { startPartial: true }

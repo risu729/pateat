@@ -1808,10 +1808,21 @@ only another slot, such as a code after the password, does not keep the handler 
 service judges such a page only when its password field matches the route's fill locator
 exactly, and answers `not-judgeable` otherwise (a known gap, ADR 0036). Without a
 request or a button, after an answer the item could not give, or with the form still
-showing after those 15 seconds, the login ends `challenge` and is watched. A login that
-switched to the `passkey` route before its first submission never falls back to a
-variant with a stop; it ends `challenge`. A running or resumed login checks only its
-recorded variant and never reads the facts again
+showing after those 15 seconds, the login ends `challenge` and is watched. A hand-off,
+an SSO item's login that types its saved Username on a site's identifier-only page and
+presses Continue (`ssoHandoff`, marked `handoff` on the tab's native method choice),
+stops at the step after its route's first `advance` whatever the item holds, only when
+every step before it fills the `username` slot alone from the item's Username; otherwise
+it is refused `no-route` with an `sso-identifier:<why>` detail (`fills-other`,
+`no-identifier`, `username-field`, `frame`, `alternatives` and the like). It enters no
+handler, takes no `passkey` route, continues no recipe and sends no page to the judge;
+at its stop on the site it skips the passkey wait, the button and the stop's judge, ends
+`challenge` unwatched as `password-empty:sso-identifier:same-site` and asks its page to
+announce again; a move off the origin ends it `left-origin`
+([ADR 0036](adr/0036-passkey-after-the-identifier.md#amendment-a-hand-off-stops-after-the-identifier-2026-11-28-1847)).
+A login that switched to the `passkey` route before its first submission never falls
+back to a variant with a stop; it ends `challenge`. A running or resumed login checks
+only its recorded variant and never reads the facts again
 ([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). After each
 effect step the executor checks the signed-in markers, the rejection and the plan's next
 step, then the recipe's handlers on the page's path. A click or an `advance` fill

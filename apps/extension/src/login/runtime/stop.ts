@@ -1,3 +1,4 @@
+import { browser } from "wxt/browser";
 import { attemptPlan, transitionLoginAttempt, type LoginAttemptEvent } from "@pateat/contracts";
 import type { ServiceTiming } from "../../service/transport";
 import { newId } from "@pateat/contracts/ids";
@@ -26,12 +27,17 @@ import type { Runtime } from "./state";
  * observed as after a click, held while the sign-in form still shows for up to
  * `REQUEST_HOLD_MS`. A stop just past the plan's last step has no form of its own: its
  * page is held while it stays on the path the answer was given on. Without a request the
- * login ends `challenge`, watched, as `password-empty`.
+ * login ends `challenge`, watched, as `password-empty`. A hand-off ends at once
+ * (`endHandoff`).
  */
 export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<void> {
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   const stopped = () => current(rt, run) && run.metadata.state === "ready" && atStop(run.metadata);
   if (!(await allowed(rt, run)) || !stopped()) return;
+  if (run.metadata.ssoHandoff) {
+    await endHandoff(rt, run);
+    return;
+  }
   // A request of a path its page moved away from in place is handed on, never answered
   // (ADR 0034 amendment of 2026-11-17).
   let parked = await requestOnItsPath(rt, run.live.document);
@@ -139,6 +145,31 @@ export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<v
     run.answeredAt = Date.now();
   }
   await reconcileBounded(rt, run);
+}
+
+/**
+ * A hand-off at its stop on the site's own origin, as when the site showed its password
+ * page after the identifier rather than sending the tab on to the identity provider (ADR
+ * 0036 amendment of 2026-11-28, #1847): it waits for no passkey request, presses no
+ * handler and sends no page to the judge. It ends `challenge`, not watched, as
+ * `password-empty:sso-identifier:same-site`, and its page is asked to announce again, so
+ * what the page offers next decides; nothing more is filled by this login.
+ */
+async function endHandoff(rt: Runtime, run: Execution): Promise<void> {
+  await change(
+    rt,
+    run,
+    { type: "OBSERVED", result: "challenge", document: run.live.document },
+    undefined,
+    undefined,
+    undefined,
+    "password-empty:sso-identifier:same-site",
+  );
+  if (!current(rt, run) || run.metadata.state !== "blocked") return;
+  const { tabId, documentId } = run.live.document;
+  await browser.tabs
+    .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId: 0, documentId })
+    .catch(() => undefined);
 }
 
 /**

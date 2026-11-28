@@ -288,6 +288,18 @@ export type PasswordStopMiss =
   | "no-advance"
   | "fills-lacking";
 /**
+ * Why a hand-off login (`handoff`, ADR 0036 amendment of 2026-11-28) takes no route: as for
+ * a stop, the recipe has alternatives, the route is not `password` (`no-password-step`), no
+ * `advance` step comes in it (`no-advance`) or a step before the stop fills one of
+ * `lacking`; or a step before it fills a slot other than `username` (`fills-other`), or
+ * none fills `username` (`no-identifier`), as on a chooser's route whose click on the list
+ * is its first advance.
+ */
+export type HandoffStopMiss =
+  | Exclude<PasswordStopMiss, "no-passkey">
+  | "fills-other"
+  | "no-identifier";
+/**
  * Where a `password` login of an item without a password stops (ADR 0036), or why it takes
  * no route ({@link PasswordStopMiss}). The stop is the index of the route's first step that
  * fills one of `passwordSlots`, the slots its binding reads from the item's empty password.
@@ -300,6 +312,13 @@ export type PasswordStopMiss =
  * a chooser's route (`chooserRoute`, ADR 0028) its click on the list is that `advance`, and
  * the stop lies in or just past the branch the click leads to. The login's own scope, the
  * tab's top document, is the caller's to check.
+ *
+ * A hand-off (`handoff`, for an SSO item whose sign-in types its account identifier on the
+ * site's own page and presses Continue to reach its identity provider, ADR 0036 amendment
+ * of 2026-11-28, #1847) stops at the step after the route's first `advance`, or just past
+ * it when that advance is the route's last step, whatever the item holds: it needs no
+ * passkey, and fills no password even when the item holds one. Every step before its stop
+ * fills the `username` slot alone, and at least one does ({@link HandoffStopMiss}).
  */
 export function passwordStopOrMiss(
   recipe: LoginRecipe,
@@ -307,13 +326,42 @@ export function passwordStopOrMiss(
   facts: Pick<LoginItemFacts, "password" | "passkey">,
   passwordSlots: readonly string[],
   lacking: readonly string[],
-): { stop: number } | { miss: PasswordStopMiss } {
-  if (facts.password || !facts.passkey) return { miss: "no-passkey" };
+): { stop: number } | { miss: PasswordStopMiss };
+export function passwordStopOrMiss(
+  recipe: LoginRecipe,
+  choice: LoginRouteChoice,
+  facts: Pick<LoginItemFacts, "password" | "passkey">,
+  passwordSlots: readonly string[],
+  lacking: readonly string[],
+  handoff: true,
+): { stop: number } | { miss: HandoffStopMiss };
+export function passwordStopOrMiss(
+  recipe: LoginRecipe,
+  choice: LoginRouteChoice,
+  facts: Pick<LoginItemFacts, "password" | "passkey">,
+  passwordSlots: readonly string[],
+  lacking: readonly string[],
+  handoff?: true,
+): { stop: number } | { miss: PasswordStopMiss | HandoffStopMiss } {
+  if (!handoff && (facts.password || !facts.passkey)) return { miss: "no-passkey" };
   if (recipe.alternatives) return { miss: "alternatives" };
   if (choice.route !== "password") return { miss: "no-password-step" };
   const steps = routeSteps(recipe, choice);
   const fills = (step: LoginStep, slots: readonly string[]) =>
     step.kind === "fill" && step.fields.some((field) => slots.includes(field.slot));
+  if (handoff) {
+    const advance = steps.findIndex((step) => loginStepEffect(step) === "advance");
+    if (advance === -1) return { miss: "no-advance" };
+    const before = steps.slice(0, advance + 1);
+    const filled = before.flatMap((step) =>
+      step.kind === "fill" ? step.fields.map((field) => field.slot) : [],
+    );
+    if (filled.some((slot) => slot !== "username")) return { miss: "fills-other" };
+    if (filled.length === 0) return { miss: "no-identifier" };
+    return before.some((step) => fills(step, lacking))
+      ? { miss: "fills-lacking" }
+      : { stop: advance + 1 };
+  }
   const filling = steps.findIndex((step) => fills(step, passwordSlots));
   const last = steps.at(-1);
   const stop =
@@ -348,6 +396,32 @@ export function identifierOnlyBefore(
   return routeSteps(recipe, choice)
     .slice(0, stop)
     .every((step) => step.kind !== "fill" || step.fields.every(({ slot }) => identifier.has(slot)));
+}
+/**
+ * Where a hand-off stops (`passwordStopOrMiss` with `handoff`, ADR 0036, #1847), its steps
+ * before the stop typing only the identifier (`identifierStop`), or why it takes no route: also `username-field` when a step before the stop fills a slot its
+ * binding `slots` do not read from the item's built-in Username (`identifierOnlyBefore`).
+ * `lacking` are the binding's slots whose values the item lacks.
+ */
+export function handoffStopOrMiss(
+  recipe: LoginRecipe,
+  choice: LoginRouteChoice,
+  lacking: readonly { slot: string }[],
+  slots: readonly { slot: string; fieldId: string }[],
+  item: Pick<VaultItemMetadata, "fields"> | undefined,
+): { stopAt: number; identifierStop: true } | { miss: HandoffStopMiss | "username-field" } {
+  const found = passwordStopOrMiss(
+    recipe,
+    choice,
+    { password: false, passkey: false },
+    [],
+    lacking.map(({ slot }) => slot),
+    true,
+  );
+  if (!("stop" in found)) return found;
+  return identifierOnlyBefore(recipe, choice, found.stop, slots, item)
+    ? { stopAt: found.stop, identifierStop: true }
+    : { miss: "username-field" };
 }
 /**
  * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that

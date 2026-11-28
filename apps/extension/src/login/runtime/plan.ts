@@ -12,6 +12,7 @@ import {
   findLoginBinding,
   heldRouteMissing,
   identifierOnlyBefore,
+  handoffStopOrMiss,
   loginFieldFacts,
   loginFieldSource,
   loginDisplayNames,
@@ -716,6 +717,8 @@ export async function planFor(
     selectedMethod && sameLoginDocument(selectedMethod.document, live.document)
       ? selectedMethod.route
       : undefined;
+  // A hand-off types the SSO item's identifier and presses Continue (#1847).
+  const handoff = explicitMethod === "password" && selectedMethod?.handoff === true;
   if (explicitMethod === "passkey") return resolveRoute({ route: "passkey" });
   let facts: LoginItemFacts | undefined;
   // Only a page the passkey scripts run on can answer a passkey request (ADR 0050), and
@@ -790,7 +793,7 @@ export async function planFor(
     return {
       ok: false as const,
       reason: "no-route" as const,
-      detail: request.paused ? "password-empty:paused" : "password-empty:sign-in-fill",
+      detail: `${handoff ? "sso-identifier" : "password-empty"}:${request.paused ? "paused" : "sign-in-fill"}`,
     };
   return password;
   /**
@@ -885,6 +888,17 @@ export async function planFor(
             (source === "login.password" && !known.password) ||
             (source === "login.totp-code" && !known.totp),
         );
+      // A hand-off stops after its identifier whatever the item holds (ADR 0036, #1847).
+      if (handoff) {
+        const stop =
+          "fillOnly" in resolved || live.document.frameId !== 0
+            ? { miss: "fillOnly" in resolved ? "fill-only" : "frame" }
+            : handoffStopOrMiss(recipe, route, lacking, resolved.binding.slots, item);
+        if ("stopAt" in stop) return { ...resolved, facts: known, ...stop, handoff: true as const };
+        refusals[index] = "no-route";
+        missing[index] = `sso-identifier:${stop.miss}`;
+        continue;
+      }
       const unheld = lacking[0]?.source;
       if (unheld) {
         const miss = passwordMiss(item, resolved.account.fieldIds);
@@ -960,7 +974,7 @@ export async function planFor(
     // generated again for the page may have it (ADR 0058 A). The caller decides whether
     // that may happen.
     const unfit =
-      facts && refusals.every((reason) => reason === "no-route")
+      facts && !handoff && refusals.every((reason) => reason === "no-route")
         ? heldRouteMissing(recipe, facts, passkeyPage)
         : undefined;
     const marked = unfit ? { unfit } : {};
