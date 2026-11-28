@@ -13,6 +13,8 @@ const { origin, target, uriMatch, harness } = createRuntimeTestHarness(fake);
 // completes the login unconfirmed once the sign-in form is gone from the step's own
 // document on its sign-in path, and a fresh reading still shows no sign (ADR 0029
 // amendment of 2026-11-28).
+const layered = { ok: false, reason: "no-candidates", layersOnly: true };
+
 describe("a judged page with nothing to describe after the sign-in form is gone", () => {
   afterEach(() => {
     // Close every test's tabs, so no attempt left reconciling answers a later test.
@@ -46,7 +48,8 @@ describe("a judged page with nothing to describe after the sign-in form is gone"
     fake.state.chosen = { ok: true, click: "entry" };
     fake.state.siteAccount = { ok: false };
     fake.state.gone = new Set();
-    fake.state.extracted = {};
+    // The page after the click shows only click layers (ADR 0090), as Endeavour's chooser.
+    fake.state.extracted = { "signed-in": layered };
     // A page with no sign of a sign-in going on or done: the judge's page.
     fake.state.signs = {
       password: false,
@@ -163,6 +166,18 @@ describe("a judged page with nothing to describe after the sign-in form is gone"
     expect(watches()).toHaveLength(1);
   }, 20_000);
 
+  it("keeps the earlier rule on a page that shows no click layer, as a loader", async () => {
+    const { judge, judged } = await submitted(() => {
+      fake.state.extracted = {};
+    });
+    await settledUnknown(judge);
+    expect(judged()).toEqual([
+      expect.objectContaining({ verdict: "not-sent", reason: "no-candidates" }),
+    ]);
+    expect(judged()[0]).not.toHaveProperty("completed");
+    expect(watches()).toHaveLength(1);
+  }, 20_000);
+
   it("does not complete while a sign-in input is kept hidden in the step's document", async () => {
     // A single-page site may hide its form while it answers; hidden inputs count here.
     const { judge, judged } = await submitted(() => {
@@ -182,7 +197,7 @@ describe("a judged page with nothing to describe after the sign-in form is gone"
       fake.state.extracted = Object.defineProperty({}, "signed-in", {
         get: () => {
           fake.state.loaded = false;
-          return undefined;
+          return layered;
         },
       });
     });

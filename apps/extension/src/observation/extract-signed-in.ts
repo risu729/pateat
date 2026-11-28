@@ -1,7 +1,7 @@
 import { codeInput, shortNumericInput } from "../login/inputs";
 import { authenticatorChoice } from "../page/authenticator-choice";
 import { autocompleteTokens } from "../page/targets";
-import { closestAcross, composedOrder, readingPage } from "../page/shadow";
+import { closestAcross, composedOrder, queryAll, readingPage } from "../page/shadow";
 import { observedPath } from "./path";
 import {
   buttonText,
@@ -25,6 +25,7 @@ import {
   shownValue,
 } from "./extract-candidates";
 import { observe, byLandmark } from "./extract-observe";
+import { overlaidLabel } from "../page/overlaid-control";
 
 /**
  * Whether a field the executor cannot fill may still be a sign-in field: a password or an
@@ -236,7 +237,23 @@ function describeSignedIn(document: Document): ObservationResult {
     ...fieldsShown,
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsShown.length)),
   ];
-  if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
+  // A page with nothing to describe says whether it shows only click layers, its content
+  // drawn rather than loading, with no field or choice left out (ADR 0029 amendment of
+  // 2026-11-28), as UNSW Endeavour's student record chooser.
+  if (chosen.length === 0)
+    return {
+      ok: false,
+      reason: "no-candidates",
+      ...(gap === undefined &&
+      !disabledLeftOut &&
+      !inputLeftOut &&
+      fieldEntries.length === 0 &&
+      queryAll(document, "[tabindex]").some(
+        (element) => overlaidLabel(element, { hit: false }) !== undefined,
+      )
+        ? { layersOnly: true as const }
+        : {}),
+    };
   const result = observe(
     document,
     chosen,

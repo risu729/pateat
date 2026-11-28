@@ -254,6 +254,11 @@ export const extractResultSchema = v.variant("ok", [
     reason: v.string(),
     /** For `no-candidates`, why no field was described, as codes only; for the log. */
     detail: v.optional(v.pipe(v.string(), v.maxLength(64))),
+    /**
+     * For a signed-in page's `no-candidates`: it shows only click layers and leaves out no
+     * field or choice (ADR 0029 amendment of 2026-11-28).
+     */
+    layersOnly: v.optional(v.literal(true)),
   }),
 ]);
 /** The answer to `login.entry.hosts`. */

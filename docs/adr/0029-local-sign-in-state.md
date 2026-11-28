@@ -1215,18 +1215,30 @@ login ends as a success without confirmation):
     2026-11-08).
   - The login is not watched and has no stop before a missing password
     ([ADR 0036](0036-passkey-after-the-identifier.md)).
-  - The page is the document the login's own effect step ran in, in the step's frame
+  - The page leaves out no field, no radio button, select or text area, and nothing
+    that makes its description incomplete (no `gap`, no `disabledLeftOut`, no
+    `inputLeftOut`), and it shows at least one click layer named by its overlaid text
+    ([ADR 0090](0090-click-layers-named-by-overlaid-text.md), without the hit test).
+    The signed-in extractor then marks its refusal `layersOnly`
+    (`apps/extension/src/observation/extract-signed-in.ts`). This is positive evidence
+    that the page has drawn its content: a loader or spinner shows no such layer, and a
+    page that asks for a code with a disabled input, or for a choice by radio buttons,
+    has a field or choice left out (agent's choice, from the code review).
+  - The page is the top document the login's own effect step ran in
     (`inOwnStepDocument` in `apps/extension/src/login/runtime/sign-in.ts`), it is still
-    on a path of the route's sign-in steps, and none of the route's sign-in inputs is in
-    it, shown or hidden (agent's choice, from the design review). Oracle's "Verify your
+    on a path of the route's sign-in steps, and none of the route's sign-in inputs is
+    found in it, read with every hidden copy counted, as the amendment of 2026-11-21
+    reads them (agent's choice, from the design and code reviews). Oracle's "Verify your
     identity" page described nothing while it was still loading, in the same document
     but on its own path, when the amendment of 2026-11-04 to
     [ADR 0027](0027-per-account-login-routes.md) added the re-read of such a page; it
-    keeps that rule. A new document that describes nothing may also still be loading. A
-    single-page app that removed its sign-in form and stayed on its path, as Endeavour,
-    has moved past it.
-  - A fresh reading of the sign-in state, taken at once, has loaded and still shows no
-    sign of a sign-in going on.
+    keeps that rule. A new document that describes nothing may also still be loading,
+    and the correction below does not cover a login in a frame. A single-page app that
+    removed its sign-in form and stayed on its path, as Endeavour, has moved past it. A
+    hidden input whose recipe locator only sees shown elements, as one located by its
+    label, cannot be counted.
+  - A fresh reading of the sign-in state, taken at once, has loaded on the same path and
+    still shows no sign of a sign-in going on.
 - The log has `recipe.judge` `not-sent` `no-candidates` with `completed: true`. The
   unconfirmed completion keeps the amendment of 2026-10-14's consequences: no account
   choice is saved, the badge shows the unsettled state and no marker is learned.
@@ -1236,10 +1248,12 @@ login ends as a success without confirmation):
 
 Consequences: on Endeavour a reload after such a completion reads as a logout and logs
 in again, within the limit of [ADR 0062](0062-log-in-again-after-a-logout.md). A
-single-page app that removes its sign-in form and shows only a loader without a link or
-button while it answers is completed before its answer, possibly a failure; the
-correction of the amendment of 2026-11-03, which catches the sign-in form shown again
-in that document within 30 seconds, is the only safety net for it.
+single-page app that removes its sign-in form and, while it answers, shows only click
+layers on the same path is completed before its answer. Its answer may be a failure, or
+a second factor the judge then never reads, so no `totp` handler is learned or typed
+there. The correction of the amendment of 2026-11-03 catches the recipe's first step
+shown again in that document within 30 seconds; a failure that shows only a later step,
+as the password step of an identifier-first recipe, is not corrected.
 
 Not chosen: reading the click layers of ADR 0090 as markers on the signed-in page
 (the stable ones show on the sign-in page too), and leaving the result unknown (every

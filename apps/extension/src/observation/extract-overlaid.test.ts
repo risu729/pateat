@@ -1,6 +1,6 @@
 import type { LoginObservation } from "@pateat/contracts";
 import { afterEach, describe, expect, it } from "vitest";
-import { extractLoginObservation } from "./extract";
+import { extractLoginObservation, extractSignedInObservation } from "./extract";
 
 // A click layer named by the text laid over it (ADR 0090). Synthetic page, a reduced copy
 // of UNSW Endeavour's sign-in dialog: no form, button, role or label, every `<div>` carries
@@ -86,5 +86,36 @@ describe("a click layer beside fields outside every form", () => {
       ),
     );
     expect(layers(observation)).toEqual([]);
+  });
+});
+
+// A signed-in page with nothing else to describe shows only click layers (ADR 0029
+// amendment of 2026-11-28), as Endeavour's student record chooser after "log on".
+describe("a signed-in page of click layers only", () => {
+  const refusal = (html: string) => {
+    document.body.innerHTML = html;
+    return extractSignedInObservation();
+  };
+
+  it("says it shows only click layers", () => {
+    expect(refusal(dialog(logOn))).toEqual({
+      ok: false,
+      reason: "no-candidates",
+      layersOnly: true,
+    });
+  });
+
+  it("does not say so with no click layer, as a page still loading", () => {
+    expect(refusal(`<div style="width:200px;height:40px">Loading…</div>`)).toEqual({
+      ok: false,
+      reason: "no-candidates",
+    });
+  });
+
+  it("does not say so beside a radio button its description leaves out", () => {
+    expect(refusal(dialog(`${logOn}<input type="radio" name="via" aria-label="SMS">`))).toEqual({
+      ok: false,
+      reason: "no-candidates",
+    });
   });
 });

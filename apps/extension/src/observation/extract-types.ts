@@ -54,7 +54,17 @@ export type ObservationResult =
        */
       readonly inputLeftOut?: true;
     }
-  | { readonly ok: false; readonly reason: ObservationRefusal };
+  | {
+      readonly ok: false;
+      readonly reason: ObservationRefusal;
+      /**
+       * A signed-in page with nothing to describe that leaves out no field, no gap and no
+       * radio button, select or text area, and shows a click layer named by its overlaid
+       * text (ADR 0090): its content is drawn, not loading, and may complete the login
+       * unconfirmed (ADR 0029 amendment of 2026-11-28). Never sent to the service.
+       */
+      readonly layersOnly?: true;
+    };
 
 export type Draft = Omit<ObservedCandidate, "id" | "target" | "group"> & { element: HTMLElement };
 

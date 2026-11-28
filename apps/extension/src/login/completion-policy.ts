@@ -71,8 +71,9 @@ export function undecidedCandidate({
 /**
  * Whether a page with nothing to describe for the judge (`no-candidates`) completes the
  * login unconfirmed, pending a fresh reading (ADR 0029 amendment of 2026-11-28): a
- * confirmed reading with no sign and no evidence, in the document the login's own step
- * ran in (`ownDocument`), still on a path of the route's sign-in steps (`signInPath`),
+ * confirmed reading with no sign and no evidence, on a page that shows only click layers
+ * and leaves out no field or choice (`layersOnly`), in the top document the login's own
+ * step ran in (`ownDocument`), still on a path of the route's sign-in steps (`signInPath`),
  * from which the route's sign-in inputs are gone even hidden (`fieldsGone`), once this
  * attempt's credential went back (`sent`), while the login is not watched and has no stop
  * before a missing password. UNSW Endeavour's student record chooser, drawn only in layers
@@ -86,6 +87,7 @@ export function emptyPageCompletes({
   sent,
   ownDocument,
   signInPath,
+  layersOnly,
   fieldsGone,
 }: {
   reading?: Reading | undefined;
@@ -94,6 +96,7 @@ export function emptyPageCompletes({
   sent: boolean;
   ownDocument: boolean;
   signInPath: boolean;
+  layersOnly: boolean;
   fieldsGone: boolean;
 }): boolean {
   return (
@@ -104,6 +107,7 @@ export function emptyPageCompletes({
     sent &&
     ownDocument &&
     signInPath &&
+    layersOnly &&
     fieldsGone
   );
 }

@@ -327,10 +327,11 @@ describe("emptyPageCompletes", () => {
     sent: true,
     ownDocument: true,
     signInPath: true,
+    layersOnly: true,
     fieldsGone: true,
   } as const;
 
-  it("completes a quiet page in the step's document on its sign-in path, its fields gone", () => {
+  it("completes a quiet page of click layers in the step's document on its sign-in path", () => {
     expect(emptyPageCompletes(empty)).toBe(true);
   });
 
@@ -347,6 +348,7 @@ describe("emptyPageCompletes", () => {
     { sent: false },
     { ownDocument: false },
     { signInPath: false },
+    { layersOnly: false },
     { fieldsGone: false },
   ])("does not complete when one condition fails: %j", (change) => {
     expect(emptyPageCompletes({ ...empty, ...change })).toBe(false);
