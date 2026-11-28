@@ -42,6 +42,8 @@ export function createAttemptMetadata(input: {
   chooser?: ChooserClick;
   /** For an item without a password: where its `password` route stops (ADR 0036). */
   stopAt?: number;
+  /** The steps before `stopAt` type only the account identifier (`identifierOnlyBefore`). */
+  identifierStop?: boolean;
   /**
    * The later step of the chosen `password` variant the login starts at, when its page
    * shows that step and none of the recipe's first steps (ADR 0049).
@@ -112,6 +114,7 @@ export function createAttemptMetadata(input: {
       : {}),
     ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
     ...(input.stopAt === undefined ? {} : { stopAt: input.stopAt }),
+    ...(input.stopAt !== undefined && input.identifierStop ? { identifierStop: true } : {}),
     ...(input.startAt === undefined ? {} : { startStep: input.startAt }),
     ...(input.startAt !== undefined && input.startPartial ? { startPartial: true } : {}),
     timing: input.timing,

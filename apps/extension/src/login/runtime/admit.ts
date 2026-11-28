@@ -40,7 +40,7 @@ import { type MoveMiss } from "./report";
 import { countRelogin, signedInNow } from "./relogin";
 import { remember } from "./choice-save";
 import {
-  answeredAway,
+  answeredOutside,
   credentialMoveFits,
   stepMoveFits,
   passkeyPageFits,
@@ -672,8 +672,8 @@ export async function admit(
     latest: LoginAttemptMetadata,
     moved: LoginDocument,
     signedIn: boolean,
-    // A passkey answered on a page of another origin that held the login (#1847).
-    answered = answeredAway(rt, ctx.document.tabId, latest.id),
+    // A passkey answered for the login that its steps may not show (#1847).
+    answered = answeredOutside(rt, ctx.document.tabId, latest),
   ) => {
     const before = run?.metadata ?? recoverLoginAttempt(latest);
     // A login that did not sign in here ended when its wait for the site or its watch ran
@@ -939,7 +939,7 @@ export async function admit(
         reportMove(holder, ctx.live.moveMiss, true);
         return { ok: false, reason: "stale-document" };
       }
-      const answered = answeredAway(rt, ctx.document.tabId, latest.id);
+      const answered = answeredOutside(rt, ctx.document.tabId, latest);
       rt.passkeyPages.delete(ctx.document.tabId);
       if (!signedIn && ctx.live.moveMiss) reportMove(holder, ctx.live.moveMiss);
       const refusal = await endMove(run, latest, asking.document, signedIn, answered);

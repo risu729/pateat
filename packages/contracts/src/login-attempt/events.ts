@@ -62,8 +62,8 @@ export const loginAttemptEventSchema = v.variant("type", [
    * `signedIn`: the runtime confirmed that a top-level move to another origin finished the
    * sign-in, as after a passkey answer for that site (ADR 0022). Only an attempt that may
    * have submitted then completes; any other move to another origin ends it as before.
-   * `answered`: such a move ends a login that a page of another origin held while it asked
-   * for a passkey, and Pateat answered that request there (`answeredAway`).
+   * `answered`: Pateat answered a passkey request for the login that its steps do not show,
+   * on its own page or on the page of another origin that held it (`maybeAnswered`).
    */
   v.strictObject({
     type: v.literal("NAVIGATED"),
@@ -75,9 +75,9 @@ export const loginAttemptEventSchema = v.variant("type", [
   /**
    * The tab's top page is no web page Pateat can read, as `about:blank` or a browser page,
    * once the login's wait for the site ran out (ADR 0022, amended 2026-11-04): a top-level
-   * attempt ends as a move to another origin would.
+   * attempt ends as a move to another origin would, `answered` as for `NAVIGATED`.
    */
-  v.strictObject({ type: v.literal("LEFT") }),
+  v.strictObject({ type: v.literal("LEFT"), answered: v.optional(v.literal(true)) }),
   v.strictObject({
     type: v.literal("FAILED"),
     reason: v.picklist(["structural-mismatch", "timeout"]),
@@ -167,6 +167,8 @@ export const loginAttemptEventSchema = v.variant("type", [
     effects: v.pipe(integer(MAX_RECIPE_EFFECTS), v.minValue(1)),
     document: loginDocumentSchema,
     stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
+    /** The steps before that new stop type only the account identifier (#1847). */
+    identifierStop: v.optional(v.literal(true)),
     /**
      * The `steps` replace the plan's final `advance` click the attempt is at, which never
      * ran (`continuation.before`), instead of following it; that click's effect is no

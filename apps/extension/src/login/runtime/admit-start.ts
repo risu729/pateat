@@ -736,6 +736,9 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
           : {}),
         // An item without a password stops before it (ADR 0036).
         ...("stopAt" in plan && typeof plan.stopAt === "number" ? { stopAt: plan.stopAt } : {}),
+        ...("identifierStop" in plan && plan.identifierStop === true
+          ? { identifierStop: true }
+          : {}),
         ...(startAt === undefined ? {} : { startAt }),
         ...(startAt !== undefined && ctx.later?.partial.has(`${startVariant}:${startAt}`)
           ? { startPartial: true }

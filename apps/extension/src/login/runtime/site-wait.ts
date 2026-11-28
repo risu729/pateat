@@ -8,6 +8,7 @@ import { idle, siteWaitOver, terminal, watchEndedAt } from "./attempt-state";
 import { reportAttempt } from "./attempt";
 import { armSiteWait, keep } from "./session-store";
 import { frameKey } from "./steps";
+import { answeredOutside } from "./moves";
 import type { Runtime } from "./state";
 
 /**
@@ -48,7 +49,14 @@ export function lapsed(
     !rt.replacedTabs.has(metadata.document.tabId) &&
     origin === undefined
   )
-    return transitionLoginAttempt(metadata, { type: "LEFT" }, at);
+    return transitionLoginAttempt(
+      metadata,
+      {
+        type: "LEFT",
+        ...(answeredOutside(rt, metadata.document.tabId, metadata) ? { answered: true } : {}),
+      },
+      at,
+    );
   if (
     metadata.document.frameId === 0 &&
     origin !== undefined &&
@@ -65,6 +73,7 @@ export function lapsed(
       {
         type: "NAVIGATED",
         document: top?.origin === origin ? top : { ...metadata.document, origin },
+        ...(answeredOutside(rt, metadata.document.tabId, metadata) ? { answered: true } : {}),
       },
       at,
     );

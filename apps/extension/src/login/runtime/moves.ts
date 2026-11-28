@@ -524,13 +524,23 @@ export async function stillAsking(rt: Runtime, live: LiveDocument): Promise<bool
 }
 
 /**
- * Whether Pateat answered a passkey request on the page of another origin that holds the
- * tab's login `attemptId` (`passkeyPages`), since that page asked: a credential step the
- * login's record does not show, which its end records (`answered`, #1847).
+ * Whether Pateat answered a passkey request for the tab's login `record` that its steps
+ * may not show, a credential step its end records (`answered`, #1847): on a page of the
+ * login's own origin since the login's time began, as the bridge does before the stop
+ * records its answer (`bridgeAnswer`), or on the page of another origin that holds it
+ * (`passkeyPages`) since that page asked. Answers are kept in memory only, so a login
+ * this worker did not run, as after a restart, may have had one.
  */
-export function answeredAway(rt: Runtime, tabId: number, attemptId: string): boolean {
+export function answeredOutside(
+  rt: Runtime,
+  tabId: number,
+  record: Pick<LoginAttemptMetadata, "id" | "document" | "timing">,
+): boolean {
+  if (rt.attempts.get(tabId)?.metadata.id !== record.id) return true;
+  const own = rt.passkeyAnswers.get(`${tabId} ${record.document.origin}`);
+  if (own !== undefined && own.at >= record.timing.since) return true;
   const page = rt.passkeyPages.get(tabId);
-  if (page?.attemptId !== attemptId) return false;
+  if (page?.attemptId !== record.id) return false;
   const answer = rt.passkeyAnswers.get(`${tabId} ${page.document.origin}`);
   return answer !== undefined && answer.at >= page.requestedAt;
 }
@@ -551,10 +561,10 @@ export function holdForPasskey(rt: Runtime, tabId: number): void {
         holdForPasskey(rt, tabId);
         return;
       }
-      const answered = answeredAway(rt, tabId, held.attemptId);
-      rt.passkeyPages.delete(tabId);
       const run = rt.attempts.get(tabId);
       const latest = run?.metadata ?? tabAttempt(rt, tabId);
+      const answered = latest !== undefined && answeredOutside(rt, tabId, latest);
+      rt.passkeyPages.delete(tabId);
       if (latest?.id !== held.attemptId || terminal(latest)) return;
       const before = run?.metadata ?? recoverLoginAttempt(latest);
       // A hold kept past the login's wait for the site ends it when that ran out (ADR 0022).

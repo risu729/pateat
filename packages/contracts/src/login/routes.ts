@@ -326,6 +326,30 @@ export function passwordStopOrMiss(
   return before.some((step) => fills(step, lacking)) ? { miss: "fills-lacking" } : { stop };
 }
 /**
+ * Whether the route's steps before `stop` type nothing but the account identifier (#1847):
+ * every slot a fill among them names is one its binding `slots` read from the item's
+ * built-in username, itself or through a Linked field. A slot read from any other field,
+ * such as a hidden custom field holding a PIN, or a slot left unbound, is more.
+ */
+export function identifierOnlyBefore(
+  recipe: LoginRecipe,
+  choice: LoginRouteChoice,
+  stop: number,
+  slots: readonly { slot: string; fieldId: string }[],
+  item: Pick<VaultItemMetadata, "fields"> | undefined,
+): boolean {
+  const identifier = new Set(
+    slots
+      .filter(
+        ({ fieldId }) => (item ? loginFieldSource(item, fieldId) : fieldId) === "login.username",
+      )
+      .map(({ slot }) => slot),
+  );
+  return routeSteps(recipe, choice)
+    .slice(0, stop)
+    .every((step) => step.kind !== "fill" || step.fields.every(({ slot }) => identifier.has(slot)));
+}
+/**
  * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
  * advances to the password page (ADR 0048), an `authenticator` handler's click that
  * advances to the code page (ADR 0081), a `totp` handler's fill of the code into its

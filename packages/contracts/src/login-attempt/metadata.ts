@@ -209,12 +209,19 @@ export const attemptMetadataSchema = v.pipe(
      */
     stopJudged: v.optional(v.literal(true)),
     /**
-     * The login ended after its tab moved to a page of another origin that asked for a
-     * passkey and held it, where Pateat answered that request (ADR 0036 amendment of
-     * 2026-11-17): a credential step its own steps do not show, so it holds its origin as
-     * one after any credential step does (`identifierOnly`, #1847).
+     * The steps before the stop type nothing but the account identifier, as the login's
+     * binding reads them when it starts or takes over a continuation
+     * (`identifierOnlyBefore`, #1847); a login with a stop never switches layouts.
      */
-    answeredAway: v.optional(v.literal(true)),
+    identifierStop: v.optional(v.literal(true)),
+    /**
+     * A passkey may have been answered for the login that its steps do not show: on its own
+     * page before its stop recorded the answer, or on a page of another origin its tab moved
+     * to (ADR 0036 amendment of 2026-11-17), or a restarted worker, which keeps no record of
+     * answers, recovered it. It then holds its origin as after a credential step
+     * (`identifierOnly`, #1847).
+     */
+    maybeAnswered: v.optional(v.literal(true)),
     /**
      * The login pressed its recipe's passkey button, then went on with the layout that
      * asks for the account on the button's page (`IDENTIFIER_LAYOUT`, ADR 0060 amendment of

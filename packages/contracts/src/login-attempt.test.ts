@@ -209,7 +209,7 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
 
   registerPasswordStopPasskeys({ top, id, emailFirst, create, atStop, answer });
 
-  registerPasswordStopHolds({ top, create, advanced, atStop, answer });
+  registerPasswordStopHolds({ top, emailFirst, create, advanced });
 
   registerPasswordStopContinuations({ document, top, id, emailFirst, create, answer });
 });

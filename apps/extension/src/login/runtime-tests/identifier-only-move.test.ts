@@ -11,7 +11,7 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, target, harness } = createRuntimeTestHarness(fake);
+const { origin, connectionId, itemId, target, harness } = createRuntimeTestHarness(fake);
 
 // A login that sent nothing but its account identifier before its stop (ADR 0036, #1847):
 // its tab's move to another origin of the site never signs it in, its page is never sent
@@ -77,8 +77,28 @@ describe("a move after only the identifier of an item without a password", () =>
       await vi.advanceTimersByTimeAsync(100);
     }
   }
-  /** A login of the item, its Next in flight when the tab moves to the site's `www`. */
-  async function moved(password: boolean) {
+  /** The recipe's first step also types the item's Branch, a custom field (#1847). */
+  const withBranch = parseLoginRecipe({
+    ...emailFirst,
+    slots: ["username", "branch", "password"],
+    steps: emailFirst.steps.map((step, index) =>
+      index === 0 && step.kind === "fill"
+        ? { ...step, fields: [...step.fields, { slot: "branch", target: target("branch") }] }
+        : step,
+    ),
+  });
+  /**
+   * A login of the item, its Next in flight when the tab moves to the site's `www`: after
+   * a passkey the bridge `answered` on the login's own page, and to a page with the `signs`.
+   */
+  async function moved(
+    password: boolean,
+    {
+      answered = false,
+      signs = quiet,
+      recipe = emailFirst,
+    }: { answered?: boolean; signs?: typeof quiet; recipe?: typeof emailFirst } = {},
+  ) {
     vi.useFakeTimers();
     const report = vi.fn<(entry: LoginReport) => void>();
     // The judge would read the moved page as signed in.
@@ -98,11 +118,13 @@ describe("a move after only the identifier of an item without a password", () =>
           generate: vi.fn<LoginGeneration["generate"]>(),
           generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
           judge,
-          slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+          slotFields: vi.fn<LoginGeneration["slotFields"]>(async () =>
+            recipe === withBranch ? [{ slot: "branch", field: { custom: "Branch" } }] : undefined,
+          ),
         },
       },
     );
-    h.recipes.recipe.mockResolvedValue(emailFirst);
+    h.recipes.recipe.mockResolvedValue(recipe);
     const original = h.store.handle.getMockImplementation()!;
     if (!password)
       h.store.handle.mockImplementation(async () => {
@@ -114,8 +136,9 @@ describe("a move after only the identifier of an item without a password", () =>
       });
     expect(await h.hello()).toEqual({ ok: true });
     await until(() => executed().length === 2);
+    if (answered) h.login.passkeyAnswered(1, origin, "login.example", { connectionId, itemId });
     // A quiet page that shows no username, which the judge would call signed in.
-    fake.state.signs = quiet;
+    fake.state.signs = signs;
     fake.state.observedPath = "/home";
     fake.state.extracted = {
       "signed-in": {
@@ -158,6 +181,39 @@ describe("a move after only the identifier of an item without a password", () =>
     fake.state.observedPath = "/signin";
     fake.state.tabUrls[2] = fake.state.pageUrl;
     expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+  });
+
+  it("holds after a passkey the bridge answered on the login's own page", async () => {
+    // The page the tab moved to shows a password field, so the answer completes nothing.
+    const { h } = await moved(false, { answered: true, signs: { ...quiet, password: true } });
+    const record = status()![0] as unknown as LoginAttemptMetadata;
+    expect(record).toMatchObject({
+      state: "blocked",
+      outcome: "left-origin",
+      identifierStop: true,
+      maybeAnswered: true,
+    });
+    expect(holdsOrigin(record)).toBe(true);
+    fake.state.onExecute = undefined;
+    fake.state.observedPath = "/signin";
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toMatchObject({
+      ok: false,
+      reason: "origin-busy",
+    });
+  });
+
+  it("holds after steps before the stop that type another field too", async () => {
+    fake.state.present = new Set(["email", "branch", "next"]);
+    // The page the tab moved to still asks for a password, so nothing completes there.
+    await moved(false, { recipe: withBranch, signs: { ...quiet, password: true } });
+    const record = status()![0] as unknown as LoginAttemptMetadata;
+    expect(record).toMatchObject({ state: "blocked", outcome: "left-origin", stopAt: 2 });
+    expect(record).not.toHaveProperty("identifierStop");
+    expect(holdsOrigin(record)).toBe(true);
+    expect(executed()[0]!["values"]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ slot: "branch" })]),
+    );
   });
 
   it("is still judged, and signed in, for an item that signs in with its password", async () => {
