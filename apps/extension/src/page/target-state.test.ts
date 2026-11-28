@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { TargetRequirement } from "../login/wire";
-import { targetCheck, targetState } from "./target-state";
+import { clickable, pressable, targetCheck, targetState } from "./target-state";
 
 // Runs in Chromium (vitest browser mode) so layout and computed styles decide what shows.
 const page = (html: string) => {
@@ -295,6 +295,69 @@ describe("targetState", () => {
         page(`<a href="#" aria-label="Select Password." aria-disabled="true">Select</a>`);
         expect(targetState(document, named, "clickable")).toBe("unusable");
       });
+    });
+  });
+
+  // A click layer named by the text laid over it (ADR 0090), in a reduced copy of UNSW
+  // Endeavour's sign-in dialog: pressed only while it shows the step's text.
+  describe("a click layer", () => {
+    const layer = { by: "id", value: "274:areaElement" } as const;
+    const dialog = (text = "log on") =>
+      page(`<div id="dialog" tabindex="-1" style="position:absolute;left:0;top:0;width:500px;height:234px">
+        <div tabindex="-1"><input id="232:credentialElement" autocomplete="username"></div>
+        <div tabindex="-1"><input id="240:credentialElement" type="password" autocomplete="current-password"></div>
+        <div id="214:spaceElement" tabindex="-1" style="position:absolute;left:165px;top:185px;width:99px;height:20px">
+          <div id="274" tabindex="-1" style="position:absolute;inset:0;z-index:1;pointer-events:none"><div id="274:areaElement" tabindex="-1" style="position:absolute;inset:0;cursor:pointer;pointer-events:auto"></div></div>
+          <div id="284" tabindex="-1" style="position:absolute;inset:0;z-index:6;pointer-events:none"><div tabindex="-1" style="position:absolute;left:2px;top:2px">${text}</div></div>
+        </div>
+      </div>`);
+    const element = () => document.getElementById("274:areaElement") ?? undefined;
+    const press = (shows: string | undefined) => pressable(element(), { fragment: false, shows });
+
+    it("is pressed only by a step that names the text it shows", () => {
+      dialog();
+      expect(press("log on")).toBe(true);
+      expect(press("exit")).toBe(false);
+      expect(press("log")).toBe(false);
+      expect(press(undefined)).toBe(false);
+      // The page drew another control's text over it since the recipe was made.
+      dialog("exit");
+      expect(press("log on")).toBe(false);
+      expect(press("exit")).toBe(true);
+    });
+
+    it("is pressed outside the viewport and under a cover, with no hit test", () => {
+      dialog();
+      document.getElementById("dialog")!.style.top = "-1000px";
+      expect(press("log on")).toBe(true);
+      dialog();
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        `<div style="position:fixed;inset:0;z-index:99"></div>`,
+      );
+      expect(press("log on")).toBe(true);
+    });
+
+    it("counts as clickable, as readiness reads it", () => {
+      dialog();
+      expect(clickable(element())).toBe(true);
+      expect(targetState(document, layer, "clickable")).toBe("unique");
+      expect(targetCheck(document, layer, "clickable")).toBe("ok");
+      element()!.setAttribute("aria-disabled", "true");
+      expect(clickable(element())).toBe(false);
+      expect(press("log on")).toBe(false);
+    });
+
+    it("leaves a native button to a step without `shows`", () => {
+      page(`<button id="sign-in" type="button">log on</button>`);
+      const button = document.getElementById("sign-in")!;
+      expect(pressable(button, { fragment: false, shows: undefined })).toBe(true);
+      expect(pressable(button, { fragment: false, shows: "log on" })).toBe(false);
+      page(`<div id="sign-in" role="button" tabindex="0">log on</div>`);
+      const script = document.getElementById("sign-in")!;
+      expect(pressable(script, { fragment: false, shows: undefined })).toBe(true);
+      expect(pressable(script, { fragment: false, shows: "log on" })).toBe(false);
+      expect(pressable(undefined, { fragment: false, shows: undefined })).toBe(false);
     });
   });
 });

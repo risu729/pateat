@@ -15,9 +15,9 @@ const containerDepth = 3;
 /** Elements that make a container more than one control's layers. */
 const controls = "a, button, input, select, textarea, [role], [contenteditable]";
 
-/** Whether a `tabindex` attribute is a negative integer, as `-1`. */
+/** Whether a `tabindex` attribute is a negative integer, as `-1` (`-0` is a tab stop). */
 const negativeTabIndex = (element: Element) =>
-  /^\s*-\d+\s*$/u.test(element.getAttribute("tabindex") ?? "");
+  /^\s*-0*[1-9]\d*\s*$/u.test(element.getAttribute("tabindex") ?? "");
 
 /**
  * Whether an element is a click layer (ADR 0090): it has no `role` and a negative
