@@ -205,7 +205,11 @@ fix them now; the SSO policy itself is recorded separately.
     its entry. A move that completes the attempt, a page of another origin that asks
     for a passkey and holds it, and a page that went away before it was read still
     decide as before; a tab with an SSO flow reads its pages through that flow first,
-    and frames and pages of the attempt's own origin are unchanged.
+    a page answering the person's Fill press or account pick ends the attempt later
+    as before (no SSO offer runs there), and frames and pages of the attempt's own
+    origin are unchanged. On the RP or IdP origin of an interrupted SSO flow, the
+    attempt now ends before that page is refused as `sso-interrupted`, instead of
+    running until a later page.
   - **Nothing submitted** (amended 2026-10-23). A fill whose failure confirmed it
     changed nothing, waiting to be tried again, is no possible submission. A `password`
     login still at its first step that has submitted nothing and has nothing in flight
