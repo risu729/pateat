@@ -194,6 +194,18 @@ fix them now; the SSO policy itself is recorded separately.
   account choice is saved, and neither is retried. For the logout detection of
   [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
   like unknown outcomes.
+  - **Before the new page's SSO offer** (amended 2026-11-28,
+    [#1847](https://github.com/risu729/pateat/issues/1847); agent's choice, not
+    confirmed by the owner). A top page of another origin ends such an attempt before
+    any SSO admission or offer reads it, with the same move rules, outcome and detail
+    as below. Before, the page's SSO offer
+    ([ADR 0085](0085-one-item-for-native-and-sso-login.md)) ran first and found the
+    tab's login still running, so a login whose step sent the tab to another origin's
+    page, such as a broker page with a provider entry, kept that page from offering
+    its entry. A move that completes the attempt, a page of another origin that asks
+    for a passkey and holds it, and a page that went away before it was read still
+    decide as before; a tab with an SSO flow reads its pages through that flow first,
+    and frames and pages of the attempt's own origin are unchanged.
   - **Nothing submitted** (amended 2026-10-23). A fill whose failure confirmed it
     changed nothing, waiting to be tried again, is no possible submission. A `password`
     login still at its first step that has submitted nothing and has nothing in flight
