@@ -19,7 +19,12 @@ import {
 import type { ServiceTiming } from "../../service/transport";
 import { DESCRIBED_WATCH_MAX_MS, extractResultSchema } from "../wire";
 import { observedPath } from "../../observation/path";
-import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "../completion-policy";
+import {
+  emptyPageCompletes,
+  judgedCompletionResult,
+  settleCompletion,
+  undecidedCandidate,
+} from "../completion-policy";
 import { type Execution, type SignInReading } from "./types";
 import { report, send, current, change, spinning, spend } from "./attempt";
 import { generationSlotsFor, usernameReads, judgeSlots } from "./generation-scope";
@@ -29,7 +34,7 @@ import { type LoginReport } from "./report";
 import { pauseOf } from "./pause";
 import { effectful, terminal } from "./attempt-state";
 import { failureRejects, observe, passkeyStepAnswered, toStop } from "./reconcile";
-import { afterOwnStep, passkeyButton, readSignInState } from "./sign-in";
+import { afterOwnStep, inOwnStepDocument, passkeyButton, readSignInState } from "./sign-in";
 import { onLoginStart, routeOf, takeOver } from "./continuation";
 import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
@@ -173,6 +178,56 @@ export async function describeForJudge(
     inputLeftOut,
     ...(usernames?.shape ? { usernameShape: usernames.shape } : {}),
   };
+}
+
+/**
+ * Completes the login unconfirmed on a page with nothing to describe for the judge, in
+ * the document its own step ran in and on a sign-in path of its route (`signInPath`),
+ * once the route's sign-in inputs are gone from it even hidden (`fields`, read with
+ * hidden ones counted) and a fresh reading still shows no sign of a sign-in going on (ADR
+ * 0029 amendment of 2026-11-28). Returns whether it settled or the run was superseded.
+ */
+async function emptyPageCompleted(
+  rt: Runtime,
+  run: Execution,
+  reading: SignInReading | undefined,
+  signInPath: boolean,
+  fields: readonly string[],
+): Promise<boolean> {
+  if (
+    !emptyPageCompletes({
+      reading,
+      watched: run.metadata.watch !== undefined,
+      stopAt: run.metadata.stopAt,
+      sent: credentialSent(rt, run) || passkeyStepAnswered(rt, run),
+      ownDocument: inOwnStepDocument(rt, run),
+      signInPath,
+      fieldsGone: fields.every((state) => state === "missing" || state === "unusable"),
+    })
+  )
+    return false;
+  const again = await readSignInState(rt, run);
+  if (!current(rt, run)) return true;
+  if (!settleCompletion({ completes: true, stopHeld: false, again }).completes) return false;
+  report(rt, run.live.document, {
+    type: "judge",
+    tabId: run.live.document.tabId,
+    origin: run.live.document.origin,
+    recipeId: run.recipe.id,
+    recipeRevision: run.recipe.revision,
+    route: run.metadata.route,
+    verdict: "not-sent",
+    reason: "no-candidates",
+    completed: true,
+  });
+  delete run.choice;
+  await change(rt, run, {
+    type: "OBSERVED",
+    result: "authenticated",
+    document: run.live.document,
+    unconfirmed: true,
+  });
+  return true;
 }
 
 /**
@@ -468,7 +523,12 @@ export async function learn(
   // A page that cannot be described completely is not sent and does not count. One that
   // describes nothing, as a page still loading, is read again once it shows something.
   if ("unsent" in described) {
-    if (!besideCandidate && described.unsent === "no-candidates") watchDescribed(rt, run);
+    if (!besideCandidate && described.unsent === "no-candidates") {
+      const fields = remaining.targets.slice(0, fills.length);
+      if (await emptyPageCompleted(rt, run, reading, paths.includes(remaining.path), fields))
+        return true;
+      watchDescribed(rt, run);
+    }
     return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
   }
   // A page described here is read as it is now: a report of it showing something is moot.
