@@ -559,6 +559,12 @@ tab's native choice):
   attempt's transitions refuse those events for it.
 - **At its stop on the site**, as when the site showed its own password page, it skips
   the passkey wait, the passkey button and the stop's judge (rules 4 and 6): it ends
-  `challenge` with the reason `password-empty:sso-identifier:same-site`, not watched,
-  and its page is asked to announce again, so what the page offers next decides. Its tab
-  leaving the origin ends it `left-origin` as the amendment above says, holding nothing.
+  `challenge` with the reason `sso-identifier:same-site`, not watched, whatever the item
+  holds, and leaves the page to the person: the site asked for its own password, which a
+  URL-form SSO item does not have. Nothing more is filled or offered by it on that
+  document. Its tab leaving the origin ends it `left-origin` as the amendment above
+  says, holding nothing.
+- **Once.** The method choice that marked it ends with the login on every path, and when
+  the document's admission is refused, so a later announcement of that document, as
+  after a back/forward-cache restore, never runs the hand-off again; one whose login
+  already started is refused `sso-identifier:ended`.

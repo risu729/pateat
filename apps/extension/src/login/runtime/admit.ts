@@ -1,6 +1,7 @@
 import { ssoRefresh } from "./sso/moved";
 import { cancelSso, ssoAdmit } from "./sso/flow";
 import { offerSso } from "./sso/entry";
+import { endHandoffChoice } from "./sso-state";
 import {
   finishedLogin,
   recoverLoginAttempt,
@@ -555,18 +556,19 @@ export async function admit(
     candidates?: number,
   ) => {
     const ssoParent = rt.sso.flows.get(ctx.document.tabId);
-    if (
-      ssoParent &&
-      ctx.document.origin === ssoParent.selected.origin &&
-      ![
-        "recipe-not-found",
-        "form-not-ready",
-        "tab-busy",
-        "generation-in-progress",
-        "sso-in-progress",
-      ].includes(reason)
-    )
+    const passing = [
+      "recipe-not-found",
+      "form-not-ready",
+      "tab-busy",
+      "generation-in-progress",
+      "sso-in-progress",
+    ].includes(reason);
+    if (ssoParent && ctx.document.origin === ssoParent.selected.origin && !passing)
       cancelSso(rt, ctx.document.tabId, "sso-idp-admission-stopped");
+    // A refused hand-off ends for good, as an SSO flow does (#1847).
+    const native = rt.sso.native.get(ctx.document.tabId);
+    if (native && sameLoginDocument(native.document, ctx.document) && !passing)
+      endHandoffChoice(rt.sso, ctx.document.tabId);
     note(rt, ctx.document, ctx.live.url, reason, detail, unrelated, candidates);
     ctx.live.state = "denied";
     ctx.live.reason = reason;

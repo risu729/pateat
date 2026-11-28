@@ -1817,8 +1817,10 @@ it is refused `no-route` with an `sso-identifier:<why>` detail (`fills-other`,
 `no-identifier`, `username-field`, `frame`, `alternatives` and the like). It enters no
 handler, takes no `passkey` route, continues no recipe and sends no page to the judge;
 at its stop on the site it skips the passkey wait, the button and the stop's judge, ends
-`challenge` unwatched as `password-empty:sso-identifier:same-site` and asks its page to
-announce again; a move off the origin ends it `left-origin`
+`challenge` unwatched as `sso-identifier:same-site`, leaving the page to the person; a
+move off the origin ends it `left-origin`. Its method choice ends with it, or with a
+refused admission of its document, so the document never runs it again
+(`sso-identifier:ended`)
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md#amendment-a-hand-off-stops-after-the-identifier-2026-11-28-1847)).
 A login that switched to the `passkey` route before its first submission never falls
 back to a variant with a stop; it ends `challenge`. A running or resumed login checks

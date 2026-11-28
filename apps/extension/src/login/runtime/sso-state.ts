@@ -214,6 +214,20 @@ export function createSsoState() {
   };
 }
 export type SsoState = ReturnType<typeof createSsoState>;
+/**
+ * Ends the tab's hand-off method choice (`handoff`, #1847) for good: once the login it
+ * started, `attemptId`, ended, or once its document's admission was refused. A later
+ * announcement of that document, as after a back/forward-cache restore, then never runs
+ * the hand-off again.
+ */
+export function endHandoffChoice(state: SsoState, tabId: number, attemptId?: string): void {
+  const native = state.native.get(tabId);
+  if (
+    native?.handoff &&
+    (attemptId === undefined || native.attemptId === undefined || native.attemptId === attemptId)
+  )
+    state.native.delete(tabId);
+}
 export function registerSsoChild(
   state: SsoState,
   work: SsoWork,

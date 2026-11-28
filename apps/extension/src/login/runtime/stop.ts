@@ -1,4 +1,3 @@
-import { browser } from "wxt/browser";
 import { attemptPlan, transitionLoginAttempt, type LoginAttemptEvent } from "@pateat/contracts";
 import type { ServiceTiming } from "../../service/transport";
 import { newId } from "@pateat/contracts/ids";
@@ -152,8 +151,9 @@ export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<v
  * page after the identifier rather than sending the tab on to the identity provider (ADR
  * 0036 amendment of 2026-11-28, #1847): it waits for no passkey request, presses no
  * handler and sends no page to the judge. It ends `challenge`, not watched, as
- * `password-empty:sso-identifier:same-site`, and its page is asked to announce again, so
- * what the page offers next decides; nothing more is filled by this login.
+ * `sso-identifier:same-site`, whatever the item holds, and leaves the page to the person:
+ * the site asked for its own password, which the SSO item does not hold. Its method
+ * choice ends with it (`endHandoffChoice`), so nothing more is filled or offered by it.
  */
 async function endHandoff(rt: Runtime, run: Execution): Promise<void> {
   await change(
@@ -163,13 +163,8 @@ async function endHandoff(rt: Runtime, run: Execution): Promise<void> {
     undefined,
     undefined,
     undefined,
-    "password-empty:sso-identifier:same-site",
+    "sso-identifier:same-site",
   );
-  if (!current(rt, run) || run.metadata.state !== "blocked") return;
-  const { tabId, documentId } = run.live.document;
-  await browser.tabs
-    .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId: 0, documentId })
-    .catch(() => undefined);
 }
 
 /**

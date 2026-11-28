@@ -126,7 +126,8 @@ describe("a hand-off login that stops after its identifier", () => {
     handoff = true,
     documentId = "synthetic-document",
     frameId = 0,
-  }: { handoff?: boolean; documentId?: string; frameId?: number } = {}) {
+    passkey = true,
+  }: { handoff?: boolean; documentId?: string; frameId?: number; passkey?: boolean } = {}) {
     const report = vi.fn<(entry: LoginReport) => void>();
     const judge = vi.fn<LoginGeneration["judge"]>(async (...args) => {
       args[4]?.();
@@ -138,7 +139,7 @@ describe("a hand-off login that stops after its identifier", () => {
         allowedOrigins: [origin],
         username: true,
         report,
-        passkeys: vi.fn(async () => ({ passkey: true, discoverable: false })),
+        passkeys: vi.fn(async () => ({ passkey, discoverable: false })),
         generation: {
           available: vi.fn<LoginGeneration["available"]>(async () => true),
           generate: vi.fn<LoginGeneration["generate"]>(),
@@ -209,14 +210,19 @@ describe("a hand-off login that stops after its identifier", () => {
         type: "attempt",
         state: "blocked",
         outcome: "challenge",
-        reason: "password-empty:sso-identifier:same-site",
+        reason: "sso-identifier:same-site",
       }),
     );
-    // The page announces again, so what it offers next decides.
-    expect(reconnects()).toHaveLength(1);
-    // Nothing more is filled while it does.
+    // The page is left to the person: it is not asked to announce again, and the method
+    // choice ended with the login.
+    expect(reconnects()).toEqual([]);
+    expect(states.at(-1)!.native.has(1)).toBe(false);
+    // A page that announces again by itself gets nothing more filled.
+    expect(await h.hello({}, false)).toMatchObject({ ok: false });
+    expect(await h.hello({ url: `${origin}/password` })).toMatchObject({ ok: false });
     await vi.advanceTimersByTimeAsync(30_000);
     expect(executed()).toHaveLength(2);
+    expect(h.fields).toHaveBeenCalledTimes(1);
   });
 
   it("judges the stop's page without the mark, as before", async () => {
@@ -262,9 +268,9 @@ describe("a hand-off login that stops after its identifier", () => {
     });
     expect(judge).not.toHaveBeenCalled();
     expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ reason: "password-empty:sso-identifier:same-site" }),
+      expect.objectContaining({ reason: "sso-identifier:same-site" }),
     );
-    expect(reconnects()).toHaveLength(1);
+    expect(reconnects()).toEqual([]);
   });
 
   it("goes on to its stop unjudged on a new page of the site that is not the password's", async () => {
@@ -287,12 +293,13 @@ describe("a hand-off login that stops after its identifier", () => {
     await until(() => status()?.[0]?.["state"] === "blocked");
     expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, stopAt: 2 });
     expect(judge).not.toHaveBeenCalled();
-    expect(reconnects()).toHaveLength(1);
+    expect(reconnects()).toEqual([]);
   });
 
   it("ends `left-origin` when Next takes the tab to another origin, holding nothing", async () => {
     vi.useFakeTimers();
-    const { h, judge } = start();
+    // An SSO item holds no passkey either.
+    const { h, judge } = start({ passkey: false });
     // Next never answers: the tab moves to the identity provider meanwhile.
     fake.state.onExecute = (message) => {
       const step = (message["operation"] as { step: LoginStep }).step;
@@ -311,6 +318,39 @@ describe("a hand-off login that stops after its identifier", () => {
     expect(holdsOrigin(record)).toBe(false);
     expect(judge).not.toHaveBeenCalled();
     expect(executed()).toHaveLength(2);
+    expect(states.at(-1)!.native.has(1)).toBe(false);
+    // Back restores the identifier page's document from the back/forward cache: the
+    // hand-off is not planned again and nothing is typed.
+    fake.state.onExecute = undefined;
+    fake.state.observedPath = "/signin";
+    fake.state.present = new Set(["email", "next"]);
+    fake.state.tabUrls[1] = fake.state.pageUrl;
+    await h.hello();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(executed()).toHaveLength(2);
+    expect(h.fields).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not planned again on its document once its login started", async () => {
+    vi.useFakeTimers();
+    const { h, refusals } = start();
+    // The login this choice started ended in a way no record write saw, as a worker that
+    // lost it; the choice still names it.
+    states.at(-1)!.native.get(1)!.attemptId = "earlier-attempt";
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(refusals()).toEqual([
+      expect.objectContaining({ reason: "no-route", detail: "sso-identifier:ended" }),
+    ]);
+    expect(executed()).toEqual([]);
+    expect(states.at(-1)!.native.has(1)).toBe(false);
+  });
+
+  it("ends its method choice when its plan is refused", async () => {
+    const { h } = start({ documentId: "frame-document", frameId: 3 });
+    const top = "https://login.example/account";
+    fake.state.tabUrls[1] = top;
+    await h.hello({ frameId: 3, documentId: "frame-document", tab: { id: 1, url: top } });
+    expect(states.at(-1)!.native.has(1)).toBe(false);
   });
 
   it("refuses a route whose steps before the stop fill more than the username", async () => {
