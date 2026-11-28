@@ -61,7 +61,13 @@ function firstPage(steps: readonly LoginStep[], start: string): LoginStep[] | un
 function firstPageElements(
   layout: LoginLayout,
   start: string,
-): { target: LoginTarget; keypad?: unknown; split?: unknown; roles: ReadonlySet<string> }[] {
+): {
+  target: LoginTarget;
+  keypad?: unknown;
+  split?: unknown;
+  shows?: string | undefined;
+  roles: ReadonlySet<string>;
+}[] {
   if (!runsLogin(layout) || layout.passkeyOnly) return [];
   const elements: ReturnType<typeof firstPageElements> = [];
   for (const steps of [layout.steps, ...(layout.alternatives ?? []).map((entry) => entry.steps)]) {
@@ -77,7 +83,8 @@ function firstPageElements(
     for (const step of page) {
       if (step.kind === "click") {
         // Enter is pressed in the field the fill before typed last, already compared.
-        if (step.press === undefined) elements.push({ target: step.target, roles: buttonRoles });
+        if (step.press === undefined)
+          elements.push({ target: step.target, shows: step.shows, roles: buttonRoles });
         continue;
       }
       if (step.kind !== "fill") return [];
@@ -127,7 +134,9 @@ export function showsFirstPage(
       !element.roles.has(candidate.role) ||
       JSON.stringify(candidate.keypad ?? null) !== JSON.stringify(element.keypad ?? null) ||
       JSON.stringify(splitLengths(observation, candidate) ?? null) !==
-        JSON.stringify(element.split ?? null)
+        JSON.stringify(element.split ?? null) ||
+      // A click layer is the same only while it shows the same text (ADR 0090).
+      (candidate.overlaid ? candidate.label : undefined) !== element.shows
     )
       return false;
     named.add(candidate.id);

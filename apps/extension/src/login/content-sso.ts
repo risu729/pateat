@@ -2,7 +2,7 @@ import { sameLoginTarget, type LoginTarget } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
 import { clickDestinations, ssoClickDestinations } from "../page/form-destination";
 import { visible } from "../page/code-submission";
-import { clickable } from "../page/target-state";
+import { pressable } from "../page/target-state";
 import { findTargets } from "../page/targets";
 import { closestAcross, queryAll } from "../page/shadow";
 import { pressPointer } from "../page/pointer-press";
@@ -62,7 +62,11 @@ function inspected(
   if (
     !(element instanceof HTMLElement) ||
     !visible(element) ||
-    !(element instanceof HTMLAnchorElement || clickable(element))
+    // Never a click layer, which only a plan's action presses (ADR 0090).
+    !(
+      element instanceof HTMLAnchorElement ||
+      pressable(element, { fragment: false, shows: undefined })
+    )
   )
     return { reason: "unusable" };
   if (ssoUnsafePage(document) || unsafe.test(element.textContent ?? ""))

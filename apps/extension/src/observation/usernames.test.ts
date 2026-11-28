@@ -427,6 +427,36 @@ describe("withoutUsernames", () => {
     expect(kept.ok && kept.observation.candidates.map((candidate) => candidate.id)).toEqual(["c1"]);
   });
 
+  // A click layer is pressed only while its overlaid text equals the label (ADR 0090), so a
+  // label hidden as `[account]` could never be matched again.
+  it("leaves out a click layer whose overlaid text shows a username, never relabelling it", () => {
+    const layer = (id: string, label: string) => ({
+      id,
+      role: "button" as const,
+      target: { by: "id" as const, value: `${id}:areaElement` },
+      label,
+      overlaid: true as const,
+    });
+    const page = observation({
+      candidates: [
+        { id: "c1", role: "password", target: { by: "id", value: "password" }, label: "Password" },
+        layer("274", "log on"),
+        layer("259", "Not taro?"),
+        layer("326", "TARO"),
+      ],
+    });
+    const kept = hidden(page, ["taro"]);
+    expect(kept.candidates.map((candidate) => candidate.id)).toEqual(["c1", "274"]);
+    expect(kept.candidates[1]).toEqual(layer("274", "log on"));
+    expect(JSON.stringify(kept)).not.toContain("[account]");
+    expect(JSON.stringify(kept).toLowerCase()).not.toContain("taro");
+    // The same text on a button that is no layer is hidden in place, as before.
+    const { overlaid: _, ...plain } = layer("259", "Not taro?");
+    expect(hidden(observation({ candidates: [plain] }), ["taro"]).candidates).toEqual([
+      { ...plain, label: "Not [account]?" },
+    ]);
+  });
+
   it("refuses a page left with nothing to describe", () => {
     const only = observation({
       candidates: [{ id: "c1", role: "button", target: { by: "text", value: "Continue as taro" } }],

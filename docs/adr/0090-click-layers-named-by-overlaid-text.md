@@ -79,7 +79,10 @@ across loads at 1920×1080 and 1100×800. They look like a counter in document o
    reaches it. The candidate is a `button` with the overlaid text as its `label` and
    `overlaid: true`. It is located like any script button, never by text, and is left
    out when nothing locates it. On Endeavour the description gains four candidates:
-   "exit", "recover profile", "log on" and "×".
+   "exit", "recover profile", "log on" and "×". A layer outside the viewport, or one
+   covered at its centre when the page is read, is not described. A layer whose label
+   shows the account's username is left out rather than hidden as `[account]`, since its
+   label is compared as shown when it is pressed (agent's choice).
 4. **Plan and recipe.** Only a plan's action may be a click layer. Its click step
    records the label as `shows`:
 
@@ -91,7 +94,11 @@ across loads at 1920×1080 and 1100×800. They look like a counter in document o
 
    `shows` is set only on a click that presses no key, and its target is never a text or
    name locator. A click layer with no label, or named as an account switch, refuses the
-   plan (`incompatible-role`).
+   plan (`incompatible-role`). A click layer named as a passkey, password or
+   authenticator button, a code's or details' submit, an SSO entry or a handler's button
+   is left out or refused, and the SSO click and a start alias never take one: a start
+   alias reuses a recipe only when the page's layer shows the step's `shows` (agent's
+   choice, from the code review).
 5. **Click-time check (owner, 00:54 UTC).** Readiness counts a click layer as
    clickable. The executor clicks one only when the step has `shows` and the element's
    overlaid text equals it at that moment. A step without `shows` never clicks a click

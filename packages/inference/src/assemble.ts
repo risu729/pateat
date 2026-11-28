@@ -400,7 +400,8 @@ export function addHandler(
   const button =
     target &&
     page.candidates.find(
-      (candidate) => candidate.role === "button" && sameTarget(candidate.target, target),
+      (candidate) =>
+        candidate.role === "button" && !candidate.overlaid && sameTarget(candidate.target, target),
     );
   if (target && !button) return { ok: false, reason: "not-on-page" };
   const handlers = base.handlers ?? [];

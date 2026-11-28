@@ -41,10 +41,10 @@ export function isClickLayer(element: Element): element is HTMLElement {
     !element.hasAttribute("role") &&
     negativeTabIndex(element) &&
     !element.isContentEditable &&
+    pointer(element) &&
     closestAcross(element, "a[href]") === null &&
     collapseText(element.textContent ?? "") === "" &&
     queryAll(element, `${controls}, [tabindex]`).length === 0 &&
-    pointer(element) &&
     shown(element)
   );
 }
