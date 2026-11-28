@@ -70,9 +70,9 @@ its first part only, and its fill field carries the parts' lengths
 ([below](#amendment-2026-11-21-an-identifier-split-over-several-inputs)).
 
 Amended on 2026-11-28 by [ADR 0090](0090-click-layers-named-by-overlaid-text.md) (owner,
-00:53 UTC, implemented): a plan's action may be a click layer named by the text laid over
-it, and its click step carries that text as `shows`, which the layer must still show when
-it is clicked.
+00:53 UTC, implemented): a plan's action may be a click layer named by the text laid
+over it, and its click step carries that text as `shows`, which the layer must still
+show when it is clicked.
 
 Date: 2026-10-11
 

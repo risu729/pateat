@@ -1,9 +1,9 @@
 # ADR 0090: A click layer named by the text laid over it
 
-Status: accepted by the owner on 2026-11-28 (decision card answered "採用して実装する" at
-00:53 UTC). At 00:54 UTC the owner added 「クリック時の照合も入れて。」 (also check at click
-time). Implemented. Tested only with local and synthetic tests; not yet tried on the real
-page. Found on UNSW's Endeavour sign-in
+Status: accepted by the owner on 2026-11-28 (decision card answered "採用して実装する"
+at 00:53 UTC). At 00:54 UTC the owner added 「クリック時の照合も入れて。」 (also check
+at click time). Implemented. Tested only with local and synthetic tests; not yet tried
+on the real page. Found on UNSW's Endeavour sign-in
 (`https://unsw.openacademies.com/Apps/Endeavour/`). Amends
 [ADR 0018](0018-recipe-generation-route.md) (what a plan's action may be). Points marked
 "agent's choice" below go beyond the owner's answers and are not confirmed by the owner.
@@ -15,8 +15,9 @@ Date: 2026-11-28
 Endeavour's sign-in opens after "click here to begin". It is a dialog drawn entirely in
 absolutely placed `<div>`s. There is no `<form>`, no `<button>`, no `role` and no
 `<label>`. The two inputs are `input#232:credentialElement` (`autocomplete="username"`)
-and `input#240:credentialElement` (`type="password"`, `autocomplete="current-password"`).
-The "log on" control is a stack of sibling layers inside one container:
+and `input#240:credentialElement` (`type="password"`,
+`autocomplete="current-password"`). The "log on" control is a stack of sibling layers
+inside one container:
 
 ```html
 <div id="214:spaceElement">
@@ -59,9 +60,9 @@ across loads at 1920×1080 and 1100×800. They look like a counter in document o
    Requiring a `tabindex` keeps the search to the elements the extractor already looks
    at (`[role], [tabindex]`). A negative `tabindex` together with the pointer is a
    stronger signal than the pointer alone (agent's choice, from the design review).
-2. **Its text.** A click layer is named by the text of its nearest ancestor, at most three
-   levels up, that renders text. That ancestor is neither the body nor the root, and it
-   must meet these conditions:
+2. **Its text.** A click layer is named by the text of its nearest ancestor, at most
+   three levels up, that renders text. That ancestor is neither the body nor the root,
+   and it must meet these conditions:
    - Every shown text node in it has its centre inside the layer's box.
    - It holds no control, link or `role` element.
    - It holds no other element that sets the pointer cursor.
@@ -76,11 +77,11 @@ across loads at 1920×1080 and 1100×800. They look like a counter in document o
    It then searches that area outside every form. A click layer becomes a candidate when
    the page's hit test at its centre lands on it or inside it, so clicking its text
    reaches it. The candidate is a `button` with the overlaid text as its `label` and
-   `overlaid: true`. It is located like any script button, never by text, and is left out
-   when nothing locates it. On Endeavour the description gains four candidates: "exit",
-   "recover profile", "log on" and "×".
-4. **Plan and recipe.** Only a plan's action may be a click layer. Its click step records
-   the label as `shows`:
+   `overlaid: true`. It is located like any script button, never by text, and is left
+   out when nothing locates it. On Endeavour the description gains four candidates:
+   "exit", "recover profile", "log on" and "×".
+4. **Plan and recipe.** Only a plan's action may be a click layer. Its click step
+   records the label as `shows`:
 
    ```json
    { "kind": "click", "path": "/Apps/Endeavour/",
@@ -104,7 +105,7 @@ across loads at 1920×1080 and 1100×800. They look like a counter in document o
 - No submit-destination check applies to these clicks, because they submit no form. The
   same is true of every script button
   ([ADR 0051](0051-form-destinations-by-item-uri-match.md)).
-- An invisible click layer over a card's text is described only when the fields beside it
-  show no other button, so the change reaches only pages that had no action before.
+- An invisible click layer over a card's text is described only when the fields beside
+  it show no other button, so the change reaches only pages that had no action before.
 - The labels "username" and "password" on Endeavour are still not read. The inputs'
   `autocomplete` tokens are enough.
