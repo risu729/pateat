@@ -248,6 +248,7 @@ function describeSignedIn(document: Document): ObservationResult {
       !disabledLeftOut &&
       !inputLeftOut &&
       fieldEntries.length === 0 &&
+      !found.some((entry) => entry.kind === "candidate" && entry.draft.role === "checkbox") &&
       queryAll(document, "[tabindex]").some(
         (element) => overlaidLabel(element, { hit: false }) !== undefined,
       )

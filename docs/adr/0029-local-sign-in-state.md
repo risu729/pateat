@@ -1215,15 +1215,15 @@ login ends as a success without confirmation):
     2026-11-08).
   - The login is not watched and has no stop before a missing password
     ([ADR 0036](0036-passkey-after-the-identifier.md)).
-  - The page leaves out no field, no radio button, select or text area, and nothing
-    that makes its description incomplete (no `gap`, no `disabledLeftOut`, no
-    `inputLeftOut`), and it shows at least one click layer named by its overlaid text
-    ([ADR 0090](0090-click-layers-named-by-overlaid-text.md), without the hit test).
-    The signed-in extractor then marks its refusal `layersOnly`
+  - The page leaves out no field, no radio button, select or text area, and nothing that
+    makes its description incomplete (no `gap`, no `disabledLeftOut`, no
+    `inputLeftOut`), shows no checkbox, and shows at least one click layer named by its
+    overlaid text ([ADR 0090](0090-click-layers-named-by-overlaid-text.md), without the
+    hit test). The signed-in extractor then marks its refusal `layersOnly`
     (`apps/extension/src/observation/extract-signed-in.ts`). This is positive evidence
-    that the page has drawn its content: a loader or spinner shows no such layer, and a
-    page that asks for a code with a disabled input, or for a choice by radio buttons,
-    has a field or choice left out (agent's choice, from the code review).
+    that the page has drawn its content: a bare loader or spinner shows no such layer,
+    and a page that asks for a code with a disabled input, or for a choice by radio
+    buttons, has a field or choice left out (agent's choice, from the code review).
   - The page is the top document the login's own effect step ran in
     (`inOwnStepDocument` in `apps/extension/src/login/runtime/sign-in.ts`), it is still
     on a path of the route's sign-in steps, and none of the route's sign-in inputs is
