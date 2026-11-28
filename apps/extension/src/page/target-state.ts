@@ -73,6 +73,24 @@ export function settable(element: Element | undefined): boolean {
   return writable(element) || choosable(element);
 }
 /**
+ * Whether the one element `target` matches can never become what a fill's `require`
+ * (`writable` or `settable`) asks for, whatever the page does next: it is no input of a
+ * kind Pateat fills, nor a select for `settable`, as the "Create an account" link that a
+ * per-load Ember ID a recipe learned names on another load (#1847). A disabled, read-only
+ * or not yet shown input may still become writable, so it is not one.
+ */
+export function otherKind(
+  document: Document,
+  target: LoginMarkerTarget,
+  require: TargetRequirement | undefined,
+): boolean {
+  if (require !== "writable" && require !== "settable") return false;
+  const found = findTargets(document, target);
+  if (found.length !== 1) return false;
+  const [element] = found;
+  return !textInput(element) && !(require === "settable" && element instanceof HTMLSelectElement);
+}
+/**
  * A shown enabled input of a kind Pateat fills, read-only or not: a field entered on the
  * page's software keyboard (ADR 0067), which pages keep read-only.
  */

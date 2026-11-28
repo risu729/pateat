@@ -330,3 +330,46 @@ describe("a chooser's path that shows a sign-in form instead of its list (ADR 00
     expect(report?.["shown"]).not.toHaveProperty("accounts");
   });
 });
+
+describe("a start page whose first step's target names another kind of element (ADR 0041)", () => {
+  const ember = { by: "id", value: "ember9" };
+  const shown = async (html: string, clicked = false) => {
+    history.replaceState(null, "", "/login");
+    document.body.innerHTML = html;
+    const watched = [
+      { path: "/login", require: "writable", targets: [ember] },
+      ...(clicked ? [{ path: "/login", require: "clickable", targets: [ember] }] : []),
+    ];
+    replies.push(() => ({ ok: false, reason: "form-not-ready", starts: watched }));
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(300 + LOGIN_STEP_WAIT_MS);
+    return sent.find((message) => message["shown"])?.["shown"];
+  };
+
+  it("reports a link where the recipe filled an input as missed, so it is repaired (#1847)", async () => {
+    // Ember's per-load ID moved from the input to a link on another load.
+    expect(
+      await shown(`<main><form><label>Email or Username <input type="text" name="login-id"></label>
+        <button type="button">Continue</button></form><a id="ember9" href="/signup">Create an
+        account</a></main>`),
+    ).toMatchObject({ path: "/login", miss: { missing: [ember] } });
+  });
+
+  it("does not report an input that is only read-only yet, as on a slow page", async () => {
+    expect(
+      await shown(`<main><form><label>Email or Username <input type="text" name="login-id"></label>
+        <input type="text" id="ember9" readonly><button type="button">Continue</button></form>
+        </main>`),
+    ).toMatchObject({ path: "/login", miss: { missing: [] } });
+  });
+
+  it("does not report it where another layout's step clicks it, as a slow page's button", async () => {
+    expect(
+      await shown(
+        `<main><form><label>Email or Username <input type="text" name="login-id"></label>
+        <button type="button" id="ember9" disabled>Continue</button></form></main>`,
+        true,
+      ),
+    ).toMatchObject({ path: "/login", miss: { missing: [] } });
+  });
+});
