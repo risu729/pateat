@@ -5,10 +5,10 @@ import { clickElement, pressElement, submitForm } from "../page/script-url-click
 import { findTargets } from "../page/targets";
 import { closestAcross, containsAcross, formOf, inputsOf, queryAll } from "../page/shadow";
 import {
-  clickable,
   codeMarked,
   keyable,
   passwordChoice,
+  pressable,
   targetState,
   writable,
 } from "../page/target-state";
@@ -840,14 +840,14 @@ export function executeNative(context: ContentSession, command: ExecuteCommand, 
         if (!element) return fail("structural-mismatch", "target-missing");
       } else {
         // A control named by its accessible name may be a link to a fragment of the page
-        // only as a `password` handler's button (ADR 0048 amendment of 2026-10-19); a route
-        // step's click by that name presses a native button alone (ADR 0048 amendment of
-        // 2026-10-23).
+        // only as a `password` handler's button (ADR 0048 amendment of 2026-10-19), and a
+        // route step's click by that name presses a native button alone (2026-10-23). A
+        // click layer is pressed only while it shows the step's text (ADR 0090).
         const named = step.target.by === "accessible-name";
         const fragment = named && command.passwordChoice === true;
-        const found = matches(step.target);
-        const only = found.length === 1 ? found[0] : undefined;
-        if (!clickable(only, { fragment }) || (named && !command.passwordChoice && !isButton(only)))
+        const [only, other] = matches(step.target);
+        const pressed = other === undefined && pressable(only, { fragment, shows: step.shows });
+        if (!pressed || (named && !command.passwordChoice && !isButton(only)))
           return fail("structural-mismatch", "target-missing");
         // A `password` handler's button whose text no longer names the password, as one
         // the page rendered again with other text, is never pressed (ADR 0048).

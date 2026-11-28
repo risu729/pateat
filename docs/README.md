@@ -139,6 +139,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0086: Logins in frames are treated like logins in the tab's page](adr/0086-logins-in-frames-like-top-pages.md)
 - [0088: A one-time login from the popup](adr/0088-popup-manual-login.md)
 - [0089: An identifier split over several inputs](adr/0089-identifiers-split-over-several-inputs.md)
+- [0090: A click layer named by the text laid over it](adr/0090-click-layers-named-by-overlaid-text.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

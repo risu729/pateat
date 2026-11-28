@@ -187,6 +187,24 @@ describe("SSO prepared DOM operations", () => {
       expect(h.events).toEqual([]);
     },
   );
+  // Only a plan's action may be a click layer (ADR 0090): an empty layer under the text
+  // laid over it, as UNSW Endeavour's "log on".
+  it("refuses a click layer as unusable before authorization", async () => {
+    const layer = (attributes: string) =>
+      html(`<div style="position:relative;width:200px;height:24px">
+        <div style="position:absolute;inset:0;pointer-events:none"><div id="entry" ${attributes} style="position:absolute;inset:0;cursor:pointer;pointer-events:auto"></div></div>
+        <div style="position:absolute;inset:0;pointer-events:none"><div style="position:absolute;left:2px;top:2px">Continue with Synthetic</div></div>
+      </div>`);
+    layer('tabindex="-1"');
+    const h = harness();
+    expect(await h.run(command("inspect"))).toEqual({ ok: false, reason: "unusable" });
+    expect(await h.run(command("prepare"))).toEqual({ ok: false, reason: "unusable" });
+    expect(h.authorize).not.toHaveBeenCalled();
+    expect(h.events).toEqual([]);
+    // The same element as a tab stop is a script button, which the SSO click may press.
+    layer('tabindex="0"');
+    expect(await harness().run(command("inspect"))).toMatchObject({ ok: true });
+  });
   it("stops when the document becomes unsafe during pointer dispatch without clicking or replaying", async () => {
     const h = harness();
     document.getElementById("entry")!.addEventListener("pointerdown", () => {

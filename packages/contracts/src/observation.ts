@@ -172,6 +172,9 @@ export const observedCandidateSchema = v.pipe(
     // keyboard, located by its container (ADR 0067). The keys and their labels
     // are never described.
     keypad: v.optional(loginKeypadTargetSchema),
+    // A click layer named by the text laid over it (ADR 0090): a button whose `label` is
+    // that text, which only a plan's action may be.
+    overlaid: v.optional(v.literal(true)),
     // One part of an identifier split over several inputs (ADR 0089), on a login page's
     // description only: the group, this input's place in it from 1 and how many inputs it
     // has. The inputs stay candidates of their own.
@@ -203,6 +206,12 @@ export const observedCandidateSchema = v.pipe(
         candidate.maxLength >= SPLIT_PART_LENGTH.min &&
         candidate.maxLength <= SPLIT_PART_LENGTH.max),
     "A split part is a text or tel field of 2 to 8 characters",
+  ),
+  v.check(
+    (candidate) =>
+      candidate.overlaid === undefined ||
+      (candidate.role === "button" && candidate.label !== undefined),
+    "A click layer is a button with a label",
   ),
 );
 

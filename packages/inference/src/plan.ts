@@ -479,6 +479,12 @@ export function validatePagePlan(
   if (usedCandidates.has(action.id) && !submitsForm)
     return { ok: false, reason: "duplicate-candidate" };
   if (!submitsForm && !isActionRole(action.role)) return { ok: false, reason: "incompatible-role" };
+  // A click layer is pressed only while it shows its label (ADR 0090).
+  if (
+    action.overlaid &&
+    (action.label === undefined || !isStepTarget(action.target) || action.target.by === "text")
+  )
+    return { ok: false, reason: "incompatible-role" };
   // One plan must stay within a single form: every filled element and the action share
   // one group, or none has a group. A grouped field with an ungrouped action fails closed,
   // unless the action is the button beside a form without one of its own (`besideForm`).
@@ -509,6 +515,7 @@ export function validatePagePlan(
       return { ok: false, reason: "duplicate-candidate" };
     if (
       (!isActionRole(accountSwitch.role) && accountSwitch.role !== "link") ||
+      accountSwitch.overlaid ||
       !isStepTarget(accountSwitch.target)
     )
       return { ok: false, reason: "incompatible-role" };
@@ -540,6 +547,7 @@ export function validatePagePlan(
       target: submitsForm && pressed ? pressed.target : action.target,
       purpose: plan.action.purpose,
       ...(submitsForm ? { press: "enter" } : {}),
+      ...(action.overlaid ? { shows: action.label } : {}),
     },
   ]);
   return {
@@ -696,6 +704,7 @@ function passkeyButtonOf(
   if (
     !button ||
     button.role !== "button" ||
+    button.overlaid ||
     !isStepTarget(button.target) ||
     !namesPasskey(button) ||
     registersPasskey(button)
@@ -761,6 +770,7 @@ export function validateGeneratedPage(
       draft.passkeyButton !== button?.id ||
       !button ||
       button.role !== "button" ||
+      button.overlaid ||
       !isStepTarget(button.target) ||
       !namesPasskey(button) ||
       registersPasskey(button)

@@ -8,6 +8,7 @@ import {
   formOf,
   readingPage,
 } from "../page/shadow";
+import { clickLayers } from "../page/overlaid-control";
 import { redactsPath } from "./path";
 import { buttonText, fieldName, isButton, isScriptButton } from "../page/text";
 import type { ObservationGap, ObservationResult, Draft, Found } from "./extract-types";
@@ -367,6 +368,19 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
       plainButtons.push(entry);
     else required.push(entry);
   }
+  // Beside fields outside every form with no button near them, the click layers there,
+  // named by the text laid over them (ADR 0090).
+  if (
+    loginForms.has(null) &&
+    !found.some(
+      (entry) =>
+        entry.kind === "candidate" &&
+        entry.draft.role === "button" &&
+        (formlessArea === undefined || containsAcross(formlessArea, entry.draft.element)),
+    )
+  )
+    for (const { element, label } of clickLayers(formlessArea ?? document))
+      scripted.push({ form: null, draft: { element, role: "button", label, overlaid: true } });
 
   // Links and script buttons without a locator are left out without flawing their form.
   // A `role="button"` element or pointer tab stop is named by its text only inside a login

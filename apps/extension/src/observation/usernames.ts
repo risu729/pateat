@@ -161,6 +161,9 @@ export function withoutUsernames(
         return refused;
       continue;
     }
+    // A click layer's label is matched as shown when it is pressed (ADR 0090), so one that
+    // shows the username is left out rather than named by `[account]`.
+    if (candidate.overlaid && label !== undefined && shows(label)) continue;
     candidates.push({
       ...candidate,
       ...(label === undefined ? {} : { label: hide(label) }),

@@ -6,7 +6,7 @@ import {
   type ObservedCandidate,
   type StoredLoginRecipe,
 } from "@pateat/contracts";
-import { sameFormRecipe } from "@pateat/generation";
+import { sameFormRecipe, showsFirstPage } from "@pateat/generation";
 
 // Whether a first page on a new path shows the first page of one of the origin's sign-in
 // layouts unchanged (ADR 0060 amendment of 2026-11-18). Synthetic pages in the shape of
@@ -27,6 +27,7 @@ const recipe = (
     { slot: "username", target: id("UserName") },
     { slot: "password", target: id("Password") },
   ],
+  click: { target?: { by: "id"; value: string }; shows?: string | undefined } = {},
 ): StoredLoginRecipe =>
   v.parse(storedLoginRecipeSchema, {
     version: 1,
@@ -41,7 +42,13 @@ const recipe = (
         slots: fields.map((field) => field.slot),
         steps: [
           { kind: "fill", path: LEARNED, effect: "prepare", fields },
-          { kind: "click", path: LEARNED, target: id("Login"), purpose: "submit" },
+          {
+            kind: "click",
+            path: LEARNED,
+            target: click.target ?? id("Login"),
+            purpose: "submit",
+            ...(click.shows === undefined ? {} : { shows: click.shows }),
+          },
         ],
         maxSubmissions: 1,
       },
@@ -131,5 +138,42 @@ describe("a first page compared with a recipe's sign-in form", () => {
     const passwordOnly = recipe([{ slot: "password", target: id("Password") }]);
     const check = [candidate("Password", "password"), candidate("Login", "button")];
     expect(sameFormRecipe([passwordOnly], page(check))).toBeUndefined();
+  });
+
+  // A click layer named by the text laid over it (ADR 0090), as UNSW Endeavour's "log on":
+  // the same only while it shows the same text.
+  describe("a click layer", () => {
+    const area = id("274:areaElement");
+    const layered = (shows?: string) => recipe(undefined, { target: area, shows });
+    const layout = (shows?: string) => {
+      const stored = layered(shows);
+      if (!("layouts" in stored) || !stored.layouts?.[0]) throw new Error("no layout");
+      return stored.layouts[0];
+    };
+    const shown = (button: Partial<ObservedCandidate>) =>
+      page([
+        ...form.slice(0, 2),
+        { id: "c-layer", role: "button", target: area, label: "log on", ...button },
+      ]);
+    const layer = { overlaid: true } as const;
+
+    it("matches a layer that shows the step's text", () => {
+      expect(showsFirstPage(layout("log on"), LEARNED, shown(layer))).toBe(true);
+      expect(sameFormRecipe([layered("log on")], shown(layer))?.id).toBe("gen-learned");
+      expect(sameFormRecipe([layered("exit")], shown(layer))).toBeUndefined();
+    });
+
+    it("matches no layer that shows other text, nor a button that is no layer", () => {
+      expect(showsFirstPage(layout("log on"), LEARNED, shown({ ...layer, label: "exit" }))).toBe(
+        false,
+      );
+      expect(showsFirstPage(layout("log on"), LEARNED, shown({}))).toBe(false);
+    });
+
+    it("matches no layer with a step that has no `shows`", () => {
+      expect(showsFirstPage(layout(), LEARNED, shown(layer))).toBe(false);
+      // That step still matches the same element drawn as a button.
+      expect(showsFirstPage(layout(), LEARNED, shown({}))).toBe(true);
+    });
   });
 });

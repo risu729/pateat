@@ -577,7 +577,7 @@ const roleButton = (element: Element) =>
  * `onclick` attribute or role (2026-10-23). The cursor is read as computed when asked, so
  * one the page sets only on hover or after the fields are filled does not count.
  */
-function pointer(control: Element): boolean {
+export function pointer(control: Element): boolean {
   const view = control.ownerDocument.defaultView;
   const points = (element: Element) =>
     /(?:^|, )pointer$/u.test(view!.getComputedStyle(element).cursor);

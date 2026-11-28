@@ -358,6 +358,8 @@ function totpCode(
       : page.candidates.find((candidate) => candidate.id === code.submit);
   if (!field) return { totpDropped: "unknown-field" };
   if (code.submit !== undefined && !submit) return { totpDropped: "unknown-submit" };
+  // Only a plan's action may be a click layer (ADR 0090).
+  if (submit?.overlaid) return { totpDropped: "click-layer" };
   const refusal = totpCodeRefusal(page, field, submit);
   if (refusal || field.target.by === "text") return { totpDropped: refusal ?? "text-locator" };
   // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
@@ -418,6 +420,7 @@ function detailInputs(
   if (!details?.length) return undefined;
   const submit = page.candidates.find((candidate) => candidate.id === submitId);
   if (!submit) return { detailsDropped: details.map(() => "unknown-submit") };
+  if (submit.overlaid) return { detailsDropped: details.map(() => "click-layer") };
   // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
   // by its accessible name only a `password` handler's (ADR 0048).
   const target = isStepTarget(submit.target) ? submit.target : undefined;
@@ -725,8 +728,10 @@ export function createCompletionJudge(config: StructuredRoleConfig) {
           // amendment of 2026-10-19), and no handler's by its text within the sign-in form
           // (ADR 0072 amendment of 2026-11-17).
           const buttonOf = (id: string | undefined) =>
-            page.candidates.find((candidate) => candidate.id === id && candidate.role === "button")
-              ?.target;
+            page.candidates.find(
+              (candidate) =>
+                candidate.id === id && candidate.role === "button" && !candidate.overlaid,
+            )?.target;
           const passkeyTarget = buttonOf(draft.passkeyButton);
           const passwordTarget = buttonOf(draft.passwordButton);
           const authenticatorTarget = buttonOf(draft.authenticatorButton);

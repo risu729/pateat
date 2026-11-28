@@ -7,6 +7,7 @@ import type { TargetCheck, TargetRequirement, TargetState } from "../login/wire"
 import { presence, presenceMiss } from "../observation/extract";
 import { authenticatorChoice } from "./authenticator-choice";
 import { codeFieldSource } from "./code-source";
+import { isClickLayer, showsStep } from "./overlaid-control";
 import { visible } from "./code-submission";
 import { autocompleteTokens, findTargets } from "./targets";
 import { closestAcross } from "./shadow";
@@ -79,7 +80,18 @@ export function keyable(element: Element | undefined): element is HTMLInputEleme
   return textInput(element) && visible(element) && !element.matches(":disabled");
 }
 /**
- * A shown enabled button, or a shown script button that is not `aria-disabled`, neither
+ * A {@link clickable} element a route step's click may press: a click layer only while it
+ * shows the step's `shows`, and anything else only for a step without it (ADR 0090).
+ */
+export function pressable(
+  element: Element | undefined,
+  { fragment, shows }: { fragment: boolean; shows: string | undefined },
+): element is HTMLElement {
+  return clickable(element, { fragment }) && showsStep(element, shows);
+}
+/**
+ * A shown enabled button, or a shown script button or click layer (ADR 0090, which the
+ * executor presses only while it shows its step's text) that is not `aria-disabled`, neither
  * `inert` nor inside an `inert` element, which takes no click until the page lifts it, as
  * a submit control kept inert until its fields are filled (#853); with
  * `fragment`, which a target named by its accessible name sets, also such a link to a
@@ -94,7 +106,7 @@ export function clickable(
   if (isButton(element)) return visible(element) && !element.matches(":disabled");
   return (
     element instanceof HTMLElement &&
-    (isScriptButton(element) || (fragment && isFragmentButton(element))) &&
+    (isScriptButton(element) || isClickLayer(element) || (fragment && isFragmentButton(element))) &&
     visible(element) &&
     element.getAttribute("aria-disabled") !== "true"
   );

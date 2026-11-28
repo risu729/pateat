@@ -82,6 +82,7 @@ export function validateAccountList(
     const { target } = candidate;
     if (
       (!isActionRole(candidate.role) && candidate.role !== "link") ||
+      candidate.overlaid ||
       !isStepTarget(target) ||
       target.by === "autocomplete" ||
       target.by === "label" ||
@@ -138,6 +139,7 @@ function listPasskeyButton(
   if (
     !button ||
     button.role !== "button" ||
+    button.overlaid ||
     !isStepTarget(button.target) ||
     !namesPasskey(button) ||
     registersPasskey(button) ||
