@@ -197,20 +197,20 @@ url = "https://github.com/astral-sh/python-build-standalone/releases/download/20
 provenance = "github-attestations"
 
 [[tools.rumdl]]
-version = "v0.3.4"
+version = "v0.3.7"
 backend = "aqua:rvben/rumdl"
-specifiers = ["v0.3.4"]
+specifiers = ["v0.3.7"]
 
 [tools.rumdl."platforms.linux-x64"]
-checksum = "sha256:36f1524f0cfaf33f5dfe68ac19220e1bd57ded1f0f9205931f6ee1de32f4a040"
-url = "https://github.com/rvben/rumdl/releases/download/v0.3.4/rumdl-v0.3.4-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/741227513"
+checksum = "sha256:f6a972fee9a99a8201c40f3fe3da2f974b286f10323a7f8b2be8b8a13ef73d4e"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.7/rumdl-v0.3.7-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/797113526"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.windows-x64"]
-checksum = "sha256:d059ae097c7d23ac627abb92a4496eb25aecc513f901a8e907662de98df0e875"
-url = "https://github.com/rvben/rumdl/releases/download/v0.3.4/rumdl-v0.3.4-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/741227515"
+checksum = "sha256:dd2caf61f0a2efaef69780ed6d09c2035ba944d20d5a6c1c5ec3ba3b013984b3"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.7/rumdl-v0.3.7-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/797113528"
 provenance = "github-attestations"
 
 [[tools.shellcheck]]
