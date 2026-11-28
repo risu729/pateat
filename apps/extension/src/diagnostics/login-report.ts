@@ -276,6 +276,7 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             completed: report.completed,
             disabledLeftOut: report.disabledLeftOut,
             notCompleted: report.notCompleted,
+            emptyMiss: report.emptyMiss,
             moved: report.moved,
             stop: report.stop,
             beside: report.beside,

@@ -127,8 +127,8 @@ export const movedSchema = v.strictObject({
 });
 /**
  * The page a `login.extract.watch` waits for shows something to describe (ADR 0027
- * amendment of 2026-11-04). Nothing of the page is sent; the worker reads it as it reads a
- * new page.
+ * amendment of 2026-11-04), or, as asked, only click layers (ADR 0029 amendment of
+ * 2026-11-28). Nothing of the page is sent; the worker reads it as it reads a new page.
  */
 export const describedSchema = v.strictObject({
   version: v.literal(1),

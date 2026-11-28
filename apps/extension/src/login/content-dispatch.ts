@@ -61,6 +61,7 @@ import {
   credentialInputs,
   showsNothing,
   describesNothing,
+  describesNothingYet,
 } from "./content-dom";
 import { executeNative } from "./content-execute";
 import { codePageDigest } from "../page/code-page";
@@ -617,7 +618,8 @@ export function createContentListener(context: ContentSession) {
     if (command.type === "login.extract.watch") {
       // Reads the page at once and again at each change of it (ADR 0082), at most once per
       // `checkGapMs` as the page watch does, until a page after the sign-in would describe
-      // something there; then says so once (ADR 0027 amendment of 2026-11-04).
+      // something there, or with `layers` shows only click layers; then says so once (ADR
+      // 0027 amendment of 2026-11-04, ADR 0029 amendment of 2026-11-28).
       context.describedWatch?.abort();
       const watching = new AbortController();
       context.describedWatch = watching;
@@ -631,7 +633,13 @@ export function createContentListener(context: ContentSession) {
           const checked = Date.now();
           // With `shown`, until the page no longer shows nothing, by the rule of the
           // `signIn` reading's `blank` (ADR 0026, amendment of 2026-11-20).
-          const empty = command.shown ? showsNothing() : describesNothing();
+          // With `layers`, a page of click layers only is reported too, as it may complete
+          // the login unconfirmed (ADR 0029 amendment of 2026-11-28).
+          const empty = command.shown
+            ? showsNothing()
+            : command.layers
+              ? describesNothingYet()
+              : describesNothing();
           if (stopped()) return;
           if (!empty) {
             await sendMessage("login", {

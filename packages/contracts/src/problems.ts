@@ -384,6 +384,7 @@ export const PROBLEM_EVENT_FIELDS = {
     completed: "flag",
     disabledLeftOut: "flag",
     notCompleted: "code",
+    emptyMiss: "code",
     moved: "flag",
     stop: "code",
     beside: "flag",

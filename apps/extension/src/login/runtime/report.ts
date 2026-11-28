@@ -608,6 +608,12 @@ export type LoginReport = (
        */
       notCompleted?: "disabled-left-out" | "hidden-field" | "password-empty";
       /**
+       * For `not-sent` `no-candidates`: the first condition that kept the page from
+       * completing the login unconfirmed (ADR 0029 amendment of 2026-11-28), as `layers`
+       * when it shows no click layer only, or `again` when the fresh reading did not hold.
+       */
+      emptyMiss?: string;
+      /**
        * The page is on another origin, which a login's tab moved to right after one of its
        * steps, on any route (ADR 0022); `origin` is that page's.
        */

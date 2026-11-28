@@ -6,7 +6,7 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, target, uriMatch, harness } = createRuntimeTestHarness(fake);
+const { origin, sender, target, uriMatch, harness } = createRuntimeTestHarness(fake);
 
 // UNSW Endeavour (2026-11-28 01:54 UTC): "log on" drew the student record chooser in the
 // same document on the same path, with nothing the judge could be shown. Such a page
@@ -125,7 +125,7 @@ describe("a judged page with nothing to describe after the sign-in form is gone"
     expect(await h.hello()).toEqual({ ok: true });
     const judged = () =>
       report.mock.calls.flatMap(([value]) => (value.type === "judge" ? [value] : []));
-    return { judge, judged };
+    return { judge, judged, h };
   }
 
   /** Waits for the login to settle as unknown without the judge, as before the amendment. */
@@ -152,6 +152,58 @@ describe("a judged page with nothing to describe after the sign-in form is gone"
     ]);
     // Nothing waits for the page to show something.
     expect(watches()).toEqual([]);
+  }, 20_000);
+
+  it("completes once the document draws its click layers after the page settled empty", async () => {
+    // Real Chrome, 2026-11-28 07:44 UTC: the page was read 4.7 seconds after "log on",
+    // before Endeavour drew its chooser at 11 seconds; it settled as unknown.
+    const { judge, judged, h } = await submitted(() => {
+      fake.state.extracted = {};
+    });
+    await settledUnknown(judge);
+    expect(judged()).toEqual([
+      expect.objectContaining({
+        verdict: "not-sent",
+        reason: "no-candidates",
+        emptyMiss: "layers",
+      }),
+    ]);
+    // The document is asked to say so once it shows only click layers too.
+    expect(watches()).toEqual([expect.objectContaining({ layers: true })]);
+    // The document draws its chooser in place and says so.
+    fake.state.extracted = { "signed-in": layered };
+    await h.login.handle(
+      { version: 1, type: "login.document.described", token: "synthetic-token" },
+      sender({}),
+    );
+    await vi.waitFor(
+      () => expect(status()).toMatchObject([{ state: "authenticated", unconfirmed: true }]),
+      { timeout: 8_000 },
+    );
+    expect(judge).not.toHaveBeenCalled();
+    expect(judged().at(-1)).toMatchObject({
+      verdict: "not-sent",
+      reason: "no-candidates",
+      completed: true,
+    });
+  }, 20_000);
+
+  it("does not complete a settled page that drew its layers on another path", async () => {
+    const { judge, judged, h } = await submitted(() => {
+      fake.state.extracted = {};
+    });
+    await settledUnknown(judge);
+    fake.state.extracted = { "signed-in": layered };
+    fake.state.observedPath = "/elsewhere";
+    await h.login.handle(
+      { version: 1, type: "login.document.described", token: "synthetic-token" },
+      sender({}),
+    );
+    await vi.waitFor(() => expect(judged()).toHaveLength(2), { timeout: 8_000 });
+    expect(judged().at(-1)).toMatchObject({ reason: "no-candidates", emptyMiss: "path" });
+    expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]);
+    // Asked again, but not for click layers only.
+    expect(watches().at(-1)).not.toHaveProperty("layers");
   }, 20_000);
 
   it("keeps the earlier rule on another path, as Oracle's Verify page still loading", async () => {

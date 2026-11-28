@@ -318,6 +318,22 @@ export function describesNothing(): boolean {
   }
 }
 /**
+ * Whether the signed-in extractor finds nothing to describe and the page shows no click
+ * layer only either (`layersOnly`, ADR 0029 amendment of 2026-11-28): a judged page that
+ * described nothing is reported once it shows either.
+ */
+export function describesNothingYet(): boolean {
+  try {
+    const result = extractSignedInObservation(document) as {
+      reason?: unknown;
+      layersOnly?: unknown;
+    };
+    return result.reason === "no-candidates" && result.layersOnly !== true;
+  } catch {
+    return true;
+  }
+}
+/**
  * Whether the page shows nothing yet, as a page still rendering in place (ADR 0026,
  * amendment of 2026-11-20): no visible text, in its own tree or its shadow trees, and
  * nothing the signed-in extractor would describe, as an icon control with only a label.
