@@ -77,6 +77,7 @@ export function record(
         // its watch ends: it never signed in, so its first step showing again is no logout
         // (ADR 0027, 2026-10-13).
         return {
+          ...(event.answered ? { answeredAway: true as const } : {}),
           outcome:
             event.signedIn && maySignIn(context)
               ? "authenticated"

@@ -79,6 +79,38 @@ export const atStop = (context: LoginAttemptMetadata) =>
   context.fillOnly !== true &&
   context.submissions > 0;
 /**
+ * Whether all the login may have sent its page is its account identifier (ADR 0036, #1847):
+ * a `password` login of an item without a password that has not gone past its stop and
+ * answered nothing there. No step at or after the stop is ever prepared, and the steps
+ * before it fill no password. A handler entered before the stop (a code, a detail or a
+ * passkey), a `passkey` route the login came from, a TOTP code the item holds, which a step
+ * before the stop may type, and a passkey answered for it on a page its tab moved to
+ * (`answeredAway`) each count as more.
+ */
+export const identifierOnly = (
+  context: Pick<
+    LoginAttemptMetadata,
+    | "route"
+    | "stopAt"
+    | "stepIndex"
+    | "operationId"
+    | "handlers"
+    | "passkeyLeft"
+    | "facts"
+    | "answeredAway"
+  >,
+): boolean =>
+  context.route === "password" &&
+  context.stopAt !== undefined &&
+  (context.stepIndex < context.stopAt ||
+    // At the stop only with nothing in flight: an answer there (`STOP_ANSWERED`) keeps its
+    // operation until the login ends.
+    (context.stepIndex === context.stopAt && context.operationId === undefined)) &&
+  context.handlers.length === 0 &&
+  context.passkeyLeft !== true &&
+  !context.facts.totp &&
+  context.answeredAway !== true;
+/**
  * Whether a move to another origin may complete the login (ADR 0022): its current
  * operation may have submitted, or it stands at its stop after a submission (ADR 0036).
  */

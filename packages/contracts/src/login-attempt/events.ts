@@ -62,11 +62,14 @@ export const loginAttemptEventSchema = v.variant("type", [
    * `signedIn`: the runtime confirmed that a top-level move to another origin finished the
    * sign-in, as after a passkey answer for that site (ADR 0022). Only an attempt that may
    * have submitted then completes; any other move to another origin ends it as before.
+   * `answered`: such a move ends a login that a page of another origin held while it asked
+   * for a passkey, and Pateat answered that request there (`answeredAway`).
    */
   v.strictObject({
     type: v.literal("NAVIGATED"),
     document: loginDocumentSchema,
     signedIn: v.optional(v.literal(true)),
+    answered: v.optional(v.literal(true)),
   }),
   v.strictObject({ type: v.literal("INTERRUPTED") }),
   /**

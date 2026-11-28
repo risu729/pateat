@@ -209,6 +209,13 @@ export const attemptMetadataSchema = v.pipe(
      */
     stopJudged: v.optional(v.literal(true)),
     /**
+     * The login ended after its tab moved to a page of another origin that asked for a
+     * passkey and held it, where Pateat answered that request (ADR 0036 amendment of
+     * 2026-11-17): a credential step its own steps do not show, so it holds its origin as
+     * one after any credential step does (`identifierOnly`, #1847).
+     */
+    answeredAway: v.optional(v.literal(true)),
+    /**
      * The login pressed its recipe's passkey button, then went on with the layout that
      * asks for the account on the button's page (`IDENTIFIER_LAYOUT`, ADR 0060 amendment of
      * 2026-11-18): its `password` route stops just past that layout's last step, where its

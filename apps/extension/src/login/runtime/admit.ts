@@ -40,6 +40,7 @@ import { type MoveMiss } from "./report";
 import { countRelogin, signedInNow } from "./relogin";
 import { remember } from "./choice-save";
 import {
+  answeredAway,
   credentialMoveFits,
   stepMoveFits,
   passkeyPageFits,
@@ -671,6 +672,8 @@ export async function admit(
     latest: LoginAttemptMetadata,
     moved: LoginDocument,
     signedIn: boolean,
+    // A passkey answered on a page of another origin that held the login (#1847).
+    answered = answeredAway(rt, ctx.document.tabId, latest.id),
   ) => {
     const before = run?.metadata ?? recoverLoginAttempt(latest);
     // A login that did not sign in here ended when its wait for the site or its watch ran
@@ -683,7 +686,12 @@ export async function admit(
         (watchOver(before, now) ? Math.min(now, before.watch!.since + WATCH_MS) : now));
     const ended = transitionLoginAttempt(
       before,
-      { type: "NAVIGATED", document: moved, ...(signedIn ? { signedIn } : {}) },
+      {
+        type: "NAVIGATED",
+        document: moved,
+        ...(signedIn ? { signedIn } : {}),
+        ...(answered ? { answered } : {}),
+      },
       endedAt,
     );
     noteSignedIn(rt, before, ended, moved.origin);
@@ -931,9 +939,10 @@ export async function admit(
         reportMove(holder, ctx.live.moveMiss, true);
         return { ok: false, reason: "stale-document" };
       }
+      const answered = answeredAway(rt, ctx.document.tabId, latest.id);
       rt.passkeyPages.delete(ctx.document.tabId);
       if (!signedIn && ctx.live.moveMiss) reportMove(holder, ctx.live.moveMiss);
-      const refusal = await endMove(run, latest, asking.document, signedIn);
+      const refusal = await endMove(run, latest, asking.document, signedIn, answered);
       if (refusal) return refusal;
     }
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };

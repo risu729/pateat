@@ -34,7 +34,10 @@ a related origin, within 30 seconds of its last step, with its item. Amended on
 (owner, 02:16 UTC; the stop's use there is the agent's choice): a login that went on
 after its recipe's passkey button to a layout that asks for the account first stops just
 past that layout's steps as rule 2 says, whether or not its item holds a password, and
-ends `challenge` there with the reason `passkey-button`.
+ends `challenge` there with the reason `passkey-button`. Amended on 2026-11-28
+([below](#amendment-a-login-that-sent-only-its-identifier-2026-11-28), #1847; agent
+change, not confirmed by the owner): a login that sent only its identifier is never
+completed or judged on a move, and holds nothing once its tab leaves the origin.
 
 Date: 2026-10-13
 
@@ -479,3 +482,33 @@ The agent's choices, not confirmed by the owner:
   5. Otherwise the moved login's item answers, or the request is handed on as
      `login-item-*`.
 - `passkey.request` logs `movedLogin` for such a request.
+
+## Amendment: a login that sent only its identifier (2026-11-28)
+
+Agent change, not confirmed by the owner, for
+[#1847](https://github.com/risu729/pateat/issues/1847). A login sent nothing but its
+account identifier (`identifierOnly`) while it stands before its stop, or at it with
+nothing in flight, on the `password` route, with no handler entered, never on the
+`passkey` route before (which includes one that went on after its passkey button), with
+an item that holds no TOTP code, and without a passkey answered for it on a page of
+another origin that held it. Its steps before the stop fill no password, so only the
+identifier went to the site.
+
+- **No sign-in from a move.** Rule 5 and ADR 0022 let the judge, or a signed-in marker,
+  complete such a login on a page of another origin of its site that its tab moved to
+  right after the identifier's Next. Nothing it sent could sign it in there, so that
+  page is no longer sent to the judge (a paid call) or read for a marker: the move ends
+  the login `left-origin` (`no-factor`), or `interrupted` at its stop. A page of any
+  site that asks for a passkey still holds it, and a passkey answered there with its
+  item still lets the tab's next quiet page complete it (ADR 0022).
+- **No hold.** Such a login that ended `left-origin` or `interrupted` holds nothing
+  against the site's other tabs, which log in as a new tab would. This widens the
+  owner's rule of 2026-11-09 (11:08 UTC, ADR 0022 "Release the origin hold on
+  `left-origin`"): a login that submitted nothing holds nothing; an identifier's Next is
+  a submission, but no credential. A passkey answered at the stop (`STOP_ANSWERED`) or
+  on the page that held the moved login (recorded as `answeredAway` when the move ends
+  it) is a credential step, so that login still holds. A login watched at its stop still
+  ends where it stopped and holds through its watch, so a new tab does not send a second
+  emailed code (owner, 2026-10-23); a site's own answer, such as `credential-rejected`,
+  holds as before.
+- The badge is unchanged: `left-origin` still shows briefly as an unsettled result.

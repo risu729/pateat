@@ -10,6 +10,7 @@ import {
   isLoginRouteRecipe,
   chooserRoute,
   passkeyAnswersRequest,
+  identifierOnly,
   type LoginRecipe,
 } from "@pateat/contracts";
 import type { ServiceTiming } from "../../service/transport";
@@ -523,6 +524,18 @@ export async function stillAsking(rt: Runtime, live: LiveDocument): Promise<bool
 }
 
 /**
+ * Whether Pateat answered a passkey request on the page of another origin that holds the
+ * tab's login `attemptId` (`passkeyPages`), since that page asked: a credential step the
+ * login's record does not show, which its end records (`answered`, #1847).
+ */
+export function answeredAway(rt: Runtime, tabId: number, attemptId: string): boolean {
+  const page = rt.passkeyPages.get(tabId);
+  if (page?.attemptId !== attemptId) return false;
+  const answer = rt.passkeyAnswers.get(`${tabId} ${page.document.origin}`);
+  return answer !== undefined && answer.at >= page.requestedAt;
+}
+
+/**
  * Ends a moved attempt still held by a page that asked for a passkey once no next page
  * can complete it any more (ADR 0022), as when that page stays open: `left-origin`, on
  * that page, without resubmitting. Kept in memory only, as the hold is.
@@ -538,6 +551,7 @@ export function holdForPasskey(rt: Runtime, tabId: number): void {
         holdForPasskey(rt, tabId);
         return;
       }
+      const answered = answeredAway(rt, tabId, held.attemptId);
       rt.passkeyPages.delete(tabId);
       const run = rt.attempts.get(tabId);
       const latest = run?.metadata ?? tabAttempt(rt, tabId);
@@ -548,7 +562,7 @@ export function holdForPasskey(rt: Runtime, tabId: number): void {
       const endedAt = siteWaitOver(before, now) ?? now;
       const ended = transitionLoginAttempt(
         before,
-        { type: "NAVIGATED", document: held.document },
+        { type: "NAVIGATED", document: held.document, ...(answered ? { answered } : {}) },
         endedAt,
       );
       if (run) run.metadata = ended;
@@ -567,7 +581,8 @@ export function holdForPasskey(rt: Runtime, tabId: number): void {
  * step, not one that asks for a passkey itself (`request`: a later handler step on the
  * `passkey` route counts), delivered at most `SITE_MOVE_MS` ago. Once a page of
  * the site the tab moved to asked for a passkey (`passkeyPages`), only a passkey answered
- * there decides.
+ * there decides. A login that sent nothing but its account identifier before its stop
+ * (`identifierOnly`, ADR 0036) has no such step: nothing it sent could sign it in (#1847).
  */
 export function stepMoveFits(
   rt: Runtime,
@@ -578,6 +593,7 @@ export function stepMoveFits(
   const effect = rt.effects.get(tabId);
   return record.document.frameId === 0 &&
     effect?.attemptId === record.id &&
+    !identifierOnly(record) &&
     !credentialMoveFits(rt, record, tabId, siteOrigin) &&
     rt.passkeyPages.get(tabId)?.attemptId !== record.id &&
     !effect.request &&
