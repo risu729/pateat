@@ -333,10 +333,13 @@ describe("a chooser's path that shows a sign-in form instead of its list (ADR 00
 
 describe("a start page whose first step's target names another kind of element (ADR 0041)", () => {
   const ember = { by: "id", value: "ember9" };
-  const shown = async (html: string) => {
+  const shown = async (html: string, clicked = false) => {
     history.replaceState(null, "", "/login");
     document.body.innerHTML = html;
-    const watched = [{ path: "/login", require: "writable", targets: [ember] }];
+    const watched = [
+      { path: "/login", require: "writable", targets: [ember] },
+      ...(clicked ? [{ path: "/login", require: "clickable", targets: [ember] }] : []),
+    ];
     replies.push(() => ({ ok: false, reason: "form-not-ready", starts: watched }));
     uninstall = installLoginContent();
     await vi.advanceTimersByTimeAsync(300 + LOGIN_STEP_WAIT_MS);
@@ -357,6 +360,16 @@ describe("a start page whose first step's target names another kind of element (
       await shown(`<main><form><label>Email or Username <input type="text" name="login-id"></label>
         <input type="text" id="ember9" readonly><button type="button">Continue</button></form>
         </main>`),
+    ).toMatchObject({ path: "/login", miss: { missing: [] } });
+  });
+
+  it("does not report it where another layout's step clicks it, as a slow page's button", async () => {
+    expect(
+      await shown(
+        `<main><form><label>Email or Username <input type="text" name="login-id"></label>
+        <button type="button" id="ember9" disabled>Continue</button></form></main>`,
+        true,
+      ),
     ).toMatchObject({ path: "/login", miss: { missing: [] } });
   });
 });

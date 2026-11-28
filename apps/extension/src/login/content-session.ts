@@ -466,6 +466,15 @@ export function createContentSession({ probeStatus = false }: LoginContentOption
     const watched = starts.filter((start) => start.path === path && !start.later);
     if (!watched.length) return undefined;
     const missing = new Map<string, LoginTarget>();
+    // A target some watched step may still use as it is, as a disabled button another
+    // layout clicks under the same ID: `missing` is one list for every step.
+    const usable = new Set(
+      watched.flatMap((start) =>
+        start.targets
+          .filter((target) => !otherKind(document, target, start.require))
+          .map((target) => JSON.stringify(target)),
+      ),
+    );
     let found = false;
     for (const start of watched) {
       let all = true;
@@ -473,13 +482,13 @@ export function createContentSession({ probeStatus = false }: LoginContentOption
         const state = targetState(document, target, start.require);
         // An element still not rendered after the step wait counts as missing, as a form a
         // page swapped for another and kept hidden: only a shown one may be a slow page's.
-        // So does one of another kind than the step fills, as a link where the recipe
-        // learned an input (#1847): no slow page makes it usable.
+        // So does one of another kind than every step that names it fills, as a link where
+        // the recipe learned an input (#1847): no slow page makes it usable.
         if (
           state === "missing" ||
           state === "ambiguous" ||
           targetState(document, target, "shown") === "unusable" ||
-          (state === "unusable" && otherKind(document, target, start.require))
+          (state === "unusable" && !usable.has(JSON.stringify(target)))
         ) {
           missing.set(JSON.stringify(target), target);
           all = false;
