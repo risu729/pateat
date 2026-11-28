@@ -1,6 +1,11 @@
 import type { LoginRoute } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
-import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
+import {
+  emptyPageCompletes,
+  judgedCompletionResult,
+  settleCompletion,
+  undecidedCandidate,
+} from "./completion-policy";
 import type { SignInDecision } from "./sign-in-state";
 
 const candidate = {
@@ -311,5 +316,39 @@ describe("a stop that holds the completion", () => {
         again: { decision: "judge", loaded: true },
       }).completes,
     ).toBe(false);
+  });
+});
+
+// ADR 0029 amendment of 2026-11-28: a page with nothing to describe for the judge.
+describe("emptyPageCompletes", () => {
+  const empty = {
+    reading: { decision: "judge", confirmed: true },
+    watched: false,
+    sent: true,
+    ownDocument: true,
+    signInPath: true,
+    fieldsGone: true,
+  } as const;
+
+  it("completes a quiet page in the step's document on its sign-in path, its fields gone", () => {
+    expect(emptyPageCompletes(empty)).toBe(true);
+  });
+
+  it.each([
+    { reading: undefined },
+    { reading: { decision: "judge" as const, confirmed: false } },
+    { reading: { decision: "signed-in" as const, confirmed: true } },
+    { reading: { decision: "continuing" as const, confirmed: true } },
+    { reading: { decision: "unknown" as const, confirmed: true } },
+    { reading: { decision: "rejected" as const, confirmed: true } },
+    { watched: true },
+    { stopAt: 0 },
+    { stopAt: 1 },
+    { sent: false },
+    { ownDocument: false },
+    { signInPath: false },
+    { fieldsGone: false },
+  ])("does not complete when one condition fails: %j", (change) => {
+    expect(emptyPageCompletes({ ...empty, ...change })).toBe(false);
   });
 });
