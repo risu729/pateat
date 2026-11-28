@@ -28,6 +28,8 @@ import { asksEveryTime } from "../entry-press";
 import { beginSso } from "./flow";
 import { confirmClassifies } from "../confirm-admit";
 import { ssoEntryReaches, ssoEntryReachesOther } from "./learned-entries";
+import { handoffMiss } from "./handoff";
+import { ssoPageAllowed } from "../sso-scope";
 import type { Saved } from "../../sso-choice-model";
 import type { AdmitContext } from "../admit-context";
 import type { Runtime } from "../state";
@@ -65,6 +67,16 @@ export async function ssoObservation(
   return undefined;
 }
 /**
+ * Whether an SSO step may reach the IdP's `origin`: the IdP's side of the checks a flow's
+ * scope makes before each press (`ssoPageAllowed`, `ssoScope`), with its pause.
+ */
+async function idpAllowed(rt: Runtime, ctx: AdmitContext, saved: Saved, origin: string) {
+  return (
+    ssoPageAllowed(saved.snapshot.settings, origin) &&
+    !(await pauseOf(rt, { url: origin, incognito: ctx.incognito }))
+  );
+}
+/**
  * Whether the person's one-page request may hop to `origin`: existing `auto` sign-in on
  * both the page and the IdP, with neither paused. A one-page grant never reaches the IdP.
  */
@@ -72,9 +84,8 @@ async function manualHopAllowed(rt: Runtime, ctx: AdmitContext, saved: Saved, or
   const { settings } = saved.snapshot;
   return (
     resolvePagePermission(settings, ctx.live.url, "sign-in")?.permission === "auto" &&
-    resolvePagePermission(settings, origin, "sign-in")?.permission === "auto" &&
     !(await pauseOf(rt, ctx.live)) &&
-    !(await pauseOf(rt, { url: origin, incognito: ctx.incognito }))
+    (await idpAllowed(rt, ctx, saved, origin))
   );
 }
 export async function inspectSsoTarget(rt: Runtime, live: LiveDocument, target: LoginTarget) {
@@ -91,15 +102,19 @@ export async function inspectSsoTarget(rt: Runtime, live: LiveDocument, target: 
 }
 /** Account selection precedes method selection; an unavailable preferred method never falls through. */
 export async function offerSso(rt: Runtime, ctx: AdmitContext) {
-  if (
-    !rt.options.sso ||
-    !rt.ssoChoices ||
-    (ctx.paused && !ctx.manual) ||
-    rt.sso.flows.has(ctx.document.tabId)
-  )
-    return undefined;
+  if (!rt.options.sso || !rt.ssoChoices) return undefined;
+  // A hand-off no login took up yet, as after `form-not-ready`, is decided again on each
+  // announcement of its document (#1847): the page may show an entry for the IdP by now,
+  // as in a modal, or may no longer be an identifier page.
   const native = rt.sso.native.get(ctx.document.tabId);
-  if (native && sameLoginDocument(native.document, ctx.document)) return undefined;
+  if (
+    native?.handoff &&
+    native.attemptId === undefined &&
+    sameLoginDocument(native.document, ctx.document)
+  )
+    rt.sso.native.delete(ctx.document.tabId);
+  else if (native && sameLoginDocument(native.document, ctx.document)) return undefined;
+  if ((ctx.paused && !ctx.manual) || rt.sso.flows.has(ctx.document.tabId)) return undefined;
   const existing = tabAttempt(rt, ctx.document.tabId);
   if (
     existing &&
@@ -168,8 +183,17 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   // inspection failed: one that names the IdP keeps the label rule from pressing anything
   // (ADR 0085, amended 2026-11-18). A field's label, as "Email or IBMid", is not counted.
   const otherLabels: string[] = [];
+  // Why a URL-form method that finds no entry here may not hand off instead (#1847).
+  let handoff: string | undefined = "no-url-method";
   if (described.data.methods.some((method) => method.form === "url")) {
     const observation = await ssoObservation(rt, ctx.live);
+    handoff = handoffMiss(
+      rt,
+      { ...ctx.document, path: ctx.live.path, manual: ctx.manual !== undefined },
+      eligible.item,
+      eligible.fieldIds,
+      observation,
+    );
     const pressable = new Set<unknown>();
     for (const candidate of observation?.candidates ?? []) {
       if (
@@ -228,13 +252,17 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     incognito: ctx.incognito === true,
     basis: saved,
     ...(methodOffer ? { signal: methodOffer.signal } : {}),
-    native: { passkey: facts.discoverablePasskey && !passkeyRefused, password: facts.password },
+    native: {
+      passkey: facts.discoverablePasskey && !passkeyRefused,
+      password: facts.password,
+      ...(handoff === undefined ? { handoff: true } : {}),
+    },
     automatic: ctx.manual ? "sso" : true,
     // `saved` is the snapshot this request read; ssoScope reads the settings and pauses
-    // again before any press, so a later change still stops the hop.
-    ...(ctx.manual
-      ? { hopAllowed: (origin: string) => manualHopAllowed(rt, ctx, saved, origin) }
-      : {}),
+    // again before any press, so a later change still stops the hop. An automatic hand-off,
+    // which presses nothing a flow's scope checks, reads the IdP's side here (#1847).
+    hopAllowed: (origin: string) =>
+      ctx.manual ? manualHopAllowed(rt, ctx, saved, origin) : idpAllowed(rt, ctx, saved, origin),
     entries: [...targets].map(([id, entry]) => ({ id, label: entry.label })),
     otherLabels,
     // A first visit (owner, 2026-11-18 14:14 UTC): the entry whose label names the mapped
@@ -292,11 +320,16 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
   if (!ctx.manual && !result.ok && result.reason === "cancelled") rememberCancel(rt, cancelKey);
   if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
     return ctx.refuse("manual-request-ended");
-  // An unanswered offer's line names why it waited (`waited`), as `entry-required`.
+  // An unanswered offer's line names why it waited (`waited`), as `entry-required`, and
+  // for a missing entry why the page was no hand-off, as `entry-required:identifier:fields`.
   if (!result.ok || rt.documents.get(ctx.key) !== ctx.live)
     return ctx.refuse(
       result.ok ? "stale-document" : result.reason,
-      result.ok ? undefined : result.waited,
+      result.ok
+        ? undefined
+        : result.waited === "entry-required" && (result.handoff ?? handoff)
+          ? `${result.waited}:identifier:${result.handoff ?? handoff}`
+          : result.waited,
     );
   if (ctx.manual) manualChoosing(rt, ctx.live, ctx.manual, false);
   const receipt = await rt.ssoChoices.consume(result.choiceId);
@@ -312,6 +345,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
       account,
       chosen,
       route: receipt.selection.route,
+      // The login types the item's Username and stops after Continue (ADR 0036, #1847).
+      ...(receipt.selection.handoff ? { handoff: true as const } : {}),
       // Log in now never takes a native route by itself: it is the person's pick.
       ...(ctx.manual ? {} : { automatic: true as const }),
       ...(described.data.methods.length ? { methods: true as const } : {}),

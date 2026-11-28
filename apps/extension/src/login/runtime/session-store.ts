@@ -1,4 +1,5 @@
 import { endHandoffChoice, ssoChild } from "./sso-state";
+import { liftHandoffFence } from "./sso/handoff";
 import { parseAttemptMetadata, type LoginAttemptMetadata } from "@pateat/contracts";
 import { forgetConfirmProof, rememberConfirmAuthentication } from "./confirm-state";
 import { recordKey } from "./steps";
@@ -73,6 +74,13 @@ export async function keep(
   // A hand-off that ended, on any path, ends its method choice (#1847).
   if (metadata.ssoHandoff && terminal(metadata))
     endHandoffChoice(rt.sso, metadata.document.tabId, metadata.id);
+  // A login of the tab signed in, the SSO flow's own included: its site's pages may hand
+  // off again (#1847). The IdP's own login inside a flow does not count.
+  if (metadata.state === "authenticated" && !ssoChild(rt.sso, metadata))
+    liftHandoffFence(rt, metadata.document.tabId, [
+      metadata.account.origin,
+      metadata.document.origin,
+    ]);
   await write(rt);
   if (
     !ssoChild(rt.sso, metadata) &&

@@ -25,7 +25,7 @@ import {
   type SsoChooseRequest,
   type SsoResponse,
 } from "./sso-wire";
-import { idpNames, labeledEntry } from "./sso-entry-label";
+import { idpNames, labeledEntry, labelNamesIdp } from "./sso-entry-label";
 import {
   candidate,
   candidates,
@@ -56,9 +56,11 @@ type Receipt = {
   labeled?: true;
   /** The person picked it in the popup, rather than the automatic order (ADR 0085). */
   picked?: true;
+  /** A hand-off's method (#1847), whose mapping is validated again when consumed. */
+  handoff?: number;
 };
 /** What a receipt keeps beside its selection, for {@link Receipt}. */
-type ReceiptFacts = Pick<Receipt, "entryOrigin" | "learned" | "labeled" | "picked">;
+type ReceiptFacts = Pick<Receipt, "entryOrigin" | "learned" | "labeled" | "picked" | "handoff">;
 type Refusal = { reason: string; field?: string };
 type SsoSelection = Extract<SsoChooseRequest["selection"], { kind: "sso" }>;
 const failure = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
@@ -134,6 +136,7 @@ export function createSsoChoiceController(options: {
         ok: false,
         reason,
         ...(!offer.settled && offer.reason ? { waited: offer.reason } : {}),
+        ...(!offer.settled && offer.handoff ? { handoff: offer.handoff } : {}),
       });
     }
     for (const [id, receipt] of receipts)
@@ -250,18 +253,23 @@ export function createSsoChoiceController(options: {
       ...(facts.learned ? { learned: facts.learned } : {}),
       ...(facts.labeled ? { labeled: facts.labeled } : {}),
       ...(facts.picked ? { picked: facts.picked } : {}),
+      ...(facts.handoff === undefined ? {} : { handoff: facts.handoff }),
     });
     finish(offer, { ok: true, choiceId });
     return { ok: true as const };
   }
   /**
    * A URL-form method has no label: it runs automatically only on the one entry `urlEntry`
-   * finds. Anything else waits for the person to choose the entry.
+   * finds, or, where it finds none on a page that asks for an identifier alone, as a
+   * hand-off (`handoff`). Anything else waits for the person to choose the entry.
    */
   async function automaticUrl(offer: Offer, method: Method): Promise<Refusal | undefined> {
     const found = await urlEntry(offer, method);
     if (found === "withdrawn") return { reason: "scope-changed" };
-    if (!found) {
+    if (!found || found === "unusable") {
+      // Only a page with no entry for the IdP at all hands off: one with several, or one
+      // that cannot be pressed, still waits for the person.
+      if (!found && offer.input.native.handoff) return handoff(offer, method);
       offer.reason = "entry-required";
       return undefined;
     }
@@ -269,6 +277,34 @@ export function createSsoChoiceController(options: {
     const refused = await validateSso(offer, method);
     if (refused) return refused;
     resolveUrl(offer, method, found);
+    return undefined;
+  }
+  /**
+   * The hand-off (owner, 2026-11-28 07:42 UTC, ADR 0085 amendment of that day, #1847): a
+   * mapped URL-form method with no entry on a page that asks for an identifier alone
+   * resolves the native `password` route marked `handoff`, whose login types the site
+   * item's own Username, presses Continue and stops, so the site sends the tab on toward
+   * the IdP. Only after the same validation as an entry's press, so an unresolved or
+   * refused mapping never types anything.
+   */
+  async function handoff(offer: Offer, method: Method): Promise<Refusal | undefined> {
+    // The IdP's side keeps the guards a press of its entry gets: `auto` sign-in there and
+    // no pause (`hopAllowed`); otherwise the offer waits for the person, as before.
+    const origin = selectedOf(method)!.selected.origin;
+    const allowed = await offer.input.hopAllowed?.(origin).catch(() => false);
+    if (!retained(offer)) return { reason: "scope-changed" };
+    if (!allowed) {
+      offer.reason = "entry-required";
+      offer.handoff = "idp-scope";
+      return undefined;
+    }
+    const refused = await validateSso(offer, method);
+    if (refused) return refused;
+    resolve(
+      offer,
+      { kind: "native", route: "password", handoff: true },
+      { handoff: method.method.number },
+    );
     return undefined;
   }
   /** How the automatic order found the entry: its destination, the page, or its label. */
@@ -289,13 +325,14 @@ export function createSsoChoiceController(options: {
    * The one entry the automatic order presses for a mapped URL-form method: the one whose
    * own destination is the mapped origin, or, on a broker page where none is, the one the
    * page learned for that origin (owner, 2026-11-18, ADR 0085), or, where it learned none,
-   * the one whose label names the mapped IdP (`labeled`). Undefined when none or several
-   * qualify at the first rule that finds any.
+   * the one whose label names the mapped IdP (`labeled`). `unusable` when several qualify
+   * at the first rule that finds any, or the entries the label names cannot be pressed;
+   * undefined only when the page has no entry for the IdP at all.
    */
   async function urlEntry(
     offer: Offer,
     method: Method,
-  ): Promise<UrlEntry | "withdrawn" | undefined> {
+  ): Promise<UrlEntry | "withdrawn" | "unusable" | undefined> {
     const { entryCurrent, entryOrigin, entryLearned, entries } = offer.input;
     const origin = selectedOf(method)!.selected.origin;
     const matches: { id: string; label: string }[] = [];
@@ -311,7 +348,7 @@ export function createSsoChoiceController(options: {
       if (matches.length > 1) break;
     }
     if (matches.length)
-      return matches.length === 1 ? { entry: matches[0]!, by: "exact" } : undefined;
+      return matches.length === 1 ? { entry: matches[0]!, by: "exact" } : "unusable";
     // On a broker page no entry names the mapped origin: its provider button submits to
     // the site, which sends the tab on.
     const learned: { id: string; label: string }[] = [];
@@ -326,7 +363,7 @@ export function createSsoChoiceController(options: {
       if (learned.length > 1) break;
     }
     if (learned.length)
-      return learned.length === 1 ? { entry: learned[0]!, by: "learned" } : undefined;
+      return learned.length === 1 ? { entry: learned[0]!, by: "learned" } : "unusable";
     return labeled(offer, method);
   }
   /**
@@ -338,37 +375,39 @@ export function createSsoChoiceController(options: {
   async function labeled(
     offer: Offer,
     method: Method,
-  ): Promise<UrlEntry | "withdrawn" | undefined> {
-    const { entryCurrent, entryLabeled, entries } = offer.input;
+  ): Promise<UrlEntry | "withdrawn" | "unusable" | undefined> {
+    const { entryCurrent, entryLabeled, entries, otherLabels } = offer.input;
     const selected = selectedOf(method)!.selected;
     const item = connectionFor(offer.saved, selected.account)?.items.find(
       (entry) => entry.id === selected.account.itemId,
     );
+    const names = idpNames({
+      origin: selected.origin,
+      pageOrigin: offer.input.document.origin,
+      itemName: item?.label,
+      uris: item?.allowedOrigins ?? [],
+    });
+    // No label on the page names the IdP: it shows no entry for it.
+    if (
+      ![...(entries ?? []).map((entry) => entry.label), ...(otherLabels ?? [])].some((label) =>
+        labelNamesIdp(label, names),
+      )
+    )
+      return undefined;
     const entry =
-      entryCurrent && entryLabeled
-        ? labeledEntry(
-            entries ?? [],
-            idpNames({
-              origin: selected.origin,
-              pageOrigin: offer.input.document.origin,
-              itemName: item?.label,
-              uris: item?.allowedOrigins ?? [],
-            }),
-            offer.input.otherLabels,
-          )
-        : undefined;
-    if (!entry) return undefined;
+      entryCurrent && entryLabeled ? labeledEntry(entries ?? [], names, otherLabels) : undefined;
+    if (!entry) return "unusable";
     const usable =
       (await entryCurrent?.(entry.id).catch(() => false)) &&
       (await entryLabeled?.(entry.id, selected.origin).catch(() => false));
     if (!retained(offer)) return "withdrawn";
-    return usable ? { entry, by: "labeled" } : undefined;
+    return usable ? { entry, by: "labeled" } : "unusable";
   }
   /**
    * **Log in now** (ADR 0088 amendment of 2026-11-18): it presses by itself only the SSO
    * method the automatic order decides, on an item with no numbered method and no passkey
-   * the order would take first, where its hop is allowed. Anything else leaves the
-   * explicit chooser open, as before.
+   * the order would take first, where its hop is allowed, also as a hand-off
+   * (`handoff`). Anything else leaves the explicit chooser open, as before.
    */
   async function automaticSso(offer: Offer): Promise<Refusal | undefined> {
     const { native, hopAllowed } = offer.input;
@@ -384,7 +423,9 @@ export function createSsoChoiceController(options: {
       return undefined;
     const found = preferred.form === "url" ? await urlEntry(offer, preferred) : undefined;
     if (found === "withdrawn") return { reason: "scope-changed" };
-    if (preferred.form === "url" && !found) return undefined;
+    const handingOff = preferred.form === "url" && !found && native.handoff === true;
+    if (found === "unusable" || (preferred.form === "url" && !found && !handingOff))
+      return undefined;
     const allowed = await hopAllowed(chosen.selected.origin).catch(() => false);
     if (!retained(offer)) return { reason: "scope-changed" };
     if (!allowed) return undefined;
@@ -392,6 +433,12 @@ export function createSsoChoiceController(options: {
     const refused = await validateSso(offer, preferred);
     if (refused) return refused.reason === "scope-changed" ? refused : undefined;
     if (found) resolveUrl(offer, preferred, found);
+    else if (handingOff)
+      resolve(
+        offer,
+        { kind: "native", route: "password", handoff: true },
+        { handoff: preferred.method.number },
+      );
     else
       resolve(offer, {
         kind: "sso",
@@ -875,7 +922,13 @@ export function createSsoChoiceController(options: {
       receipts.delete(choiceId);
       if (!receipt) return failure("choice-gone");
       const { offer, selection } = receipt;
-      if (selection.kind === "native") {
+      if (selection.kind === "native" && receipt.handoff !== undefined) {
+        // A hand-off types only under the mapping it was decided on.
+        const method = methodOf(offer, receipt.handoff);
+        if (!method) return failure("method-unavailable");
+        const refused = await validateSso(offer, method);
+        if (refused) return failure(refused.reason);
+      } else if (selection.kind === "native") {
         if (!(await current(offer))) return failure("scope-changed");
       } else {
         const method = methodOf(offer, selection.source.method.number);

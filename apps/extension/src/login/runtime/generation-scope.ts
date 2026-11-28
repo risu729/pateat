@@ -28,6 +28,7 @@ import { skipGeneration } from "./generation";
 import { readUsernames, usernameShape } from "./markers";
 import { manualPending } from "./manual-scope";
 import { confirmPickFor } from "./confirm-pick-scope";
+import { handoffOn } from "./sso/handoff";
 import type { Runtime } from "./state";
 
 /**
@@ -321,6 +322,27 @@ export async function generationSlotsFor(
     // An item that could not be checked might have another username.
     complete: topComplete && !scope.unavailableConnections.length && !scope.incompleteItems.length,
   };
+}
+
+/**
+ * The scope a page is generated or repaired for: as `generationSlotsFor`, but for a
+ * document whose method choice is a hand-off (ADR 0085 amendment of 2026-11-28, #1847)
+ * only the chosen SSO item's `username` slot, as its login types nothing else.
+ */
+export async function pageGenerationScope(
+  rt: Runtime,
+  live: LiveDocument,
+  miss: (reason: GenerationMiss, detail?: string) => void = () => undefined,
+): Promise<GenerationScope | undefined> {
+  const handoff = handoffOn(rt, live.document);
+  const scope = await generationSlotsFor(rt, live, miss, false, handoff?.account);
+  if (!scope || !handoff) return scope;
+  const slots = scope.slots.filter((slot) => slot.id === "username");
+  if (!slots.length) {
+    miss("no-vault-match", "no-slots");
+    return undefined;
+  }
+  return { ...scope, slots, offers: [] };
 }
 
 /**

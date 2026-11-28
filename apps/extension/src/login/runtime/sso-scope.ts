@@ -7,6 +7,7 @@ import {
   onlyChoicesSince,
   resolvePagePermission,
   type LoginDocument,
+  type LocalSettings,
   type SettingsResponse,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
@@ -118,6 +119,17 @@ export function dropSsoMappings(rt: Runtime): void {
   for (const work of rt.sso.flows.values()) work.mapping = undefined;
 }
 /**
+ * Whether the settings let an SSO flow act on `page`, the RP's or the IdP's: a site Pateat
+ * may use, not excluded, with `auto` sign-in (ADR 0026).
+ */
+export function ssoPageAllowed(settings: LocalSettings, page: string): boolean {
+  return (
+    !isSiteExcluded(settings, page) &&
+    isSiteAllowed(settings, page) &&
+    resolvePagePermission(settings, page, "sign-in")?.permission === "auto"
+  );
+}
+/**
  * A fresh mapping is evidence only; item, page, policy and operation epochs authorize
  * delivery. Returns the fence of this check, to recheck after later awaits, or undefined
  * when it fails. Each caller keeps its own fence, so another check of the same flow, as
@@ -159,14 +171,8 @@ export async function ssoScope(
   if (!saved.ok || !ssoCurrent(rt, work, live) || !ssoDependenciesKept(work, work.saved, saved))
     return undefined;
   if (pausedInPrivate(saved.snapshot.settings, live.incognito)) return undefined;
-  for (const page of [work.rpLive.url, live.url, work.selected.origin]) {
-    if (
-      isSiteExcluded(saved.snapshot.settings, page) ||
-      !isSiteAllowed(saved.snapshot.settings, page) ||
-      resolvePagePermission(saved.snapshot.settings, page, "sign-in")?.permission !== "auto"
-    )
-      return undefined;
-  }
+  for (const page of [work.rpLive.url, live.url, work.selected.origin])
+    if (!ssoPageAllowed(saved.snapshot.settings, page)) return undefined;
   if (
     ssoReturnOrigin(work, live.document.origin) &&
     !isSiteAllowed(saved.snapshot.settings, work.selected.origin)

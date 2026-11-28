@@ -231,7 +231,11 @@ its five minutes while the offer stayed open five more, then ended with
 - **Guards kept.** The request still overrides pauses, private-window suppression and
   page permissions for its own page only. A hop to the identity provider still needs
   `auto` sign-in on both origins with neither paused (`sso-manual-scope-unavailable`),
-  and site access, item eligibility and master-password re-prompt still apply.
+  and site access, item eligibility and master-password re-prompt still apply. Since
+  2026-11-28 ([#1847](https://github.com/risu729/pateat/issues/1847)) the request also
+  checks the IdP's site access and exclusion before it decides (`ssoPageAllowed`), which
+  `ssoScope` already refused before any press: the method offer stays open instead of
+  pressing nothing.
 - **The first visit.** On a broker page whose entry no flow has pressed yet, **Log in
   now** presses the one entry whose label names the mapped IdP, as the automatic sign-in
   does, under the same hop guard

@@ -22,6 +22,11 @@ IdP's login ends with its true state
 ([amendment](#amendment-2026-11-20-the-rp-return-waits-for-the-rps-evidence)), and a
 return to another origin of the RP's site completes on that origin's evidence
 ([amendment](#amendment-2026-11-20-a-return-to-another-origin-of-the-rps-site)).
+Amended on 2026-11-28 by the owner's decision (07:42 UTC,
+[amendment](#amendment-2026-11-28-an-identifier-page-before-the-idp-entry),
+[#1847](https://github.com/risu729/pateat/issues/1847)): a URL-form SSO item types its
+Username on a site's page that asks for an identifier alone before the IdP's entry, and
+that page's recipe may be generated for it.
 Researched from
 public documentation only; no real site or account has been used.
 
@@ -988,6 +993,39 @@ flow read the page again for that marker and did not find it, so it ended
 `sso-return-unconfirmed`. The read looked up a text marker among buttons only. Every
 other signed-in marker lookup (`markerProof`) looks among links too. An SSO return's
 markers are now looked up the same way.
+
+## Amendment 2026-11-28: an identifier page before the IdP entry
+
+Decided by the owner on 2026-11-28 for
+[#1847](https://github.com/risu729/pateat/issues/1847), on a decision card answered at
+07:42 UTC: 「SSO アイテムで、IdP の手前のメール入力ページを Pateat が進めてよいですか?」
+("May Pateat advance the email page before the IdP for an SSO item?"), with the chosen
+option 「進めてよい (生成も可)」 ("Yes, it may, generation included"). It changes two
+lines of the decision above, for this identifier step only:
+
+- "SSO that first asks for a work email or company domain on the site is out of
+  scope" (**On the site**) no longer holds for a page that asks for the account
+  identifier alone, with no entry for the IdP: a URL-form SSO item types its saved
+  Username there and presses Continue, so the site sends the tab on toward the IdP. A
+  page that asks for a company domain, or for anything but the item's Username, stays
+  out of scope.
+- "An item with `SSO` is never used by a password recipe or by recipe generation"
+  (**Field rules**, already amended on 2026-11-07) no longer holds for that step: the
+  item's native login runs such a page's recipe up to its Continue, and on a first
+  visit the page may be sent for generation, a paid call, for the item's `username` slot
+  alone. The `SSO` value, and the item's empty password, are still never typed, filled
+  or sent.
+
+How the offer decides, and the fence that keeps a page from being typed on twice, are in
+[ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-28-an-identifier-page-before-the-idp-entry);
+the login itself, which stops after Continue, in
+[ADR 0036](0036-passkey-after-the-identifier.md#amendment-a-hand-off-stops-after-the-identifier-2026-11-28-1847).
+A hand-off keeps the IdP's side of the scope a flow checks: the IdP's origin must be
+allowed, not excluded, with `auto` sign-in and not paused, or the page waits for the
+person as before. On the mapped IdP's origin reached this way no SSO flow runs, since a
+flow starts only from a pressed entry of the site: the IdP item's own login runs there
+as when the person opens that page. That is the agent's choice, keeping existing
+behavior, and not part of the owner's decision.
 
 ## Known limits 2026-11-16
 

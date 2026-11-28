@@ -2,6 +2,7 @@ import { ssoRefresh } from "./sso/moved";
 import { cancelSso, ssoAdmit } from "./sso/flow";
 import { offerSso } from "./sso/entry";
 import { endHandoffChoice } from "./sso-state";
+import { fenceHandoff } from "./sso/handoff";
 import {
   finishedLogin,
   recoverLoginAttempt,
@@ -565,10 +566,28 @@ export async function admit(
     ].includes(reason);
     if (ssoParent && ctx.document.origin === ssoParent.selected.origin && !passing)
       cancelSso(rt, ctx.document.tabId, "sso-idp-admission-stopped");
-    // A refused hand-off ends for good, as an SSO flow does (#1847).
+    // A refused hand-off ends for good, as an SSO flow does (#1847). One the page's recipe
+    // refused, as `sso-identifier:fills-other`, fences the page, so its next announcement
+    // waits for the person's entry choice instead of resolving the hand-off again; a pause,
+    // which ends, does not.
     const native = rt.sso.native.get(ctx.document.tabId);
-    if (native && sameLoginDocument(native.document, ctx.document) && !passing)
+    if (native && sameLoginDocument(native.document, ctx.document) && !passing) {
+      if (
+        native.handoff &&
+        native.attemptId === undefined &&
+        !ctx.manual &&
+        detail?.startsWith("sso-identifier:") &&
+        detail !== "sso-identifier:paused"
+      )
+        fenceHandoff(
+          rt,
+          ctx.document.tabId,
+          ctx.document.origin,
+          ctx.live.path,
+          `${reason}:${detail}`,
+        );
       endHandoffChoice(rt.sso, ctx.document.tabId);
+    }
     note(rt, ctx.document, ctx.live.url, reason, detail, unrelated, candidates);
     ctx.live.state = "denied";
     ctx.live.reason = reason;

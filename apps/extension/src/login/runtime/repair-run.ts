@@ -23,7 +23,7 @@ import {
 import { note, generateFor } from "./generation";
 import { restartForRequest } from "./passkey";
 import { listReadiness, listedNames, showsAnyMarker, shownTargets, showsNow } from "./markers";
-import { generationSlotsFor } from "./generation-scope";
+import { pageGenerationScope } from "./generation-scope";
 import { vaultMatches, generateEntryFor } from "./entry-press";
 import { tabAttempt } from "./hold";
 import { terminal } from "./attempt-state";
@@ -442,7 +442,7 @@ export async function sendRepair(
   const scope =
     kind === "entry"
       ? undefined
-      : await generationSlotsFor(rt, live, (reason) => {
+      : await pageGenerationScope(rt, live, (reason) => {
           missed = reason;
         }).catch(() => undefined);
   const matched = kind === "entry" ? await vaultMatches(rt, live).catch(() => undefined) : scope;
