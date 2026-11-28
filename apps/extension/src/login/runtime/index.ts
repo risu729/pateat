@@ -19,6 +19,7 @@ import {
   CHOICES_KEY,
   STOPPED_ASKS_KEY,
   SSO_CANCELS_KEY,
+  SSO_HANDOFFS_KEY,
   REJECTED_ASKS_KEY,
   ASK_FILLS_KEY,
   ENTRY_PRESSES_KEY,
@@ -273,6 +274,7 @@ function startRuntime(rt: Runtime) {
       REJECTED_ASKS_KEY,
       ASK_FILLS_KEY,
       SSO_CANCELS_KEY,
+      SSO_HANDOFFS_KEY,
       ENTRY_PRESSES_KEY,
       NOTED_KEY,
       RELOGINS_KEY,
@@ -316,6 +318,11 @@ function startRuntime(rt: Runtime) {
       stored[SSO_CANCELS_KEY] ?? [],
     );
     if (cancels.success) for (const entry of cancels.output) rt.ssoCancels.add(entry);
+    const handoffs = v.safeParse(
+      v.pipe(v.array(v.string()), v.maxLength(256)),
+      stored[SSO_HANDOFFS_KEY] ?? [],
+    );
+    if (handoffs.success) for (const entry of handoffs.output) rt.ssoHandoffs.add(entry);
     const counted = v.safeParse(
       v.pipe(v.array(reloginSchema), v.maxLength(256)),
       stored[RELOGINS_KEY] ?? [],

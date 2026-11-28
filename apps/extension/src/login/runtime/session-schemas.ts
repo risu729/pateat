@@ -81,6 +81,14 @@ export const CONFIG_KEY = "pateat.login-probe-origin.v1";
 export const SSO_CANCELS_KEY = "session:pateat.login-sso-cancels.v1";
 
 /**
+ * The pages an SSO item's hand-off typed its Username on (ADR 0085 amendment of
+ * 2026-11-28, #1847), as `${tabId} ${origin}${path}`: none of them hands off again by
+ * itself, also after a restart, until a login of the tab signs in or the person's own
+ * Log in now asks. The oldest go first.
+ */
+export const SSO_HANDOFFS_KEY = "session:pateat.login-sso-handoffs.v1";
+
+/**
  * The sign-in methods kept for each login that has not ended (ADR 0055, amended 2026-11-18),
  * so a restarted worker that ends a login, as when its watch runs out, still names them.
  */

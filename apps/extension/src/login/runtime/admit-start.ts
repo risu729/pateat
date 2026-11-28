@@ -1,6 +1,7 @@
 import { ssoChildOn } from "./sso-scope";
 import { registerSsoChild } from "./sso-state";
 import { bindNativeChoice } from "./sso/passkey-refused";
+import { fenceHandoff } from "./sso/handoff";
 import {
   onlyChoicesSince,
   attemptRouteChoice,
@@ -760,6 +761,9 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       { type: "RESOLVE" },
     );
     openSpans(rt, metadata.id);
+    // Its page hands off no more by itself, as after Back to it (#1847).
+    if (metadata.ssoHandoff)
+      fenceHandoff(rt, ctx.document.tabId, ctx.document.origin, ctx.live.path);
     // What the item holds and why the login takes its route, for its record (ADR 0055,
     // amended 2026-11-18): an SSO method only as the method chooser offered it (ADR 0085).
     const native = rt.sso.native.get(ctx.document.tabId);

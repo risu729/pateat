@@ -349,6 +349,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   const askFills = new Set<string>();
   /** Documents whose automatic SSO method offer the person cancelled (`SSO_CANCELS_KEY`). */
   const ssoCancels = new Set<string>();
+  /** The pages a hand-off typed on, by tab, origin and path (`SSO_HANDOFFS_KEY`). */
+  const ssoHandoffs = new Set<string>();
 
   /**
    * By `reloginKey`: when automatic logins of a site ended `authenticated` in the last
@@ -567,6 +569,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     rejectedAsks,
     askFills,
     ssoCancels,
+    ssoHandoffs,
     relogins,
     entryPresses,
     pressing,

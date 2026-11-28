@@ -26,7 +26,13 @@ export type SsoChoiceInput = {
    * the request's own that changes what it reads ends the request (`settings-changed`).
    */
   basis?: Saved;
-  native: { passkey: boolean; password: boolean };
+  /**
+   * The item's native routes. `handoff` (ADR 0085 amendment of 2026-11-28, #1847): the
+   * page asks for an identifier alone, so a mapped URL-form method that finds no entry
+   * there types the item's own Username and presses Continue instead of waiting. Never on
+   * the popup's wire.
+   */
+  native: { passkey: boolean; password: boolean; handoff?: boolean };
   /**
    * Explicit choices remain per offer; they never change a site or IdP default. `sso` is
    * **Log in now**'s: only an SSO method the automatic order decides runs by itself, and
@@ -66,7 +72,8 @@ export type SsoChoiceInput = {
   signal?: AbortSignal;
 };
 export type SsoResolvedChoice =
-  | { kind: "native"; route: "passkey" | "password" }
+  /** `handoff`: the automatic order's hand-off of a URL-form method (`native.handoff`). */
+  | { kind: "native"; route: "passkey" | "password"; handoff?: true }
   | { kind: "sso"; source: SsoSourceRef; selected: SsoIdpChoice; label?: string; entryId?: string };
 /**
  * How a method offer ended. An offer that waited for the person and ended unanswered
@@ -190,6 +197,7 @@ type ShownOffer = NonNullable<Extract<SsoResponse, { ok: true }>["offer"]>;
 /** What the popup sees: opaque candidate IDs and labels, no item ID or source reference. */
 export function shown(offer: Offer): ShownOffer {
   const connection = connectionFor(offer.saved, offer.input.account);
+  const { handoff: _handoff, ...native } = offer.input.native;
   return {
     id: offer.id,
     origin: offer.input.account.origin,
@@ -197,7 +205,7 @@ export function shown(offer: Offer): ShownOffer {
       connection?.items.find((item) => item.id === offer.input.account.itemId)?.label ??
       connection?.label ??
       "-",
-    ...offer.input.native,
+    ...native,
     methods: offer.methods.map(
       ({ source: _source, discovered: _discovered, stored, candidates: list, ...method }) => ({
         ...method,

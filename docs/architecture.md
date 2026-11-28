@@ -5145,6 +5145,22 @@ completes and is learned only once the tab was seen at the mapped origin, and en
 that is not paused and that a restarted worker forgot to announce again, and a cancelled
 automatic offer stays cancelled for its document (`pateat.login-sso-cancels.v1`)
 ([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
+Where no entry qualifies on a top page that asks for an identifier alone (no password
+field, exactly one field to fill), with `auto` sign-in, a site item whose own Username
+holds a value, and a mapping that passes the same validation (`mapping-required` still
+waits), the automatic choice and **Log in now**, where its hop is allowed, resolve a
+**hand-off** instead (`native.handoff` in, `handoff` on the native `password` route out,
+never on the popup's wire): the tab's native choice is marked `handoff`, so the
+item's login types its Username, presses Continue and stops
+([ADR 0036](adr/0036-passkey-after-the-identifier.md#amendment-a-hand-off-stops-after-the-identifier-2026-11-28-1847)).
+The page's recipe is generated or repaired, as for any page, for the item's `username`
+slot alone (`pageGenerationScope`). Once a hand-off started on a tab's page of an origin
+and path, that page hands off no more by itself, as after Back, until a login of the tab
+signs in or the person's **Log in now** asks (`pateat.login-sso-handoffs.v1`, session
+storage, the 256 newest, dropped when the tab closes). Otherwise the offer waits as
+before, its line naming why the page was no hand-off, as
+`entry-required:identifier:password-field`
+([ADR 0085, amended 2026-11-28](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-28-an-identifier-page-before-the-idp-entry)).
 A flow's RP return may land on another origin of the RP's registrable site, with its
 scheme, that is not the IdP's and that the RP item matches (`ssoReturnOrigin`; never for
 a `localhost` or IP RP); every other origin stays forbidden
