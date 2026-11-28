@@ -135,6 +135,7 @@ export function validateSsoPlan(
       return { ok: false, reason: "incompatible-role" };
     if (
       (candidate.role !== "button" && candidate.role !== "link") ||
+      candidate.overlaid ||
       !isLoginTarget(candidate.target)
     )
       return { ok: false, reason: "incompatible-role" };

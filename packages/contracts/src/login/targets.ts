@@ -311,14 +311,23 @@ export const loginStepSchema = v.variant("kind", [
        * Enter there does instead of clicking anything.
        */
       press: v.optional(v.literal("enter")),
+      /**
+       * For a click layer (ADR 0090): the text laid over it when the recipe was made, which
+       * it must still show when clicked.
+       */
+      shows: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(120))),
     }),
     v.check(
       (step) =>
-        step.press === undefined ||
+        (step.press === undefined && step.shows === undefined) ||
         (step.target.by !== "text" &&
           step.target.by !== "accessible-name" &&
           step.target.by !== "password-form-text"),
-      "Enter is pressed in a field",
+      "Enter is pressed in a field, and a click layer is located by an attribute",
+    ),
+    v.check(
+      (step) => step.press === undefined || step.shows === undefined,
+      "Enter is never pressed in a click layer",
     ),
   ),
   v.strictObject({

@@ -3045,6 +3045,13 @@ with that field as its target: the executor then submits the field's form as Ent
 through the form's default button or `requestSubmit()`, never through a default button
 that showed when the fill began, is disabled or sits outside the form
 ([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
+Beside fields outside every form with no button near them, the action may be a click
+layer: an empty element with a negative `tabindex` that sets the pointer cursor itself,
+named by the text laid over it in sibling layers, such as UNSW Endeavour's "log on"
+(`<div id="274:areaElement" tabindex="-1">` under a sibling `<div>` with the text). Its
+click step carries that text as `shows`, and the executor presses the layer only while
+it still shows that text
+([ADR 0090](adr/0090-click-layers-named-by-overlaid-text.md)).
 A form exposes each named control as a property that hides the form's own member of that
 name, inherited ones such as `contains`, `isConnected` or `getAttribute` too, and a
 document does the same with its named images, forms, embeds, objects and frames. So code
