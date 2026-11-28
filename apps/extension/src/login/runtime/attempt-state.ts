@@ -77,9 +77,12 @@ export const pastStop = (metadata: LoginAttemptMetadata, index: number) =>
 export const stopsPastPlan = (metadata: LoginAttemptMetadata) =>
   metadata.route === "password" && metadata.stopAt === metadata.stepCount;
 
-/** Whether the step in flight is the final `advance` that leads to such a stop. */
+/**
+ * Whether the step in flight is the final `advance` that leads to such a stop, or a
+ * hand-off's first `advance`, whose stop is the step after it (#1847).
+ */
 export const advancingToStop = (metadata: LoginAttemptMetadata) =>
-  stopsPastPlan(metadata) &&
+  (stopsPastPlan(metadata) || metadata.ssoHandoff === true) &&
   metadata.operationId !== undefined &&
   metadata.operationEffect === "advance" &&
   metadata.stepIndex + 1 === metadata.stopAt;

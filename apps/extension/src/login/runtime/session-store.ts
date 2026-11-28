@@ -1,4 +1,4 @@
-import { ssoChild } from "./sso-state";
+import { endHandoffChoice, ssoChild } from "./sso-state";
 import { parseAttemptMetadata, type LoginAttemptMetadata } from "@pateat/contracts";
 import { forgetConfirmProof, rememberConfirmAuthentication } from "./confirm-state";
 import { recordKey } from "./steps";
@@ -70,6 +70,9 @@ export async function keep(
   // Re-inserted, so the last record of a tab is the one it wrote last.
   rt.persisted.delete(key);
   rt.persisted.set(key, { ...next, changedAt: unchanged ? previous.changedAt : Date.now() });
+  // A hand-off that ended, on any path, ends its method choice (#1847).
+  if (metadata.ssoHandoff && terminal(metadata))
+    endHandoffChoice(rt.sso, metadata.document.tabId, metadata.id);
   await write(rt);
   if (
     !ssoChild(rt.sso, metadata) &&

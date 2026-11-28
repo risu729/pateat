@@ -126,6 +126,12 @@ export type SsoNativeChoice = {
   passkeyRefused?: true;
   /** The login this choice started: only its own refused passkey goes back to the chooser. */
   attemptId?: string;
+  /**
+   * A hand-off on the `password` route (ADR 0036 amendment of 2026-11-28, #1847): the SSO
+   * item's login types its account identifier on the site's page and presses Continue,
+   * stopping at the step after that advance (`ssoHandoff`).
+   */
+  handoff?: true;
 };
 /** Authority is memory-only. Persisted intents become interrupted holds after restart. */
 export function createSsoState() {
@@ -208,6 +214,20 @@ export function createSsoState() {
   };
 }
 export type SsoState = ReturnType<typeof createSsoState>;
+/**
+ * Ends the tab's hand-off method choice (`handoff`, #1847) for good: once the login it
+ * started, `attemptId`, ended, or once its document's admission was refused. A later
+ * announcement of that document, as after a back/forward-cache restore, then never runs
+ * the hand-off again.
+ */
+export function endHandoffChoice(state: SsoState, tabId: number, attemptId?: string): void {
+  const native = state.native.get(tabId);
+  if (
+    native?.handoff &&
+    (attemptId === undefined || native.attemptId === undefined || native.attemptId === attemptId)
+  )
+    state.native.delete(tabId);
+}
 export function registerSsoChild(
   state: SsoState,
   work: SsoWork,

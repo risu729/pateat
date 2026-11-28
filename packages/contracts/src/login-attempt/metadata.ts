@@ -231,6 +231,16 @@ export const attemptMetadataSchema = v.pipe(
      */
     passkeyButton: v.optional(v.literal(true)),
     /**
+     * A hand-off (ADR 0036 amendment of 2026-11-28, #1847): the login of an SSO item that
+     * types its account identifier on the site's own page and presses Continue, so the
+     * site sends the tab on to the identity provider. Its stop is the step after its
+     * route's first `advance` (`passwordStopOrMiss`); no step before it fills more than the
+     * `username` slot, read from the item's Username (`identifierStop`). It enters no
+     * handler, takes no other route, continues no recipe and answers or judges nothing at
+     * its stop. At its stop on the site it ends `challenge`, not watched.
+     */
+    ssoHandoff: v.optional(v.literal(true)),
+    /**
      * A `password` login that started at a later step of its variant, because its page
      * showed that step and none of the recipe's first steps (ADR 0049): that step's index,
      * where the route starts again after an answered passkey request falls back to it.
@@ -282,8 +292,16 @@ export const attemptMetadataSchema = v.pipe(
     "A login after the passkey button stops just past its layout's steps",
   ),
   v.check(
-    (metadata) => metadata.stopJudged === undefined || metadata.stopAt !== undefined,
-    "Only a login with a stop judges its stop's page",
+    (metadata) =>
+      (metadata.stopJudged === undefined || metadata.stopAt !== undefined) &&
+      (metadata.ssoHandoff === undefined ||
+        (metadata.route === "password" &&
+          metadata.stopAt !== undefined &&
+          metadata.identifierStop === true &&
+          metadata.handlers.length === 0 &&
+          metadata.stopJudged === undefined &&
+          metadata.passkeyButton === undefined)),
+    "Only a login with a stop judges its stop's page; a hand-off stops on its password route with nothing entered or judged",
   ),
   v.check(
     (metadata) =>

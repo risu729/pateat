@@ -37,7 +37,11 @@ past that layout's steps as rule 2 says, whether or not its item holds a passwor
 ends `challenge` there with the reason `passkey-button`. Amended on 2026-11-28
 ([below](#amendment-a-login-that-sent-only-its-identifier-2026-11-28), #1847; agent
 change, not confirmed by the owner): a login that sent only its identifier is never
-completed or judged on a move, and holds nothing once its tab leaves the origin.
+completed or judged on a move, and holds nothing once its tab leaves the origin. Amended
+again on 2026-11-28
+([below](#amendment-a-hand-off-stops-after-the-identifier-2026-11-28-1847), #1847, after
+the owner's decision of 07:42 UTC): an SSO item's hand-off login stops after the
+identifier's Continue, without a passkey.
 
 Date: 2026-10-13
 
@@ -527,3 +531,40 @@ for it outside its steps:
   a new tab does not send a second emailed code (owner, 2026-10-23); a site's own
   answer, such as `credential-rejected`, holds as before.
 - The badge is unchanged: `left-origin` still shows briefly as an unsettled result.
+
+## Amendment: a hand-off stops after the identifier (2026-11-28, #1847)
+
+The owner's decision of 2026-11-28 (07:42 UTC) lets a URL-form SSO item type its saved
+Username on a site's page that asks only for the account identifier and press Continue,
+so the site sends the tab on to the identity provider; the page's recipe may be
+generated for it on a first visit. That decision and how the SSO offer starts such a
+login belong to the offer, in [ADR 0026](0026-sign-in-through-identity-providers.md) and
+[ADR 0085](0085-one-item-for-native-and-sso-login.md). This amendment records the login
+itself, a **hand-off** (`ssoHandoff`), which the method choice marks (`handoff` on the
+tab's native choice):
+
+- **Its stop** (`passwordStopOrMiss` in hand-off mode) is the step after the route's
+  first `advance`, or just past it when that advance is the route's last step, whatever
+  the item holds: it needs no passkey and types no password even when the item has one.
+  Every step before the stop fills the `username` slot alone, read from the item's own
+  Username (`identifierStop`), and at least one does. As for any stop, a recipe with
+  alternatives, a step that fills a value the item lacks and a frame refuse it. A
+  refusal is `no-route` with an `sso-identifier:<why>` detail: `fills-other`,
+  `no-identifier` (as on a chooser's route, whose click on the list is its first
+  advance), `no-advance`, `alternatives`, `fills-lacking`, `username-field`, `frame`,
+  and `paused`, `sign-in-fill` or `fill-only` where the site's mode would only stop or
+  fill. The fill target is checked against the live document as for every plan.
+- **Nothing more.** It enters no handler, takes no `passkey` route, continues no recipe
+  and sends no page after its identifier to the judge or for a continuation; the
+  attempt's transitions refuse those events for it.
+- **At its stop on the site**, as when the site showed its own password page, it skips
+  the passkey wait, the passkey button and the stop's judge (rules 4 and 6): it ends
+  `challenge` with the reason `sso-identifier:same-site`, not watched, whatever the item
+  holds, and leaves the page to the person: the site asked for its own password, which a
+  URL-form SSO item does not have. Nothing more is filled or offered by it on that
+  document. Its tab leaving the origin ends it `left-origin` as the amendment above
+  says, holding nothing.
+- **Once.** The method choice that marked it ends with the login on every path, and when
+  the document's admission is refused, so a later announcement of that document, as
+  after a back/forward-cache restore, never runs the hand-off again; one whose login
+  already started is refused `sso-identifier:ended`.

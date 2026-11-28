@@ -30,6 +30,7 @@ import { registerPasswordStopGuards } from "../test/login-attempt/password-stop-
 import { registerPasswordStopPasskeys } from "../test/login-attempt/password-stop-passkeys";
 import { registerPasswordStopHolds } from "../test/login-attempt/password-stop-holds";
 import { registerPasswordStopContinuations } from "../test/login-attempt/password-stop-continuations";
+import { registerHandoffStop } from "../test/login-attempt/handoff-stop";
 import { registerLaterSteps } from "../test/login-attempt/later-steps";
 import { registerAttemptTiming } from "../test/login-attempt/timing";
 import { registerLayoutChanges } from "../test/login-attempt/layouts";
@@ -212,6 +213,8 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
   registerPasswordStopHolds({ top, emailFirst, create, advanced });
 
   registerPasswordStopContinuations({ document, top, id, emailFirst, create, answer });
+
+  registerHandoffStop({ top, create, advanced, answer });
 });
 
 registerLaterSteps({ facts, document, recipe, noTimeBefore });

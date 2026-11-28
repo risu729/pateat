@@ -26,12 +26,17 @@ import type { Runtime } from "./state";
  * observed as after a click, held while the sign-in form still shows for up to
  * `REQUEST_HOLD_MS`. A stop just past the plan's last step has no form of its own: its
  * page is held while it stays on the path the answer was given on. Without a request the
- * login ends `challenge`, watched, as `password-empty`.
+ * login ends `challenge`, watched, as `password-empty`. A hand-off ends at once
+ * (`endHandoff`).
  */
 export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<void> {
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   const stopped = () => current(rt, run) && run.metadata.state === "ready" && atStop(run.metadata);
   if (!(await allowed(rt, run)) || !stopped()) return;
+  if (run.metadata.ssoHandoff) {
+    await endHandoff(rt, run);
+    return;
+  }
   // A request of a path its page moved away from in place is handed on, never answered
   // (ADR 0034 amendment of 2026-11-17).
   let parked = await requestOnItsPath(rt, run.live.document);
@@ -139,6 +144,27 @@ export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<v
     run.answeredAt = Date.now();
   }
   await reconcileBounded(rt, run);
+}
+
+/**
+ * A hand-off at its stop on the site's own origin, as when the site showed its password
+ * page after the identifier rather than sending the tab on to the identity provider (ADR
+ * 0036 amendment of 2026-11-28, #1847): it waits for no passkey request, presses no
+ * handler and sends no page to the judge. It ends `challenge`, not watched, as
+ * `sso-identifier:same-site`, whatever the item holds, and leaves the page to the person:
+ * the site asked for its own password, which the SSO item does not hold. Its method
+ * choice ends with it (`endHandoffChoice`), so nothing more is filled or offered by it.
+ */
+async function endHandoff(rt: Runtime, run: Execution): Promise<void> {
+  await change(
+    rt,
+    run,
+    { type: "OBSERVED", result: "challenge", document: run.live.document },
+    undefined,
+    undefined,
+    undefined,
+    "sso-identifier:same-site",
+  );
 }
 
 /**

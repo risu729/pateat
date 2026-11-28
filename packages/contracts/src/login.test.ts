@@ -18,6 +18,7 @@ import {
   registerHandlerOperations,
 } from "../test/login/handler-validation";
 import { registerHandlerContinuations } from "../test/login/handler-continuations";
+import { registerHandoffRoute } from "../test/login/handoff-stop";
 import {
   registerPasswordVariants,
   registerPasskeyRoute,
@@ -152,6 +153,8 @@ registerChooserPasskey({ recipe });
 registerRecipeLayouts({ recipe, document });
 
 registerPasswordStop();
+
+registerHandoffRoute();
 
 registerLaterStartSteps();
 

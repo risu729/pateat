@@ -193,6 +193,15 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     return planned;
   };
 
+  // A hand-off runs once per method choice (#1847): its document never starts it again.
+  const handoff = rt.sso.native.get(ctx.document.tabId);
+  if (
+    !ctx.previous &&
+    handoff?.handoff &&
+    handoff.attemptId !== undefined &&
+    sameLoginDocument(handoff.document, ctx.document)
+  )
+    return ctx.refuse("no-route", "sso-identifier:ended");
   let plan = await planOf(ctx.recipe, ctx.later);
 
   if (!plan) return { ok: false, reason: "stale-document" };
@@ -739,6 +748,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         ...("identifierStop" in plan && plan.identifierStop === true
           ? { identifierStop: true }
           : {}),
+        // A hand-off stops after its identifier (ADR 0036 amendment of 2026-11-28).
+        ...("handoff" in plan && plan.handoff === true ? { ssoHandoff: true } : {}),
         ...(startAt === undefined ? {} : { startAt }),
         ...(startAt !== undefined && ctx.later?.partial.has(`${startVariant}:${startAt}`)
           ? { startPartial: true }
