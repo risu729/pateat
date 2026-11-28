@@ -647,19 +647,6 @@ export async function admit(
       !(await loginRelated(rt, ctx.document.tabId, ctx.document.frameId, ctx.document.origin)),
     );
 
-  // A page a **Fill** press sent for generation starts no login, SSO included (ADR 0035).
-  // A login the tab's move ends below still ends first, so the hold answers after it.
-  const pressed = await pressHold(rt, ctx);
-  // Nor does SSO admission take the announcement a press asked for: the press is admitted
-  // with the tab's record (`admitConfirm`), also after a move ended a login.
-  if (!pressed && !confirmPickFor(rt, ctx.live)) {
-    const sso = await ssoAdmit(rt, ctx);
-    if (sso) return sso;
-    const offeredSso = await offerSso(rt, ctx);
-    if (offeredSso) return offeredSso;
-  }
-  const holder = tabAttempt(rt, ctx.document.tabId);
-
   /** Logs why a move of `record` did not complete it, or that it was kept (ADR 0022). */
   const reportMove = (record: LoginAttemptMetadata, reason: MoveMiss, kept?: true) =>
     report(rt, ctx.document, {
@@ -713,45 +700,12 @@ export async function admit(
     return undefined;
   };
 
-  if (
-    frameMoved &&
-    holder?.id === frameMoved.id &&
-    !terminal(holder) &&
-    holder.document.frameId !== 0 &&
-    ctx.document.frameId === 0
-  ) {
-    // The page around a frame's login was replaced right after its step or during its
-    // watch, as by a sign-in in a frame that hands its result to its page (ADR 0086): the
-    // new page completes the login when its URL matches the login's item and it reads as
-    // signed in, as a top-level login's move to another origin of the site does (ADR
-    // 0022). Otherwise the login ends without resubmitting, as before (ADR 0017).
-    const check = signedInAfterFrame(rt, holder, ctx.live);
-    rt.siteMoves.set(ctx.document.tabId, check);
-    let signedIn: boolean;
-    try {
-      signedIn = await check;
-    } finally {
-      if (rt.siteMoves.get(ctx.document.tabId) === check) rt.siteMoves.delete(ctx.document.tabId);
-    }
-    if (rt.hellos.get(helloKey) !== sequence || rt.documents.get(ctx.key) !== ctx.live)
-      return { ok: false, reason: "stale-document" };
-    const run = rt.attempts.get(ctx.document.tabId);
-    const latest = run?.metadata ?? tabAttempt(rt, ctx.document.tabId);
-    if (latest?.id === holder.id && !terminal(latest)) {
-      // A page that went away before it could be read leaves the login to the tab's next
-      // page, which must still come within the same bounds.
-      if (ctx.live.moveMiss === "page-gone") {
-        reportMove(holder, ctx.live.moveMiss, true);
-        return { ok: false, reason: "stale-document" };
-      }
-      if (!signedIn && ctx.live.moveMiss) reportMove(holder, ctx.live.moveMiss);
-      if (rt.leftFrames.get(ctx.document.tabId) === holder.id)
-        rt.leftFrames.delete(ctx.document.tabId);
-      const refusal = await endMove(run, latest, ctx.document, signedIn);
-      if (refusal) return refusal;
-    }
-    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-  } else if (holder && !terminal(holder) && holder.document.frameId === 0 && leftSite(holder)) {
+  /**
+   * Ends `holder`, a top-level attempt on a site the tab left, on this page or a frame of
+   * it, unless the move completes it or a page that asks for a passkey holds it (ADR
+   * 0022). Returns the answer that ends this admission, if any.
+   */
+  const endLeft = async (holder: LoginAttemptMetadata): Promise<Readiness | undefined> => {
     // The tab's page moved to another origin: the attempt there ends without
     // resubmitting and keeps its record, and this page or its frame may start its own.
     // A frame stands for the tab's page, which left the attempt's origin. A move to a
@@ -871,6 +825,79 @@ export async function admit(
       if (refusal) return refusal;
     }
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    return undefined;
+  };
+
+  // A page a **Fill** press sent for generation starts no login, SSO included (ADR 0035).
+  // A login the tab's move ends below still ends first, so the hold answers after it.
+  const pressed = await pressHold(rt, ctx);
+  // Nor does SSO admission take the announcement a press asked for: the press is admitted
+  // with the tab's record (`admitConfirm`), also after a move ended a login.
+  if (!pressed && !confirmPickFor(rt, ctx.live)) {
+    // A top page of another origin first ends the login the tab left, so that login does
+    // not hold the page's own SSO offer, as a broker page's provider entry (ADR 0022,
+    // amended 2026-11-28). An SSO flow reads its own pages first (`ssoAdmit`).
+    await rt.sso.loaded;
+    const left = tabAttempt(rt, ctx.document.tabId);
+    if (
+      ctx.document.frameId === 0 &&
+      !rt.sso.flows.has(ctx.document.tabId) &&
+      left &&
+      !terminal(left) &&
+      left.document.frameId === 0 &&
+      leftSite(left)
+    ) {
+      const ended = await endLeft(left);
+      if (ended) return ended;
+    }
+    const sso = await ssoAdmit(rt, ctx);
+    if (sso) return sso;
+    const offeredSso = await offerSso(rt, ctx);
+    if (offeredSso) return offeredSso;
+  }
+  const holder = tabAttempt(rt, ctx.document.tabId);
+
+  if (
+    frameMoved &&
+    holder?.id === frameMoved.id &&
+    !terminal(holder) &&
+    holder.document.frameId !== 0 &&
+    ctx.document.frameId === 0
+  ) {
+    // The page around a frame's login was replaced right after its step or during its
+    // watch, as by a sign-in in a frame that hands its result to its page (ADR 0086): the
+    // new page completes the login when its URL matches the login's item and it reads as
+    // signed in, as a top-level login's move to another origin of the site does (ADR
+    // 0022). Otherwise the login ends without resubmitting, as before (ADR 0017).
+    const check = signedInAfterFrame(rt, holder, ctx.live);
+    rt.siteMoves.set(ctx.document.tabId, check);
+    let signedIn: boolean;
+    try {
+      signedIn = await check;
+    } finally {
+      if (rt.siteMoves.get(ctx.document.tabId) === check) rt.siteMoves.delete(ctx.document.tabId);
+    }
+    if (rt.hellos.get(helloKey) !== sequence || rt.documents.get(ctx.key) !== ctx.live)
+      return { ok: false, reason: "stale-document" };
+    const run = rt.attempts.get(ctx.document.tabId);
+    const latest = run?.metadata ?? tabAttempt(rt, ctx.document.tabId);
+    if (latest?.id === holder.id && !terminal(latest)) {
+      // A page that went away before it could be read leaves the login to the tab's next
+      // page, which must still come within the same bounds.
+      if (ctx.live.moveMiss === "page-gone") {
+        reportMove(holder, ctx.live.moveMiss, true);
+        return { ok: false, reason: "stale-document" };
+      }
+      if (!signedIn && ctx.live.moveMiss) reportMove(holder, ctx.live.moveMiss);
+      if (rt.leftFrames.get(ctx.document.tabId) === holder.id)
+        rt.leftFrames.delete(ctx.document.tabId);
+      const refusal = await endMove(run, latest, ctx.document, signedIn);
+      if (refusal) return refusal;
+    }
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+  } else if (holder && !terminal(holder) && holder.document.frameId === 0 && leftSite(holder)) {
+    const ended = await endLeft(holder);
+    if (ended) return ended;
   } else if (
     holder &&
     !terminal(holder) &&

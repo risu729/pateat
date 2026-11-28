@@ -644,6 +644,11 @@ The rest of this section is the agent's choice, not confirmed by the owner:
   pressed once more for the old one: the flow stops on the other provider's origin
   (`sso-forbidden-origin`) without releasing anything, and the record keeps the old
   origin until a flow reaches the new one.
+- **After a login of the site** (2026-11-28,
+  [#1847](https://github.com/risu729/pateat/issues/1847)). A broker page that a login's
+  step sent the tab to now ends that login, as any move to another origin does, before
+  its offer runs, so the login no longer keeps the page from pressing its entry
+  ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
 
 ## Amendment 2026-11-18: an RP return on another origin of the same site
 
