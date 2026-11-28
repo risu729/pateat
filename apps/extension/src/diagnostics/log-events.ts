@@ -520,6 +520,8 @@ export const LOG_EVENTS = {
       completed: "flag",
       disabledLeftOut: "flag",
       notCompleted: "code",
+      // Why a page with nothing to describe did not complete the login (ADR 0029).
+      emptyMiss: "code",
       moved: "flag",
       // `password` for the page of a login's stop before its item's missing password (ADR 0036).
       stop: "code",

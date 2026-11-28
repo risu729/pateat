@@ -437,6 +437,8 @@ describe("production login document admission", () => {
           route: "password",
           verdict: "not-sent",
           reason,
+          // A page with nothing to describe says why it did not complete (ADR 0029).
+          ...(reason === "no-candidates" ? { emptyMiss: "reading" } : {}),
         });
       },
       10_000,

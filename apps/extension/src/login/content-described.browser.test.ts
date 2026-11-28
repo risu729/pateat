@@ -84,6 +84,20 @@ describe("the watch for a page that described nothing", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(reports()).toHaveLength(1);
   });
+  it("says so once the page draws only click layers, as Endeavour's chooser", async () => {
+    // ADR 0029 amendment of 2026-11-28: a page of click layers only may complete the login.
+    const token = await open(`<main><p>Loading</p></main>`);
+    command({ version: 1, type: "login.extract.watch", token, timeoutMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reports()).toEqual([]);
+    document.querySelector("main")!.innerHTML =
+      `<div tabindex="-1" style="position:absolute;left:10px;top:10px;width:100px;height:20px">
+        <div tabindex="-1" style="position:absolute;inset:0;cursor:pointer"></div>
+        <div tabindex="-1" style="position:absolute;inset:0;pointer-events:none">exit</div>
+      </div>`;
+    await vi.advanceTimersByTimeAsync(200);
+    expect(reports()).toEqual([{ version: 1, type: "login.document.described", token }]);
+  });
   it("says it at once for a page that already shows something", async () => {
     const token = await open(`<main><button type="button" id="verify">Verify</button></main>`);
     command({ version: 1, type: "login.extract.watch", token, timeoutMs: 60_000 });

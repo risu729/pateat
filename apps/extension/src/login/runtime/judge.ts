@@ -21,7 +21,7 @@ import type { ServiceTiming } from "../../service/transport";
 import { DESCRIBED_WATCH_MAX_MS, extractResultSchema } from "../wire";
 import { observedPath } from "../../observation/path";
 import {
-  emptyPageCompletes,
+  emptyPageMiss,
   judgedCompletionResult,
   settleCompletion,
   undecidedCandidate,
@@ -51,7 +51,13 @@ import type { Runtime } from "./state";
  * only for a temporary refusal before any model call.
  */
 /** Logs why the page was not sent to the judge, as a code: never page text. */
-export function notJudged(rt: Runtime, run: Execution, reason: string): false {
+export function notJudged(
+  rt: Runtime,
+  run: Execution,
+  reason: string,
+  /** Why a page with nothing to describe did not complete the login (ADR 0029). */
+  { emptyMiss }: { emptyMiss?: string } = {},
+): false {
   report(rt, run.live.document, {
     type: "judge",
     tabId: run.live.document.tabId,
@@ -61,6 +67,7 @@ export function notJudged(rt: Runtime, run: Execution, reason: string): false {
     route: run.metadata.route,
     verdict: "not-sent",
     reason,
+    ...(emptyMiss ? { emptyMiss } : {}),
     ...(run.metadata.watch ? { watched: true as const } : {}),
   });
   return false;
@@ -190,8 +197,12 @@ export async function describeForJudge(
  * shows only click layers (`layersOnly`), in the top document its own step ran in, on a
  * sign-in path of its route (`signInPath`), once none of the route's sign-in inputs
  * (`fills`) is found there even hidden and a fresh reading on the same path still shows
- * no sign of a sign-in going on (ADR 0029 amendment of 2026-11-28). Returns whether it
- * settled or the run was superseded.
+ * no sign of a sign-in going on (ADR 0029 amendment of 2026-11-28). A login whose result
+ * settled as unknown in that same document, on the page before it was drawn, is read so
+ * once the document says it shows only click layers, as Endeavour's chooser drawn eleven
+ * seconds after "log on" (Real Chrome, 2026-11-28 07:44 UTC); any other watched login is
+ * not. Returns `true` when it settled or the run was superseded, else the first condition
+ * that did not hold, for the log.
  */
 async function emptyPageCompleted(
   rt: Runtime,
@@ -200,17 +211,24 @@ async function emptyPageCompleted(
   signInPath: boolean,
   fills: LoginMarkerTarget[],
   { layersOnly, path }: { layersOnly: boolean; path: string },
-): Promise<boolean> {
+): Promise<true | string> {
+  const { watch } = run.metadata;
+  // The login's result settled as unknown on this document's empty page (ADR 0027).
+  const settledHere =
+    run.metadata.state === "reconciling" &&
+    run.metadata.settled === true &&
+    watch?.documentId === run.live.document.documentId;
   const policy = {
     reading,
-    watched: run.metadata.watch !== undefined,
+    watched: watch !== undefined && !settledHere,
     stopAt: run.metadata.stopAt,
     sent: credentialSent(rt, run) || passkeyStepAnswered(rt, run),
     ownDocument: run.live.document.frameId === 0 && inOwnStepDocument(rt, run),
     signInPath,
     layersOnly,
   };
-  if (!emptyPageCompletes({ ...policy, fieldsGone: true })) return false;
+  const early = emptyPageMiss({ ...policy, fieldsGone: true });
+  if (early) return early;
   // Every copy, hidden or not, as several hidden copies would otherwise read as none.
   const kept = fills.length
     ? await observe(
@@ -225,10 +243,12 @@ async function emptyPageCompleted(
   const fieldsGone =
     kept !== undefined &&
     kept.targets.every((state) => state === "missing" || state === "unusable");
-  if (!emptyPageCompletes({ ...policy, fieldsGone })) return false;
+  const late = emptyPageMiss({ ...policy, fieldsGone });
+  if (late) return late;
   const again = await readSignInState(rt, run);
   if (!current(rt, run)) return true;
-  if (!settleCompletion({ completes: true, stopHeld: false, again, path }).completes) return false;
+  if (!settleCompletion({ completes: true, stopHeld: false, again, path }).completes)
+    return "again";
   report(rt, run.live.document, {
     type: "judge",
     tabId: run.live.document.tabId,
@@ -546,9 +566,17 @@ export async function learn(
   if ("unsent" in described) {
     if (!besideCandidate && described.unsent === "no-candidates") {
       const empty = { layersOnly: described.layersOnly === true, path: remaining.path };
-      if (await emptyPageCompleted(rt, run, reading, paths.includes(remaining.path), fills, empty))
-        return true;
+      const miss = await emptyPageCompleted(
+        rt,
+        run,
+        reading,
+        paths.includes(remaining.path),
+        fills,
+        empty,
+      );
+      if (miss === true) return true;
       watchDescribed(rt, run);
+      return notJudged(rt, run, described.unsent, { emptyMiss: miss });
     }
     return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
   }

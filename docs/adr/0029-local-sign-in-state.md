@@ -1213,8 +1213,14 @@ login ends as a success without confirmation):
   - The sign-in state reads, confirmed, no sign (S1 to S5) and no evidence.
   - The attempt's credential went back, as for an undecided page (amendment of
     2026-11-08).
-  - The login is not watched and has no stop before a missing password
-    ([ADR 0036](0036-passkey-after-the-identifier.md)).
+  - The login has no stop before a missing password
+    ([ADR 0036](0036-passkey-after-the-identifier.md)), and it is not watched, except
+    when its result settled as unknown in this same document (state `reconciling`,
+    `settled`, the watch begun in this document): such a page is read again once the
+    document says it shows something, and that report now also comes when it shows only
+    click layers (`describesNothingYet` in `apps/extension/src/login/content-dom.ts`).
+    Any other watched login, as one at `challenge` or on a later page, is not completed
+    this way.
   - The page leaves out no field, no radio button, select or text area, and nothing that
     makes its description incomplete (no `gap`, no `disabledLeftOut`, no
     `inputLeftOut`), shows no checkbox, and shows at least one click layer named by its
@@ -1239,12 +1245,22 @@ login ends as a success without confirmation):
     label, cannot be counted.
   - A fresh reading of the sign-in state, taken at once, has loaded on the same path and
     still shows no sign of a sign-in going on.
-- The log has `recipe.judge` `not-sent` `no-candidates` with `completed: true`. The
+- The log has `recipe.judge` `not-sent` `no-candidates` with `completed: true`. A page
+  that did not complete says why in `emptyMiss`, the first condition that did not hold
+  (`reading`, `watched`, `stop`, `unsent`, `document`, `path`, `layers`, `fields`, or
+  `again` for the fresh reading). The
   unconfirmed completion keeps the amendment of 2026-10-14's consequences: no account
   choice is saved, the badge shows the unsettled state and no marker is learned.
 - Any other page that describes nothing keeps the earlier rule: it is not sent, the
   document is asked to say once it shows something (ADR 0027 amendment of 2026-11-04),
   and the login settles as unknown.
+
+Follow-up (agent's, the same day): in Real Chrome on build 05e8c5c (07:44 UTC) the page
+was read 4.7 seconds after "log on", before Endeavour drew its chooser at 07:44:51, so
+it was not yet a page of click layers. The login settled as unknown, and the document's
+report that the page shows something never came, since the chooser describes nothing.
+The settled-unknown exception above and the report of a page of click layers only were
+added for it, with `emptyMiss` to tell the conditions apart in the log.
 
 Consequences: on Endeavour a reload after such a completion reads as a logout and logs
 in again, within the limit of [ADR 0062](0062-log-in-again-after-a-logout.md). A

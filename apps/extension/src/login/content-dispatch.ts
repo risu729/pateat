@@ -60,7 +60,7 @@ import {
   pause,
   credentialInputs,
   showsNothing,
-  describesNothing,
+  describesNothingYet,
 } from "./content-dom";
 import { executeNative } from "./content-execute";
 import { codePageDigest } from "../page/code-page";
@@ -631,7 +631,9 @@ export function createContentListener(context: ContentSession) {
           const checked = Date.now();
           // With `shown`, until the page no longer shows nothing, by the rule of the
           // `signIn` reading's `blank` (ADR 0026, amendment of 2026-11-20).
-          const empty = command.shown ? showsNothing() : describesNothing();
+          // A page of click layers only is reported too, as it may complete the login
+          // unconfirmed (ADR 0029 amendment of 2026-11-28).
+          const empty = command.shown ? showsNothing() : describesNothingYet();
           if (stopped()) return;
           if (!empty) {
             await sendMessage("login", {

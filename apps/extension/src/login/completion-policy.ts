@@ -100,16 +100,35 @@ export function emptyPageCompletes({
   fieldsGone: boolean;
 }): boolean {
   return (
-    reading?.confirmed === true &&
-    reading.decision === "judge" &&
-    !watched &&
-    stopAt === undefined &&
-    sent &&
-    ownDocument &&
-    signInPath &&
-    layersOnly &&
-    fieldsGone
+    emptyPageMiss({
+      reading,
+      watched,
+      stopAt,
+      sent,
+      ownDocument,
+      signInPath,
+      layersOnly,
+      fieldsGone,
+    }) === undefined
   );
+}
+
+/**
+ * The first condition of `emptyPageCompletes` that does not hold, for the log, or nothing
+ * when the page completes the login (ADR 0029 amendment of 2026-11-28).
+ */
+export function emptyPageMiss(page: Parameters<typeof emptyPageCompletes>[0]) {
+  const misses = [
+    ["reading", page.reading?.confirmed === true && page.reading.decision === "judge"],
+    ["watched", !page.watched],
+    ["stop", page.stopAt === undefined],
+    ["unsent", page.sent],
+    ["document", page.ownDocument],
+    ["path", page.signInPath],
+    ["layers", page.layersOnly],
+    ["fields", page.fieldsGone],
+  ] as const;
+  return misses.find(([, holds]) => !holds)?.[0];
 }
 
 /**

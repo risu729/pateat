@@ -209,14 +209,13 @@ export function afterOwnStep(rt: Runtime, run: Execution): boolean {
 }
 
 /**
- * Whether the login reads the document its own effect step ran in, in the step's frame,
- * while it is not watched (ADR 0029 amendment of 2026-11-28). Without the step in memory,
- * as after a worker restart, it is not.
+ * Whether the login reads the document its own effect step ran in, in the step's frame
+ * (ADR 0029 amendment of 2026-11-28), watched or not. Without the step in memory, as after
+ * a worker restart, it is not.
  */
 export function inOwnStepDocument(rt: Runtime, run: Execution): boolean {
   const effect = rt.effects.get(run.live.document.tabId);
   return (
-    run.metadata.watch === undefined &&
     effect?.attemptId === run.metadata.id &&
     effect.document.frameId === run.live.document.frameId &&
     sameLoginDocument(effect.document, run.live.document)
