@@ -1,4 +1,5 @@
 import type { LoginAttemptMetadata } from "./login-attempt/metadata";
+import { identifierOnly } from "./login-attempt/policy";
 
 /**
  * A login Pateat itself stopped with nothing in flight: a withdrawn authorization, a
@@ -52,6 +53,14 @@ export const holdsOrigin = (entry: LoginAttemptMetadata) =>
     (entry.outcome === "interrupted" || entry.outcome === "left-origin") &&
     !entry.submissions &&
     !pressing(entry)
+  ) &&
+  // Nor does one that sent nothing but its account identifier, as one that stops before
+  // its item's missing password (ADR 0036): the site was given no credential to answer, so
+  // another tab's login cannot add to one (#1847, widening the owner's rule of 2026-11-09).
+  !(
+    entry.state === "blocked" &&
+    (entry.outcome === "interrupted" || entry.outcome === "left-origin") &&
+    identifierOnly(entry)
   ) &&
   !stoppedByPateat(entry);
 

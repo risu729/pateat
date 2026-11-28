@@ -11,6 +11,7 @@ import {
   fillLoginBinding,
   findLoginBinding,
   heldRouteMissing,
+  identifierOnlyBefore,
   loginFieldFacts,
   loginFieldSource,
   loginDisplayNames,
@@ -845,6 +846,18 @@ export async function planFor(
         ? { miss: "password-field" as const }
         : result;
     };
+    /** The stop, marked when the steps before it type only the identifier (#1847). */
+    const stopped = (
+      slots: Parameters<typeof identifierOnlyBefore>[3],
+      item: Parameters<typeof identifierOnlyBefore>[4],
+      route: LoginRouteChoice,
+      stop: number,
+    ) => ({
+      stopAt: stop,
+      ...(identifierOnlyBefore(recipe, route, stop, slots, item)
+        ? { identifierStop: true as const }
+        : {}),
+    });
     // Variants are tried in recipe order and the first that fits stops the search, so the
     // facts and the generated map are read once.
     /* eslint-disable no-await-in-loop */
@@ -888,7 +901,12 @@ export async function planFor(
                 passwordSlots,
                 lacking.map(({ slot }) => slot),
               );
-        if (stop && "stop" in stop) return { ...resolved, facts: known, stopAt: stop.stop };
+        if (stop && "stop" in stop)
+          return {
+            ...resolved,
+            facts: known,
+            ...stopped(resolved.binding.slots, item, route, stop.stop),
+          };
         refusals[index] = "no-route";
         missing[index] =
           unheld !== "login.password" ? "no-totp" : stop ? `${miss}:${stop.miss}` : miss;
@@ -923,7 +941,12 @@ export async function planFor(
           item?.fields.find((field) => field.id === fieldId)?.kind === "hidden",
       );
       const stop = stopOrMiss(route, miss, known, [], [], passwordField);
-      if (stop && "stop" in stop) return { ...resolved, facts: known, stopAt: stop.stop };
+      if (stop && "stop" in stop)
+        return {
+          ...resolved,
+          facts: known,
+          ...stopped(resolved.binding.slots, item, route, stop.stop),
+        };
       missing[index] = stop ? `${miss}:${stop.miss}` : miss;
       break;
     }

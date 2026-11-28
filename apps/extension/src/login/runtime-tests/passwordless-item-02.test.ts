@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  holdsOrigin,
   laterStartSteps,
   parseLoginRecipe,
   type LocalSettings,
+  type LoginAttemptMetadata,
   type LoginStep,
 } from "@pateat/contracts";
 import type { LoginGeneration } from "../runtime/deps";
@@ -315,16 +317,23 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       });
       await visit(h, `${origin}/home`, "home-document");
       expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      // The answer given there was a credential step: the login holds its origin (#1847).
+      expect(status()![0]).toMatchObject({ maybeAnswered: true });
+      expect(holdsOrigin(status()![0] as unknown as LoginAttemptMetadata)).toBe(true);
     });
     it("ends left-origin when nothing answered there", async () => {
       const { h } = await asked();
       await visit(h, `${origin}/home`, "home-document");
       expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      // Only the identifier went out, so nothing holds its origin (#1847).
+      expect(status()![0]).not.toHaveProperty("maybeAnswered");
+      expect(holdsOrigin(status()![0] as unknown as LoginAttemptMetadata)).toBe(false);
     });
     it("ends left-origin on a quiet page of the other site that asks for nothing", async () => {
       const { h, report } = await moved();
       await visit(h, `${auth}/welcome`, "auth-document");
       expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      expect(holdsOrigin(status()![0] as unknown as LoginAttemptMetadata)).toBe(false);
       expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
         expect.objectContaining({ type: "move", origin: auth, reason: "no-factor" }),
       );

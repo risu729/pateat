@@ -4,6 +4,7 @@ import { fillOnlyStep } from "../login-attempt-steps";
 import { MAX_ATTEMPT_SUBMISSIONS } from "../login-attempt/schema-primitives";
 import type { LoginAttemptMetadata } from "../login-attempt/metadata";
 import { holdsOrigin } from "../login-attempt-hold";
+import { identifierOnly } from "../login-attempt/policy";
 import {
   continuesRecipe,
   extendsRecipe,
@@ -558,6 +559,8 @@ function broken(
     ) &&
     ["awaiting-result", "reconciling"].includes(from.state) &&
     from.fillOnly !== true &&
+    // Nor does a login that sent only its account identifier, whose tab left (#1847).
+    !(["left-origin", "interrupted"].includes(to.outcome ?? "") && identifierOnly(to)) &&
     // As the machine takes it back: only the operation in flight, before the page took it.
     !(event["undelivered"] === from.operationId && from.state === "reconciling");
   if (delivered && to.state === "blocked" && !holdsOrigin(to))

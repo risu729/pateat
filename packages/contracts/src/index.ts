@@ -109,7 +109,7 @@ export * from "./login-attempt/events";
 export * from "./login-attempt/machine";
 export * from "./login-attempt/metadata";
 export * from "./login-attempt/operations";
-export { watchedAtStop } from "./login-attempt/policy";
+export { identifierOnly, watchedAtStop } from "./login-attempt/policy";
 export {
   attemptTimingSchema,
   type AttemptTiming,

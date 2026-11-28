@@ -6,6 +6,7 @@ import {
   extendsRecipe,
   handlerSlots,
   loginFieldSource,
+  identifierOnlyBefore,
   loginStepEffect,
   passwordStopOrMiss,
   MAX_ATTEMPT_SUBMISSIONS,
@@ -658,6 +659,18 @@ export async function continueWith(
     run.stopMiss = stopAt;
     return refuse(`stop:${stopAt}`);
   }
+  // Whether the steps before that stop, the continued ones too, type only the identifier
+  // (#1847); entered handlers' steps already count as more.
+  const identifierStop =
+    stopAt !== undefined &&
+    run.metadata.handlers.length === 0 &&
+    identifierOnlyBefore(
+      next,
+      route,
+      stopAt,
+      plan.binding.slots,
+      plan.connection.items.find((entry) => entry.id === plan.account.itemId),
+    );
   const event: LoginAttemptEvent = {
     type: "CONTINUED",
     recipeRevision: next.revision,
@@ -668,6 +681,7 @@ export async function continueWith(
     }).length,
     document: run.live.document,
     ...(stopAt === undefined ? {} : { stopAt }),
+    ...(identifierStop ? { identifierStop: true as const } : {}),
     ...(replacesLast ? { replacesLast: true as const } : {}),
   };
   try {

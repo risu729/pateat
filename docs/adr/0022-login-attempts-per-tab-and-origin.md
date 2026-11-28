@@ -407,7 +407,10 @@ fix them now; the SSO policy itself is recorded separately.
   page of its tab or a page sent to be judged does not count, nor does a restarted
   worker finding it; a record without it does not hold), unless it is `authenticated`,
   ended `interrupted` or `left-origin` without any submission (`left-origin` since
-  2026-11-09, below), or ended `blocked` because Pateat itself
+  2026-11-09, below) or, since 2026-11-28 (#1847), after only the account identifier of
+  a login that stops before its item's missing password
+  ([ADR 0036](0036-passkey-after-the-identifier.md#amendment-a-login-that-sent-only-its-identifier-2026-11-28)),
+  or ended `blocked` because Pateat itself
   stopped it with nothing in flight: `policy-changed`, `value-mismatch`,
   `wrong-account`, `account-switched`, `retry-limit` (its retries spent on failures that
   changed nothing on the page; owner, 2026-10-12), or `cancelled` before any submission
@@ -513,7 +516,10 @@ fix them now; the SSO policy itself is recorded separately.
   submit by itself (a software keyboard's keys before its submit, or a TOTP code, ADR
   0067 and ADR 0027) still holds when the tab leaves while it runs, since a PIN pad may
   have submitted at its last key. The outcome stays
-  `left-origin`.
+  `left-origin`. Widened on 2026-11-28 (#1847, an agent's change applying this rule, not
+  confirmed by the owner separately): a login that sent nothing but its account
+  identifier before its stop (ADR 0036) holds nothing either, though its Next was a
+  submission, since no credential went to the site.
 - **Start a new attempt for every new page of another origin, even one the tab already
   tried.** Rejected: an identity provider that sends the tab back to the site with an
   error would make both origins submit again in turn.

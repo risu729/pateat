@@ -77,6 +77,7 @@ export function record(
         // its watch ends: it never signed in, so its first step showing again is no logout
         // (ADR 0027, 2026-10-13).
         return {
+          ...(event.answered ? { maybeAnswered: true as const } : {}),
           outcome:
             event.signedIn && maySignIn(context)
               ? "authenticated"
@@ -93,6 +94,7 @@ export function record(
     case "LEFT":
       // As a move to another origin without a sign-in confirmed there.
       return {
+        ...(event.answered ? { maybeAnswered: true as const } : {}),
         outcome: watched(context)
           ? context.outcome
           : !maySubmit(context)
@@ -197,6 +199,10 @@ export function record(
         // A stop past the plan moves to the continued steps; the submission kept for its
         // answer is kept only while the stop still lies past the plan's last step (ADR 0036).
         ...(event.stopAt === undefined ? {} : { stopAt: event.stopAt }),
+        identifierStop:
+          event.stopAt !== undefined && context.identifierStop && event.identifierStop
+            ? true
+            : undefined,
         maxSubmissions:
           context.maxSubmissions +
           event.effects -

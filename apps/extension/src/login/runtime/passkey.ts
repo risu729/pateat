@@ -200,8 +200,10 @@ export function retryAfterPasskey(rt: Runtime, live: LiveDocument, answeredAt: n
  * completes it once it shows the account's username in its header or navigation (ADR
  * 0029: E2), or a signed-in marker learned on its origin, or is judged `signed-in` once
  * (`stepMoveFits`, `judgeMove`); a login that stops before its item's missing password
- * skips the username (ADR 0036). Any other page soon after the last effect step is only
- * read for a passkey request, which holds the login. Pateat fills and clicks nothing there.
+ * skips the username (ADR 0036), and one that sent nothing but its account identifier
+ * before such a stop is never signed in that way, nor is its page judged (#1847). Any
+ * other page soon after the last effect step is only read for a passkey request, which
+ * holds the login. Pateat fills and clicks nothing there.
  */
 export async function signedInByMove(
   rt: Runtime,
