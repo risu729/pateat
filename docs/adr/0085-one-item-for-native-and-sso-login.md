@@ -850,17 +850,29 @@ for this identifier step only.
 
 The rules below are the agent's, within that decision:
 
-- **When.** Only where the automatic order finds no entry for a URL-form method: an
-  entry whose destination is the mapped origin, one the page learned or one whose label
-  names the IdP still wins. The method must have its mapping, saved or the one item
-  discovery found, and pass the same validation as an entry's press, so
-  `mapping-required` and a refused validation still wait or refuse, and nothing is
-  typed. A bracket-form method is unchanged. The page must be the tab's top page, with
-  `auto` sign-in, not paused and not a private window that pauses, under the
-  repeated-login limit and the other guards of an automatic SSO start; the site item's
-  own Username must hold a value the account may fill; and the page's observation must
-  show no password field and exactly one field to fill
+- **When.** Only where the page shows no entry for the IdP at all: an entry whose
+  destination is the mapped origin, one the page learned or one whose label names the
+  IdP still wins, and a page where such entries are several, as two reaching the mapped
+  origin or two learned, or where the entries a label names cannot be pressed, as one
+  learned for another IdP or a link the flow never presses, still waits with
+  `entry-required` (`urlEntry` in `sso-choice.ts` answers `unusable`). The method must
+  have its mapping, saved or the one item discovery found, and pass the same validation
+  as an entry's press, so `mapping-required` and a refused validation still wait or
+  refuse, and nothing is typed. A bracket-form method is unchanged. The page must be the
+  tab's top page, with `auto` sign-in, not paused and not a private window that pauses,
+  under the repeated-login limit and the other guards of an automatic SSO start; the
+  site item's own Username must hold a value the account may fill; and the page's
+  observation must show no password field and exactly one field to fill
   (`handoffMiss` in `apps/extension/src/login/runtime/sso/handoff.ts`).
+- **The IdP's side.** A hand-off presses nothing a flow's scope checks, so the offer
+  checks the IdP's origin as `ssoScope` does before each press (`ssoPageAllowed` in
+  `sso-scope.ts`): allowed, not excluded, with `auto` sign-in, and not paused. Where it
+  is not, the offer waits as before, its line naming `idp-scope`.
+- **Decided on each announcement.** The hand-off choice is not kept for its document
+  until a login takes it up: a page whose admission passes on, as `form-not-ready` or
+  `recipe-not-found` while its recipe is generated, decides again on its next
+  announcement, so an entry for the IdP that shows later in the same document, as in a
+  modal, is pressed as usual, and a page that is no longer an identifier page waits.
 - **What it resolves.** The method choice (`native.handoff` in, never on the popup's
   wire) resolves the native `password` route marked `handoff`; the receipt validates the
   method's mapping again when consumed. The tab's native choice is marked `handoff`, and
@@ -873,21 +885,29 @@ The rules below are the agent's, within that decision:
   HCP's revision 3 whose first step's `ember9` now names a link, is sent for repair the
   same way ([ADR 0041](0041-repair-stale-recipes.md)), so a new revision is made.
 - **Never twice by itself.** Once a hand-off login started on a tab's page of an origin
-  and path, no document of that page hands off again by itself, as after Back or a
-  back/forward-cache restore, until a login of the tab signs in, an SSO flow's included
-  but not the IdP's own login inside one, or the person's **Log in now** asks
-  (`pateat.login-sso-handoffs.v1` in session storage, by tab, origin and path, the 256
-  newest, dropped when the tab closes). The agent chose signing in rather than reaching
-  the IdP to lift it: an IdP that sends a failed sign-in back to the site's identifier
-  page would otherwise type it again in a loop.
+  and path (`typed`), or the page's recipe refused the hand-off, as
+  `sso-identifier:fills-other` for a recipe that fills more than the Username before
+  Continue, no document of that page hands off again by itself, as after Back or a
+  back/forward-cache restore, until a login of that site in the tab signs in, an SSO
+  flow's included but not the IdP's own login inside one, or the person's **Log in now**
+  asks (`pateat.login-sso-handoffs.v1` in session storage, by tab, origin and path with
+  why, the 256 newest, dropped when the tab closes). Its next announcement waits for the
+  person's entry choice, its line naming why, as
+  `entry-required:identifier:no-route:sso-identifier:fills-other`; a pause, which ends,
+  fences nothing. A sign-in of another site in the same tab, by registrable domain,
+  keeps the fence. The agent chose signing in rather than reaching the IdP to lift it:
+  an IdP that sends a failed sign-in back to the site's identifier page would otherwise
+  type it again in a loop.
 - **The next page.** Leaving the origin ends the hand-off `left-origin`, holding
   nothing. A broker page where this item's SSO offer runs presses its entry as before,
   once the moved login ended
   ([ADR 0022 amendment of 2026-11-28](0022-login-attempts-per-tab-and-origin.md)). On
   the mapped IdP's own origin no SSO flow runs, since a flow starts only from a pressed
   RP entry: the IdP item's own login runs there as when the person opens that page, as
-  seen in the field, and nothing returns to the site through a flow. Any other page gets
-  nothing more.
+  seen in the field, and nothing returns to the site through a flow. That is the
+  agent's choice, keeping the behavior every IdP page already had, not part of the
+  owner's decision. Any other page gets nothing more.
 - **Why not.** Where the page is no hand-off, the offer waits for the person as before,
   and its line names why: `entry-required:identifier:<why>`, with `password-field`,
-  `fields`, `no-username`, `unread` or `typed`.
+  `fields`, `no-username`, `unread`, `idp-scope`, `typed` or the refusal that fenced the
+  page.

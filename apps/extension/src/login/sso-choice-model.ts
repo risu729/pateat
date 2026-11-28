@@ -39,7 +39,10 @@ export type SsoChoiceInput = {
    * the explicit chooser stays open otherwise (ADR 0088 amendment of 2026-11-18).
    */
   automatic?: boolean | "sso";
-  /** For `automatic: "sso"`: whether the request's scope reaches the IdP's origin. */
+  /**
+   * Whether the request's scope reaches the IdP's origin: for `automatic: "sso"`, and for
+   * an automatic hand-off (`native.handoff`), which never runs without it.
+   */
   hopAllowed?: (origin: string) => Promise<boolean>;
   /** An IdP hop can use only that account's native routes; never another SSO hop. */
   asIdentityProvider?: boolean;
@@ -82,7 +85,13 @@ export type SsoResolvedChoice =
  */
 export type SsoChoiceOutcome =
   | { ok: true; choiceId: string }
-  | { ok: false; reason: string; waited?: string };
+  | {
+      ok: false;
+      reason: string;
+      waited?: string;
+      /** Why the controller made the page no hand-off (`native.handoff`), as `idp-scope`. */
+      handoff?: string;
+    };
 export type Candidate = {
   id: string;
   selected: SsoIdpChoice;
@@ -117,6 +126,8 @@ export type Offer = {
   field?: string;
   methods: Method[];
   reason?: string;
+  /** Why the offer waits instead of handing off, for its log line. */
+  handoff?: string;
   choosing: boolean;
   settled?: boolean;
   ready?: boolean;

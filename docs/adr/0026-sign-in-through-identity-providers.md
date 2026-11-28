@@ -1020,9 +1020,12 @@ How the offer decides, and the fence that keeps a page from being typed on twice
 [ADR 0085](0085-one-item-for-native-and-sso-login.md#amendment-2026-11-28-an-identifier-page-before-the-idp-entry);
 the login itself, which stops after Continue, in
 [ADR 0036](0036-passkey-after-the-identifier.md#amendment-a-hand-off-stops-after-the-identifier-2026-11-28-1847).
-On the mapped IdP's origin reached this way no SSO flow runs, since a flow starts only
-from a pressed entry of the site: the IdP item's own login runs there as when the person
-opens that page.
+A hand-off keeps the IdP's side of the scope a flow checks: the IdP's origin must be
+allowed, not excluded, with `auto` sign-in and not paused, or the page waits for the
+person as before. On the mapped IdP's origin reached this way no SSO flow runs, since a
+flow starts only from a pressed entry of the site: the IdP item's own login runs there
+as when the person opens that page. That is the agent's choice, keeping existing
+behavior, and not part of the owner's decision.
 
 ## Known limits 2026-11-16
 

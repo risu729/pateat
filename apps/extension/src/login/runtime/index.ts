@@ -319,10 +319,13 @@ function startRuntime(rt: Runtime) {
     );
     if (cancels.success) for (const entry of cancels.output) rt.ssoCancels.add(entry);
     const handoffs = v.safeParse(
-      v.pipe(v.array(v.string()), v.maxLength(256)),
+      v.pipe(
+        v.array(v.tuple([v.string(), v.pipe(v.string(), v.maxLength(256))])),
+        v.maxLength(256),
+      ),
       stored[SSO_HANDOFFS_KEY] ?? [],
     );
-    if (handoffs.success) for (const entry of handoffs.output) rt.ssoHandoffs.add(entry);
+    if (handoffs.success) for (const [key, why] of handoffs.output) rt.ssoHandoffs.set(key, why);
     const counted = v.safeParse(
       v.pipe(v.array(reloginSchema), v.maxLength(256)),
       stored[RELOGINS_KEY] ?? [],

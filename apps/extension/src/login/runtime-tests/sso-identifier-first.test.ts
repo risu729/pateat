@@ -331,7 +331,7 @@ describe("an identifier page before the IdP's entry (#1847)", () => {
     // Only the item's own Username is read, never its password or `SSO` field.
     expect(s.h.fields.mock.calls.map(([read]) => read.fieldId)).toEqual(["login.username"]);
     expect(records()[0]).toMatchObject({ ssoHandoff: true, state: "submit-intent" });
-    expect(fake.state.session[handoffKey]).toEqual([`1 ${origin}/signin`]);
+    expect(fake.state.session[handoffKey]).toEqual([[`1 ${origin}/signin`, "typed"]]);
     // The site sends the tab to the broker page, whose own SSO offer presses the entry
     // named for the IdP item.
     fake.state.extracted = { login: brokerPage };
@@ -440,6 +440,128 @@ describe("an identifier page before the IdP's entry (#1847)", () => {
       expect(fake.state.session[handoffKey] ?? []).toEqual([]);
     },
   );
+
+  it.each([
+    [
+      "the IdP is excluded",
+      { excludedSites: [{ hostname: "idp.example", includeSubdomains: true }] },
+    ],
+    [
+      "the IdP's sign-in is not automatic",
+      {
+        sitePagePermissions: [
+          {
+            hostname: "idp.example",
+            includeSubdomains: true,
+            permissions: { "sign-in": "fill" as const },
+          },
+        ],
+      },
+    ],
+  ])("waits for the person's choice, typing nothing, when %s", async (_, overrides) => {
+    const s = setup({ overrides });
+    void s.announce(`${origin}/signin`, "signin-document");
+    await vi.waitFor(async () =>
+      expect(await s.methods()).toMatchObject({ offer: { reason: "entry-required" } }),
+    );
+    expect(await s.cancel()).toEqual({ ok: true });
+    await until(() =>
+      s.refusals().some((entry) => entry.detail === "entry-required:identifier:idp-scope"),
+    );
+    expect(executed()).toEqual([]);
+    expect(s.h.fields).not.toHaveBeenCalled();
+  });
+
+  it("waits, typing nothing, where the page shows two entries reaching the IdP", async () => {
+    const s = setup();
+    destinations["sign-in-acme"] = `${idp}/authorize`;
+    destinations["sign-in-acme-2"] = `${idp}/authorize`;
+    fake.state.extracted = {
+      login: identifierPage([
+        { id: "c3", role: "button", target: acme, label: "Sign in with Acme" },
+        {
+          id: "c4",
+          role: "button",
+          target: { by: "id", value: "sign-in-acme-2" },
+          label: "Acme workforce",
+        },
+      ]),
+    };
+    void s.announce(`${origin}/signin`, "signin-document");
+    await vi.waitFor(async () =>
+      expect(await s.methods()).toMatchObject({ offer: { reason: "entry-required" } }),
+    );
+    expect(await s.cancel()).toEqual({ ok: true });
+    await until(() => s.refusals().some((entry) => entry.detail === "entry-required"));
+    expect(executed()).toEqual([]);
+    expect(prepared()).toEqual([]);
+    expect(s.h.fields).not.toHaveBeenCalled();
+  });
+
+  it("decides again when the same document later shows the IdP's entry", async () => {
+    // No recipe yet, and its generation abstains: the hand-off types nothing this time.
+    const s = setup({ recipe: null });
+    expect(await s.announce(`${origin}/signin`, "signin-document", "plain")).toMatchObject({
+      generate: true,
+    });
+    void s.announce(`${origin}/signin`, "signin-document", "signIn");
+    await until(() => s.generation.generate.mock.calls.length === 1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(executed()).toEqual([]);
+    // A modal of the same document shows the IdP's entry now.
+    destinations["sign-in-acme"] = `${idp}/authorize`;
+    fake.state.extracted = {
+      login: identifierPage([
+        { id: "c3", role: "button", target: acme, label: "Sign in with Acme" },
+      ]),
+    };
+    void s.announce(`${origin}/signin`, "signin-document", "signIn");
+    await until(() => prepared().length === 1);
+    expect(prepared()[0]![1]).toMatchObject({ target: acme });
+    expect(executed()).toEqual([]);
+  });
+
+  it("fences a page whose recipe refused the hand-off, so it waits for the person next", async () => {
+    const s = setup({
+      recipe: parseLoginRecipe({
+        ...identifierFirst,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "username", target: target("email") },
+              { slot: "password", target: target("secret") },
+            ],
+          },
+          identifierFirst.steps[1]!,
+        ],
+      }),
+    });
+    void s.announce(`${origin}/signin`, "signin-document");
+    await until(() => s.refusals().some((entry) => entry.detail === "sso-identifier:fills-other"));
+    expect(fake.state.session[handoffKey]).toEqual([
+      [`1 ${origin}/signin`, "no-route:sso-identifier:fills-other"],
+    ]);
+    void s.announce(`${origin}/signin`, "signin-document");
+    await vi.waitFor(async () =>
+      expect(await s.methods()).toMatchObject({ offer: { reason: "entry-required" } }),
+    );
+    expect(await s.cancel()).toEqual({ ok: true });
+    await until(() =>
+      s
+        .refusals()
+        .some(
+          (entry) =>
+            entry.detail === "entry-required:identifier:no-route:sso-identifier:fills-other",
+        ),
+    );
+    expect(
+      s.refusals().filter((entry) => entry.detail === "sso-identifier:fills-other"),
+    ).toHaveLength(1);
+    expect(executed()).toEqual([]);
+  });
 
   it("waits for the person's mapping when two IdP items qualify, typing nothing", async () => {
     const s = setup({ mapped: false });

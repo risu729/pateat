@@ -5145,19 +5145,27 @@ completes and is learned only once the tab was seen at the mapped origin, and en
 that is not paused and that a restarted worker forgot to announce again, and a cancelled
 automatic offer stays cancelled for its document (`pateat.login-sso-cancels.v1`)
 ([ADR 0085, amended 2026-11-18](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-18-sso-starts-automatically-on-the-login-page)).
-Where no entry qualifies on a top page that asks for an identifier alone (no password
-field, exactly one field to fill), with `auto` sign-in, a site item whose own Username
-holds a value, and a mapping that passes the same validation (`mapping-required` still
-waits), the automatic choice and **Log in now**, where its hop is allowed, resolve a
+Where the page shows no entry for the IdP at all (several, or ones that cannot be
+pressed, still wait with `entry-required`) on a top page that asks for an identifier
+alone (no password field, exactly one field to fill), with `auto` sign-in, a site item
+whose own Username holds a value, a mapping that passes the same validation
+(`mapping-required` still waits) and an IdP origin allowed, not excluded, with `auto`
+sign-in and not paused (`ssoPageAllowed`, as `ssoScope` checks; else `idp-scope`), the
+automatic choice and **Log in now**, where its hop is allowed, resolve a
 **hand-off** instead (`native.handoff` in, `handoff` on the native `password` route out,
 never on the popup's wire): the tab's native choice is marked `handoff`, so the
 item's login types its Username, presses Continue and stops
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md#amendment-a-hand-off-stops-after-the-identifier-2026-11-28-1847)).
 The page's recipe is generated or repaired, as for any page, for the item's `username`
-slot alone (`pageGenerationScope`). Once a hand-off started on a tab's page of an origin
-and path, that page hands off no more by itself, as after Back, until a login of the tab
-signs in or the person's **Log in now** asks (`pateat.login-sso-handoffs.v1`, session
-storage, the 256 newest, dropped when the tab closes). Otherwise the offer waits as
+slot alone (`pageGenerationScope`), also when the chooser's path shows its form for
+another account. A hand-off no login took up yet is decided again on each announcement
+of its document, so an IdP entry shown later in it, as in a modal, is pressed as usual.
+Once a hand-off started on a tab's page of an origin and path, or that page's recipe
+refused it (`sso-identifier:*` but `paused`), that page hands off no more by itself, as
+after Back, until a login of that site in the tab signs in or the person's **Log in
+now** asks (`pateat.login-sso-handoffs.v1`, session storage, by page with why, the 256
+newest, dropped when the tab closes); its next announcement waits with
+`entry-required:identifier:<why>`. Otherwise the offer waits as
 before, its line naming why the page was no hand-off, as
 `entry-required:identifier:password-field`
 ([ADR 0085, amended 2026-11-28](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-28-an-identifier-page-before-the-idp-entry)).

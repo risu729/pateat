@@ -22,6 +22,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 const native = { passkey: false, password: false, handoff: true };
+/** The IdP's side allows the hop: its sign-in is `auto` and it is not paused. */
+const auto = { automatic: true as const, native, hopAllowed: async () => true };
 const handoff = { kind: "native", route: "password", handoff: true };
 /** A URL-form method whose one IdP item discovery found is used without a mapping. */
 function urlForm(form: "url" | "bracket" = "url") {
@@ -50,7 +52,7 @@ const pendingOf = async (pending: { result: Promise<unknown> }) => {
 describe("the automatic order's hand-off", () => {
   it("resolves the native password route as a hand-off when no entry is found", async () => {
     const h = urlForm();
-    const pending = await h.request({ automatic: true, native });
+    const pending = await h.request(auto);
     expect(pending.waiting).toBeUndefined();
     const answer = await pending.result;
     if (!answer.ok) throw new Error(answer.reason);
@@ -78,8 +80,7 @@ describe("the automatic order's hand-off", () => {
   it("presses an entry whose destination is the mapped origin instead", async () => {
     const h = urlForm();
     const pending = await h.request({
-      automatic: true,
-      native,
+      ...auto,
       entries: entry,
       entryCurrent: async () => true,
       entryOrigin: async (_id: string, origin: string) => origin === idpOrigin,
@@ -94,12 +95,11 @@ describe("the automatic order's hand-off", () => {
   it("presses the learned or labeled entry instead", async () => {
     const h = urlForm();
     const pending = await h.request({
-      automatic: true,
-      native,
+      ...auto,
       entries: entry,
       entryCurrent: async () => true,
-      entryOrigin: async () => false,
-      entryLearned: async () => true,
+      entryOrigin: async (): Promise<boolean> => false,
+      entryLearned: async (): Promise<boolean> => true,
     });
     const answer = await pending.result;
     if (!answer.ok) throw new Error(answer.reason);
@@ -114,7 +114,7 @@ describe("the automatic order's hand-off", () => {
       { account: selected.account, snapshotId, origins: [idpOrigin] },
       { account: { connectionId: "other", itemId: otherItem }, snapshotId, origins: [idpOrigin] },
     ]);
-    const pending = await h.request({ automatic: true, native });
+    const pending = await h.request(auto);
     expect(pending.waiting).toBe(true);
     expect(await pendingOf(pending)).toBeUndefined();
     expect(await h.offer()).toMatchObject({ reason: "mapping-required" });
@@ -129,13 +129,13 @@ describe("the automatic order's hand-off", () => {
         data: { sourceEvidence: evidence, policyRevision: 7, candidates: [] },
       })
       .mockResolvedValueOnce({ ok: false, reason: "idp-unavailable" });
-    const pending = await h.request({ automatic: true, native });
+    const pending = await h.request(auto);
     expect(await pending.result).toEqual({ ok: false, reason: "idp-unavailable" });
   });
 
   it("is withdrawn when the vault refuses the IdP once the receipt is consumed", async () => {
     const h = urlForm();
-    const answer = await (await h.request({ automatic: true, native })).result;
+    const answer = await (await h.request(auto)).result;
     if (!answer.ok) throw new Error(answer.reason);
     h.source.validate.mockResolvedValueOnce({ ok: false, reason: "idp-unavailable" });
     expect(await h.controller.consume(answer.choiceId)).toEqual({
@@ -162,17 +162,79 @@ describe("the automatic order's hand-off", () => {
         },
       },
     ]);
-    const answer = await (await h.request({ automatic: true, native })).result;
+    const answer = await (await h.request(auto)).result;
     if (!answer.ok) throw new Error(answer.reason);
     expect(await h.controller.consume(answer.choiceId)).toMatchObject({
       selection: { kind: "sso", selected, label: "Synthetic provider" },
     });
   });
 
+  it.each([
+    [
+      "two entries reach the mapped origin",
+      {
+        entries: [...entry, { id: "again", label: "More" }],
+        entryOrigin: async (_id: string, origin: string) => origin === idpOrigin,
+      },
+    ],
+    [
+      "two entries were learned for it",
+      {
+        entries: [...entry, { id: "again", label: "More" }],
+        entryOrigin: async (): Promise<boolean> => false,
+        entryLearned: async (): Promise<boolean> => true,
+      },
+    ],
+    [
+      "the entry its label names may not be pressed",
+      {
+        entries: [{ id: "provider", label: "Sign in with Synthetic idp item" }],
+        entryOrigin: async (): Promise<boolean> => false,
+        entryLearned: async (): Promise<boolean> => false,
+        entryLabeled: async (): Promise<boolean> => false,
+      },
+    ],
+    [
+      "a link the flow never presses names the IdP",
+      {
+        entries: [],
+        otherLabels: ["Sign in with Synthetic idp item"],
+        entryOrigin: async (): Promise<boolean> => false,
+        entryLearned: async (): Promise<boolean> => false,
+        entryLabeled: async (): Promise<boolean> => true,
+      },
+    ],
+  ])("waits for the person's entry choice, handing nothing off, when %s", async (_, page) => {
+    const h = urlForm();
+    const pending = await h.request({ ...auto, entryCurrent: async () => true, ...page });
+    expect(pending.waiting).toBe(true);
+    expect(await pendingOf(pending)).toBeUndefined();
+    expect(await h.offer()).toMatchObject({ reason: "entry-required" });
+  });
+
+  it.each([
+    ["the IdP's side refuses the hop", { hopAllowed: async () => false }],
+    ["its check fails", { hopAllowed: async () => Promise.reject(new Error("gone")) }],
+    ["no check is given", {}],
+  ])("waits, its line naming the IdP's scope, when %s", async (_, overrides) => {
+    const h = urlForm();
+    const pending = await h.request({ automatic: true, native, ...overrides });
+    expect(pending.waiting).toBe(true);
+    expect(await pendingOf(pending)).toBeUndefined();
+    expect(await h.offer()).toMatchObject({ reason: "entry-required" });
+    h.controller.documentChanged({ tabId: 7, frameId: 0 }, "page-changed");
+    expect(await pending.result).toEqual({
+      ok: false,
+      reason: "page-changed",
+      waited: "entry-required",
+      handoff: "idp-scope",
+    });
+  });
+
   it("never shows the hand-off on the popup's wire", async () => {
     const h = urlForm();
     h.candidateLists.set(1, []);
-    await h.request({ automatic: true, native });
+    await h.request(auto);
     const shown = await h.offer();
     expect(shown).not.toHaveProperty("handoff");
     expect(shown).toMatchObject({ passkey: false, password: false });

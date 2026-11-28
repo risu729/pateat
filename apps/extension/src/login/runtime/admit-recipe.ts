@@ -484,7 +484,7 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
         skipGeneration(rt, ctx.live, "list-shown", "other");
       } else {
         let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
-        const scope = await generationSlotsFor(rt, ctx.live, (...reason) => {
+        const scope = await pageGenerationScope(rt, ctx.live, (...reason) => {
           missed = reason;
         }).catch(() => undefined);
         if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };

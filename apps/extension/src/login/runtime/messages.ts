@@ -763,7 +763,7 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
         },
       );
     for (const keys of [rt.askFills, rt.ssoCancels, rt.ssoHandoffs])
-      for (const key of keys)
+      for (const key of keys.keys())
         if (key.startsWith(`${tabId} `)) changed = keys.delete(key) || changed;
     if (rt.entryPresses.delete(tabId)) changed = true;
     // A site's re-logins count until all of its tabs closed (ADR 0062).
