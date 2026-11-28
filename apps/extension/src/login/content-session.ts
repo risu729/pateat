@@ -3,7 +3,7 @@ import { createSsoBridge } from "./content-sso-bridge";
 import type { LoginTarget } from "@pateat/contracts";
 import { autocompleteTokens } from "../page/targets";
 import { closestAcross, formOf, inputsOf, readingPage, shadowRoots } from "../page/shadow";
-import { targetState } from "../page/target-state";
+import { otherKind, targetState } from "../page/target-state";
 import { answerInput, identifierInput } from "../page/identifier-field";
 import { showsAmount } from "../page/amount";
 import { askDefinitions, ELEMENT_DEFINED } from "../page/element-definitions";
@@ -473,10 +473,13 @@ export function createContentSession({ probeStatus = false }: LoginContentOption
         const state = targetState(document, target, start.require);
         // An element still not rendered after the step wait counts as missing, as a form a
         // page swapped for another and kept hidden: only a shown one may be a slow page's.
+        // So does one of another kind than the step fills, as a link where the recipe
+        // learned an input (#1847): no slow page makes it usable.
         if (
           state === "missing" ||
           state === "ambiguous" ||
-          targetState(document, target, "shown") === "unusable"
+          targetState(document, target, "shown") === "unusable" ||
+          (state === "unusable" && otherKind(document, target, start.require))
         ) {
           missing.set(JSON.stringify(target), target);
           all = false;

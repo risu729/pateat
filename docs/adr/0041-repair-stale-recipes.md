@@ -72,7 +72,10 @@ unless:
 - a first step's targets were all found shown and are only not usable yet (`unusable`),
   as on a slow page; an element still not rendered after the step wait counts as
   missing, as a form the page swapped for another and kept hidden (x.com's start page
-  swaps its first form for another about 2 seconds after it shows);
+  swaps its first form for another about 2 seconds after it shows), and so does, since
+  2026-11-28, a fill's element of a kind it never fills, such as a link where the recipe
+  learned an input: HCP Terraform's sign-in gave a recipe's per-load Ember ID `ember9`
+  to its "Create an account" link on a later load, which no slow page explains (#1847);
 - the page also starts the recipe's login meanwhile (`running`);
 - the page showed no detail (`no-detail`);
 - the page is the tab's next page after a submitted password form (`after-sign-in`), or

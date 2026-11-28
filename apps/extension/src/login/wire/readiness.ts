@@ -131,8 +131,9 @@ export const shownLaterSchema = v.strictObject({
 export type ShownLater = v.InferOutput<typeof shownLaterSchema>;
 /**
  * What the first steps watched on a path missed after the step wait (ADR 0041): the
- * targets that match no element, several, or one that is not rendered, not those that
- * match one shown element that is not usable yet, and the HTTP status of the document's
+ * targets that match no element, several, one that is not rendered or, for a fill, one of
+ * a kind it never fills (#1847), not those that match one shown element that is not usable
+ * yet, and the HTTP status of the document's
  * own load when the browser reports one.
  */
 export const startMissSchema = v.strictObject({
